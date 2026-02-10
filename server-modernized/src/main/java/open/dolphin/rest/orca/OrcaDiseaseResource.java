@@ -85,16 +85,9 @@ public class OrcaDiseaseResource extends AbstractOrcaRestResource {
         }
         Date fromDate = parseDate(from, ModelUtils.AD1800);
         Date toDate = parseDate(to, new Date());
-        boolean orcaDatasourceAvailable = isOrcaDatasourceAvailable();
 
         PatientModel patient = patientServiceBean.getPatientById(facilityId, patientId);
         if (patient == null) {
-            if (!orcaDatasourceAvailable) {
-                DiseaseImportResponse fallback = buildUnavailableResponse(runId, patientId, fromDate,
-                        "orca_unavailable", "ORCA datasource unavailable");
-                recordUnavailableAudit(request, facilityId, patientId, runId, "patient_not_found");
-                return fallback;
-            }
             Map<String, Object> audit = buildNotFoundAudit(facilityId, patientId);
             markFailureDetails(audit, Response.Status.NOT_FOUND.getStatusCode(),
                     "patient_not_found", "Patient not found");
@@ -104,18 +97,13 @@ public class OrcaDiseaseResource extends AbstractOrcaRestResource {
         }
         KarteBean karte = karteServiceBean.getKarte(facilityId, patientId, fromDate);
         if (karte == null) {
-            if (!orcaDatasourceAvailable) {
-                DiseaseImportResponse fallback = buildUnavailableResponse(runId, patientId, fromDate,
-                        "orca_unavailable", "ORCA datasource unavailable");
-                recordUnavailableAudit(request, facilityId, patientId, runId, "karte_not_found");
-                return fallback;
-            }
             Map<String, Object> audit = buildKarteNotFoundAudit(facilityId, patientId);
             markFailureDetails(audit, Response.Status.NOT_FOUND.getStatusCode(),
                     "karte_not_found", "Karte not found");
             recordAudit(request, "ORCA_DISEASE_IMPORT", audit, AuditEventEnvelope.Outcome.FAILURE);
             throw restError(request, Response.Status.NOT_FOUND, "karte_not_found", "Karte not found", audit, null);
         }
+        boolean orcaDatasourceAvailable = isOrcaDatasourceAvailable();
         List<RegisteredDiagnosisModel> diagnoses = karteServiceBean.getDiagnosis(karte.getId(), fromDate, activeOnly);
 
         DiseaseImportResponse response = new DiseaseImportResponse();

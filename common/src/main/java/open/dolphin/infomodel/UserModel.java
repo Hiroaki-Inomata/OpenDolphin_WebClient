@@ -3,6 +3,7 @@ package open.dolphin.infomodel;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -232,7 +233,8 @@ public class UserModel extends InfoModel implements java.io.Serializable {
         if (registeredDate == null) {
             return null;
         }
-        LocalDate localDate = registeredDate.toInstant().atZone(DEFAULT_ZONE).toLocalDate();
+        // NOTE: registeredDate may be java.sql.Date where toInstant() throws UnsupportedOperationException.
+        LocalDate localDate = Instant.ofEpochMilli(registeredDate.getTime()).atZone(DEFAULT_ZONE).toLocalDate();
         return REGISTERED_DATE_FORMATTER.format(localDate);
     }
 

@@ -284,7 +284,7 @@ public class UserServiceBean {
         try {
             UserModel user = (UserModel)em.createQuery(QUERY_USER_BY_UID).setParameter(UID, userId).getSingleResult();
             for(RoleModel model : user.getRoles()) {
-                if(model.getRole().equals("admin")) {
+                if (isAdminRole(model.getRole())) {
                     ret = true;
                     break;
                 }
@@ -301,7 +301,7 @@ public class UserServiceBean {
             boolean admin = false;
             UserModel user = (UserModel)em.createQuery(QUERY_USER_BY_UID).setParameter(UID, userId).getSingleResult();
             for(RoleModel model : user.getRoles()) {
-                if(model.getRole().equals("admin")) {
+                if (isAdminRole(model.getRole())) {
                     admin = true;
                     break;
                 }
@@ -309,7 +309,7 @@ public class UserServiceBean {
             if(!admin) {
                 // ユーザがadmin権限以外の場合は不正のチェック
                 for(RoleModel model : checkRoles) {
-                    if(model.getRole().equals("admin")) {
+                    if (isAdminRole(model.getRole())) {
                         // 権限の昇格は不正
                         err = true;
                         break;
@@ -320,6 +320,18 @@ public class UserServiceBean {
         }
 
         return !err;
+    }
+
+    private boolean isAdminRole(String role) {
+        if (role == null) {
+            return false;
+        }
+        String normalized = role.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized.equals("admin")
+                || normalized.equals("system_admin")
+                || normalized.equals("system-admin")
+                || normalized.equals("system-administrator")
+                || normalized.equals("system_administrator");
     }
 //s.oh$
 }

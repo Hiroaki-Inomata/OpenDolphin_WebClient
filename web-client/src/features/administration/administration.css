@@ -32,6 +32,38 @@
   font-size: 0.9rem;
 }
 
+.administration-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.administration-tab {
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.administration-tab:hover,
+.administration-tab:focus-visible {
+  outline: none;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+}
+
+.administration-tab.is-active {
+  background: #1d4ed8;
+  color: #ffffff;
+  border-color: #1d4ed8;
+  box-shadow: 0 14px 34px rgba(37, 99, 235, 0.3);
+}
+
 .administration-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

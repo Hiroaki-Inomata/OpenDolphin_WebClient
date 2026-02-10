@@ -39,6 +39,7 @@
         <class>open.dolphin.infomodel.Factor2Challenge</class>
         <class>open.dolphin.infomodel.Factor2BackupKey</class>
         <class>open.dolphin.infomodel.AuditEvent</class>
+        <class>open.dolphin.infomodel.UserAccessProfile</class>
         <exclude-unlisted-classes>false</exclude-unlisted-classes>
         <shared-cache-mode>ENABLE_SELECTIVE</shared-cache-mode>
         <validation-mode>CALLBACK</validation-mode>
