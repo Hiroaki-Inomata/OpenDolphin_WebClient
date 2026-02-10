@@ -577,7 +577,7 @@ public class AdminAccessResource extends AbstractResource {
         }
 
         Factor2Credential credential = findVerifiedTotpCredential(actorPk);
-        if (credential == null) {
+        if (credential == null || credential.getSecret() == null || credential.getSecret().isBlank()) {
             throw restError(request, Response.Status.PRECONDITION_FAILED, "totp_missing",
                     "Authenticator（TOTP）が未登録のためパスワードリセットできません。");
         }
@@ -590,7 +590,17 @@ public class AdminAccessResource extends AbstractResource {
         }
 
         TotpSecretProtector protector = secondFactorSecurityConfig.getTotpSecretProtector();
-        String secret = protector.decrypt(credential.getSecret());
+        final String secret;
+        try {
+            secret = protector.decrypt(credential.getSecret());
+        } catch (RuntimeException e) {
+            // Legacy dumps may contain undecryptable secrets; treat it as unavailable rather than 500.
+            LOGGER.log(Level.WARNING,
+                    "Failed to decrypt TOTP secret (actorPk={0}, credentialId={1})",
+                    new Object[]{actorPk, credential.getId()});
+            throw restError(request, Response.Status.PRECONDITION_FAILED, "totp_missing",
+                    "Authenticator（TOTP）が未登録のためパスワードリセットできません。", null, e);
+        }
         if (!TotpHelper.verifyCurrentWindow(secret, numericCode)) {
             throw restError(request, Response.Status.FORBIDDEN, "totp_invalid", "TOTP コードが不正です。");
         }
