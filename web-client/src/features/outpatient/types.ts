@@ -14,6 +14,8 @@ export type ReceptionEntry = {
   department?: string;
   physician?: string;
   appointmentTime?: string;
+  reservationTime?: string;
+  acceptanceTime?: string;
   visitDate?: string;
   status: ReceptionStatus;
   insurance?: string;

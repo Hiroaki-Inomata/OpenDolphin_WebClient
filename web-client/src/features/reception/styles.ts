@@ -1233,6 +1233,13 @@ export const receptionStyles = css`
     gap: 0.75rem;
   }
 
+  .reception-search--header {
+    background: #f8fafc;
+    border-color: rgba(148, 163, 184, 0.22);
+    box-shadow: none;
+    margin-top: 1rem;
+  }
+
   .reception-search__header {
     display: flex;
     justify-content: space-between;
@@ -1975,6 +1982,21 @@ export const receptionStyles = css`
     background: #ffffff;
   }
 
+  .reception-card[data-elapsed-severity='1']:not(:hover):not(.is-selected) {
+    border-color: rgba(234, 179, 8, 0.35);
+    background: #fffbeb;
+  }
+
+  .reception-card[data-elapsed-severity='2']:not(:hover):not(.is-selected) {
+    border-color: rgba(234, 88, 12, 0.38);
+    background: #fff7ed;
+  }
+
+  .reception-card[data-elapsed-severity='3']:not(:hover):not(.is-selected) {
+    border-color: rgba(220, 38, 38, 0.4);
+    background: #fef2f2;
+  }
+
   .reception-card:focus-visible {
     outline: 3px solid rgba(37, 99, 235, 0.45);
     outline-offset: 2px;
@@ -1984,13 +2006,105 @@ export const receptionStyles = css`
     display: flex;
     justify-content: space-between;
     gap: 0.6rem;
+    align-items: flex-start;
+  }
+
+  .reception-card__time-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .reception-card__time-main {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+
+  .reception-card__time-label {
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 800;
+    color: rgba(71, 85, 105, 0.95);
+  }
+
+  .reception-card__time-value {
+    font-weight: 900;
+    color: #0f172a;
+    letter-spacing: 0.02em;
+    font-size: 1rem;
+  }
+
+  .reception-card__time-sub {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    color: #475569;
+    font-weight: 700;
+    font-size: 0.85rem;
+  }
+
+  .reception-card__time-sub-value {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.85rem;
+  }
+
+  .reception-card__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
     align-items: center;
   }
 
-  .reception-card__time {
-    font-weight: 800;
+  .reception-card__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+    font-size: 0.78rem;
+    font-weight: 900;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+
+  .reception-card__chip--kind[data-kind='reserved'] {
+    background: #ede9fe;
+    border-color: #c4b5fd;
+    color: #5b21b6;
+  }
+
+  .reception-card__chip--kind[data-kind='walkin'] {
+    background: #ecfeff;
+    border-color: #a5f3fc;
+    color: #0e7490;
+  }
+
+  .reception-card__chip--elapsed[data-severity='0'] {
+    background: rgba(15, 23, 42, 0.06);
+    border-color: rgba(148, 163, 184, 0.4);
     color: #0f172a;
-    letter-spacing: 0.02em;
+  }
+
+  .reception-card__chip--elapsed[data-severity='1'] {
+    background: #fffbeb;
+    border-color: #fcd34d;
+    color: #92400e;
+  }
+
+  .reception-card__chip--elapsed[data-severity='2'] {
+    background: #fff7ed;
+    border-color: #fdba74;
+    color: #9a3412;
+  }
+
+  .reception-card__chip--elapsed[data-severity='3'] {
+    background: #fef2f2;
+    border-color: #fca5a5;
+    color: #991b1b;
   }
 
   .reception-card__name {
@@ -2041,12 +2155,24 @@ export const receptionStyles = css`
   }
 
   .reception-card__actions {
-    display: flex;
-    gap: 0.5rem;
+    display: none;
+    gap: 0.45rem;
     flex-wrap: wrap;
     justify-content: flex-end;
     align-items: center;
-    margin-top: 0.1rem;
+    margin-top: 0.15rem;
+  }
+
+  .reception-card:hover .reception-card__actions,
+  .reception-card:focus-within .reception-card__actions,
+  .reception-card.is-selected .reception-card__actions {
+    display: flex;
+  }
+
+  @media (hover: none) {
+    .reception-card__actions {
+      display: flex;
+    }
   }
 
   .reception-card__action {
@@ -2055,7 +2181,7 @@ export const receptionStyles = css`
     background: #ffffff;
     color: #1d4ed8;
     font-weight: 800;
-    padding: 0.35rem 0.75rem;
+    padding: 0.3rem 0.65rem;
     cursor: pointer;
     font-size: 0.85rem;
     transition: background 0.2s ease;
@@ -2068,6 +2194,15 @@ export const receptionStyles = css`
   .reception-card__action.warning {
     border-color: #f59e0b;
     color: #b45309;
+  }
+
+  .reception-card__action.danger {
+    border-color: #ef4444;
+    color: #b91c1c;
+  }
+
+  .reception-card__action.danger:hover {
+    background: #fef2f2;
   }
 
   .reception-card__action:disabled {

@@ -367,6 +367,7 @@ export const buildVisitEntryFromMutation = (
     department: payload.departmentName ?? payload.departmentCode,
     physician: payload.physicianName ?? payload.physicianCode,
     appointmentTime: payload.acceptanceTime,
+    acceptanceTime: payload.acceptanceTime,
     visitDate: payload.acceptanceDate ?? payload.appointmentDate,
     status: '受付中',
     insurance: paymentLabel,

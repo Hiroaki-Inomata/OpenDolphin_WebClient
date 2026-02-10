@@ -216,6 +216,7 @@ export const parseAppointmentEntries = (json: any): ReceptionEntry[] => {
   const slots: any[] = Array.isArray(json?.slots) ? json.slots : [];
   slots.forEach((slot, index) => {
     const patient = slot.patient ?? {};
+    const reservationTime = toDisplayTime(json?.appointmentDate, slot.appointmentTime);
     entries.push({
       id: buildEntryId(slot.appointmentId, `slot-${index}`),
       appointmentId: slot.appointmentId,
@@ -227,7 +228,8 @@ export const parseAppointmentEntries = (json: any): ReceptionEntry[] => {
       sex: patient.sex,
       department: slot.departmentName ?? slot.departmentCode,
       physician: slot.physicianName ?? slot.physicianCode,
-      appointmentTime: toDisplayTime(json?.appointmentDate, slot.appointmentTime),
+      appointmentTime: reservationTime,
+      reservationTime,
       status: deriveStatus({ visitInformation: slot.visitInformation, appointmentDate: json?.appointmentDate, appointmentTime: slot.appointmentTime }),
       note: slot.medicalInformation,
       source: 'slots',
@@ -237,6 +239,7 @@ export const parseAppointmentEntries = (json: any): ReceptionEntry[] => {
   const reservations: any[] = Array.isArray(json?.reservations) ? json.reservations : [];
   reservations.forEach((reservation, index) => {
     const patient = reservation.patient ?? json?.patient ?? {};
+    const reservationTime = toDisplayTime(reservation.appointmentDate, reservation.appointmentTime);
     entries.push({
       id: buildEntryId(reservation.appointmentId, `reservation-${index}`),
       appointmentId: reservation.appointmentId,
@@ -248,7 +251,8 @@ export const parseAppointmentEntries = (json: any): ReceptionEntry[] => {
       sex: patient.sex,
       department: reservation.departmentName ?? reservation.departmentCode,
       physician: reservation.physicianName ?? reservation.physicianCode,
-      appointmentTime: toDisplayTime(reservation.appointmentDate, reservation.appointmentTime),
+      appointmentTime: reservationTime,
+      reservationTime,
       status: deriveStatus({
         visitInformation: reservation.visitInformation,
         appointmentDate: reservation.appointmentDate,
@@ -263,6 +267,9 @@ export const parseAppointmentEntries = (json: any): ReceptionEntry[] => {
   visits.forEach((visit, index) => {
     const patient = visit.patient ?? {};
     const receptionId = pickReceptionId(visit);
+    const acceptanceTimeRaw =
+      visit.acceptanceTime ?? visit.acceptance_time ?? visit.updateTime ?? visit.update_time ?? visit.appointmentTime;
+    const acceptanceTime = toDisplayTime(json?.visitDate, acceptanceTimeRaw);
     entries.push({
       id: buildEntryId(receptionId, `visit-${index}`),
       appointmentId: visit.sequentialNumber,
@@ -274,7 +281,8 @@ export const parseAppointmentEntries = (json: any): ReceptionEntry[] => {
       sex: patient.sex,
       department: visit.departmentName ?? visit.departmentCode,
       physician: visit.physicianName ?? visit.physicianCode,
-      appointmentTime: toDisplayTime(json?.visitDate, visit.updateTime ?? visit.appointmentTime),
+      appointmentTime: acceptanceTime,
+      acceptanceTime,
       visitDate: visit.visitDate ?? json?.visitDate,
       status: deriveStatus({
         visitInformation: visit.visitInformation,
