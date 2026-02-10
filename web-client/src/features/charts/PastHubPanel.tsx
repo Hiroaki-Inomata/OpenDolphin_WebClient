@@ -12,7 +12,9 @@ type PastHubTab = 'encounters' | 'documents' | 'orders' | 'notes';
 
 const ORDER_ENTITIES = [
   { entity: 'medOrder', label: '処方' },
-  { entity: 'generalOrder', label: 'オーダー' },
+  { entity: 'generalOrder', label: '一般オーダー' },
+  { entity: 'treatmentOrder', label: '処置' },
+  { entity: 'testOrder', label: '検査' },
 ] as const;
 
 const DO_COPY_SECTIONS: SoapSectionKey[] = ['subjective', 'objective', 'assessment', 'plan'];
@@ -275,7 +277,8 @@ export function PastHubPanel({
                   const entry = soapLatestBySection.get(section);
                   const body = entry?.body?.trim() ?? '';
                   const snippet = body.length > 140 ? `${body.slice(0, 140)}...` : body;
-                  const meta = entry ? `${formatSoapAuthoredAt(entry.authoredAt)} ／ ${entry.authorRole}` : '記載履歴なし';
+                  const who = entry ? (entry.authorName?.trim() || entry.authorRole) : '';
+                  const meta = entry ? `${formatSoapAuthoredAt(entry.authoredAt)} ／ ${who}` : '記載履歴なし';
                   const disabled = !doCopyEnabled || !entry || !body;
                   return (
                     <li key={section} className="charts-past-hub__item">
@@ -409,7 +412,7 @@ export function PastHubPanel({
               );
             })}
           </div>
-          <small className="charts-past-hub__hint">最大20件まで表示します。コピーは右の「処方/オーダー」へ反映します。</small>
+          <small className="charts-past-hub__hint">最大20件まで表示します。コピーは右の「処方/オーダー/処置/検査」へ反映します。</small>
         </div>
       )}
     </section>

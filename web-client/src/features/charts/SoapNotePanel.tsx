@@ -19,6 +19,7 @@ import { SubjectivesPanel } from './soap/SubjectivesPanel';
 import { appendImageAttachmentPlaceholders, type ChartImageAttachment } from './documentImageAttach';
 import { postChartSubjectiveEntry } from './soap/subjectiveChartApi';
 import { RevisionHistoryDrawer } from './revisions/RevisionHistoryDrawer';
+import type { RpHistoryEntry } from './karteExtrasApi';
 
 export type SoapNoteMeta = {
   runId?: string;
@@ -44,6 +45,10 @@ type SoapNotePanelProps = {
   author: SoapNoteAuthor;
   readOnly?: boolean;
   readOnlyReason?: string;
+  rpHistory?: RpHistoryEntry[];
+  rpHistoryLoading?: boolean;
+  rpHistoryError?: string;
+  onOpenPrescriptionEditor?: () => void;
   onDraftSnapshot?: (draft: SoapDraft) => void;
   applyDraftPatch?: { token: string; section: SoapSectionKey; body: string; note?: string } | null;
   attachmentInsert?: { attachment: ChartImageAttachment; section: SoapSectionKey; token: string } | null;
@@ -91,6 +96,10 @@ export function SoapNotePanel({
   author,
   readOnly,
   readOnlyReason,
+  rpHistory,
+  rpHistoryLoading = false,
+  rpHistoryError,
+  onOpenPrescriptionEditor,
   onDraftSnapshot,
   applyDraftPatch,
   attachmentInsert,
@@ -101,14 +110,97 @@ export function SoapNotePanel({
   onAuditLogged,
 }: SoapNotePanelProps) {
   const isRevisionHistoryEnabled = import.meta.env.VITE_CHARTS_REVISION_HISTORY === '1';
+  type SoapNoteViewMode = 'both' | 'soap' | 'free';
+  const SOAP_VIEW_MODE_STORAGE_KEY = 'opendolphin:web-client:charts:soap-view-mode:v1';
+  const loadViewMode = (): SoapNoteViewMode => {
+    if (typeof sessionStorage === 'undefined') return 'both';
+    try {
+      const raw = sessionStorage.getItem(SOAP_VIEW_MODE_STORAGE_KEY);
+      return raw === 'soap' || raw === 'free' || raw === 'both' ? raw : 'both';
+    } catch {
+      return 'both';
+    }
+  };
+  const [viewMode, setViewMode] = useState<SoapNoteViewMode>(() => loadViewMode());
+  useEffect(() => {
+    if (typeof sessionStorage === 'undefined') return;
+    try {
+      sessionStorage.setItem(SOAP_VIEW_MODE_STORAGE_KEY, viewMode);
+    } catch {
+      // ignore storage errors
+    }
+  }, [viewMode]);
   const [draft, setDraft] = useState<SoapDraft>(() => buildSoapDraftFromHistory(history));
   const [selectedTemplate, setSelectedTemplate] = useState<Partial<Record<SoapSectionKey, string>>>({});
   const [pendingTemplate, setPendingTemplate] = useState<Partial<Record<SoapSectionKey, string>>>({});
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [subjectiveTab, setSubjectiveTab] = useState<'soap' | 'subjectives'>('soap');
   const [revisionDrawerOpen, setRevisionDrawerOpen] = useState(false);
+  const [subjectivesOpen, setSubjectivesOpen] = useState(false);
 
   const latestBySection = useMemo(() => getLatestSoapEntries(history), [history]);
+  const firstBySection = useMemo(() => {
+    const map = new Map<SoapSectionKey, SoapEntry>();
+    const timestampBySection = new Map<SoapSectionKey, number>();
+    history.forEach((entry) => {
+      const tsRaw = Date.parse(entry.authoredAt);
+      const ts = Number.isNaN(tsRaw) ? Number.POSITIVE_INFINITY : tsRaw;
+      const current = timestampBySection.get(entry.section);
+      if (typeof current === 'number' && current <= ts) return;
+      timestampBySection.set(entry.section, ts);
+      map.set(entry.section, entry);
+    });
+    return map;
+  }, [history]);
+  const historyBySection = useMemo(() => {
+    const map = new Map<SoapSectionKey, SoapEntry[]>();
+    history.forEach((entry) => {
+      const list = map.get(entry.section);
+      if (list) {
+        list.push(entry);
+      } else {
+        map.set(entry.section, [entry]);
+      }
+    });
+    return map;
+  }, [history]);
+  const visibleSections = useMemo<SoapSectionKey[]>(() => {
+    switch (viewMode) {
+      case 'soap':
+        return SOAP_SECTIONS.filter((section) => section !== 'free');
+      case 'free':
+        return ['free'];
+      default:
+        return SOAP_SECTIONS;
+    }
+  }, [viewMode]);
+  const authoredMeta = useMemo(() => {
+    if (history.length === 0) return { first: null as SoapEntry | null, last: null as SoapEntry | null };
+    let first = history[0];
+    let last = history[0];
+    let firstTs = Date.parse(first.authoredAt);
+    let lastTs = Date.parse(last.authoredAt);
+    history.slice(1).forEach((entry) => {
+      const ts = Date.parse(entry.authoredAt);
+      if (!Number.isNaN(ts) && (Number.isNaN(firstTs) || ts < firstTs)) {
+        first = entry;
+        firstTs = ts;
+      }
+      if (!Number.isNaN(ts) && (Number.isNaN(lastTs) || ts > lastTs)) {
+        last = entry;
+        lastTs = ts;
+      }
+    });
+    return { first, last };
+  }, [history]);
+  const latestPrescription = useMemo(() => {
+    const entries = (rpHistory ?? []).filter(Boolean);
+    if (entries.length === 0) return null;
+    const sorted = entries.slice().sort((a, b) => (b.issuedDate ?? '').localeCompare(a.issuedDate ?? ''));
+    return sorted[0] ?? null;
+  }, [rpHistory]);
+  const prescriptionDrugs = useMemo(() => latestPrescription?.rpList ?? [], [latestPrescription]);
+  const prescriptionIssuedDate = latestPrescription?.issuedDate?.trim() ?? '';
+  const prescriptionMemo = latestPrescription?.memo?.trim() ?? '';
 
   const historySignature = useMemo(
     () => history.map((entry) => entry.id ?? entry.authoredAt ?? '').join('|'),
@@ -120,7 +212,7 @@ export function SoapNotePanel({
     setSelectedTemplate({});
     setPendingTemplate({});
     setFeedback(null);
-    setSubjectiveTab('soap');
+    setSubjectivesOpen(false);
   }, [historySignature]);
 
   useEffect(() => {
@@ -261,10 +353,22 @@ export function SoapNotePanel({
   const handleSave = useCallback(async () => {
     const authoredAt = new Date().toISOString();
     const entries: SoapEntry[] = [];
+    const emptyClears: SoapSectionKey[] = [];
     SOAP_SECTIONS.forEach((section) => {
-      const body = draft[section]?.trim();
-      if (!body) return;
+      const bodyRaw = draft[section] ?? '';
+      const body = bodyRaw.trim();
       const prior = latestBySection.get(section);
+      const priorBody = (prior?.body ?? '').trim();
+
+      if (!body) {
+        if (priorBody.length > 0) {
+          emptyClears.push(section);
+        }
+        return;
+      }
+
+      if (prior && body === priorBody && !pendingTemplate[section]) return;
+
       const action = prior ? 'update' : 'save';
       const templateId = pendingTemplate[section] ?? prior?.templateId ?? null;
       const authorLabel = resolveAuthorLabel(author);
@@ -312,25 +416,39 @@ export function SoapNotePanel({
     });
 
     if (entries.length === 0) {
-      setFeedback('記載内容が空のため保存できません。');
+      if (emptyClears.length > 0) {
+        const targets = emptyClears.map((section) => SOAP_SECTION_LABELS[section]).join(', ');
+        setFeedback(`空欄へのクリアは保存できません（未対応）: ${targets}`);
+        return;
+      }
+      setFeedback('変更がないため保存できません。');
       return;
     }
 
     onAppendHistory?.(entries);
     onAuditLogged?.();
     setPendingTemplate({});
-    setFeedback(`${entries.length} セクションを保存しました。`);
+    if (emptyClears.length > 0) {
+      const targets = emptyClears.map((section) => SOAP_SECTION_LABELS[section]).join(', ');
+      setFeedback(`${entries.length} セクションを保存しました（空欄クリア未対応: ${targets}）`);
+    } else {
+      setFeedback(`${entries.length} セクションを保存しました。`);
+    }
     onDraftDirtyChange?.({
-      dirty: false,
+      dirty: emptyClears.length > 0,
       patientId: meta.patientId,
       appointmentId: meta.appointmentId,
       receptionId: meta.receptionId,
       visitDate: meta.visitDate,
-      dirtySources: [],
+      dirtySources: emptyClears.length > 0 ? (['soap'] satisfies DraftDirtySource[]) : [],
     });
 
     if (!meta.patientId) {
-      setFeedback('患者未選択のため server 保存をスキップしました。');
+      setFeedback((prev) => {
+        const suffix = '患者未選択のため server 保存をスキップしました。';
+        if (!prev) return suffix;
+        return `${prev} / ${suffix}`;
+      });
       return;
     }
 
@@ -428,16 +546,65 @@ export function SoapNotePanel({
     setFeedback('SOAP履歴をクリアしました。');
   }, [onClearHistory]);
 
+  const cycleViewMode = useCallback(() => {
+    setViewMode((prev) => {
+      switch (prev) {
+        case 'both':
+          return 'soap';
+        case 'soap':
+          return 'free';
+        default:
+          return 'both';
+      }
+    });
+  }, []);
+
+  const viewModeLabel = useMemo(() => {
+    switch (viewMode) {
+      case 'soap':
+        return 'SOAPのみ';
+      case 'free':
+        return 'FREEのみ';
+      default:
+        return '両方';
+    }
+  }, [viewMode]);
+
+  const resolveEntryActor = (entry?: SoapEntry | null): string => {
+    if (!entry) return '—';
+    const raw = entry.authorName ?? entry.authorRole ?? '';
+    const normalized = raw.trim();
+    return normalized.length > 0 ? normalized : '不明';
+  };
+
+  const authoredFirst = authoredMeta.first;
+  const authoredLast = authoredMeta.last;
+  const authoredSummary =
+    authoredFirst && authoredLast
+      ? `初回: ${formatSoapAuthoredAt(authoredFirst.authoredAt)} / ${resolveEntryActor(authoredFirst)}  最終: ${formatSoapAuthoredAt(authoredLast.authoredAt)} / ${resolveEntryActor(authoredLast)}`
+      : null;
+
+  const freeHistoryEntries = historyBySection.get('free') ?? [];
+
   return (
-    <section className="soap-note" aria-label="SOAP 記載" data-run-id={meta.runId}>
+    <section className="soap-note" aria-label="SOAP 記載" data-run-id={meta.runId} data-view-mode={viewMode}>
       <header className="soap-note__header">
         <div>
           <h2>SOAP 記載</h2>
           <p className="soap-note__subtitle">
             記載者: {resolveAuthorLabel(author)} ／ role: {author.role} ／ 受付: {meta.receptionId ?? '—'}
           </p>
+          {authoredSummary ? <p className="soap-note__subtitle soap-note__subtitle--meta">{authoredSummary}</p> : null}
         </div>
         <div className="soap-note__actions">
+          <button
+            type="button"
+            onClick={cycleViewMode}
+            className="soap-note__ghost"
+            title="表示モードを切り替えます（SOAPのみ / FREEのみ / 両方）"
+          >
+            表示:{viewModeLabel}
+          </button>
           {isRevisionHistoryEnabled ? (
             <button
               type="button"
@@ -491,53 +658,44 @@ export function SoapNotePanel({
         <p className="soap-note__guard">読み取り専用: {readOnlyReason ?? '編集はロック中です。'}</p>
       ) : null}
       {feedback ? <p className="soap-note__feedback" role="status">{feedback}</p> : null}
-      <div className="soap-note__grid">
-        {SOAP_SECTIONS.map((section) => {
-          const latest = latestBySection.get(section);
-          const templateOptions = filterTemplatesForSection(section);
-          const templateLabel = latest?.templateId ? `template=${latest.templateId}` : 'templateなし';
-          const isSubjective = section === 'subjective';
-          const showSoapEditor = !isSubjective || subjectiveTab === 'soap';
-          return (
-            <article key={section} className="soap-note__section" data-section={section}>
-              <div className="soap-note__section-header">
-                <strong>{SOAP_SECTION_LABELS[section]}</strong>
-                <span>
-                  {latest
-                    ? `${formatSoapAuthoredAt(latest.authoredAt)} ／ ${latest.authorRole} ／ ${templateLabel}`
-                    : '記載履歴なし'}
-                </span>
-              </div>
-              {isSubjective ? (
-                <div className="soap-note__tabs" role="tablist" aria-label="Subjective タブ">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={subjectiveTab === 'soap'}
-                    className={`soap-note__tab${subjectiveTab === 'soap' ? ' soap-note__tab--active' : ''}`}
-                    onClick={() => setSubjectiveTab('soap')}
-                  >
-                    SOAP 記載
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={subjectiveTab === 'subjectives'}
-                    className={`soap-note__tab${subjectiveTab === 'subjectives' ? ' soap-note__tab--active' : ''}`}
-                    onClick={() => setSubjectiveTab('subjectives')}
-                  >
-                    症状詳記
-                  </button>
-                </div>
-              ) : null}
-              {showSoapEditor ? (
-                <>
+      <div className="soap-note__body">
+        <div className="soap-note__editor">
+          <div className="soap-note__grid">
+            {visibleSections.map((section) => {
+              const latest = latestBySection.get(section);
+              const first = firstBySection.get(section);
+              const templateOptions = filterTemplatesForSection(section);
+              const templateLabel = latest?.templateId ? `template=${latest.templateId}` : 'templateなし';
+              const hasOrigin = Boolean(first && latest && first.id !== latest.id);
+              const textareaRows = (() => {
+                if (section === 'free') return viewMode === 'free' ? 8 : 5;
+                return viewMode === 'soap' ? 5 : 3;
+              })();
+              return (
+                <article key={section} className="soap-note__section" data-section={section}>
+                  <div className="soap-note__section-header">
+                    <strong>{SOAP_SECTION_LABELS[section]}</strong>
+                    {latest ? (
+                      <>
+                        <span>
+                          最終: {formatSoapAuthoredAt(latest.authoredAt)} ／ {resolveEntryActor(latest)} ／ {templateLabel}
+                        </span>
+                        {hasOrigin && first ? (
+                          <span>
+                            初回: {formatSoapAuthoredAt(first.authoredAt)} ／ {resolveEntryActor(first)}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span>記載履歴なし</span>
+                    )}
+                  </div>
                   <textarea
                     id={`soap-note-${section}`}
                     name={`soapNote-${section}`}
                     value={draft[section]}
                     onChange={(event) => updateDraft(section, event.target.value)}
-                    rows={section === 'free' ? 4 : 3}
+                    rows={textareaRows}
                     placeholder={`${SOAP_SECTION_LABELS[section]} を記載してください。`}
                     readOnly={readOnly}
                     aria-readonly={readOnly}
@@ -549,9 +707,7 @@ export function SoapNotePanel({
                         id={`soap-note-template-${section}`}
                         name={`soapNoteTemplate-${section}`}
                         value={selectedTemplate[section] ?? ''}
-                        onChange={(event) =>
-                          setSelectedTemplate((prev) => ({ ...prev, [section]: event.target.value }))
-                        }
+                        onChange={(event) => setSelectedTemplate((prev) => ({ ...prev, [section]: event.target.value }))}
                         disabled={readOnly}
                         title={readOnly ? readOnlyReason ?? '読み取り専用のため選択できません。' : undefined}
                       >
@@ -572,12 +728,51 @@ export function SoapNotePanel({
                     >
                       テンプレ挿入
                     </button>
-                    {pendingTemplate[section] ? (
-                      <span className="soap-note__template-tag">挿入中: {pendingTemplate[section]}</span>
+                    {section === 'free' ? (
+                      <button
+                        type="button"
+                        onClick={() => updateDraft('free', '')}
+                        className="soap-note__ghost"
+                        disabled={readOnly}
+                        title={readOnly ? readOnlyReason ?? '読み取り専用のため操作できません。' : 'Free を新規カードとして開始します'}
+                      >
+                        新規カード
+                      </button>
                     ) : null}
+                    {pendingTemplate[section] ? <span className="soap-note__template-tag">挿入中: {pendingTemplate[section]}</span> : null}
                   </div>
-                </>
-              ) : (
+                  {section === 'free' && freeHistoryEntries.length > 0 ? (
+                    <details className="soap-note__history" aria-label="Free 履歴">
+                      <summary className="soap-note__history-summary">Free履歴（{freeHistoryEntries.length}）</summary>
+                      <div className="soap-note__history-list" role="list">
+                        {freeHistoryEntries
+                          .slice()
+                          .reverse()
+                          .map((entry) => (
+                            <div key={entry.id} className="soap-note__history-card" role="listitem">
+                              <div className="soap-note__history-meta">
+                                {formatSoapAuthoredAt(entry.authoredAt)} ／ {resolveEntryActor(entry)} ／ {entry.action}
+                              </div>
+                              <div className="soap-note__history-body">{entry.body}</div>
+                            </div>
+                          ))}
+                      </div>
+                    </details>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+          <details
+            className="soap-note__subjectives-fold"
+            open={subjectivesOpen}
+            onToggle={(event) => {
+              setSubjectivesOpen(event.currentTarget.open);
+            }}
+          >
+            <summary className="soap-note__subjectives-summary">症状詳記（ORCA）</summary>
+            {subjectivesOpen ? (
+              <div className="soap-note__subjectives-content">
                 <SubjectivesPanel
                   patientId={meta.patientId}
                   visitDate={meta.visitDate}
@@ -586,10 +781,62 @@ export function SoapNotePanel({
                   readOnlyReason={readOnlyReason}
                   suggestedText={draft.subjective}
                 />
-              )}
-            </article>
-          );
-        })}
+              </div>
+            ) : null}
+          </details>
+        </div>
+        <aside className="soap-note__paper" aria-label="処方情報（直近）" data-loading={rpHistoryLoading ? '1' : '0'} data-error={rpHistoryError ? '1' : '0'}>
+          <header className="soap-note__paper-header">
+            <div>
+              <strong>処方（2号用紙）</strong>
+              <span className="soap-note__paper-meta">発行:{prescriptionIssuedDate || '—'}</span>
+            </div>
+            {onOpenPrescriptionEditor ? (
+              <button
+                type="button"
+                className="soap-note__paper-action"
+                onClick={onOpenPrescriptionEditor}
+                disabled={!meta.patientId}
+                title={!meta.patientId ? '患者未選択のため開けません。' : undefined}
+              >
+                処方編集
+              </button>
+            ) : null}
+          </header>
+          {rpHistoryLoading ? (
+            <p className="soap-note__paper-empty" role="status">
+              処方履歴を取得しています...
+            </p>
+          ) : rpHistoryError ? (
+            <p className="soap-note__paper-empty" role="status">
+              処方履歴の取得に失敗しました: {rpHistoryError}
+            </p>
+          ) : prescriptionDrugs.length === 0 ? (
+            <p className="soap-note__paper-empty" role="status">
+              直近の処方履歴はありません。
+            </p>
+          ) : (
+            <ol className="soap-note__paper-list" aria-label="処方薬剤一覧">
+              {prescriptionDrugs.slice(0, 40).map((drug, index) => {
+                const name = drug.name?.trim() || '薬剤名不明';
+                const dose = drug.dose?.trim();
+                const amount = drug.amount?.trim();
+                const usage = drug.usage?.trim();
+                const days = drug.days?.trim();
+                const line = [dose, amount].filter(Boolean).join(' ');
+                const metaLine = [usage, days ? `日数:${days}` : null].filter(Boolean).join(' / ');
+                return (
+                  <li key={`${name}-${index}`} className="soap-note__paper-item">
+                    <strong className="soap-note__paper-drug">{name}</strong>
+                    {line ? <span className="soap-note__paper-dose">{line}</span> : null}
+                    {metaLine ? <span className="soap-note__paper-sub">{metaLine}</span> : null}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+          {prescriptionMemo ? <p className="soap-note__paper-memo">メモ: {prescriptionMemo}</p> : null}
+        </aside>
       </div>
     </section>
   );

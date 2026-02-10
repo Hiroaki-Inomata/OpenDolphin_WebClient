@@ -1,4 +1,4 @@
-# 開発状況（単一参照, 更新日: 2026-02-08）
+# 開発状況（単一参照, 更新日: 2026-02-10）
 
 ## 現行ステータス
 - Phase2 開発ドキュメントは **Legacy/Archive（参照専用）**。Phase2 を現行フェーズとして扱わない。
@@ -29,6 +29,7 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-02-10: Charts（カルテ入力）画面の UI 整理を追補。患者サマリは「氏名/生年月日/ID」を常時表示し、アレルギー情報を折りたたみ表示（`/karte/safety/{karteId}`）。ショートカット一覧は常設表示を廃止し、右ペインの小ボタンからモーダル表示へ変更。SOAP 記載は表示モード（SOAPのみ/FREEのみ/両方）をワンボタンで切替し、症状詳記（ORCA）を独立エリア（折りたたみ）へ移動。カルテ右側に処方サマリ（紙カルテ2号用紙イメージ）を常時表示し、処方編集ドロワーへ誘導（`/karte/rpHistory/list/{karteId}`）。Past Hub のオーダー履歴を「処方/一般オーダー/処置/検査」まで拡張し、Do（コピーして編集）を右ペインに反映。どのカルテを誰が記載/更新したかが分かるように、初回記載者/最終更新者の表示と、Free の履歴カード表示を追加。検証: `npm -C web-client run typecheck` / `npm -C web-client test -- --silent=true` PASS。起動: `DB_INIT_RUN_ID=20260210T044709Z WEB_CLIENT_MODE=npm ./setup-modernized-env.sh` 実行（RUN_ID=20260210T044709Z）。
 - 2026-02-10: Charts（カルテ入力）画面の UI 整理（機能変更なし、UIのみ）。上欄（患者サマリ）をコンパクト化し、患者メモを即時確認できるように刷新。Patients タブは常時表示をやめ、モーダルで開く方式へ変更。左ペイン上部に ORCA 保険病名のコンパクト表示と「接頭/病名/接尾 + 疑い」入力をモーダル化して高速入力できる導線を追加。左ペイン下部の Past Hub はスクロール前提で整理し、過去の文書/オーダーを「コピーして編集（Do）」で右ペイン（ユーティリティ）に反映できるように改善。中央ペインは SOAP/タイムラインを主にし、ORCA 参照（患者メモ/サマリ/原本）を集約。検証: `npm -C web-client run typecheck` / `npm -C web-client test -- --silent=true` PASS（RUN_ID=20260210T001918Z）。
 - 2026-02-08: Reception 当日受付（acceptmodv2）の UI を「患者検索→選択→受付登録」に最適化（初期表示: 患者ID + 氏名（姓/名） + カナ（セイ/メイ）のみ。受付詳細は折りたたみに格納。検索は AND）。受付取消は右ペインから廃止し、左の受付一覧（選択中バー）から実行する導線へ変更。検証: `npm -C web-client run typecheck` / `npm -C web-client run test -- src/features/reception/__tests__` / `RUN_ID=20260208T010457Z npx playwright test tests/reception/e2e-acceptmodv2.spec.ts tests/reception/e2e-rec-001-status-mvp.spec.ts` PASS（RUN_ID=20260208T010457Z）。
 - 2026-02-08: Reception 受付画面を追加ブラッシュアップ（左: ステータス別患者ボードを最上段表示、検索/フィルタは初期折りたたみ。例外一覧はインジケータ化し、クリックでモーダル表示。右: 患者検索と受付送信を統合し、検索結果の患者ごとに「通常受付/予約外受付」の導線を提示。過去カルテは新規タブではなくモーダルでオンデマンド表示）。検証: `npm -C web-client run typecheck` / `npm -C web-client run test -- src/features/reception/__tests__` / `RUN_ID=20260207T230436Z npx playwright test tests/reception/e2e-acceptmodv2.spec.ts tests/reception/e2e-rec-001-status-mvp.spec.ts` PASS（RUN_ID=20260207T230436Z）。証跡はローカル `artifacts/webclient/e2e/20260207T230436Z/` 等へ生成（非コミット）。

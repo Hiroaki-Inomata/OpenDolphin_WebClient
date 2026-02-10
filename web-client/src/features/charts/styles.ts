@@ -182,9 +182,9 @@ export const chartsStyles = css`
     --charts-column-center: minmax(420px, 1.6fr);
     --charts-column-right: minmax(300px, 1.05fr);
     --charts-column-gap: var(--charts-space-sm);
-    --charts-utility-compact-width: 64px;
-    --charts-utility-expanded-width: 320px;
-    --charts-utility-expanded-width-wide: 360px;
+    --charts-utility-compact-width: 56px;
+    --charts-utility-expanded-width: 304px;
+    --charts-utility-expanded-width-wide: 340px;
     --charts-utility-expanded-width-narrow: 280px;
     --charts-utility-width: var(--charts-utility-compact-width);
     --charts-utility-height: 0px;
@@ -373,6 +373,93 @@ export const chartsStyles = css`
     font-size: 0.82rem;
     font-weight: 800;
     white-space: nowrap;
+  }
+
+  .charts-patient-summary__fact-button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--charts-space-2xs);
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.82rem;
+    font-weight: 800;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .charts-patient-summary__fact-button:hover {
+    background: #dbeafe;
+  }
+
+  .charts-patient-summary__fact-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .charts-patient-summary__allergies {
+    margin-top: var(--charts-space-xs);
+    border-radius: var(--charts-radius-sm);
+    border: 1px dashed rgba(245, 158, 11, 0.4);
+    background: rgba(254, 243, 199, 0.35);
+    padding: var(--charts-space-xs) var(--charts-space-sm);
+  }
+
+  .charts-patient-summary__allergies-empty {
+    margin: 0;
+    font-size: 0.82rem;
+    color: #92400e;
+  }
+
+  .charts-patient-summary__allergies-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-2xs);
+  }
+
+  .charts-patient-summary__allergy-item {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--charts-space-xs);
+    align-items: baseline;
+    color: #0f172a;
+    font-size: 0.8rem;
+  }
+
+  .charts-patient-summary__allergy-factor {
+    font-weight: 900;
+    color: #92400e;
+  }
+
+  .charts-patient-summary__allergy-severity {
+    font-weight: 800;
+    color: #b45309;
+  }
+
+  .charts-patient-summary__allergy-date {
+    color: #475569;
+    font-size: 0.75rem;
+  }
+
+  .charts-patient-summary__allergy-memo {
+    color: #0f172a;
+    font-size: 0.75rem;
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 999px;
+    padding: 0.05rem 0.45rem;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+  }
+
+  .charts-patient-summary__allergies-hint {
+    display: block;
+    margin-top: var(--charts-space-2xs);
+    color: #92400e;
+    font-size: 0.75rem;
   }
 
   .charts-patient-summary__memo {
@@ -890,6 +977,19 @@ export const chartsStyles = css`
     margin-bottom: var(--charts-space-sm);
   }
 
+  .charts-shortcuts--dialog {
+    margin: 0;
+    border: none;
+    background: transparent;
+    padding: 0;
+  }
+
+  .charts-shortcuts--dialog .charts-shortcuts__groups {
+    max-height: min(60vh, 520px);
+    overflow-y: auto;
+    padding-right: var(--charts-space-xs);
+  }
+
   .charts-shortcuts__header h3 {
     margin: var(--charts-space-2xs) 0 0;
     font-size: 1rem;
@@ -972,6 +1072,39 @@ export const chartsStyles = css`
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-sm);
+  }
+
+  .charts-docked-panel__mini {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .charts-docked-panel__mini-button {
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: #f8fafc;
+    color: #1d4ed8;
+    cursor: pointer;
+    font-weight: 800;
+    padding: var(--charts-space-2xs) var(--charts-space-sm);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--charts-space-2xs);
+  }
+
+  .charts-docked-panel__mini-button:hover {
+    background: #eff6ff;
+  }
+
+  .charts-docked-panel__mini-button:focus-visible {
+    outline: 2px solid rgba(59, 130, 246, 0.6);
+    outline-offset: 2px;
+  }
+
+  .charts-docked-panel__mini-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
   }
 
   .charts-docked-panel__header {
@@ -1152,6 +1285,14 @@ export const chartsStyles = css`
     min-width: auto;
     font-size: 0.65rem;
     padding: var(--charts-space-2xs);
+  }
+
+  .charts-workbench[data-utility-state='compact'] .charts-docked-panel__mini {
+    justify-content: center;
+  }
+
+  .charts-workbench[data-utility-state='compact'] .charts-docked-panel__mini-label {
+    display: none;
   }
 
   .charts-side-panel__message {
@@ -2219,7 +2360,7 @@ export const chartsStyles = css`
 
   .charts-diagnosis__ended-summary::after {
     content: '>';
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     color: #64748b;
     float: right;
     transition: transform 120ms ease;
@@ -3212,6 +3353,12 @@ export const chartsStyles = css`
     font-size: 0.9rem;
   }
 
+  .soap-note__subtitle--meta {
+    margin-top: var(--charts-space-2xs);
+    font-size: 0.8rem;
+    color: #64748b;
+  }
+
   .soap-note__actions {
     display: flex;
     gap: var(--charts-space-sm);
@@ -3256,9 +3403,23 @@ export const chartsStyles = css`
     font-size: 0.9rem;
   }
 
+  .soap-note__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+    gap: var(--charts-space-md);
+    align-items: start;
+  }
+
+  .soap-note__editor {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-md);
+  }
+
   .soap-note__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-template-columns: 1fr;
     gap: var(--charts-space-md);
   }
 
@@ -3325,6 +3486,204 @@ export const chartsStyles = css`
     background: #e0e7ff;
     border-radius: 999px;
     padding: var(--charts-space-2xs) var(--charts-space-xs);
+  }
+
+  .soap-note__history {
+    border-top: 1px solid rgba(148, 163, 184, 0.25);
+    padding-top: var(--charts-space-sm);
+  }
+
+  .soap-note__history-summary {
+    cursor: pointer;
+    font-weight: 800;
+    color: #1d4ed8;
+    font-size: 0.85rem;
+  }
+
+  .soap-note__history-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .soap-note__history-list {
+    margin-top: var(--charts-space-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-xs);
+    max-height: 240px;
+    overflow-y: auto;
+    padding-right: var(--charts-space-xs);
+  }
+
+  .soap-note__history-card {
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    background: #ffffff;
+    padding: var(--charts-space-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-2xs);
+  }
+
+  .soap-note__history-meta {
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+
+  .soap-note__history-body {
+    white-space: pre-wrap;
+    font-size: 0.85rem;
+    color: #0f172a;
+  }
+
+  .soap-note__subjectives-fold {
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: #f8fafc;
+    overflow: hidden;
+  }
+
+  .soap-note__subjectives-summary {
+    cursor: pointer;
+    font-weight: 800;
+    color: #0f172a;
+    padding: var(--charts-space-sm) var(--charts-space-md);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    list-style: none;
+  }
+
+  .soap-note__subjectives-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .soap-note__subjectives-summary::after {
+    content: '>';
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    color: #64748b;
+    transition: transform 120ms ease;
+  }
+
+  .soap-note__subjectives-fold[open] > .soap-note__subjectives-summary::after {
+    transform: rotate(90deg);
+  }
+
+  .soap-note__subjectives-content {
+    padding: var(--charts-space-sm) var(--charts-space-md);
+    border-top: 1px solid rgba(148, 163, 184, 0.22);
+  }
+
+  .soap-note__paper {
+    position: sticky;
+    top: 1rem;
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    padding: var(--charts-space-sm);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-sm);
+    min-width: 0;
+  }
+
+  .soap-note__paper-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--charts-space-sm);
+  }
+
+  .soap-note__paper-header strong {
+    display: block;
+    font-size: 0.95rem;
+    color: #0f172a;
+  }
+
+  .soap-note__paper-meta {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+
+  .soap-note__paper-action {
+    border-radius: 999px;
+    border: 1px solid rgba(59, 130, 246, 0.28);
+    background: #eff6ff;
+    color: #1d4ed8;
+    cursor: pointer;
+    font-weight: 800;
+    padding: var(--charts-space-2xs) var(--charts-space-sm);
+    white-space: nowrap;
+  }
+
+  .soap-note__paper-action:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .soap-note__paper-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-xs);
+  }
+
+  .soap-note__paper-item {
+    padding-bottom: var(--charts-space-xs);
+    border-bottom: 1px dashed rgba(148, 163, 184, 0.35);
+  }
+
+  .soap-note__paper-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .soap-note__paper-drug {
+    display: block;
+    font-size: 0.9rem;
+    color: #0f172a;
+  }
+
+  .soap-note__paper-dose {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.8rem;
+    color: #1f2937;
+  }
+
+  .soap-note__paper-sub {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: #475569;
+  }
+
+  .soap-note__paper-empty {
+    margin: 0;
+    color: #64748b;
+    font-size: 0.85rem;
+  }
+
+  .soap-note__paper-memo {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #475569;
+    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    padding-top: var(--charts-space-xs);
+  }
+
+  @media (max-width: 1280px) {
+    .soap-note__body {
+      grid-template-columns: 1fr;
+    }
+
+    .soap-note__paper {
+      position: static;
+    }
   }
 
   .soap-note__tabs {

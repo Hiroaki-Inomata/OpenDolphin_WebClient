@@ -32,7 +32,7 @@ import { receptionStyles } from '../../reception/styles';
 import { fetchAppointmentOutpatients, fetchClaimFlags, type AppointmentPayload, type ReceptionEntry } from '../../reception/api';
 import { getAuditEventLog, logAuditEvent, logUiState, type AuditEventRecord } from '../../../libs/audit/auditLogger';
 import { fetchOrcaOutpatientSummary } from '../api';
-import type { LetterModulePayload } from '../letterApi';
+import { fetchKarteIdByPatientId, type LetterModulePayload } from '../letterApi';
 import type { OrderBundle } from '../orderBundleApi';
 import { useAdminBroadcast } from '../../../libs/admin/useAdminBroadcast';
 import { AdminBroadcastBanner } from '../../shared/AdminBroadcastBanner';
@@ -50,6 +50,7 @@ import { hasStoredAuth } from '../../../libs/http/httpClient';
 import { isSystemAdminRole } from '../../../libs/auth/roles';
 import { fetchOrcaPushEvents, fetchOrcaQueue } from '../../outpatient/orcaQueueApi';
 import { resolveOrcaSendStatus, toClaimQueueEntryFromOrcaQueueEntry } from '../../outpatient/orcaQueueStatus';
+import { fetchRpHistory, fetchSafetySummary } from '../karteExtrasApi';
 import {
   buildChartsEncounterSearch,
   hasEncounterContext,
@@ -261,7 +262,7 @@ function ChartsContent() {
         : 0;
   const stampboxMvpEnabled = stampboxMvpPhase > 0;
   const [isTopbarCollapsed, setIsTopbarCollapsed] = useState<boolean>(() => isChartsCompactHeader);
-  const [isPatientSummaryCollapsed, setIsPatientSummaryCollapsed] = useState<boolean>(() => isChartsCompactHeader);
+  const [isShortcutsDialogOpen, setIsShortcutsDialogOpen] = useState(false);
   type ChartsNavigationState = Partial<OutpatientEncounterContext> & { runId?: string };
   const navigationState = (location.state as ChartsNavigationState | null) ?? {};
   const urlMeta = useMemo(() => parseChartsNavigationMeta(location.search), [location.search]);
@@ -275,6 +276,7 @@ function ChartsContent() {
   );
 
   type OrderEditEntityMvp = 'generalOrder' | 'treatmentOrder' | 'testOrder';
+  type PastOrderEntity = 'medOrder' | OrderEditEntityMvp;
   const ORDER_EDIT_ENTITY_MVP_OPTIONS: Array<{ value: OrderEditEntityMvp; label: string }> = [
     { value: 'generalOrder', label: '一般オーダー' },
     { value: 'treatmentOrder', label: '処置' },
@@ -374,7 +376,7 @@ function ChartsContent() {
   const [isPatientPanelOpen, setIsPatientPanelOpen] = useState(false);
   const [orderHistoryCopyRequest, setOrderHistoryCopyRequest] = useState<{
     requestId: string;
-    entity: 'medOrder' | 'generalOrder';
+    entity: PastOrderEntity;
     bundle: OrderBundle;
   } | null>(null);
   const [documentHistoryCopyRequest, setDocumentHistoryCopyRequest] = useState<{
@@ -1433,6 +1435,50 @@ function ChartsContent() {
       today,
     [encounterContext.visitDate, selectedEntry?.visitDate, today],
   );
+
+  const karteIdQuery = useQuery({
+    queryKey: ['charts-karte-id', patientId],
+    queryFn: async () => {
+      if (!patientId) return { ok: false as const, karteId: null as number | null, error: 'patientId is missing' };
+      const result = await fetchKarteIdByPatientId({ patientId });
+      return { ok: result.ok, karteId: result.karteId ?? null, error: result.error };
+    },
+    enabled: Boolean(patientId),
+    staleTime: 60_000,
+  });
+  const karteId = karteIdQuery.data?.karteId ?? null;
+
+  const safetySummaryQuery = useQuery({
+    queryKey: ['charts-safety-summary', karteId],
+    queryFn: () => {
+      if (!karteId) throw new Error('karteId is missing');
+      return fetchSafetySummary({ karteId });
+    },
+    enabled: Boolean(karteId),
+    staleTime: 60_000,
+  });
+
+  const rpHistoryQuery = useQuery({
+    queryKey: ['charts-rp-history', karteId, actionVisitDate],
+    queryFn: () => {
+      if (!karteId) throw new Error('karteId is missing');
+      return fetchRpHistory({
+        karteId,
+        fromDate: '2000-01-01',
+        toDate: actionVisitDate,
+        lastOnly: true,
+      });
+    },
+    enabled: Boolean(karteId),
+    staleTime: 60_000,
+  });
+
+  const safetyPayload = safetySummaryQuery.data?.ok ? safetySummaryQuery.data.payload : undefined;
+  const allergies = safetyPayload?.allergies ?? [];
+  const allergiesError = safetySummaryQuery.data && !safetySummaryQuery.data.ok ? safetySummaryQuery.data.error : undefined;
+  const rpEntries = rpHistoryQuery.data?.ok ? rpHistoryQuery.data.entries : [];
+  const rpError = rpHistoryQuery.data && !rpHistoryQuery.data.ok ? rpHistoryQuery.data.error : undefined;
+
   const patientDisplay = useMemo(() => {
     const baseDate = parseDate(actionVisitDate) ?? new Date();
     const birthDateParts = formatBirthDateParts(selectedEntry?.birthDate);
@@ -2122,16 +2168,14 @@ function ChartsContent() {
   }, [patientSelected, sidePanelMeta.fallbackUsed, sidePanelMeta.missingMaster, sidePanelMeta.readOnly, sidePanelMeta.readOnlyReason]);
 
   const handlePastOrderDo = useCallback(
-    (payload: { entity: 'medOrder' | 'generalOrder'; bundle: OrderBundle }) => {
+    (payload: { entity: PastOrderEntity; bundle: OrderBundle }) => {
       if (!canDoFromPast.ok) return;
-      if (payload.entity === 'generalOrder' && isOrderEditMvp) {
-        setOrderEditEntityMvp('generalOrder');
-      }
+      if (payload.entity !== 'medOrder') setOrderEditEntityMvp(payload.entity);
       const requestId = createCopyRequestId();
       setOrderHistoryCopyRequest({ requestId, entity: payload.entity, bundle: payload.bundle });
       openUtilityPanel(payload.entity === 'medOrder' ? 'prescription-edit' : 'order-edit');
     },
-    [canDoFromPast.ok, createCopyRequestId, isOrderEditMvp, openUtilityPanel],
+    [canDoFromPast.ok, createCopyRequestId, openUtilityPanel],
   );
 
   const handlePastDocumentDo = useCallback(
@@ -2421,6 +2465,32 @@ function ChartsContent() {
           />
         </div>
       </FocusTrapDialog>
+      <FocusTrapDialog
+        open={isShortcutsDialogOpen}
+        title="ショートカット一覧"
+        description="主要ショートカットとフォーカス移動を一覧できます。"
+        onClose={() => setIsShortcutsDialogOpen(false)}
+        testId="charts-shortcuts-dialog"
+      >
+        <section className="charts-shortcuts charts-shortcuts--dialog" aria-label="キーボードショートカット一覧">
+          <div className="charts-shortcuts__groups" role="list">
+            {shortcutGroups.map((group) => (
+              <div key={group.title} className="charts-shortcuts__group" role="listitem">
+                <span className="charts-shortcuts__group-title">{group.title}</span>
+                <ul className="charts-shortcuts__items">
+                  {group.items.map((item) => (
+                    <li key={`${group.title}-${item.keys}`}>
+                      <span className="charts-shortcuts__keys">{item.keys}</span>
+                      <span className="charts-shortcuts__label">{item.label}</span>
+                    </li>
+                  ))}
+                </ul>
+                {group.note ? <p className="charts-shortcuts__note">{group.note}</p> : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      </FocusTrapDialog>
       <main
         id="charts-main"
         tabIndex={-1}
@@ -2430,7 +2500,6 @@ function ChartsContent() {
         data-charts-ui-opt-b={isChartsUiOptB ? '1' : '0'}
         data-charts-compact-header={isChartsCompactHeader ? '1' : '0'}
         data-charts-topbar-collapsed={isTopbarCollapsed ? '1' : '0'}
-        data-charts-patient-summary-collapsed={isPatientSummaryCollapsed ? '1' : '0'}
         aria-busy={lockState.locked}
       >
       <header
@@ -2725,43 +2794,30 @@ function ChartsContent() {
             data-utility-state={utilityPanelAction ? 'expanded' : 'compact'}
             data-charts-compact-ui={isChartsCompactUi ? '1' : '0'}
           >
-            <div className="charts-workbench__sticky">
-              <div className="charts-card charts-card--summary" id="charts-patient-summary">
-                {isChartsCompactHeader ? (
-                  <div className="charts-summary__header">
-                    <strong className="charts-summary__title">患者サマリ</strong>
-                    <button
-                      type="button"
-                      className="charts-summary__toggle"
-                      aria-controls="charts-patient-summary-details"
-                      aria-expanded={String(!isPatientSummaryCollapsed)}
-                      onClick={() => setIsPatientSummaryCollapsed((prev) => !prev)}
-                    >
-                      {isPatientSummaryCollapsed ? '開く' : '閉じる'}
-                    </button>
-                  </div>
-                ) : null}
-                <div id="charts-patient-summary-details" hidden={isChartsCompactHeader && isPatientSummaryCollapsed}>
-                  <ChartsPatientSummaryBar
-                    patientDisplay={patientDisplay}
-                    patientId={patientId}
-                    receptionId={receptionId}
-                    appointmentId={appointmentId}
-                    runId={resolvedRunId ?? flags.runId}
-                    missingMaster={resolvedMissingMaster}
-                    fallbackUsed={resolvedFallbackUsed}
-                    cacheHit={resolvedCacheHit}
-                    dataSourceTransition={resolvedTransition}
-                    recordsReturned={appointmentMeta?.recordsReturned}
-                    fetchedAt={appointmentMeta?.fetchedAt}
-                    approvalLabel={approvalLabel}
-                    approvalDetail={approvalDetail}
-                    lockStatus={lockStatus}
-                    onOpenPatientPanel={() => setIsPatientPanelOpen(true)}
-                  />
-                </div>
-              </div>
-            </div>
+	            <div className="charts-workbench__sticky">
+	              <div className="charts-card charts-card--summary" id="charts-patient-summary">
+	                <ChartsPatientSummaryBar
+	                  patientDisplay={patientDisplay}
+	                  patientId={patientId}
+	                  receptionId={receptionId}
+	                  appointmentId={appointmentId}
+	                  runId={resolvedRunId ?? flags.runId}
+	                  allergies={allergies}
+	                  allergiesLoading={safetySummaryQuery.isFetching}
+	                  allergiesError={allergiesError}
+	                  missingMaster={resolvedMissingMaster}
+	                  fallbackUsed={resolvedFallbackUsed}
+	                  cacheHit={resolvedCacheHit}
+	                  dataSourceTransition={resolvedTransition}
+	                  recordsReturned={appointmentMeta?.recordsReturned}
+	                  fetchedAt={appointmentMeta?.fetchedAt}
+	                  approvalLabel={approvalLabel}
+	                  approvalDetail={approvalDetail}
+	                  lockStatus={lockStatus}
+	                  onOpenPatientPanel={() => setIsPatientPanelOpen(true)}
+	                />
+	              </div>
+	            </div>
             <div className="charts-workbench__layout">
               <div className="charts-workbench__body">
                 <div className="charts-workbench__column charts-workbench__column--left">
@@ -2812,17 +2868,21 @@ function ChartsContent() {
                     <span className="charts-column-header__meta">記録 / 履歴 / 送信</span>
                   </div>
                   <div className="charts-card" id="charts-soap-note" tabIndex={-1} data-focus-anchor="true">
-                    <SoapNotePanel
-                      history={soapHistory}
-                      meta={soapNoteMeta}
-                      author={soapNoteAuthor}
-                      readOnly={tabLock.isReadOnly || approvalLocked}
-                      readOnlyReason={approvalLocked ? approvalReason : tabLock.readOnlyReason}
-                      onDraftSnapshot={setSoapDraftSnapshot}
-                      applyDraftPatch={applySoapDraftPatch}
-                      attachmentInsert={pendingSoapAttachment}
-                      onAttachmentInserted={() => setPendingSoapAttachment(null)}
-                      onAppendHistory={appendSoapHistory}
+	                    <SoapNotePanel
+	                      history={soapHistory}
+	                      meta={soapNoteMeta}
+	                      author={soapNoteAuthor}
+	                      readOnly={tabLock.isReadOnly || approvalLocked}
+	                      readOnlyReason={approvalLocked ? approvalReason : tabLock.readOnlyReason}
+	                      rpHistory={rpEntries}
+	                      rpHistoryLoading={rpHistoryQuery.isFetching}
+	                      rpHistoryError={rpError}
+	                      onOpenPrescriptionEditor={() => openUtilityPanel('prescription-edit')}
+	                      onDraftSnapshot={setSoapDraftSnapshot}
+	                      applyDraftPatch={applySoapDraftPatch}
+	                      attachmentInsert={pendingSoapAttachment}
+	                      onAttachmentInserted={() => setPendingSoapAttachment(null)}
+	                      onAppendHistory={appendSoapHistory}
                       onDraftDirtyChange={setDraftState}
                       onClearHistory={clearSoapHistory}
                       onAuditLogged={() => setAuditEvents(getAuditEventLog())}
@@ -2933,43 +2993,31 @@ function ChartsContent() {
                 </div>
 
               </div>
-              <aside
-                className="charts-workbench__side"
-                id="charts-order-pane"
-                tabIndex={-1}
-                data-focus-anchor="true"
-                aria-label="オーダー入力（ユーティリティ）"
-                ref={rightColumnRef}
-              >
-                <section className="charts-shortcuts" aria-label="キーボードショートカット">
-                  <div className="charts-shortcuts__header">
-                    <p className="charts-shortcuts__eyebrow">Keyboard</p>
-                    <h3>ショートカット一覧</h3>
-                    <p className="charts-shortcuts__desc">
-                      記憶に頼らず操作できるように、主要ショートカットとフォーカス移動を整理しています。
-                    </p>
-                  </div>
-                  <div className="charts-shortcuts__groups" role="list">
-                    {shortcutGroups.map((group) => (
-                      <div key={group.title} className="charts-shortcuts__group" role="listitem">
-                        <span className="charts-shortcuts__group-title">{group.title}</span>
-                        <ul className="charts-shortcuts__items">
-                          {group.items.map((item) => (
-                            <li key={`${group.title}-${item.keys}`}>
-                              <span className="charts-shortcuts__keys">{item.keys}</span>
-                              <span className="charts-shortcuts__label">{item.label}</span>
-                            </li>
-                          ))}
-                        </ul>
-                        {group.note ? <p className="charts-shortcuts__note">{group.note}</p> : null}
-                      </div>
-                    ))}
-                  </div>
-                </section>
-                <div className="charts-docked-panel">
-                  <div className="charts-docked-panel__header">
-                    <div>
-                      <p className="charts-docked-panel__eyebrow">ユーティリティ</p>
+	              <aside
+	                className="charts-workbench__side"
+	                id="charts-order-pane"
+	                tabIndex={-1}
+	                data-focus-anchor="true"
+	                aria-label="オーダー入力（ユーティリティ）"
+	                ref={rightColumnRef}
+	              >
+	                <div className="charts-docked-panel">
+	                  <div className="charts-docked-panel__mini" role="group" aria-label="補助メニュー">
+	                    <button
+	                      type="button"
+	                      className="charts-docked-panel__mini-button"
+	                      onClick={() => setIsShortcutsDialogOpen(true)}
+	                      aria-haspopup="dialog"
+	                      aria-expanded={String(isShortcutsDialogOpen)}
+	                      title="ショートカット一覧"
+	                    >
+	                      ?
+	                      <span className="charts-docked-panel__mini-label">ショートカット</span>
+	                    </button>
+	                  </div>
+	                  <div className="charts-docked-panel__header">
+	                    <div>
+	                      <p className="charts-docked-panel__eyebrow">ユーティリティ</p>
                       <h2 id="charts-docked-panel-title" ref={utilityHeadingRef} tabIndex={-1}>
                         {utilityPanelAction ? utilityPanelTitles[utilityPanelAction] : 'ユーティリティ'}
                       </h2>
@@ -3088,21 +3136,21 @@ function ChartsContent() {
                                 </div>
                               </div>
                             )}
-                            <OrderBundleEditPanel
-                              patientId={encounterContext.patientId}
-                              key={isOrderEditMvp ? `order-edit-${orderEditEntityMvp}` : 'order-edit'}
-                              entity={isOrderEditMvp ? orderEditEntityMvp : 'generalOrder'}
-                              title={isOrderEditMvp ? orderEditEntityMeta[orderEditEntityMvp].title : 'オーダー編集'}
-                              bundleLabel={isOrderEditMvp ? orderEditEntityMeta[orderEditEntityMvp].bundleLabel : 'オーダー名'}
-                              itemQuantityLabel={isOrderEditMvp ? orderEditEntityMeta[orderEditEntityMvp].itemQuantityLabel : '数量'}
-                              meta={sidePanelMeta}
-                              historyCopyRequest={
-                                orderHistoryCopyRequest?.entity === 'generalOrder'
-                                  ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
-                                  : null
-                              }
-                              onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
-                            />
+	                            <OrderBundleEditPanel
+	                              patientId={encounterContext.patientId}
+	                              key={`order-edit-${orderEditEntityMvp}`}
+	                              entity={orderEditEntityMvp}
+	                              title={orderEditEntityMeta[orderEditEntityMvp].title}
+	                              bundleLabel={orderEditEntityMeta[orderEditEntityMvp].bundleLabel}
+	                              itemQuantityLabel={orderEditEntityMeta[orderEditEntityMvp].itemQuantityLabel}
+	                              meta={sidePanelMeta}
+	                              historyCopyRequest={
+	                                orderHistoryCopyRequest?.entity === orderEditEntityMvp
+	                                  ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
+	                                  : null
+	                              }
+	                              onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
+	                            />
                           </>
                         )}
                       </div>

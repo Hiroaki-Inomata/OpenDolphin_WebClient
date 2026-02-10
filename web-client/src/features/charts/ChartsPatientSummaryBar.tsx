@@ -4,6 +4,7 @@ import { resolveAriaLive } from '../../libs/observability/observability';
 import type { DataSourceTransition } from '../../libs/observability/types';
 import { RunIdBadge } from '../shared/RunIdBadge';
 import { PatientMetaRow } from '../shared/PatientMetaRow';
+import type { AllergyEntry } from './karteExtrasApi';
 
 type PatientDisplay = {
   name: string;
@@ -27,6 +28,9 @@ type ChartsPatientSummaryBarProps = {
   receptionId?: string;
   appointmentId?: string;
   runId?: string;
+  allergies?: AllergyEntry[];
+  allergiesError?: string;
+  allergiesLoading?: boolean;
   missingMaster?: boolean;
   fallbackUsed?: boolean;
   cacheHit?: boolean;
@@ -106,6 +110,9 @@ export function ChartsPatientSummaryBar({
   receptionId,
   appointmentId,
   runId,
+  allergies,
+  allergiesError,
+  allergiesLoading,
   missingMaster,
   fallbackUsed,
   cacheHit,
@@ -119,9 +126,11 @@ export function ChartsPatientSummaryBar({
   onOpenPatientPanel,
 }: ChartsPatientSummaryBarProps) {
   const [detailOpen, setDetailOpen] = useState(false);
+  const [allergyOpen, setAllergyOpen] = useState(false);
 
   useEffect(() => {
     setDetailOpen(false);
+    setAllergyOpen(false);
   }, [appointmentId, patientDisplay.name, patientId, receptionId]);
 
   const safetyTone = resolveSafetyTone({ missingMaster, fallbackUsed, cacheHit, dataSourceTransition });
@@ -137,6 +146,8 @@ export function ChartsPatientSummaryBar({
   const memo = normalizeMemo(patientDisplay.note);
   const memoSnippet = memo ? truncate(memo, 26) : undefined;
   const hasAllergyHint = memo ? /アレル|allerg/i.test(memo) : false;
+  const allergyItems = useMemo(() => (allergies ?? []).filter(Boolean), [allergies]);
+  const allergyCount = allergyItems.length;
 
   const detailRows = useMemo(
     () =>
@@ -189,6 +200,17 @@ export function ChartsPatientSummaryBar({
             <span className="charts-patient-summary__fact">
               診療日:{formatVisitDate(patientDisplay.visitDate, patientDisplay.appointmentTime)}
             </span>
+            <button
+              type="button"
+              className="charts-patient-summary__fact-button"
+              aria-expanded={allergyOpen}
+              aria-controls="charts-patient-summary-allergies"
+              disabled={Boolean(allergiesError) || allergyCount === 0}
+              title={allergiesError ? `アレルギー取得失敗: ${allergiesError}` : allergyCount === 0 ? 'アレルギーなし' : undefined}
+              onClick={() => setAllergyOpen((prev) => !prev)}
+            >
+              {allergiesLoading ? 'アレルギー…' : `アレルギー:${allergyCount}`}
+            </button>
           </div>
           {memoSnippet ? (
             <div className="charts-patient-summary__memo" data-allergy={hasAllergyHint ? '1' : '0'}>
@@ -196,6 +218,35 @@ export function ChartsPatientSummaryBar({
               <span className="charts-patient-summary__memo-text">{memoSnippet}</span>
             </div>
           ) : null}
+          <div id="charts-patient-summary-allergies" className="charts-patient-summary__allergies" hidden={!allergyOpen}>
+            {allergiesError ? (
+              <p className="charts-patient-summary__allergies-empty">アレルギー取得に失敗しました。</p>
+            ) : allergyItems.length === 0 ? (
+              <p className="charts-patient-summary__allergies-empty">アレルギーは登録されていません。</p>
+            ) : (
+              <ul className="charts-patient-summary__allergies-list" aria-label="アレルギー一覧">
+                {allergyItems.slice(0, 6).map((item, index) => {
+                  const label = item.factor?.trim() || '要因未設定';
+                  const severity = item.severity?.trim();
+                  const date = item.identifiedDate?.trim();
+                  const memoText = item.memo?.trim();
+                  return (
+                    <li key={`${label}-${date ?? 'none'}-${index}`} className="charts-patient-summary__allergy-item">
+                      <span className="charts-patient-summary__allergy-factor">{label}</span>
+                      {severity ? <span className="charts-patient-summary__allergy-severity">{severity}</span> : null}
+                      {date ? <span className="charts-patient-summary__allergy-date">{date}</span> : null}
+                      {memoText ? (
+                        <span className="charts-patient-summary__allergy-memo" title={memoText}>
+                          {truncate(memoText, 18)}
+                        </span>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {allergyCount > 6 ? <small className="charts-patient-summary__allergies-hint">他 {allergyCount - 6} 件</small> : null}
+          </div>
         </div>
 
         <div className="charts-patient-summary__actions">
