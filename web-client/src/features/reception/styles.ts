@@ -300,6 +300,52 @@ export const receptionStyles = css`
     line-height: 1.6;
   }
 
+  .reception-quick-open {
+    margin-top: 0.95rem;
+    padding: 0.85rem 1rem;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    background: rgba(248, 250, 252, 0.92);
+  }
+
+  .reception-quick-open__form {
+    display: flex;
+    gap: 0.6rem;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .reception-quick-open__field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 0.9rem;
+    min-width: min(240px, 100%);
+  }
+
+  .reception-quick-open__field span {
+    font-size: 0.82rem;
+    letter-spacing: 0.02em;
+    color: #0f172a;
+  }
+
+  .reception-quick-open__field input {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid #cbd5e1;
+    padding: 0.55rem 0.75rem;
+    background: #ffffff;
+    font-size: 0.95rem;
+  }
+
+  @media (max-width: 640px) {
+    .reception-quick-open__form {
+      align-items: stretch;
+    }
+  }
+
   .order-console {
     background: #ffffff;
     border-radius: 28px;

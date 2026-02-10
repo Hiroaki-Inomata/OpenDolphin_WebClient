@@ -1,5 +1,5 @@
 import { Global } from '@emotion/react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -31,6 +31,7 @@ import type { KarteImageListItem } from '../../images/api';
 import type { ChartImageAttachment } from '../documentImageAttach';
 import { receptionStyles } from '../../reception/styles';
 import { fetchAppointmentOutpatients, fetchClaimFlags, type AppointmentPayload, type ReceptionEntry } from '../../reception/api';
+import { fetchPatients, type PatientRecord } from '../../patients/api';
 import { getAuditEventLog, logAuditEvent, logUiState, type AuditEventRecord } from '../../../libs/audit/auditLogger';
 import { fetchOrcaOutpatientSummary } from '../api';
 import { fetchKarteIdByPatientId, type LetterModulePayload } from '../letterApi';
@@ -177,6 +178,100 @@ type DockedUtilityAction =
   | 'imaging'
   | 'stamps';
 
+type ChartsPatientTab = {
+  key: string;
+  patientId: string;
+  visitDate: string; // YYYY-MM-DD
+  appointmentId?: string;
+  receptionId?: string;
+  name?: string;
+  openedAt: string; // ISO
+};
+
+type ChartsPatientTabsStorage = {
+  version: 1;
+  updatedAt: string;
+  activeKey?: string;
+  tabs: ChartsPatientTab[];
+};
+
+const PATIENT_TABS_STORAGE_BASE = 'opendolphin:web-client:charts:patient-tabs';
+const PATIENT_TABS_STORAGE_VERSION = 'v1';
+
+const buildPatientTabKey = (patientId: string, visitDate: string) => `${patientId}::${visitDate}`;
+
+const readChartsPatientTabsStorage = (
+  scope?: { facilityId?: string; userId?: string },
+): ChartsPatientTabsStorage | null => {
+  if (typeof sessionStorage === 'undefined') return null;
+  const scopedKey =
+    buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope) ??
+    `${PATIENT_TABS_STORAGE_BASE}:v1`;
+  try {
+    const raw = sessionStorage.getItem(scopedKey) ?? sessionStorage.getItem(`${PATIENT_TABS_STORAGE_BASE}:v1`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ChartsPatientTabsStorage> | null;
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.tabs)) return null;
+
+    const normalizedTabs: ChartsPatientTab[] = parsed.tabs
+      .map((tab) => {
+        const patientId = typeof tab.patientId === 'string' ? tab.patientId.trim() : '';
+        const visitDate = normalizeVisitDate(typeof tab.visitDate === 'string' ? tab.visitDate : undefined);
+        if (!patientId || !visitDate) return null;
+        const key = typeof tab.key === 'string' && tab.key.trim() ? tab.key.trim() : buildPatientTabKey(patientId, visitDate);
+        return {
+          key,
+          patientId,
+          visitDate,
+          appointmentId: typeof tab.appointmentId === 'string' ? tab.appointmentId : undefined,
+          receptionId: typeof tab.receptionId === 'string' ? tab.receptionId : undefined,
+          name: typeof tab.name === 'string' ? tab.name : undefined,
+          openedAt: typeof tab.openedAt === 'string' ? tab.openedAt : new Date().toISOString(),
+        };
+      })
+      .filter((tab): tab is ChartsPatientTab => Boolean(tab));
+
+    const activeKey =
+      typeof parsed.activeKey === 'string' && parsed.activeKey.trim()
+        ? parsed.activeKey.trim()
+        : normalizedTabs[0]?.key;
+
+    // migrate legacy to scoped
+    const scopedKeyActual = buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope);
+    if (scopedKeyActual && !sessionStorage.getItem(scopedKeyActual)) {
+      try {
+        sessionStorage.setItem(scopedKeyActual, raw);
+        if (scopedKey !== scopedKeyActual) {
+          sessionStorage.removeItem(`${PATIENT_TABS_STORAGE_BASE}:v1`);
+        }
+      } catch {
+        // ignore migration errors
+      }
+    }
+
+    return {
+      version: 1,
+      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
+      activeKey,
+      tabs: normalizedTabs,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const writeChartsPatientTabsStorage = (state: ChartsPatientTabsStorage, scope?: { facilityId?: string; userId?: string }) => {
+  if (typeof sessionStorage === 'undefined') return;
+  const scopedKey =
+    buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope) ??
+    `${PATIENT_TABS_STORAGE_BASE}:v1`;
+  try {
+    sessionStorage.setItem(scopedKey, JSON.stringify(state));
+  } catch {
+    // ignore storage errors
+  }
+};
+
 const readSoapHistoryStorage = (scope?: { facilityId?: string; userId?: string }): SoapHistoryStorage | null => {
   if (typeof sessionStorage === 'undefined') return null;
   const scopedKey =
@@ -265,6 +360,9 @@ function ChartsContent() {
   const stampboxMvpEnabled = stampboxMvpPhase > 0;
   const [isTopbarCollapsed, setIsTopbarCollapsed] = useState<boolean>(() => isChartsCompactHeader);
   const [isShortcutsDialogOpen, setIsShortcutsDialogOpen] = useState(false);
+  const [chartsQuickOpenPatientId, setChartsQuickOpenPatientId] = useState('');
+  const [chartsQuickOpenPending, setChartsQuickOpenPending] = useState(false);
+  const [pendingQuickOpenPatientId, setPendingQuickOpenPatientId] = useState<string | null>(null);
   type ChartsNavigationState = Partial<OutpatientEncounterContext> & { runId?: string };
   const navigationState = (location.state as ChartsNavigationState | null) ?? {};
   const urlMeta = useMemo(() => parseChartsNavigationMeta(location.search), [location.search]);
@@ -342,9 +440,23 @@ function ChartsContent() {
     };
     return meta;
   }, []);
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [encounterContext, setEncounterContext] = useState<OutpatientEncounterContext>(() => {
     const urlContext = parseChartsEncounterContext(location.search);
     if (hasEncounterContext(urlContext)) return urlContext;
+    const storedTabs = readChartsPatientTabsStorage(storageScope);
+    const activeTab =
+      (storedTabs?.activeKey
+        ? storedTabs.tabs.find((tab) => tab.key === storedTabs.activeKey)
+        : undefined) ?? storedTabs?.tabs?.[0];
+    if (activeTab) {
+      return {
+        patientId: activeTab.patientId,
+        appointmentId: activeTab.appointmentId,
+        receptionId: activeTab.receptionId,
+        visitDate: normalizeVisitDate(activeTab.visitDate) ?? undefined,
+      };
+    }
     const stored = loadChartsEncounterContext(storageScope);
     if (hasEncounterContext(stored)) return stored ?? {};
     return {
@@ -354,6 +466,56 @@ function ChartsContent() {
       visitDate: normalizeVisitDate(typeof navigationState.visitDate === 'string' ? navigationState.visitDate : undefined),
     };
   });
+  const [patientTabsState, setPatientTabsState] = useState<ChartsPatientTabsStorage>(() => {
+    return (
+      readChartsPatientTabsStorage(storageScope) ?? {
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        activeKey: undefined,
+        tabs: [],
+      }
+    );
+  });
+  const patientTabs = patientTabsState.tabs;
+  const activePatientTabKey = patientTabsState.activeKey ?? null;
+  const activePatientTab = useMemo(() => {
+    if (!activePatientTabKey) return null;
+    return patientTabs.find((tab) => tab.key === activePatientTabKey) ?? null;
+  }, [activePatientTabKey, patientTabs]);
+
+  useEffect(() => {
+    writeChartsPatientTabsStorage(
+      {
+        ...patientTabsState,
+        updatedAt: new Date().toISOString(),
+      },
+      storageScope,
+    );
+  }, [patientTabsState, storageScope]);
+
+  useEffect(() => {
+    const patientId = (encounterContext.patientId ?? '').trim();
+    if (!patientId) return;
+    const visitDate = normalizeVisitDate(encounterContext.visitDate) ?? today;
+    const key = buildPatientTabKey(patientId, visitDate);
+
+    setPatientTabsState((prev) => {
+      const existing = prev.tabs.find((tab) => tab.key === key);
+      const nextTab: ChartsPatientTab = {
+        key,
+        patientId,
+        visitDate,
+        appointmentId: encounterContext.appointmentId ?? existing?.appointmentId,
+        receptionId: encounterContext.receptionId ?? existing?.receptionId,
+        name: existing?.name,
+        openedAt: existing?.openedAt ?? new Date().toISOString(),
+      };
+      const nextTabs = existing
+        ? prev.tabs.map((tab) => (tab.key === key ? nextTab : tab))
+        : [...prev.tabs, nextTab];
+      return { ...prev, activeKey: key, tabs: nextTabs };
+    });
+  }, [encounterContext.appointmentId, encounterContext.patientId, encounterContext.receptionId, encounterContext.visitDate, today]);
   const [draftState, setDraftState] = useState<{
     dirty: boolean;
     patientId?: string;
@@ -371,9 +533,16 @@ function ChartsContent() {
     });
     return entries;
   });
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [auditEvents, setAuditEvents] = useState<AuditEventRecord[]>([]);
   const [lockState, setLockState] = useState<{ locked: boolean; reason?: string }>({ locked: false });
+  const [tabGuard, setTabGuard] = useState<
+    | null
+    | {
+        action: 'switch' | 'close' | 'quick-open';
+        targetKey?: string;
+        targetPatientId?: string;
+      }
+  >(null);
   const showDebugUi = import.meta.env.VITE_ENABLE_DEBUG_UI === '1' && isSystemAdminRole(session.role);
   const [approvalState, setApprovalState] = useState<{
     status: 'none' | 'approved';
@@ -430,6 +599,176 @@ function ChartsContent() {
   }>({});
   const lastEditLockAnnouncement = useRef<string | null>(null);
   const lastOrcaQueueSnapshot = useRef<string | null>(null);
+
+  const openEncounterInTabs = useCallback(
+    (next: OutpatientEncounterContext, options?: { name?: string }) => {
+      const patientId = (next.patientId ?? '').trim();
+      if (!patientId) return;
+      const visitDate = normalizeVisitDate(next.visitDate) ?? today;
+      const key = buildPatientTabKey(patientId, visitDate);
+      const name = options?.name?.trim() || undefined;
+
+      setPatientTabsState((prev) => {
+        const existing = prev.tabs.find((tab) => tab.key === key);
+        const nextTab: ChartsPatientTab = {
+          key,
+          patientId,
+          visitDate,
+          appointmentId: next.appointmentId ?? existing?.appointmentId,
+          receptionId: next.receptionId ?? existing?.receptionId,
+          name: name ?? existing?.name,
+          openedAt: existing?.openedAt ?? new Date().toISOString(),
+        };
+        const nextTabs = existing
+          ? prev.tabs.map((tab) => (tab.key === key ? nextTab : tab))
+          : [...prev.tabs, nextTab];
+        return { ...prev, activeKey: key, tabs: nextTabs };
+      });
+
+      setEncounterContext({
+        patientId,
+        appointmentId: next.appointmentId,
+        receptionId: next.receptionId,
+        visitDate,
+      });
+      setContextAlert(null);
+    },
+    [today],
+  );
+
+  const forceSelectPatientTab = useCallback(
+    (key: string) => {
+      const tab = patientTabs.find((tab) => tab.key === key);
+      if (!tab) return;
+      openEncounterInTabs(
+        {
+          patientId: tab.patientId,
+          appointmentId: tab.appointmentId,
+          receptionId: tab.receptionId,
+          visitDate: tab.visitDate,
+        },
+        { name: tab.name },
+      );
+    },
+    [openEncounterInTabs, patientTabs],
+  );
+
+  const forceClosePatientTab = useCallback(
+    (key: string) => {
+      const idx = patientTabs.findIndex((tab) => tab.key === key);
+      if (idx < 0) return;
+      const nextTabs = patientTabs.filter((tab) => tab.key !== key);
+      const wasActive = activePatientTabKey === key;
+      const nextActive =
+        wasActive ? nextTabs[idx - 1] ?? nextTabs[idx] ?? null : activePatientTabKey ? nextTabs.find((tab) => tab.key === activePatientTabKey) ?? null : null;
+
+      setPatientTabsState((prev) => ({
+        ...prev,
+        activeKey: nextActive?.key,
+        tabs: nextTabs,
+      }));
+
+      if (!wasActive) return;
+      if (nextActive) {
+        setEncounterContext({
+          patientId: nextActive.patientId,
+          appointmentId: nextActive.appointmentId,
+          receptionId: nextActive.receptionId,
+          visitDate: nextActive.visitDate,
+        });
+        setContextAlert(null);
+        return;
+      }
+
+      setEncounterContext({});
+      setContextAlert({ tone: 'info', message: '患者が未選択です。Reception から患者を選択するか、IDでカルテを開いてください。' });
+      navigate({ pathname: chartsBasePath, search: '' }, { replace: true });
+    },
+    [activePatientTabKey, chartsBasePath, navigate, patientTabs],
+  );
+
+  const requestSelectPatientTab = useCallback(
+    (key: string) => {
+      if (key === activePatientTabKey) return;
+      if (tabLockReadOnlyRef.current) {
+        setContextAlert({
+          tone: 'warning',
+          message: '別タブが編集中のため患者切替をブロックしました。別タブを閉じるか、強制引き継ぎを実行してください。',
+        });
+        return;
+      }
+      if (lockState.locked) {
+        setContextAlert({
+          tone: 'warning',
+          message: lockState.reason ?? '処理中のため患者切替をブロックしました。',
+        });
+        return;
+      }
+      if (draftState.dirty) {
+        setTabGuard({ action: 'switch', targetKey: key });
+        return;
+      }
+      forceSelectPatientTab(key);
+    },
+    [activePatientTabKey, draftState.dirty, forceSelectPatientTab, lockState.locked, lockState.reason],
+  );
+
+  const requestClosePatientTab = useCallback(
+    (key: string) => {
+      const isActive = key === activePatientTabKey;
+      if (!isActive) {
+        // Closing an inactive tab does not change encounterContext, so allow it even while locked/read-only.
+        forceClosePatientTab(key);
+        return;
+      }
+      if (tabLockReadOnlyRef.current) {
+        setContextAlert({
+          tone: 'warning',
+          message: '別タブが編集中のため、この患者タブを閉じられません。別タブを閉じるか、強制引き継ぎを実行してください。',
+        });
+        return;
+      }
+      if (lockState.locked) {
+        setContextAlert({
+          tone: 'warning',
+          message: lockState.reason ?? '処理中のためタブを閉じられません。',
+        });
+        return;
+      }
+      if (isActive && draftState.dirty) {
+        setTabGuard({ action: 'close', targetKey: key });
+        return;
+      }
+      forceClosePatientTab(key);
+    },
+    [activePatientTabKey, draftState.dirty, forceClosePatientTab, lockState.locked, lockState.reason],
+  );
+
+  const handleTabGuardCancel = useCallback(() => {
+    setTabGuard(null);
+  }, []);
+
+  const handleTabGuardConfirm = useCallback(() => {
+    if (!tabGuard) return;
+    const { action, targetKey, targetPatientId } = tabGuard;
+    setTabGuard(null);
+    setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
+    if (action === 'switch') {
+      if (!targetKey) return;
+      forceSelectPatientTab(targetKey);
+      return;
+    }
+    if (action === 'close') {
+      if (!targetKey) return;
+      forceClosePatientTab(targetKey);
+      return;
+    }
+    if (action === 'quick-open') {
+      if (!targetPatientId) return;
+      setChartsQuickOpenPatientId(targetPatientId);
+      setPendingQuickOpenPatientId(targetPatientId);
+    }
+  }, [forceClosePatientTab, forceSelectPatientTab, tabGuard]);
 
   useEffect(() => {
     // Feature flag gate: prevent accessing the Images utility via persisted state / URL triggers.
@@ -1422,6 +1761,103 @@ function ChartsContent() {
     [appointmentPages],
   );
 
+  const performChartsQuickOpenByPatientId = useCallback(
+    async (rawPatientId: string) => {
+      const normalized = rawPatientId.trim();
+      if (!normalized) return;
+      setChartsQuickOpenPending(true);
+      try {
+        const resolveEntryPatientId = (entry: ReceptionEntry) => {
+          const pid = (entry.patientId ?? '').trim();
+          if (pid) return pid;
+          const fallback = (entry.id ?? '').trim();
+          return /^\d+$/.test(fallback) ? fallback : undefined;
+        };
+
+        const todayEntry =
+          patientEntries.find((entry) => resolveEntryPatientId(entry) === normalized && entry.status !== '予約') ??
+          patientEntries.find((entry) => resolveEntryPatientId(entry) === normalized) ??
+          undefined;
+        if (todayEntry) {
+          openEncounterInTabs(
+            {
+              patientId: normalized,
+              appointmentId: todayEntry.appointmentId,
+              receptionId: todayEntry.receptionId,
+              visitDate: normalizeVisitDate(todayEntry.visitDate) ?? today,
+            },
+            { name: todayEntry.name },
+          );
+          setChartsQuickOpenPatientId('');
+          return;
+        }
+
+        const result = await fetchPatients({ keyword: normalized });
+        const patients = result.patients ?? [];
+        const exact = patients.find((patient) => (patient.patientId ?? '').trim() === normalized);
+        const fallback = patients.length === 1 ? patients[0] : undefined;
+        const matched = exact ?? fallback;
+        const patientId = (matched?.patientId ?? '').trim();
+        if (!patientId) {
+          setContextAlert({ tone: 'warning', message: `患者が見つかりませんでした（患者ID=${normalized}）。` });
+          return;
+        }
+        const visitDate = normalizeVisitDate(matched?.lastVisit) ?? today;
+        openEncounterInTabs({ patientId, visitDate }, { name: matched?.name });
+        setChartsQuickOpenPatientId('');
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        setContextAlert({ tone: 'warning', message: `患者検索に失敗しました: ${detail}` });
+      } finally {
+        setChartsQuickOpenPending(false);
+      }
+    },
+    [openEncounterInTabs, patientEntries, today],
+  );
+
+  const handleChartsQuickOpenSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const raw = chartsQuickOpenPatientId.trim();
+      if (!raw) return;
+      if (chartsQuickOpenPending) return;
+      if (tabLockReadOnlyRef.current) {
+        setContextAlert({
+          tone: 'warning',
+          message: '別タブが編集中のため患者切替をブロックしました。別タブを閉じるか、強制引き継ぎを実行してください。',
+        });
+        return;
+      }
+      if (lockState.locked) {
+        setContextAlert({
+          tone: 'warning',
+          message: lockState.reason ?? '処理中のため患者切替をブロックしました。',
+        });
+        return;
+      }
+      if (draftState.dirty) {
+        setTabGuard({ action: 'quick-open', targetPatientId: raw });
+        return;
+      }
+      void performChartsQuickOpenByPatientId(raw);
+    },
+    [
+      chartsQuickOpenPatientId,
+      chartsQuickOpenPending,
+      draftState.dirty,
+      lockState.locked,
+      lockState.reason,
+      performChartsQuickOpenByPatientId,
+    ],
+  );
+
+  useEffect(() => {
+    if (!pendingQuickOpenPatientId) return;
+    void Promise.resolve(performChartsQuickOpenByPatientId(pendingQuickOpenPatientId)).finally(() => {
+      setPendingQuickOpenPatientId(null);
+    });
+  }, [pendingQuickOpenPatientId, performChartsQuickOpenByPatientId]);
+
   const selectedEntry = useMemo(() => {
     if (!encounterContext.patientId && !encounterContext.appointmentId && !encounterContext.receptionId) return undefined;
     const byReception = encounterContext.receptionId
@@ -1460,6 +1896,20 @@ function ChartsContent() {
       today,
     [encounterContext.visitDate, selectedEntry?.visitDate, today],
   );
+
+  const patientFallbackQuery = useQuery({
+    queryKey: ['charts-patient-fallback', patientId],
+    queryFn: async () => {
+      if (!patientId) return null;
+      const result = await fetchPatients({ keyword: patientId });
+      const exact = result.patients.find((p) => (p.patientId ?? '').trim() === patientId);
+      return exact ?? result.patients[0] ?? null;
+    },
+    enabled: Boolean(patientId) && !selectedEntry,
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const fallbackPatient: PatientRecord | null = patientFallbackQuery.data ?? null;
 
   const karteIdQuery = useQuery({
     queryKey: ['charts-karte-id', patientId],
@@ -1526,29 +1976,40 @@ function ChartsContent() {
 
   const patientDisplay = useMemo(() => {
     const baseDate = parseDate(actionVisitDate) ?? new Date();
-    const birthDateParts = formatBirthDateParts(selectedEntry?.birthDate);
+    const birthDateRaw = selectedEntry?.birthDate ?? fallbackPatient?.birthDate;
+    const birthDateParts = formatBirthDateParts(birthDateRaw);
+    const resolvedName =
+      selectedEntry?.name ??
+      fallbackPatient?.name ??
+      (patientId ? `患者ID:${patientId}` : '患者未選択');
     return {
       patientId: patientId ?? '—',
       receptionId: receptionId ?? '—',
       appointmentId: appointmentId ?? '—',
-      name: selectedEntry?.name ?? '患者未選択',
-      kana: selectedEntry?.kana ?? '—',
+      name: resolvedName,
+      kana: selectedEntry?.kana ?? fallbackPatient?.kana ?? '—',
       birthDate: birthDateParts.display,
       birthDateIso: birthDateParts.iso,
       birthDateEra: birthDateParts.era,
-      age: formatAge(selectedEntry?.birthDate, baseDate),
-      sex: selectedEntry?.sex ?? '—',
+      age: formatAge(birthDateRaw, baseDate),
+      sex: selectedEntry?.sex ?? fallbackPatient?.sex ?? '—',
       status: selectedEntry?.status ?? '—',
       department: selectedEntry?.department ?? '—',
       physician: selectedEntry?.physician ?? '—',
-      insurance: selectedEntry?.insurance ?? '—',
+      insurance: selectedEntry?.insurance ?? fallbackPatient?.insurance ?? '—',
       visitDate: actionVisitDate ?? '—',
       appointmentTime: selectedEntry?.appointmentTime ?? '—',
-      note: selectedEntry?.note ?? 'メモなし',
+      note: selectedEntry?.note ?? fallbackPatient?.memo ?? 'メモなし',
     };
   }, [
     actionVisitDate,
     appointmentId,
+    fallbackPatient?.birthDate,
+    fallbackPatient?.insurance,
+    fallbackPatient?.kana,
+    fallbackPatient?.memo,
+    fallbackPatient?.name,
+    fallbackPatient?.sex,
     patientId,
     receptionId,
     selectedEntry?.appointmentTime,
@@ -1563,6 +2024,27 @@ function ChartsContent() {
     selectedEntry?.status,
     selectedEntry?.visitDate,
   ]);
+
+  const patientTabKeyForContext = useMemo(() => {
+    const pid = (patientId ?? '').trim();
+    if (!pid) return null;
+    const visitDate = normalizeVisitDate(encounterContext.visitDate) ?? actionVisitDate ?? today;
+    return buildPatientTabKey(pid, visitDate);
+  }, [actionVisitDate, encounterContext.visitDate, patientId, today]);
+
+  useEffect(() => {
+    const key = patientTabKeyForContext;
+    if (!key) return;
+    const nextName = (selectedEntry?.name ?? fallbackPatient?.name ?? '').trim();
+    if (!nextName) return;
+    setPatientTabsState((prev) => {
+      const existing = prev.tabs.find((tab) => tab.key === key);
+      if (!existing) return prev;
+      if ((existing.name ?? '').trim() === nextName) return prev;
+      const nextTabs = prev.tabs.map((tab) => (tab.key === key ? { ...tab, name: nextName } : tab));
+      return { ...prev, tabs: nextTabs };
+    });
+  }, [fallbackPatient?.name, patientTabKeyForContext, patientTabsState.tabs, selectedEntry?.name]);
 
   const lockTarget = useMemo(() => {
     const patientId = selectedEntry?.patientId ?? selectedEntry?.id ?? encounterContext.patientId;
@@ -2077,6 +2559,15 @@ function ChartsContent() {
       setIsManualRefreshing(false);
     }
   }, [appointmentQuery, claimQuery, orcaSummaryQuery]);
+
+  const handleAfterFinish = useCallback(async () => {
+    await handleRefreshSummary();
+    const activeKey = activePatientTabKey;
+    if (!activeKey) return;
+    // 診療終了 = この患者のタブを閉じて次へ進む運用。
+    setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
+    forceClosePatientTab(activeKey);
+  }, [activePatientTabKey, forceClosePatientTab, handleRefreshSummary]);
 
   const utilityPanelTitles: Record<DockedUtilityAction, string> = {
     'clinical-actions': '診療操作',
@@ -2593,6 +3084,27 @@ function ChartsContent() {
           </div>
         </section>
       </FocusTrapDialog>
+      <FocusTrapDialog
+        open={Boolean(tabGuard)}
+        title="未保存の入力があります"
+        description="患者切替・タブ操作の前に、未保存ドラフトを破棄するかキャンセルしてください。"
+        onClose={handleTabGuardCancel}
+        testId="charts-tab-guard-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="未保存ドラフト確認">
+          <p className="charts-tab-guard__message">
+            未保存の入力があります（ドラフト未保存）。破棄して続行しますか？
+          </p>
+          <div className="charts-tab-guard__actions" role="group" aria-label="未保存ドラフト操作">
+            <button type="button" onClick={handleTabGuardCancel}>
+              キャンセル
+            </button>
+            <button type="button" className="charts-tab-guard__danger" onClick={handleTabGuardConfirm}>
+              破棄して続行
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
       <main
         id="charts-main"
         tabIndex={-1}
@@ -2803,6 +3315,70 @@ function ChartsContent() {
             <div className="charts-workbench__sticky">
               <div className="charts-workbench__sticky-grid">
                 <div className="charts-encounter-header" aria-label="患者情報と診療操作">
+                  <div className="charts-patient-tabs" aria-label="開いているカルテ" data-test-id="charts-patient-tabs">
+                    <div className="charts-patient-tabs__list" role="list" aria-label="カルテタブ一覧">
+                      {patientTabs.length > 0 ? (
+                        patientTabs.map((tab) => {
+                          const tabName = tab.name?.trim() || '患者';
+                          const label = `${tabName}（${tab.patientId}）`;
+                          const isActive = tab.key === activePatientTabKey;
+                          return (
+                            <div
+                              key={tab.key}
+                              className={`charts-patient-tabs__item${isActive ? ' is-active' : ''}`}
+                              role="listitem"
+                              data-patient-id={tab.patientId}
+                            >
+                              <button
+                                type="button"
+                                className="charts-patient-tabs__select"
+                                aria-current={isActive ? 'page' : undefined}
+                                onClick={() => requestSelectPatientTab(tab.key)}
+                                title={`${label} / visitDate=${tab.visitDate}`}
+                              >
+                                <span className="charts-patient-tabs__name">{tabName}</span>
+                                <span className="charts-patient-tabs__id">{tab.patientId}</span>
+                              </button>
+                              <button
+                                type="button"
+                                className="charts-patient-tabs__close"
+                                onClick={() => requestClosePatientTab(tab.key)}
+                                aria-label={`${label} を閉じる`}
+                                title="閉じる"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <span className="charts-patient-tabs__empty">タブなし</span>
+                      )}
+                    </div>
+                    <form className="charts-patient-tabs__quick-open" onSubmit={handleChartsQuickOpenSubmit} aria-label="患者IDでカルテを開く">
+                      <label className="charts-patient-tabs__quick-field" htmlFor="charts-quick-open-patient-id">
+                        <span>患者ID</span>
+                        <input
+                          id="charts-quick-open-patient-id"
+                          name="chartsQuickOpenPatientId"
+                          type="search"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          value={chartsQuickOpenPatientId}
+                          onChange={(event) => setChartsQuickOpenPatientId(event.target.value)}
+                          placeholder="000001"
+                          disabled={chartsQuickOpenPending}
+                        />
+                      </label>
+                      <button
+                        type="submit"
+                        className="charts-patient-tabs__quick-button"
+                        disabled={chartsQuickOpenPending || !chartsQuickOpenPatientId.trim()}
+                      >
+                        {chartsQuickOpenPending ? '検索中…' : '開く'}
+                      </button>
+                    </form>
+                  </div>
                   <div className="charts-card charts-card--summary" id="charts-patient-summary" tabIndex={-1} data-focus-anchor="true">
                     <ChartsPatientSummaryBar
                       patientDisplay={patientDisplay}
@@ -2916,7 +3492,7 @@ function ChartsContent() {
                       onApprovalConfirmed={handleApprovalConfirmed}
                       onApprovalUnlock={handleApprovalUnlock}
                       onAfterSend={handleRefreshSummary}
-                      onAfterFinish={handleRefreshSummary}
+                      onAfterFinish={handleAfterFinish}
                       onDraftSaved={() => setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }))}
                       onLockChange={handleLockChange}
                     />

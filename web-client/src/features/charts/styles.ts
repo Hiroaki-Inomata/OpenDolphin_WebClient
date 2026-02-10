@@ -284,6 +284,216 @@ export const chartsStyles = css`
     }
   }
 
+  .charts-patient-tabs {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: var(--charts-space-sm);
+    padding: 0.35rem 0.55rem;
+    border-radius: var(--charts-radius-md);
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: var(--charts-shadow-1);
+    flex-wrap: wrap;
+  }
+
+  .charts-patient-tabs__list {
+    flex: 1;
+    min-width: min(220px, 100%);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding: 0.1rem;
+    scrollbar-width: thin;
+  }
+
+  .charts-patient-tabs__item {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .charts-patient-tabs__select {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    max-width: 220px;
+    padding: 0.32rem 0.7rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.5);
+    background: #ffffff;
+    cursor: pointer;
+    font-weight: 800;
+    color: #0f172a;
+    font-size: 0.86rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+  }
+
+  .charts-patient-tabs__select:hover {
+    background: rgba(239, 246, 255, 0.65);
+  }
+
+  .charts-patient-tabs__select:focus-visible {
+    outline: 2px solid rgba(37, 99, 235, 0.55);
+    outline-offset: 2px;
+  }
+
+  .charts-patient-tabs__item.is-active .charts-patient-tabs__select {
+    border-color: rgba(37, 99, 235, 0.75);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+    background: rgba(239, 246, 255, 0.85);
+  }
+
+  .charts-patient-tabs__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .charts-patient-tabs__id {
+    font-size: 0.78rem;
+    color: rgba(71, 85, 105, 0.95);
+    font-weight: 800;
+  }
+
+  .charts-patient-tabs__close {
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    background: #ffffff;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    color: rgba(71, 85, 105, 0.9);
+    font-weight: 900;
+    line-height: 1;
+    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  }
+
+  .charts-patient-tabs__close:hover {
+    background: rgba(254, 226, 226, 0.9);
+    border-color: rgba(248, 113, 113, 0.6);
+    color: rgba(127, 29, 29, 0.95);
+  }
+
+  .charts-patient-tabs__close:focus-visible {
+    outline: 2px solid rgba(220, 38, 38, 0.55);
+    outline-offset: 2px;
+  }
+
+  .charts-patient-tabs__empty {
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    border: 1px dashed rgba(148, 163, 184, 0.5);
+    background: rgba(248, 250, 252, 0.92);
+    color: rgba(71, 85, 105, 0.95);
+    font-size: 0.84rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .charts-patient-tabs__quick-open {
+    margin-left: auto;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  .charts-patient-tabs__quick-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-weight: 800;
+    color: #0f172a;
+    font-size: 0.85rem;
+  }
+
+  .charts-patient-tabs__quick-field span {
+    font-size: 0.75rem;
+    color: rgba(71, 85, 105, 0.95);
+    letter-spacing: 0.02em;
+  }
+
+  .charts-patient-tabs__quick-field input {
+    width: 7.5rem;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.55);
+    padding: 0.45rem 0.6rem;
+    background: #ffffff;
+    font-size: 0.9rem;
+  }
+
+  .charts-patient-tabs__quick-button {
+    padding: 0.55rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid rgba(37, 99, 235, 0.72);
+    background: rgba(37, 99, 235, 0.98);
+    color: #ffffff;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .charts-patient-tabs__quick-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  @media (max-width: 720px) {
+    .charts-patient-tabs__quick-field input {
+      width: min(10rem, 70vw);
+    }
+  }
+
+  .charts-tab-guard {
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-md);
+  }
+
+  .charts-tab-guard__message {
+    margin: 0;
+    color: #0f172a;
+    line-height: 1.65;
+  }
+
+  .charts-tab-guard__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--charts-space-sm);
+    flex-wrap: wrap;
+  }
+
+  .charts-tab-guard__actions button {
+    padding: 0.6rem 0.95rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.55);
+    background: #ffffff;
+    color: #0f172a;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .charts-tab-guard__actions button:hover {
+    background: rgba(248, 250, 252, 0.92);
+  }
+
+  .charts-tab-guard__danger {
+    border-color: rgba(220, 38, 38, 0.75);
+    background: rgba(220, 38, 38, 0.98);
+    color: #ffffff;
+  }
+
+  .charts-tab-guard__danger:hover {
+    background: rgba(185, 28, 28, 0.98);
+  }
+
   .charts-card--summary {
     padding: var(--charts-space-sm);
     border-color: rgba(148, 163, 184, 0.45);

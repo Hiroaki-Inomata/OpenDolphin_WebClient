@@ -438,6 +438,8 @@ export function ReceptionPage({
   const [selectedDate, setSelectedDate] = useState(() => searchParams.get('date') ?? todayString());
   const [keyword, setKeyword] = useState(() => searchParams.get('kw') ?? '');
   const [submittedKeyword, setSubmittedKeyword] = useState(() => searchParams.get('kw') ?? '');
+  const [quickOpenPatientId, setQuickOpenPatientId] = useState('');
+  const [quickOpenPending, setQuickOpenPending] = useState(false);
   const [departmentFilter, setDepartmentFilter] = useState(() => searchParams.get('dept') ?? '');
   const [physicianFilter, setPhysicianFilter] = useState(() => searchParams.get('phys') ?? '');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>(() => normalizePaymentMode(searchParams.get('pay')));
@@ -2753,14 +2755,14 @@ export function ReceptionPage({
     ],
   );
 
-  const handleOpenChartsNewTab = useCallback(
+  const handleOpenCharts = useCallback(
     (entry: ReceptionEntry, urlOverride?: string) => {
       const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
       if (!entry.patientId) {
         enqueue({
           id: `reception-open-charts-blocked-${entryKey(entry)}`,
           tone: 'warning',
-          message: '患者IDが未設定のため Charts を開けません。',
+          message: '患者IDが未設定のためカルテを開けません。',
           detail: '受付情報の患者IDを確認してください。',
         });
         logAuditEvent({
@@ -2784,7 +2786,7 @@ export function ReceptionPage({
         logUiState({
           action: 'navigate',
           screen: 'reception/list',
-          controlId: 'open-charts-new-tab',
+          controlId: 'open-charts',
           runId: guardRunId,
           details: {
             blockedReason: 'missing_patient_id',
@@ -2797,13 +2799,19 @@ export function ReceptionPage({
       const nextRunId = guardRunId;
       if (nextRunId) bumpRunId(nextRunId);
       const url = urlOverride ?? buildChartsUrlForEntry(entry, nextRunId);
-      if (typeof window !== 'undefined') {
-        window.open(url, '_blank', 'noopener,noreferrer');
-      }
+      navigate(url, {
+        state: {
+          runId: nextRunId,
+          patientId: entry.patientId,
+          appointmentId: entry.appointmentId,
+          receptionId: entry.receptionId,
+          visitDate: entry.visitDate,
+        },
+      });
       logUiState({
         action: 'navigate',
         screen: 'reception/list',
-        controlId: 'open-charts-new-tab',
+        controlId: 'open-charts',
         runId: nextRunId,
         dataSourceTransition: mergedMeta.dataSourceTransition,
         cacheHit: mergedMeta.cacheHit,
@@ -2814,12 +2822,85 @@ export function ReceptionPage({
     [
       bumpRunId,
       buildChartsUrlForEntry,
+      navigate,
       flags.runId,
       initialRunId,
       mergedMeta.cacheHit,
       mergedMeta.dataSourceTransition,
       mergedMeta.missingMaster,
       mergedMeta.runId,
+    ],
+  );
+
+  const handleQuickOpenChartsByPatientId = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const raw = quickOpenPatientId.trim();
+      if (!raw) return;
+
+      const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
+      if (guardRunId) bumpRunId(guardRunId);
+
+      const normalized = raw;
+      const todayEntry =
+        sortedEntries.find((entry) => (entry.patientId ?? '').trim() === normalized && entry.status !== '予約') ??
+        sortedEntries.find((entry) => (entry.patientId ?? '').trim() === normalized) ??
+        undefined;
+      if (todayEntry) {
+        handleOpenCharts(todayEntry);
+        return;
+      }
+
+      setQuickOpenPending(true);
+      try {
+        const result = await fetchPatients({ keyword: normalized });
+        const patients = result.patients ?? [];
+        const exact = patients.find((patient) => (patient.patientId ?? '').trim() === normalized);
+        const fallback = patients.length === 1 ? patients[0] : undefined;
+        const matched = exact ?? fallback;
+        const patientId = (matched?.patientId ?? '').trim();
+        if (!patientId) {
+          enqueue({
+            tone: 'warning',
+            message: '患者が見つかりませんでした。',
+            detail: `患者ID=${normalized}`,
+          });
+          return;
+        }
+        const visitDate = matched?.lastVisit?.trim() || undefined;
+        const url = buildChartsUrl(
+          { patientId, visitDate },
+          receptionCarryover,
+          { runId: guardRunId },
+          buildFacilityPath(session.facilityId, '/charts'),
+        );
+        navigate(url, {
+          state: {
+            runId: guardRunId,
+            patientId,
+            visitDate,
+          },
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        enqueue({ tone: 'error', message: '患者検索に失敗しました。', detail });
+      } finally {
+        setQuickOpenPending(false);
+      }
+    },
+    [
+      bumpRunId,
+      buildFacilityPath,
+      enqueue,
+      flags.runId,
+      handleOpenCharts,
+      initialRunId,
+      mergedMeta.runId,
+      navigate,
+      quickOpenPatientId,
+      receptionCarryover,
+      session.facilityId,
+      sortedEntries,
     ],
   );
 
@@ -2950,6 +3031,31 @@ export function ReceptionPage({
               <span className="reception-exception-indicator__count">{exceptionCounts.total}</span>
 	            </button>
 	          </div>
+            <section className="reception-quick-open" aria-label="患者IDでカルテを開く" data-run-id={resolvedRunId}>
+              <form className="reception-quick-open__form" onSubmit={handleQuickOpenChartsByPatientId}>
+                <label className="reception-quick-open__field">
+                  <span>患者IDでカルテを開く</span>
+                  <input
+                    id="reception-quick-open-patient-id"
+                    name="receptionQuickOpenPatientId"
+                    type="search"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={quickOpenPatientId}
+                    onChange={(event) => setQuickOpenPatientId(event.target.value)}
+                    placeholder="000001"
+                    disabled={quickOpenPending}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="reception-search__button primary"
+                  disabled={quickOpenPending || !quickOpenPatientId.trim()}
+                >
+                  {quickOpenPending ? '検索中…' : '開く'}
+                </button>
+              </form>
+            </section>
 	          <section
 	            className={`reception-search reception-search--header${filtersCollapsed ? ' is-collapsed' : ''}`}
 	            aria-label="検索とフィルタ"
@@ -3451,18 +3557,18 @@ export function ReceptionPage({
                   className="reception-selection__button"
                   onClick={() => {
                     if (!selectedEntry) return;
-                    handleOpenChartsNewTab(selectedEntry);
+                    handleOpenCharts(selectedEntry);
                   }}
                   disabled={!selectedEntry || !selectedEntry.patientId}
                   title={
                     !selectedEntry
                       ? '患者を選択してください'
                       : selectedEntry.patientId
-                        ? 'Charts を新規タブで開く'
-                        : '患者IDが未登録のため新規タブを開けません'
+                        ? 'カルテを開く'
+                        : '患者IDが未登録のためカルテを開けません'
                   }
                 >
-                  Charts 新規タブ
+                  カルテを開く
                 </button>
                 <button
                   type="button"
@@ -3776,15 +3882,15 @@ export function ReceptionPage({
                                 <button
                                   type="button"
                                   className="reception-card__action"
-                                  aria-label="Charts新規タブ（カード）"
+                                  aria-label="カルテを開く（カード）"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    handleOpenChartsNewTab(entry);
+                                    handleOpenCharts(entry);
                                   }}
                                   disabled={!canOpenCharts}
-                                  title={canOpenCharts ? 'Charts を新規タブで開く' : '患者IDが未登録のため新規タブを開けません'}
+                                  title={canOpenCharts ? 'カルテを開く' : '患者IDが未登録のためカルテを開けません'}
                                 >
-                                  Charts新規
+                                  カルテを開く
                                 </button>
                               </div>
                             </div>
@@ -4026,12 +4132,12 @@ export function ReceptionPage({
                                   className="reception-table__action-button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    handleOpenChartsNewTab(entry);
+                                    handleOpenCharts(entry);
                                   }}
                                   disabled={!canOpenCharts}
-                                  title={canOpenCharts ? 'Charts を新規タブで開く' : '患者IDが未登録のため新規タブを開けません'}
+                                  title={canOpenCharts ? 'カルテを開く' : '患者IDが未登録のためカルテを開けません'}
                                 >
-                                  Charts 新規タブ
+                                  カルテを開く
                                 </button>
                               </td>
                             </tr>
@@ -4198,6 +4304,7 @@ export function ReceptionPage({
                       const matchedEntry = resolvedPatientId
                         ? sortedEntries.find((entry) => entry.patientId === resolvedPatientId)
                         : undefined;
+                      const matchedTodayEntry = matchedEntry && matchedEntry.status !== '予約' ? matchedEntry : undefined;
                       return (
                         <div
                           key={key}
@@ -4225,7 +4332,7 @@ export function ReceptionPage({
                               {matchedEntry?.status ? <span>今日: {matchedEntry.status}</span> : null}
                             </div>
                           </button>
-                          <div className="reception-patient-search__item-actions" role="group" aria-label="カルテ">
+                          <div className="reception-patient-search__item-actions" role="group" aria-label="カルテ操作">
                             <button
                               type="button"
                               className="reception-search__button ghost"
@@ -4239,7 +4346,44 @@ export function ReceptionPage({
                                   : '患者IDが未登録のため過去カルテを表示できません'
                               }
                             >
-                              カルテ
+                              過去カルテ
+                            </button>
+                            <button
+                              type="button"
+                              className="reception-search__button primary"
+                              onClick={() => {
+                                if (!resolvedPatientId) return;
+                                if (matchedTodayEntry) {
+                                  handleOpenCharts(matchedTodayEntry);
+                                  return;
+                                }
+                                const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
+                                if (guardRunId) bumpRunId(guardRunId);
+                                const visitDate = patient.lastVisit?.trim() || undefined;
+                                const url = buildChartsUrl(
+                                  { patientId: resolvedPatientId, visitDate },
+                                  receptionCarryover,
+                                  { runId: guardRunId },
+                                  buildFacilityPath(session.facilityId, '/charts'),
+                                );
+                                navigate(url, {
+                                  state: {
+                                    runId: guardRunId,
+                                    patientId: resolvedPatientId,
+                                    visitDate,
+                                  },
+                                });
+                              }}
+                              disabled={!resolvedPatientId}
+                              title={
+                                resolvedPatientId
+                                  ? matchedTodayEntry
+                                    ? '当日のカルテを開く'
+                                    : '直近来院日のカルテを開く'
+                                  : '患者IDが未登録のためカルテを開けません'
+                              }
+                            >
+                              カルテを開く
                             </button>
                           </div>
                         </div>
@@ -4518,7 +4662,7 @@ export function ReceptionPage({
               handleSelectEntry(entry);
               closeExceptionsModal();
             }}
-            onOpenCharts={handleOpenChartsNewTab}
+            onOpenCharts={handleOpenCharts}
             onRetryQueue={handleRetryQueue}
             retryingPatientId={retryingPatientId}
           />
