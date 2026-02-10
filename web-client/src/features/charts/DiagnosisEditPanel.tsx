@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { recordOutpatientFunnel } from '../../libs/telemetry/telemetryClient';
 import { resolveAriaLive } from '../../libs/observability/observability';
+import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 import { fetchDiseases, mutateDiseases, type DiseaseEntry } from './diseaseApi';
 import type { DataSourceTransition } from './authService';
 
@@ -29,7 +30,9 @@ export type DiagnosisEditPanelProps = {
 
 type DiagnosisFormState = {
   diagnosisId?: number;
+  prefix: string;
   name: string;
+  suffix: string;
   code: string;
   startDate: string;
   endDate: string;
@@ -41,7 +44,9 @@ type DiagnosisFormState = {
 const OUTCOME_PRESETS = ['継続', '治癒', '中止', '再発', '死亡', '転院', '不明'];
 
 const buildEmptyForm = (today: string): DiagnosisFormState => ({
+  prefix: '',
   name: '',
+  suffix: '',
   code: '',
   startDate: today,
   endDate: '',
@@ -52,7 +57,9 @@ const buildEmptyForm = (today: string): DiagnosisFormState => ({
 
 const toFormState = (entry: DiseaseEntry, today: string): DiagnosisFormState => ({
   diagnosisId: entry.diagnosisId,
+  prefix: '',
   name: entry.diagnosisName ?? '',
+  suffix: '',
   code: entry.diagnosisCode ?? '',
   startDate: entry.startDate ?? today,
   endDate: entry.endDate ?? '',
@@ -61,18 +68,13 @@ const toFormState = (entry: DiseaseEntry, today: string): DiagnosisFormState => 
   isSuspected: entry.suspectedFlag?.includes('疑い') ?? entry.category?.includes('疑い') ?? false,
 });
 
-const summarizeCategory = (entry: DiseaseEntry): string => {
-  if (entry.category && entry.suspectedFlag) return `${entry.category} / ${entry.suspectedFlag}`;
-  if (entry.category) return entry.category;
-  if (entry.suspectedFlag) return entry.suspectedFlag;
-  return '—';
-};
-
 export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps) {
   const queryClient = useQueryClient();
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [form, setForm] = useState<DiagnosisFormState>(() => buildEmptyForm(today));
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
   const blockReasons = useMemo(() => {
     const reasons: string[] = [];
     if (meta.readOnly) {
@@ -130,19 +132,34 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
     });
   }, [meta]);
 
+  useEffect(() => {
+    if (!isEditorOpen) return;
+    requestAnimationFrame(() => {
+      const el = nameInputRef.current;
+      if (!el) return;
+      el.focus();
+      try {
+        el.select();
+      } catch {
+        // ignore select errors (e.g. input type/date)
+      }
+    });
+  }, [isEditorOpen, form.diagnosisId]);
+
   const mutation = useMutation({
     mutationFn: async (payload: DiagnosisFormState) => {
       if (!patientId) throw new Error('patientId is required');
       const operation = payload.diagnosisId ? 'update' : 'create';
       const category = payload.isMain ? '主病名' : '副病名';
       const suspectedFlag = payload.isSuspected ? '疑い' : undefined;
+      const combinedName = `${payload.prefix ?? ''}${payload.name ?? ''}${payload.suffix ?? ''}`.trim();
       return mutateDiseases({
         patientId,
         operations: [
           {
             operation,
             diagnosisId: payload.diagnosisId,
-            diagnosisName: payload.name,
+            diagnosisName: combinedName,
             diagnosisCode: payload.code || undefined,
             startDate: payload.startDate || undefined,
             endDate: payload.endDate || undefined,
@@ -198,6 +215,11 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
       if (result.ok) {
         queryClient.invalidateQueries({ queryKey });
         setForm(buildEmptyForm(today));
+        if (payload.diagnosisId) {
+          setIsEditorOpen(false);
+        } else {
+          requestAnimationFrame(() => nameInputRef.current?.focus());
+        }
       }
     },
     onError: (error: unknown, payload) => {
@@ -314,30 +336,38 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
     },
   });
 
-  const list = diagnosisQuery.data?.diseases ?? [];
+  const list = useMemo(() => diagnosisQuery.data?.diseases ?? [], [diagnosisQuery.data?.diseases]);
+  const activeList = useMemo(() => list.filter((entry) => !entry.endDate), [list]);
+  const endedList = useMemo(() => list.filter((entry) => Boolean(entry.endDate)), [list]);
 
   if (!patientId) {
     return <p className="charts-side-panel__empty">患者IDが未選択のため病名編集を開始できません。</p>;
   }
 
+  const openCreate = () => {
+    setForm(buildEmptyForm(today));
+    setNotice(null);
+    setIsEditorOpen(true);
+  };
+
+  const openEdit = (entry: DiseaseEntry) => {
+    setForm(toFormState(entry, today));
+    setNotice(null);
+    setIsEditorOpen(true);
+  };
+
   return (
     <section className="charts-side-panel__section" data-test-id="diagnosis-edit-panel">
       <header className="charts-side-panel__section-header">
         <div>
-          <strong>病名編集</strong>
-          <p>主/疑い/開始/転帰を編集し ORCA へ反映します。</p>
+          <strong>保険病名</strong>
+          <p className="charts-diagnosis__lead">ORCA 保険病名（主/疑い）をコンパクトに確認し、追加/編集はモーダルで行います。</p>
         </div>
-        <button
-          type="button"
-          className="charts-side-panel__ghost"
-          onClick={() => {
-            setForm(buildEmptyForm(today));
-            setNotice(null);
-          }}
-          disabled={isBlocked}
-        >
-          新規入力
-        </button>
+        <div className="charts-diagnosis__header-actions" role="group" aria-label="病名操作">
+          <button type="button" className="charts-side-panel__ghost" onClick={openCreate} disabled={isBlocked}>
+            追加
+          </button>
+        </div>
       </header>
 
       {isBlocked && (
@@ -346,109 +376,6 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
         </div>
       )}
       {notice && <div className={`charts-side-panel__notice charts-side-panel__notice--${notice.tone}`}>{notice.message}</div>}
-
-      <form
-        className="charts-side-panel__form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (isBlocked) {
-            return;
-          }
-          if (!form.name.trim()) {
-            setNotice({ tone: 'error', message: '病名を入力してください。' });
-            return;
-          }
-          mutation.mutate(form);
-        }}
-      >
-        <div className="charts-side-panel__field">
-          <label htmlFor="diagnosis-name">病名</label>
-          <input
-            id="diagnosis-name"
-            value={form.name}
-            onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-            placeholder="例: 高血圧症"
-            disabled={isBlocked}
-          />
-        </div>
-        <div className="charts-side-panel__field">
-          <label htmlFor="diagnosis-code">病名コード</label>
-          <input
-            id="diagnosis-code"
-            value={form.code}
-            onChange={(event) => setForm((prev) => ({ ...prev, code: event.target.value }))}
-            placeholder="例: I10"
-            disabled={isBlocked}
-          />
-        </div>
-        <div className="charts-side-panel__field-row">
-          <label className="charts-side-panel__toggle">
-            <input
-              id="diagnosis-main"
-              name="diagnosisMain"
-              type="checkbox"
-              checked={form.isMain}
-              onChange={(event) => setForm((prev) => ({ ...prev, isMain: event.target.checked }))}
-              disabled={isBlocked}
-            />
-            主病名
-          </label>
-          <label className="charts-side-panel__toggle">
-            <input
-              id="diagnosis-suspected"
-              name="diagnosisSuspected"
-              type="checkbox"
-              checked={form.isSuspected}
-              onChange={(event) => setForm((prev) => ({ ...prev, isSuspected: event.target.checked }))}
-              disabled={isBlocked}
-            />
-            疑い
-          </label>
-        </div>
-        <div className="charts-side-panel__field-row">
-          <div className="charts-side-panel__field">
-            <label htmlFor="diagnosis-start">開始日</label>
-            <input
-              id="diagnosis-start"
-              type="date"
-              value={form.startDate}
-              onChange={(event) => setForm((prev) => ({ ...prev, startDate: event.target.value }))}
-              disabled={isBlocked}
-            />
-          </div>
-          <div className="charts-side-panel__field">
-            <label htmlFor="diagnosis-end">転帰日</label>
-            <input
-              id="diagnosis-end"
-              type="date"
-              value={form.endDate}
-              onChange={(event) => setForm((prev) => ({ ...prev, endDate: event.target.value }))}
-              disabled={isBlocked}
-            />
-          </div>
-        </div>
-        <div className="charts-side-panel__field">
-          <label htmlFor="diagnosis-outcome">転帰</label>
-          <input
-            id="diagnosis-outcome"
-            list="diagnosis-outcome-options"
-            value={form.outcome}
-            onChange={(event) => setForm((prev) => ({ ...prev, outcome: event.target.value }))}
-            placeholder="例: 継続"
-            disabled={isBlocked}
-          />
-          <datalist id="diagnosis-outcome-options">
-            {OUTCOME_PRESETS.map((option) => (
-              <option key={option} value={option} />
-            ))}
-          </datalist>
-        </div>
-        <div className="charts-side-panel__actions">
-          <button type="submit" disabled={mutation.isPending || isBlocked}>
-            {form.diagnosisId ? '更新する' : '追加する'}
-          </button>
-        </div>
-      </form>
 
       <div className="charts-side-panel__list" aria-live={resolveAriaLive('info')}>
         <div className="charts-side-panel__list-header">
@@ -462,43 +389,249 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
           <p className="charts-side-panel__empty">病名が未登録です。</p>
         )}
         {list.length > 0 && (
-          <ul className="charts-side-panel__items">
-            {list.map((entry) => (
-              <li key={entry.diagnosisId ?? `${entry.diagnosisName}-${entry.startDate}`}>
-                <div>
-                  <strong>{entry.diagnosisName ?? '名称未設定'}</strong>
-                  <span>{entry.diagnosisCode ? `(${entry.diagnosisCode})` : ''}</span>
-                  <span>{summarizeCategory(entry)}</span>
-                </div>
-                <div>
-                  <span>{entry.startDate ?? '開始日未設定'}</span>
-                  {entry.endDate ? ` → ${entry.endDate}` : ''}
-                  {entry.outcome ? ` / ${entry.outcome}` : ''}
-                </div>
-                <div className="charts-side-panel__item-actions">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setForm(toFormState(entry, today));
-                      setNotice(null);
-                    }}
-                    disabled={isBlocked}
-                  >
-                    編集
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => deleteMutation.mutate(entry)}
-                    disabled={deleteMutation.isPending || isBlocked}
-                  >
-                    削除
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className="charts-side-panel__items charts-diagnosis__items" aria-label="登録済み病名（活動中）">
+              {activeList.map((entry) => (
+                <li key={entry.diagnosisId ?? `${entry.diagnosisName}-${entry.startDate}`} className="charts-diagnosis__item">
+                  <div className="charts-diagnosis__item-main">
+                    <div className="charts-diagnosis__title">
+                      <strong className="charts-diagnosis__name">{entry.diagnosisName ?? '名称未設定'}</strong>
+                      {entry.diagnosisCode ? <span className="charts-diagnosis__code">({entry.diagnosisCode})</span> : null}
+                    </div>
+                    <div className="charts-diagnosis__meta">
+                      <span className="charts-diagnosis__badges" role="list" aria-label="病名属性">
+                        {(entry.category?.includes('主') ?? false) ? (
+                          <span className="charts-diagnosis__badge charts-diagnosis__badge--main" role="listitem">
+                            主
+                          </span>
+                        ) : (
+                          <span className="charts-diagnosis__badge charts-diagnosis__badge--sub" role="listitem">
+                            副
+                          </span>
+                        )}
+                        {(entry.suspectedFlag?.includes('疑い') ?? entry.category?.includes('疑い') ?? false) ? (
+                          <span className="charts-diagnosis__badge charts-diagnosis__badge--suspected" role="listitem">
+                            疑い
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="charts-diagnosis__dates">
+                        {entry.startDate ? entry.startDate : '開始日未設定'}
+                        {entry.outcome ? ` / ${entry.outcome}` : ''}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="charts-side-panel__item-actions charts-diagnosis__item-actions" role="group" aria-label="病名操作">
+                    <button type="button" onClick={() => openEdit(entry)} disabled={isBlocked}>
+                      編集
+                    </button>
+                    <button type="button" onClick={() => deleteMutation.mutate(entry)} disabled={deleteMutation.isPending || isBlocked}>
+                      削除
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {endedList.length > 0 ? (
+              <details className="charts-diagnosis__ended">
+                <summary className="charts-diagnosis__ended-summary">転帰あり（{endedList.length}件）</summary>
+                <ul className="charts-side-panel__items charts-diagnosis__items" aria-label="登録済み病名（転帰あり）">
+                  {endedList.map((entry) => (
+                    <li key={entry.diagnosisId ?? `${entry.diagnosisName}-${entry.startDate}`} className="charts-diagnosis__item">
+                      <div className="charts-diagnosis__item-main">
+                        <div className="charts-diagnosis__title">
+                          <strong className="charts-diagnosis__name">{entry.diagnosisName ?? '名称未設定'}</strong>
+                          {entry.diagnosisCode ? <span className="charts-diagnosis__code">({entry.diagnosisCode})</span> : null}
+                        </div>
+                        <div className="charts-diagnosis__meta">
+                          <span className="charts-diagnosis__badges" role="list" aria-label="病名属性">
+                            {(entry.category?.includes('主') ?? false) ? (
+                              <span className="charts-diagnosis__badge charts-diagnosis__badge--main" role="listitem">
+                                主
+                              </span>
+                            ) : (
+                              <span className="charts-diagnosis__badge charts-diagnosis__badge--sub" role="listitem">
+                                副
+                              </span>
+                            )}
+                            {(entry.suspectedFlag?.includes('疑い') ?? entry.category?.includes('疑い') ?? false) ? (
+                              <span className="charts-diagnosis__badge charts-diagnosis__badge--suspected" role="listitem">
+                                疑い
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className="charts-diagnosis__dates">
+                            {entry.startDate ? entry.startDate : '開始日未設定'}
+                            {entry.endDate ? ` → ${entry.endDate}` : ''}
+                            {entry.outcome ? ` / ${entry.outcome}` : ''}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="charts-side-panel__item-actions charts-diagnosis__item-actions" role="group" aria-label="病名操作">
+                        <button type="button" onClick={() => openEdit(entry)} disabled={isBlocked}>
+                          編集
+                        </button>
+                        <button type="button" onClick={() => deleteMutation.mutate(entry)} disabled={deleteMutation.isPending || isBlocked}>
+                          削除
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+          </>
         )}
       </div>
+
+      <FocusTrapDialog
+        open={isEditorOpen}
+        title={form.diagnosisId ? '病名の編集' : '病名の追加'}
+        description="接頭語/接尾語、疑い病名に対応。Enter で保存、Esc で閉じます。"
+        onClose={() => setIsEditorOpen(false)}
+        initialFocus="none"
+        testId="charts-diagnosis-editor-dialog"
+      >
+        <form
+          className="charts-side-panel__form charts-diagnosis__editor"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (isBlocked) {
+              return;
+            }
+            if (!form.name.trim()) {
+              setNotice({ tone: 'error', message: '病名を入力してください。' });
+              return;
+            }
+            mutation.mutate(form);
+          }}
+        >
+          {notice ? <div className={`charts-side-panel__notice charts-side-panel__notice--${notice.tone}`}>{notice.message}</div> : null}
+          <div className="charts-diagnosis__name-row" role="group" aria-label="病名（接頭/病名/接尾）">
+            <div className="charts-side-panel__field charts-diagnosis__name-part">
+              <label htmlFor="diagnosis-prefix">接頭</label>
+              <input
+                id="diagnosis-prefix"
+                value={form.prefix}
+                onChange={(event) => setForm((prev) => ({ ...prev, prefix: event.target.value }))}
+                placeholder="例: 術後"
+                disabled={isBlocked}
+              />
+            </div>
+            <div className="charts-side-panel__field charts-diagnosis__name-main">
+              <label htmlFor="diagnosis-name">病名 *</label>
+              <input
+                id="diagnosis-name"
+                ref={nameInputRef}
+                value={form.name}
+                onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+                placeholder="例: 高血圧症"
+                disabled={isBlocked}
+              />
+            </div>
+            <div className="charts-side-panel__field charts-diagnosis__name-part">
+              <label htmlFor="diagnosis-suffix">接尾</label>
+              <input
+                id="diagnosis-suffix"
+                value={form.suffix}
+                onChange={(event) => setForm((prev) => ({ ...prev, suffix: event.target.value }))}
+                placeholder="例: による"
+                disabled={isBlocked}
+              />
+            </div>
+          </div>
+          <div className="charts-side-panel__field-row">
+            <label className="charts-side-panel__toggle">
+              <input
+                id="diagnosis-main"
+                name="diagnosisMain"
+                type="checkbox"
+                checked={form.isMain}
+                onChange={(event) => setForm((prev) => ({ ...prev, isMain: event.target.checked }))}
+                disabled={isBlocked}
+              />
+              主病名
+            </label>
+            <label className="charts-side-panel__toggle">
+              <input
+                id="diagnosis-suspected"
+                name="diagnosisSuspected"
+                type="checkbox"
+                checked={form.isSuspected}
+                onChange={(event) => setForm((prev) => ({ ...prev, isSuspected: event.target.checked }))}
+                disabled={isBlocked}
+              />
+              疑い
+            </label>
+          </div>
+          <details className="charts-diagnosis__advanced">
+            <summary className="charts-diagnosis__advanced-summary">詳細（コード/開始/転帰）</summary>
+            <div className="charts-side-panel__field">
+              <label htmlFor="diagnosis-code">病名コード</label>
+              <input
+                id="diagnosis-code"
+                value={form.code}
+                onChange={(event) => setForm((prev) => ({ ...prev, code: event.target.value }))}
+                placeholder="例: I10"
+                disabled={isBlocked}
+              />
+            </div>
+            <div className="charts-side-panel__field-row">
+              <div className="charts-side-panel__field">
+                <label htmlFor="diagnosis-start">開始日</label>
+                <input
+                  id="diagnosis-start"
+                  type="date"
+                  value={form.startDate}
+                  onChange={(event) => setForm((prev) => ({ ...prev, startDate: event.target.value }))}
+                  disabled={isBlocked}
+                />
+              </div>
+              <div className="charts-side-panel__field">
+                <label htmlFor="diagnosis-end">転帰日</label>
+                <input
+                  id="diagnosis-end"
+                  type="date"
+                  value={form.endDate}
+                  onChange={(event) => setForm((prev) => ({ ...prev, endDate: event.target.value }))}
+                  disabled={isBlocked}
+                />
+              </div>
+            </div>
+            <div className="charts-side-panel__field">
+              <label htmlFor="diagnosis-outcome">転帰</label>
+              <input
+                id="diagnosis-outcome"
+                list="diagnosis-outcome-options"
+                value={form.outcome}
+                onChange={(event) => setForm((prev) => ({ ...prev, outcome: event.target.value }))}
+                placeholder="例: 継続"
+                disabled={isBlocked}
+              />
+              <datalist id="diagnosis-outcome-options">
+                {OUTCOME_PRESETS.map((option) => (
+                  <option key={option} value={option} />
+                ))}
+              </datalist>
+            </div>
+          </details>
+          <div className="charts-diagnosis__editor-actions" role="group" aria-label="病名保存">
+            <button type="submit" disabled={mutation.isPending || isBlocked}>
+              {form.diagnosisId ? '更新' : '追加'}
+            </button>
+            <button
+              type="button"
+              className="charts-side-panel__ghost"
+              onClick={() => {
+                setIsEditorOpen(false);
+              }}
+            >
+              閉じる
+            </button>
+          </div>
+          <small className="charts-diagnosis__hint">追加後もダイアログは開いたままです（連続入力向け）。編集は保存後に自動で閉じます。</small>
+        </form>
+      </FocusTrapDialog>
     </section>
   );
 }

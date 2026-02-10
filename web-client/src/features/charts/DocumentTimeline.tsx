@@ -562,8 +562,9 @@ export function DocumentTimeline({
   const buildSoapMeta = useCallback((entry?: SoapEntry) => {
     if (!entry) return undefined;
     const authoredAt = formatSoapAuthoredAt(entry.authoredAt);
+    const who = entry.authorName?.trim() || entry.authorRole;
     const template = entry.templateId ? `template=${entry.templateId}` : 'templateなし';
-    return `${authoredAt} ／ ${entry.authorRole} ／ ${template}`;
+    return `${authoredAt} ／ ${who} ／ ${template}`;
   }, []);
 
   const resolveSoapLogBody = useCallback(
@@ -1095,7 +1096,7 @@ export function DocumentTimeline({
                       </header>
                       <p>{body}</p>
                       <div className="document-timeline__soap-meta">
-                        <span>記載者: {entry.authorRole}</span>
+                        <span>記載者: {entry.authorName?.trim() || entry.authorRole}</span>
                         <span>template: {entry.templateId ?? '—'}</span>
                       </div>
                     </li>

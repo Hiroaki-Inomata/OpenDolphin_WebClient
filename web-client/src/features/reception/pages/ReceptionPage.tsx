@@ -7,6 +7,7 @@ import { getAuditEventLog, logAuditEvent, logUiState } from '../../../libs/audit
 import { resolveAriaLive, resolveRunId } from '../../../libs/observability/observability';
 import { buildHttpHeaders, httpFetch } from '../../../libs/http/httpClient';
 import type { DataSourceTransition } from '../../../libs/observability/types';
+import { FocusTrapDialog } from '../../../components/modals/FocusTrapDialog';
 import { OrderConsole } from '../components/OrderConsole';
 import { ReceptionAuditPanel } from '../components/ReceptionAuditPanel';
 import { ReceptionExceptionList, type ReceptionExceptionItem } from '../components/ReceptionExceptionList';
@@ -55,13 +56,15 @@ import type { ClaimBundle, ClaimQueueEntry, ClaimQueuePhase } from '../../outpat
 import { getAppointmentDataBanner } from '../../outpatient/appointmentDataBanner';
 import type { OrcaQueueEntry } from '../../outpatient/orcaQueueApi';
 import { fetchOrcaQueue, retryOrcaQueue } from '../../outpatient/orcaQueueApi';
-import { ORCA_QUEUE_STALL_THRESHOLD_MS, resolveOrcaSendStatus } from '../../outpatient/orcaQueueStatus';
+import { ORCA_QUEUE_STALL_THRESHOLD_MS, resolveOrcaSendStatus, toClaimQueueEntryFromOrcaQueueEntry } from '../../outpatient/orcaQueueStatus';
 import {
   buildExceptionAuditDetails,
   buildQueuePhaseSummary,
   resolveExceptionDecision,
 } from '../exceptionLogic';
 import { loadOrcaClaimSendCache } from '../../charts/orcaClaimSendCache';
+import { postMedicalRecords, type MedicalRecordEntry } from '../../administration/orcaInternalWrapperApi';
+import { fetchPatients, type PatientListResponse, type PatientRecord } from '../../patients/api';
 import {
   loadOutpatientSavedViews,
   removeOutpatientSavedView,
@@ -85,6 +88,8 @@ const SECTION_LABEL: Record<ReceptionStatus, string> = {
 
 const COLLAPSE_STORAGE_KEY = 'reception-section-collapses';
 const FILTER_STORAGE_KEY = 'reception-filter-state';
+const FILTER_PANEL_COLLAPSE_KEY = 'reception-filter-panel-collapsed';
+const ACCEPT_DETAILS_COLLAPSE_KEY = 'reception-accept-details-collapsed';
 const ORCA_QUEUE_REFRESH_INTERVAL_MS = 60_000;
 const ORCA_QUEUE_QUERY_KEY = ['orca-queue'] as const;
 
@@ -131,15 +136,18 @@ const resolveQueueStatus = (entry?: ClaimQueueEntry) => {
 };
 
 const resolveOrcaQueueStatus = (entry?: OrcaQueueEntry) => {
-  const status = resolveOrcaSendStatus(entry);
-  if (!status) return { label: '未取得', tone: 'warning' as const, detail: undefined };
+  if (!entry) return { label: '未取得', tone: 'warning' as const, detail: undefined };
+  const sendStatus = resolveOrcaSendStatus(entry);
+  const phase = toClaimQueueEntryFromOrcaQueueEntry(entry).phase;
   const detailParts = [
-    status.isStalled ? '滞留' : undefined,
-    status.error ? `エラー: ${status.error}` : undefined,
+    sendStatus?.isStalled ? '滞留' : undefined,
+    sendStatus?.error ? `エラー: ${sendStatus.error}` : undefined,
   ].filter((value): value is string => Boolean(value));
   return {
-    label: status.label,
-    tone: status.tone,
+    // ORCA queue の status は retry/sent/ack などを含むため、Reception 側は phase ベースのラベルで表示する。
+    // (例) retry -> 再送待ち。UI と E2E で「次に何をすべきか」が分かる表現を優先する。
+    label: queuePhaseLabel[phase],
+    tone: queuePhaseTone[phase],
     detail: detailParts.length > 0 ? detailParts.join(' / ') : undefined,
   };
 };
@@ -291,6 +299,26 @@ const persistCollapseState = (state: Record<ReceptionStatus, boolean>) => {
   }
 };
 
+const loadCollapsedPanel = (key: string, fallback: boolean) => {
+  if (typeof localStorage === 'undefined') return fallback;
+  try {
+    const stored = localStorage.getItem(key);
+    if (!stored) return fallback;
+    return stored === '1' || stored === 'true';
+  } catch {
+    return fallback;
+  }
+};
+
+const persistCollapsedPanel = (key: string, value: boolean) => {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(key, value ? '1' : '0');
+  } catch {
+    // ignore
+  }
+};
+
 const toMasterSource = (transition?: DataSourceTransition): ResolveMasterSource => {
   if (!transition) return 'snapshot';
   if (transition === 'fallback') return 'fallback';
@@ -386,6 +414,14 @@ export function ReceptionPage({
     return isSortKey(fromUrl) ? fromUrl : 'time';
   });
   const [collapsed, setCollapsed] = useState<Record<ReceptionStatus, boolean>>(loadCollapseState);
+  const [filtersCollapsed, setFiltersCollapsed] = useState(() =>
+    loadCollapsedPanel(FILTER_PANEL_COLLAPSE_KEY, true),
+  );
+  const [acceptDetailsCollapsed, setAcceptDetailsCollapsed] = useState(() =>
+    loadCollapsedPanel(ACCEPT_DETAILS_COLLAPSE_KEY, true),
+  );
+  const [exceptionsModalOpen, setExceptionsModalOpen] = useState(false);
+  const [recordsModalPatient, setRecordsModalPatient] = useState<{ patientId: string; name?: string } | null>(null);
   const [missingMasterNote, setMissingMasterNote] = useState('');
   const summaryRef = useRef<HTMLDivElement | null>(null);
   const appliedMeta = useRef<Partial<AuthServiceFlags>>({});
@@ -403,10 +439,7 @@ export function ReceptionPage({
   const [acceptPatientId, setAcceptPatientId] = useState(() => patientId ?? '');
   const [acceptPaymentMode, setAcceptPaymentMode] = useState<'insurance' | 'self' | ''>('');
   const [acceptVisitKind, setAcceptVisitKind] = useState('');
-  const [acceptOperation, setAcceptOperation] = useState<'register' | 'cancel'>('register');
-  const [acceptReceptionId, setAcceptReceptionId] = useState(() => receptionId ?? '');
   const [acceptNote, setAcceptNote] = useState('');
-  const [acceptPatientIdOverride, setAcceptPatientIdOverride] = useState('');
   const [acceptDurationMs, setAcceptDurationMs] = useState<number | null>(null);
   const [masterSearchFilters, setMasterSearchFilters] = useState({
     name: '',
@@ -423,9 +456,25 @@ export function ReceptionPage({
   );
   const [masterSearchError, setMasterSearchError] = useState<string | null>(null);
   const [masterSelected, setMasterSelected] = useState<PatientMasterRecord | null>(null);
+
+  const [patientSearchNameSei, setPatientSearchNameSei] = useState('');
+  const [patientSearchNameMei, setPatientSearchNameMei] = useState('');
+  const [patientSearchKanaSei, setPatientSearchKanaSei] = useState('');
+  const [patientSearchKanaMei, setPatientSearchKanaMei] = useState('');
+  const [patientSearchResults, setPatientSearchResults] = useState<PatientRecord[]>([]);
+  const [patientSearchMeta, setPatientSearchMeta] = useState<PatientListResponse | null>(null);
+  const [patientSearchError, setPatientSearchError] = useState<string | null>(null);
+  const [patientSearchSelected, setPatientSearchSelected] = useState<PatientRecord | null>(null);
+  const patientSearchFilterRef = useRef<{
+    patientId: string;
+    nameSei: string;
+    nameMei: string;
+    kanaSei: string;
+    kanaMei: string;
+  } | null>(null);
+
   const lastAcceptAutoFill = useRef<{
     patientId?: string;
-    receptionId?: string;
     paymentMode?: 'insurance' | 'self' | '';
   }>({});
   const lastAcceptAutoFillSignature = useRef<string | null>(null);
@@ -435,7 +484,6 @@ export function ReceptionPage({
     visitKind?: string;
     department?: string;
     physician?: string;
-    receptionId?: string;
   }>({});
   const [acceptDepartmentSelection, setAcceptDepartmentSelection] = useState('');
   const [acceptPhysicianSelection, setAcceptPhysicianSelection] = useState('');
@@ -453,6 +501,9 @@ export function ReceptionPage({
     error?: string | null;
   }>({});
   const [retryingPatientId, setRetryingPatientId] = useState<string | null>(null);
+
+  const debugUiEnabled =
+    (import.meta.env.DEV && searchParams.get('debug') === '1') || session.role === 'system_admin';
 
   const resolvePatientIdFromRaw = useCallback(
     (name?: string, kana?: string): string | undefined => {
@@ -661,6 +712,14 @@ export function ReceptionPage({
   }, [collapsed]);
 
   useEffect(() => {
+    persistCollapsedPanel(FILTER_PANEL_COLLAPSE_KEY, filtersCollapsed);
+  }, [filtersCollapsed]);
+
+  useEffect(() => {
+    persistCollapsedPanel(ACCEPT_DETAILS_COLLAPSE_KEY, acceptDetailsCollapsed);
+  }, [acceptDetailsCollapsed]);
+
+  useEffect(() => {
     const stored = (() => {
       if (typeof localStorage === 'undefined') return null;
       try {
@@ -694,6 +753,45 @@ export function ReceptionPage({
 
   const visitMutation = useMutation<VisitMutationPayload, Error, VisitMutationParams>({
     mutationFn: (params) => mutateVisit(params),
+  });
+  const patientSearchMutation = useMutation<PatientListResponse, Error, { keyword: string }>({
+    mutationFn: (params) => fetchPatients({ keyword: params.keyword }),
+    onSuccess: (result) => {
+      const normalizeToken = (value: string) => value.replace(/\s+/g, '').trim();
+      const filters = patientSearchFilterRef.current;
+      const basePatients = result.patients ?? [];
+      const filteredPatients =
+        filters
+          ? basePatients.filter((patient) => {
+              const patientId = (patient.patientId ?? '').trim();
+              const fullName = normalizeToken(patient.name ?? '');
+              const fullKana = normalizeToken(patient.kana ?? '');
+              const needlePatientId = filters.patientId.trim();
+              const needleNameSei = normalizeToken(filters.nameSei);
+              const needleNameMei = normalizeToken(filters.nameMei);
+              const needleKanaSei = normalizeToken(filters.kanaSei);
+              const needleKanaMei = normalizeToken(filters.kanaMei);
+
+              if (needlePatientId && !patientId.startsWith(needlePatientId)) return false;
+              if (needleNameSei && !fullName.includes(needleNameSei)) return false;
+              if (needleNameMei && !fullName.includes(needleNameMei)) return false;
+              if (needleKanaSei && !fullKana.includes(needleKanaSei)) return false;
+              if (needleKanaMei && !fullKana.includes(needleKanaMei)) return false;
+              return true;
+            })
+          : basePatients;
+
+      setPatientSearchResults(filteredPatients);
+      setPatientSearchMeta({
+        ...result,
+        recordsReturned: filteredPatients.length,
+      });
+      setPatientSearchError(null);
+    },
+    onError: (error) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      setPatientSearchError(detail);
+    },
   });
   const masterSearchMutation = useMutation<PatientMasterSearchResponse, Error, Parameters<typeof fetchPatientMasterSearch>[0]>({
     mutationFn: (params) => fetchPatientMasterSearch(params),
@@ -800,15 +898,31 @@ export function ReceptionPage({
   }, [intent]);
 
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (keyword) params.set('kw', keyword);
-    if (departmentFilter) params.set('dept', departmentFilter);
-    if (physicianFilter) params.set('phys', physicianFilter);
-    if (paymentMode !== 'all') params.set('pay', paymentMode);
-    if (sortKey) params.set('sort', sortKey);
-    if (selectedDate) params.set('date', selectedDate);
-    if (intentParam) params.set('intent', intentParam);
-    setSearchParams(params, { replace: true });
+    // Preserve external flags (?msw=1 / ?debug=1 / section=...) while keeping filter params canonical.
+    const params = new URLSearchParams(searchParams);
+    const setOrDelete = (key: string, value?: string) => {
+      if (value && value.trim()) {
+        params.set(key, value);
+      } else {
+        params.delete(key);
+      }
+    };
+    setOrDelete('kw', keyword);
+    setOrDelete('dept', departmentFilter);
+    setOrDelete('phys', physicianFilter);
+    if (paymentMode !== 'all') {
+      params.set('pay', paymentMode);
+    } else {
+      params.delete('pay');
+    }
+    setOrDelete('sort', sortKey);
+    setOrDelete('date', selectedDate);
+    setOrDelete('intent', intentParam);
+    const nextQuery = params.toString();
+    const currentQuery = searchParams.toString();
+    if (nextQuery !== currentQuery) {
+      setSearchParams(params, { replace: true });
+    }
     if (typeof localStorage !== 'undefined') {
       const snapshot = {
         kw: keyword,
@@ -820,7 +934,7 @@ export function ReceptionPage({
       };
       localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(snapshot));
     }
-  }, [departmentFilter, intentParam, keyword, physicianFilter, paymentMode, selectedDate, setSearchParams, sortKey]);
+  }, [departmentFilter, intentParam, keyword, physicianFilter, paymentMode, searchParams, selectedDate, setSearchParams, sortKey]);
 
   const mergedMeta = useMemo(() => {
     const claim = claimOutpatientEnabled ? claimQuery.data : undefined;
@@ -1023,41 +1137,13 @@ export function ReceptionPage({
   }, [deptInfoOptions, departmentCodeMap, uniqueDepartments]);
   useEffect(() => {
     // TEMP: 診療科候補が取得できない場合はデフォルトコードを適用（撤去前提）
-    if (!acceptDepartmentSelection && departmentOptions.length === 1 && departmentOptions[0]?.[0]) {
+    if (!acceptDepartmentSelection && departmentOptions.length > 0 && departmentOptions[0]?.[0]) {
       setAcceptDepartmentSelection(departmentOptions[0][0]);
     }
   }, [acceptDepartmentSelection, departmentOptions]);
-  const masterSearchEntries = useMemo<ReceptionEntry[]>(
-    () =>
-      masterSearchResults.map((patient, index) => {
-        const hasInsurance = (patient.insuranceCount ?? 0) > 0 || (patient.publicInsuranceCount ?? 0) > 0;
-        const resolvedPatientId = patient.patientId ?? resolvePatientIdFromRaw(patient.name, patient.kana);
-        return {
-          id: `master-${resolvedPatientId ?? index}`,
-          patientId: resolvedPatientId,
-          name: patient.name,
-          kana: patient.kana,
-          birthDate: patient.birthDate,
-          sex: patient.sex,
-          department: undefined,
-          physician: undefined,
-          appointmentTime: undefined,
-          visitDate: undefined,
-          status: '予約',
-          insurance: hasInsurance ? '保険' : '自費',
-          note: '患者マスタ検索',
-          source: 'unknown',
-        };
-      }),
-    [masterSearchResults, resolvePatientIdFromRaw],
-  );
-  const tableEntries = masterSearchEntries.length > 0 ? masterSearchEntries : appointmentEntries;
   const filteredEntries = useMemo(
-    () =>
-      masterSearchEntries.length > 0
-        ? masterSearchEntries
-        : filterEntries(tableEntries, keyword, departmentFilter, physicianFilter, paymentMode),
-    [departmentFilter, keyword, masterSearchEntries, paymentMode, physicianFilter, tableEntries],
+    () => filterEntries(appointmentEntries, keyword, departmentFilter, physicianFilter, paymentMode),
+    [appointmentEntries, departmentFilter, keyword, paymentMode, physicianFilter],
   );
   const sortedEntries = useMemo(() => sortEntries(filteredEntries, sortKey), [filteredEntries, sortKey]);
   const grouped = useMemo(() => groupByStatus(sortedEntries), [sortedEntries]);
@@ -1067,15 +1153,11 @@ export function ReceptionPage({
   const claimQueueEntries = claimOutpatientEnabled ? claimQuery.data?.queueEntries ?? [] : [];
   const [claimSendCacheUpdatedAt, setClaimSendCacheUpdatedAt] = useState(0);
   useEffect(() => {
-    if (!claimOutpatientEnabled) return;
     setClaimSendCacheUpdatedAt(Date.now());
-  }, [broadcast?.updatedAt, claimOutpatientEnabled, claimQuery.data?.runId]);
+  }, [broadcast?.updatedAt, claimQuery.data?.runId]);
   const claimSendCache = useMemo(
-    () =>
-      claimOutpatientEnabled
-        ? loadOrcaClaimSendCache({ facilityId: session.facilityId, userId: session.userId }) ?? {}
-        : {},
-    [claimOutpatientEnabled, claimSendCacheUpdatedAt, session.facilityId, session.userId],
+    () => loadOrcaClaimSendCache({ facilityId: session.facilityId, userId: session.userId }) ?? {},
+    [claimSendCacheUpdatedAt, session.facilityId, session.userId],
   );
 
   const queueSummary = useMemo(() => {
@@ -1282,6 +1364,16 @@ export function ReceptionPage({
     });
     return counts;
   }, [exceptionItems]);
+
+  const exceptionIndicatorTone =
+    exceptionCounts.sendError > 0
+      ? 'error'
+      : exceptionCounts.delayed > 0
+        ? 'warning'
+        : exceptionCounts.unapproved > 0
+          ? 'info'
+          : 'neutral';
+
   const latestAuditEvent = useMemo(() => {
     const snapshot = getAuditEventLog();
     const latest = snapshot[snapshot.length - 1];
@@ -1321,6 +1413,19 @@ export function ReceptionPage({
     return sortedEntries.find((entry) => entryKey(entry) === selectedEntryKey);
   }, [selectedEntryKey, sortedEntries]);
 
+  const recordsModalPatientId = recordsModalPatient?.patientId?.trim() ?? '';
+  const recordsModalPatientLabel = recordsModalPatient?.name?.trim() || recordsModalPatientId || '—';
+
+  const medicalRecordsModalQuery = useQuery({
+    queryKey: ['orca-medical-records', recordsModalPatientId],
+    enabled: Boolean(recordsModalPatientId),
+    queryFn: async () => {
+      if (!recordsModalPatientId) throw new Error('patientId is required');
+      return postMedicalRecords({ patientId: recordsModalPatientId, performMonths: 18, includeVisitStatus: false });
+    },
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
     if (!acceptPhysicianSelection && physicianOptions.length > 0) {
       setAcceptPhysicianSelection(physicianOptions[0]);
@@ -1348,13 +1453,7 @@ export function ReceptionPage({
   const applyAcceptAutoFill = useCallback(
     (entry: ReceptionEntry | undefined, options?: { force?: boolean }) => {
       if (!entry) return;
-      if (entry.source === 'unknown' && acceptOperation === 'cancel') {
-        setAcceptOperation('register');
-        setAcceptReceptionId('');
-        setAcceptErrors((prev) => ({ ...prev, receptionId: undefined }));
-      }
       const nextPatientId = entry.patientId?.trim() ?? '';
-      const nextReceptionId = entry.receptionId?.trim() ?? '';
       const nextPaymentMode = resolvePaymentMode(entry.insurance ?? undefined);
       const nextVisitKind = acceptVisitKind.trim() ? acceptVisitKind : '1';
       const shouldUpdate = (current: string, next: string, last?: string) =>
@@ -1369,10 +1468,6 @@ export function ReceptionPage({
         updated = true;
       } else if (shouldUpdate(acceptPatientId, nextPatientId, lastAcceptAutoFill.current.patientId)) {
         setAcceptPatientId(nextPatientId);
-        updated = true;
-      }
-      if (shouldUpdate(acceptReceptionId, nextReceptionId, lastAcceptAutoFill.current.receptionId)) {
-        setAcceptReceptionId(nextReceptionId);
         updated = true;
       }
       if (
@@ -1390,7 +1485,6 @@ export function ReceptionPage({
       if (updated) {
         lastAcceptAutoFill.current = {
           patientId: nextPatientId || lastAcceptAutoFill.current.patientId,
-          receptionId: nextReceptionId || lastAcceptAutoFill.current.receptionId,
           paymentMode: (nextPaymentMode && nextPaymentMode !== 'all'
             ? nextPaymentMode
             : lastAcceptAutoFill.current.paymentMode) as 'insurance' | 'self' | '',
@@ -1398,13 +1492,12 @@ export function ReceptionPage({
         setAcceptErrors((prev) => {
           const next = { ...prev };
           if (nextPatientId) delete next.patientId;
-          if (nextReceptionId) delete next.receptionId;
           if (nextPaymentMode) delete next.paymentMode;
           return next;
         });
       }
     },
-    [acceptOperation, acceptPatientId, acceptPaymentMode, acceptReceptionId, acceptVisitKind],
+    [acceptPatientId, acceptPaymentMode, acceptVisitKind],
   );
 
   const acceptAutoFillSignature = useMemo(() => {
@@ -1412,7 +1505,6 @@ export function ReceptionPage({
     return JSON.stringify({
       key: entryKey(selectedEntry),
       patientId: selectedEntry.patientId ?? '',
-      receptionId: selectedEntry.receptionId ?? '',
       paymentMode: resolvePaymentMode(selectedEntry.insurance ?? undefined) ?? '',
     });
   }, [selectedEntry]);
@@ -1446,18 +1538,6 @@ export function ReceptionPage({
     if (!selectedEntry?.patientId) return null;
     return claimSendCache[selectedEntry.patientId] ?? null;
   }, [claimSendCache, selectedEntry?.patientId]);
-
-  const resolvedAcceptPatientId =
-    acceptPatientId.trim() ||
-    masterSelected?.patientId ||
-    (selectedEntry?.source === 'unknown' ? selectedEntry.patientId : undefined) ||
-    '';
-
-  useEffect(() => {
-    if (!acceptPatientId.trim() && resolvedAcceptPatientId) {
-      setAcceptPatientId(resolvedAcceptPatientId);
-    }
-  }, [acceptPatientId, resolvedAcceptPatientId]);
 
   const summaryText = useMemo(() => {
     const counts = grouped.map(({ status, items }) => `${status}: ${items.length}件`).join(' / ');
@@ -1696,11 +1776,8 @@ export function ReceptionPage({
   const { tone, message: toneMessage, transitionMeta } = toneDetails;
   const masterSource = toMasterSource(tonePayload.dataSourceTransition);
   const isAcceptSubmitting = visitMutation.isPending;
-  const resolveMedicalInformation = useCallback((raw: string, isCancel: boolean) => {
+  const resolveMedicalInformation = useCallback((raw: string) => {
     const trimmed = raw.trim();
-    if (isCancel) {
-      return trimmed || undefined;
-    }
     if (!trimmed) return '01';
     if (/^\d+$/.test(trimmed)) return trimmed;
     if (trimmed === '外来受付') return '01';
@@ -1718,7 +1795,7 @@ export function ReceptionPage({
     // TEMP: 強制送信ボタン専用（撤去前提）
     const now = new Date();
     const acceptancePush = resolveAcceptancePush('1');
-    const resolvedMedicalInformation = resolveMedicalInformation(acceptNote, false);
+    const resolvedMedicalInformation = resolveMedicalInformation(acceptNote);
     if (!resolvedDepartmentCode) {
       setAcceptErrors((prev) => ({ ...prev, department: '診療科を選択してください' }));
       setAcceptResult({
@@ -1737,12 +1814,7 @@ export function ReceptionPage({
       });
       return;
     }
-    const patientId =
-      acceptPatientIdOverride.trim() ||
-      acceptPatientId.trim() ||
-      masterSelected?.patientId?.trim() ||
-      selectedEntry?.patientId?.trim() ||
-      '';
+    const patientId = acceptPatientId.trim() || masterSelected?.patientId?.trim() || selectedEntry?.patientId?.trim() || '';
     const payload = {
       requestNumber: '01',
       patientId,
@@ -1781,7 +1853,6 @@ export function ReceptionPage({
     xhr.send(JSON.stringify(payload));
   }, [
     acceptPatientId,
-    acceptPatientIdOverride,
     acceptNote,
     acceptPaymentMode,
     masterSelected?.patientId,
@@ -1792,25 +1863,18 @@ export function ReceptionPage({
     selectedEntry?.patientId,
   ]);
 
-  const handleAcceptSubmit = useCallback(
-    async (event?: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement>) => {
+  const handleAcceptRegister = useCallback(
+    async (event?: MouseEvent<HTMLButtonElement>) => {
       event?.preventDefault();
       setAcceptResult(null);
       setAcceptErrors({});
       setAcceptDurationMs(null);
-      let trimmedPatientId = acceptPatientId.trim();
-      if (!trimmedPatientId) {
-        const fallbackPatientId = masterSelected?.patientId?.trim() ?? selectedEntry?.patientId?.trim() ?? '';
-        if (fallbackPatientId) {
-          trimmedPatientId = fallbackPatientId;
-          setAcceptPatientId(fallbackPatientId);
-        }
-      }
-      if (!trimmedPatientId && acceptPatientIdOverride.trim()) {
-        trimmedPatientId = acceptPatientIdOverride.trim();
+      let trimmedPatientId =
+        acceptPatientId.trim() || masterSelected?.patientId?.trim() || selectedEntry?.patientId?.trim() || '';
+      if (!acceptPatientId.trim() && trimmedPatientId) {
         setAcceptPatientId(trimmedPatientId);
       }
-      const resolvedPaymentMode = acceptPaymentMode || 'self';
+      const resolvedPaymentMode = acceptPaymentMode || 'insurance';
       const resolvedVisitKind = acceptVisitKind.trim() || '1';
       const acceptancePush = resolveAcceptancePush(resolvedVisitKind);
       if (!acceptPaymentMode) {
@@ -1819,22 +1883,17 @@ export function ReceptionPage({
       if (!acceptVisitKind.trim()) {
         setAcceptVisitKind(resolvedVisitKind);
       }
-      const resolvedMedicalInformation = resolveMedicalInformation(
-        acceptNote,
-        acceptOperation === 'cancel',
-      );
+      const resolvedMedicalInformation = resolveMedicalInformation(acceptNote);
       const errors: typeof acceptErrors = {};
       if (!trimmedPatientId) errors.patientId = '患者IDは必須です';
       if (!resolvedPaymentMode) errors.paymentMode = '保険/自費を選択してください';
       if (!resolvedVisitKind) errors.visitKind = '来院区分を選択してください';
       if (!resolvedDepartmentCode) errors.department = '診療科を選択してください';
       if (!resolvedPhysicianCode) errors.physician = '担当医を選択してください';
-      if (acceptOperation === 'cancel' && !acceptReceptionId.trim()) {
-        errors.receptionId = '取消には受付IDが必要です';
-      }
       const hasErrors = Object.keys(errors).length > 0;
       if (hasErrors) {
         setAcceptErrors(errors);
+        setAcceptDetailsCollapsed(false);
         setAcceptResult({
           tone: 'error',
           message: '入力内容を確認してください',
@@ -1844,11 +1903,10 @@ export function ReceptionPage({
       const now = new Date();
       const params: VisitMutationParams = {
         patientId: trimmedPatientId || '',
-        requestNumber: acceptOperation === 'cancel' ? '02' : '01',
+        requestNumber: '01',
         acceptanceDate: selectedDate || todayString(),
         acceptanceTime: now.toISOString().slice(11, 19),
         acceptancePush,
-        acceptanceId: acceptReceptionId.trim() || undefined,
         medicalInformation: resolvedMedicalInformation,
         paymentMode: resolvedPaymentMode || undefined,
         departmentCode: resolvedDepartmentCode || undefined,
@@ -1882,9 +1940,7 @@ export function ReceptionPage({
             ? 'warning'
             : 'error';
         const message = isSuccess
-          ? params.requestNumber === '02'
-            ? '受付取消が完了しました'
-            : '受付登録が完了しました'
+          ? '受付登録が完了しました'
           : isNoAcceptance
             ? 'ORCA から「受付なし」が返却されました'
             : '受付処理でエラーが返却されました';
@@ -1937,10 +1993,8 @@ export function ReceptionPage({
     },
     [
       acceptNote,
-      acceptOperation,
       acceptPatientId,
       acceptPaymentMode,
-      acceptReceptionId,
       acceptVisitKind,
       applyMutationResultToList,
       enqueue,
@@ -1957,6 +2011,277 @@ export function ReceptionPage({
       visitMutation,
     ],
   );
+
+  const handleCancelSelectedEntry = useCallback(async () => {
+    setAcceptResult(null);
+    setAcceptErrors({});
+    setAcceptDurationMs(null);
+    if (!selectedEntry) {
+      enqueue({ tone: 'warning', message: '取消する患者を選択してください。' });
+      return;
+    }
+    const patientId = selectedEntry.patientId?.trim() ?? '';
+    const acceptanceId = selectedEntry.receptionId?.trim() ?? '';
+    if (!patientId) {
+      enqueue({ tone: 'warning', message: '患者IDが未登録のため取消できません。' });
+      return;
+    }
+    if (!acceptanceId) {
+      enqueue({ tone: 'warning', message: '受付IDが未登録のため取消できません。' });
+      return;
+    }
+    const now = new Date();
+    const params: VisitMutationParams = {
+      patientId,
+      requestNumber: '02',
+      acceptanceDate: selectedDate || todayString(),
+      acceptanceTime: now.toISOString().slice(11, 19),
+      acceptancePush: resolveAcceptancePush('1'),
+      acceptanceId,
+    };
+    const started = performance.now();
+    try {
+      const payload = await (visitMutation.mutateAsync ? visitMutation.mutateAsync(params) : mutateVisit(params));
+      const durationMs = Math.round(performance.now() - started);
+      setAcceptDurationMs(durationMs);
+      const apiResult = payload.apiResult ?? '';
+      const isSuccess = apiResult === '00' || apiResult === '0000';
+      const isNoAcceptance = apiResult === '21';
+      if (isSuccess) {
+        applyMutationResultToList(payload, params);
+        void refetchAppointment();
+        if (claimOutpatientEnabled) {
+          void refetchClaim();
+        }
+      }
+      const toneResult: 'info' | 'warning' | 'error' = isSuccess ? 'info' : isNoAcceptance ? 'warning' : 'error';
+      const message = isSuccess
+        ? '受付取消が完了しました'
+        : isNoAcceptance
+          ? 'ORCA から「受付なし」が返却されました'
+          : '受付取消でエラーが返却されました';
+      setAcceptResult({
+        tone: toneResult,
+        message,
+        detail: payload.apiResultMessage ?? payload.apiResult ?? 'status unknown',
+        runId: payload.runId ?? mergedMeta.runId,
+        apiResult: payload.apiResult,
+      });
+      enqueue({
+        tone: toneResult === 'info' ? 'info' : toneResult,
+        message,
+        detail: payload.apiResultMessage ?? payload.apiResult ?? undefined,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setAcceptResult({
+        tone: 'error',
+        message: '受付取消に失敗しました',
+        detail,
+        runId: mergedMeta.runId,
+      });
+      enqueue({ tone: 'error', message: '受付取消に失敗しました', detail });
+      // eslint-disable-next-line no-console
+      console.error('[acceptmodv2]', detail);
+    }
+  }, [
+    applyMutationResultToList,
+    claimOutpatientEnabled,
+    enqueue,
+    mergedMeta.runId,
+    refetchAppointment,
+    refetchClaim,
+    selectedDate,
+    selectedEntry,
+    visitMutation,
+  ]);
+
+  const handlePatientSearchSubmit = useCallback(
+    async (event?: FormEvent<HTMLFormElement>) => {
+      event?.preventDefault();
+      const filters = {
+        patientId: acceptPatientId.trim(),
+        nameSei: patientSearchNameSei.trim(),
+        nameMei: patientSearchNameMei.trim(),
+        kanaSei: patientSearchKanaSei.trim(),
+        kanaMei: patientSearchKanaMei.trim(),
+      };
+      const primaryKeyword =
+        filters.patientId ||
+        filters.kanaSei ||
+        filters.kanaMei ||
+        filters.nameSei ||
+        filters.nameMei;
+      if (!primaryKeyword) {
+        setPatientSearchError('患者ID / 氏名 / カナ のいずれかを入力してください。');
+        return;
+      }
+      patientSearchFilterRef.current = filters;
+      setPatientSearchError(null);
+      setPatientSearchSelected(null);
+      await patientSearchMutation.mutateAsync({ keyword: primaryKeyword });
+      logUiState({
+        action: 'patient_search',
+        screen: 'reception',
+        runId: mergedMeta.runId ?? flags.runId,
+        details: { keyword: primaryKeyword, ...filters },
+      });
+    },
+    [
+      acceptPatientId,
+      flags.runId,
+      mergedMeta.runId,
+      patientSearchKanaMei,
+      patientSearchKanaSei,
+      patientSearchMutation,
+      patientSearchNameMei,
+      patientSearchNameSei,
+    ],
+  );
+
+  const clearPatientSearch = useCallback(() => {
+    setAcceptPatientId('');
+    setPatientSearchNameSei('');
+    setPatientSearchNameMei('');
+    setPatientSearchKanaSei('');
+    setPatientSearchKanaMei('');
+    setPatientSearchResults([]);
+    setPatientSearchMeta(null);
+    setPatientSearchSelected(null);
+    setPatientSearchError(null);
+    patientSearchFilterRef.current = null;
+  }, []);
+
+  const handleSelectPatientSearchResult = useCallback(
+    (patient: PatientRecord) => {
+      setPatientSearchSelected(patient);
+      const resolvedPatientId = patient.patientId?.trim() ?? '';
+      if (resolvedPatientId) {
+        setAcceptPatientId(resolvedPatientId);
+        lastAcceptAutoFill.current = { ...lastAcceptAutoFill.current, patientId: resolvedPatientId };
+        setAcceptErrors((prev) => ({ ...prev, patientId: undefined }));
+        const matched = sortedEntries.find((entry) => entry.patientId === resolvedPatientId);
+        if (matched) {
+          setSelectedEntryKey(entryKey(matched));
+          setSelectionNotice(null);
+          setSelectionLost(false);
+        } else {
+          setSelectedEntryKey(null);
+        }
+      }
+      const resolvedPaymentMode = resolvePaymentMode(patient.insurance ?? undefined);
+      if (resolvedPaymentMode && resolvedPaymentMode !== 'all') {
+        const shouldAutoFill =
+          !acceptPaymentMode.trim() ||
+          (lastAcceptAutoFill.current.paymentMode && acceptPaymentMode === lastAcceptAutoFill.current.paymentMode);
+        if (shouldAutoFill) {
+          setAcceptPaymentMode(resolvedPaymentMode);
+          lastAcceptAutoFill.current = { ...lastAcceptAutoFill.current, paymentMode: resolvedPaymentMode };
+          setAcceptErrors((prev) => ({ ...prev, paymentMode: undefined }));
+        }
+      }
+      if (!acceptVisitKind.trim()) {
+        setAcceptVisitKind('1');
+      }
+      logUiState({
+        action: 'patient_select',
+        screen: 'reception/patient-search',
+        runId: mergedMeta.runId ?? flags.runId,
+        patientId: resolvedPatientId || undefined,
+        details: {
+          patientId: resolvedPatientId || undefined,
+          name: patient.name,
+          kana: patient.kana,
+        },
+      });
+    },
+    [acceptPaymentMode, acceptVisitKind, flags.runId, mergedMeta.runId, sortedEntries],
+  );
+
+  const acceptTargetPatientId = useMemo(() => {
+    const direct = acceptPatientId.trim();
+    if (direct) return direct;
+    const fromSearch = patientSearchSelected?.patientId?.trim();
+    if (fromSearch) return fromSearch;
+    const fromMaster = masterSelected?.patientId?.trim();
+    if (fromMaster) return fromMaster;
+    const fromSelection = selectedEntry?.patientId?.trim();
+    if (fromSelection) return fromSelection;
+    return '';
+  }, [acceptPatientId, masterSelected?.patientId, patientSearchSelected?.patientId, selectedEntry?.patientId]);
+
+  const acceptTargetPatientLabel = useMemo(() => {
+    const candidateNames = [
+      patientSearchSelected?.name,
+      masterSelected?.name,
+      selectedEntry?.name,
+    ];
+    const resolved = candidateNames.find((value) => typeof value === 'string' && value.trim());
+    return resolved?.trim() || acceptTargetPatientId || '未選択';
+  }, [acceptTargetPatientId, masterSelected?.name, patientSearchSelected?.name, selectedEntry?.name]);
+
+  const acceptRegisterDecision = useMemo(() => {
+    if (!acceptTargetPatientId) {
+      return { disabled: true, label: '受付登録', reason: '患者を選択してください。' };
+    }
+    const matches = sortedEntries.filter((entry) => entry.patientId === acceptTargetPatientId);
+    const hasActive = matches.some((entry) => Boolean(entry.status) && entry.status !== '予約');
+    const hasReservation = matches.some((entry) => entry.status === '予約');
+    if (hasActive) {
+      return { disabled: true, label: '受付済み', reason: '本日はすでに受付済みです。' };
+    }
+    if (hasReservation) {
+      return { disabled: false, label: '通常受付', reason: undefined };
+    }
+    return { disabled: false, label: '予約外受付', reason: undefined };
+  }, [acceptTargetPatientId, sortedEntries]);
+
+  const openExceptionsModal = useCallback(() => {
+    setExceptionsModalOpen(true);
+    logUiState({
+      action: 'open_modal',
+      screen: 'reception/exceptions',
+      controlId: 'exceptions-modal',
+      runId: mergedMeta.runId ?? flags.runId,
+      details: {
+        total: exceptionCounts.total,
+        sendError: exceptionCounts.sendError,
+        delayed: exceptionCounts.delayed,
+        unapproved: exceptionCounts.unapproved,
+      },
+    });
+  }, [exceptionCounts, flags.runId, mergedMeta.runId]);
+
+  const closeExceptionsModal = useCallback(() => {
+    setExceptionsModalOpen(false);
+  }, []);
+
+  const openMedicalRecordsModal = useCallback(
+    (patient: { patientId?: string | null; name?: string | null }, source: 'search' | 'selection') => {
+      const resolvedPatientId = patient.patientId?.trim() ?? '';
+      if (!resolvedPatientId) {
+        enqueue({ tone: 'warning', message: '患者IDが未登録のため過去カルテを表示できません。' });
+        return;
+      }
+      setRecordsModalPatient({
+        patientId: resolvedPatientId,
+        name: patient.name?.trim() ? patient.name.trim() : undefined,
+      });
+      logUiState({
+        action: 'open_modal',
+        screen: 'reception/medical-records',
+        controlId: 'medical-records-modal',
+        runId: mergedMeta.runId ?? flags.runId,
+        patientId: resolvedPatientId,
+        details: { source },
+      });
+    },
+    [enqueue, flags.runId, mergedMeta.runId],
+  );
+
+  const closeMedicalRecordsModal = useCallback(() => {
+    setRecordsModalPatient(null);
+  }, []);
 
   const handleMasterSearchSubmit = useCallback(
     async (event?: FormEvent<HTMLFormElement>) => {
@@ -2001,11 +2326,6 @@ export function ReceptionPage({
   const handleSelectMasterPatient = useCallback(
     (patient: PatientMasterRecord) => {
       setMasterSelected(patient);
-      if (acceptOperation === 'cancel') {
-        setAcceptOperation('register');
-        setAcceptReceptionId('');
-        setAcceptErrors((prev) => ({ ...prev, receptionId: undefined }));
-      }
       const resolvedPatientId = patient.patientId ?? resolvePatientIdFromRaw(patient.name, patient.kana);
       if (resolvedPatientId) {
         setAcceptPatientId(resolvedPatientId);
@@ -2033,7 +2353,7 @@ export function ReceptionPage({
         },
       });
     },
-    [acceptOperation, acceptPaymentMode, acceptVisitKind, flags.runId, mergedMeta.runId, resolvePatientIdFromRaw],
+    [acceptPaymentMode, acceptVisitKind, flags.runId, mergedMeta.runId, resolvePatientIdFromRaw],
   );
 
   useEffect(() => {
@@ -2415,6 +2735,7 @@ export function ReceptionPage({
   const handleSelectEntry = useCallback(
     (entry: ReceptionEntry) => {
       setSelectedEntryKey(entryKey(entry));
+      setPatientSearchSelected(null);
       setSelectionNotice(null);
       setSelectionLost(false);
       logUiState({
@@ -2436,6 +2757,7 @@ export function ReceptionPage({
   const handleSelectRow = useCallback(
     (entry: ReceptionEntry) => {
       setSelectedEntryKey(entryKey(entry));
+      setPatientSearchSelected(null);
       setSelectionNotice(null);
       setSelectionLost(false);
       if (entry.source === 'unknown') {
@@ -2522,6 +2844,20 @@ export function ReceptionPage({
               tone="neutral"
               runId={resolvedRunId}
             />
+            <button
+              type="button"
+              className={`reception-exception-indicator${exceptionCounts.total > 0 ? ' is-active' : ''}`}
+              data-tone={exceptionIndicatorTone}
+              onClick={openExceptionsModal}
+              aria-label={`例外一覧を開く（${exceptionCounts.total}件）`}
+              title={`送信エラー:${exceptionCounts.sendError} / 遅延:${exceptionCounts.delayed} / 未承認:${exceptionCounts.unapproved}`}
+            >
+              <span className="reception-exception-indicator__icon" aria-hidden="true">
+                !
+              </span>
+              <span className="reception-exception-indicator__label">例外</span>
+              <span className="reception-exception-indicator__count">{exceptionCounts.total}</span>
+            </button>
           </div>
           {(appointmentErrorContext ||
             unlinkedWarning ||
@@ -2578,6 +2914,7 @@ export function ReceptionPage({
 
         <section className="reception-layout" id="reception-results" tabIndex={-1}>
           <div className="reception-layout__main">
+            {debugUiEnabled ? (
             <section className="reception-master" aria-label="患者マスタ検索" data-run-id={resolvedRunId}>
               <header className="reception-master__header">
                 <div>
@@ -2770,527 +3107,243 @@ export function ReceptionPage({
                 )}
               </div>
             </section>
+            ) : null}
             <section
-              className="reception-accept"
-              aria-label="当日受付登録/取消"
-              data-run-id={resolvedRunId}
-              id="reception-accept"
+              className={`reception-search${filtersCollapsed ? ' is-collapsed' : ''}`}
+              aria-label="検索とフィルタ"
+              data-collapsed={filtersCollapsed ? 'true' : 'false'}
             >
-              <header className="reception-accept__header">
-                <div>
-                  <h2>予約外当日受付（acceptmodv2）</h2>
-                  <p className="reception-accept__lead">
-                    /orca/visits/mutation に Request_Number=01/02 を送信し、Api_Result=00/21 をバナーとリストへ即時反映します。
-                  </p>
+              <header className="reception-search__header">
+                <div className="reception-search__header-main">
+                  <h2>検索/フィルタ</h2>
+                  <div className="reception-search__header-meta" aria-live={infoLive}>
+                    <span>日付: {selectedDate || '—'}</span>
+                    <span>kw: {keyword.trim() || '—'}</span>
+                    <span>科: {departmentFilter || 'すべて'}</span>
+                    <span>医: {physicianFilter || 'すべて'}</span>
+                    <span>
+                      支払: {paymentMode === 'all' ? 'すべて' : paymentMode === 'insurance' ? '保険' : '自費'}
+                    </span>
+                    <span>sort: {sortKey}</span>
+                  </div>
+                  <span className="reception-search__header-summary" aria-live={infoLive}>
+                    {summaryText}
+                    {appointmentQuery.isFetching ? ' (更新中…)' : ''}
+                  </span>
                 </div>
-                <div className="reception-accept__meta">
-                  <RunIdBadge runId={resolvedRunId} />
-                  <StatusPill
-                    className="reception-pill"
-                    label="requestNumber"
-                    value={acceptOperation === 'cancel' ? '02 (取消)' : '01 (登録)'}
-                    tone={acceptOperation === 'cancel' ? 'warning' : 'info'}
-                    runId={resolvedRunId}
-                  />
-                </div>
+                <button
+                  type="button"
+                  className="reception-search__button ghost"
+                  onClick={() => setFiltersCollapsed((prev) => !prev)}
+                  aria-expanded={!filtersCollapsed}
+                >
+                  {filtersCollapsed ? '開く' : '折りたたむ'}
+                </button>
               </header>
-
-              <div className="reception-accept__requirements" role="note">
-                <strong>入力必須:</strong>
-                <span>患者ID / 保険・自費 / 来院区分 / 診療科。取消時は受付IDが必須です。</span>
-                <span>一覧または患者マスタ検索で選択すると、患者ID・保険区分を自動転記します。</span>
-              </div>
-              {acceptOperation === 'cancel' && (
-                <div className="reception-accept__notice" role="note">
-                  <strong>受付取消は受付ID必須。</strong>
-                  <span>取り違え防止のため、一覧から選択した受付IDが一致しているか確認してください。</span>
-                </div>
-              )}
-
-              <form
-                className="reception-accept__form"
-                onSubmit={handleAcceptSubmit}
-                data-test-id="reception-accept-form"
-              >
-                <div className="reception-accept__row">
-                  <label className="reception-accept__field">
-                    <span>患者ID<span className="reception-accept__required">必須</span></span>
-                    <input
-                      id="reception-accept-patient-id"
-                      name="receptionAcceptPatientId"
-                      type="text"
-                      value={resolvedAcceptPatientId}
-                      onChange={(event) => setAcceptPatientId(event.target.value)}
-                      placeholder="000001"
-                      aria-invalid={Boolean(acceptErrors.patientId)}
-                    />
-                    {acceptErrors.patientId && <small className="reception-accept__error">{acceptErrors.patientId}</small>}
-                    <div className="reception-accept__manual">
-                      <input
-                        id="reception-accept-patient-id-override"
-                        name="receptionAcceptPatientIdOverride"
-                        type="text"
-                        value={acceptPatientIdOverride}
-                        onChange={(event) => setAcceptPatientIdOverride(event.target.value)}
-                        placeholder="患者番号を手入力"
-                      />
+              {!filtersCollapsed ? (
+                <>
+                  <form className="reception-search__form" onSubmit={handleSearchSubmit}>
+                    <div className="reception-search__row">
+                      <label className="reception-search__field">
+                        <span>日付</span>
+                        <input
+                          id="reception-search-date"
+                          name="receptionSearchDate"
+                          type="date"
+                          value={selectedDate}
+                          onChange={(event) => setSelectedDate(event.target.value)}
+                          required
+                        />
+                      </label>
+                      <label className="reception-search__field">
+                        <span>検索（患者ID/氏名/カナ）</span>
+                        <input
+                          id="reception-search-keyword"
+                          name="receptionSearchKeyword"
+                          type="search"
+                          value={keyword}
+                          onChange={(event) => setKeyword(event.target.value)}
+                          placeholder="PX-0001 / 山田 / ヤマダ"
+                        />
+                      </label>
+                      <label className="reception-search__field">
+                        <span>診療科</span>
+                        <select
+                          id="reception-search-department"
+                          name="receptionSearchDepartment"
+                          value={departmentFilter}
+                          onChange={(event) => setDepartmentFilter(event.target.value)}
+                        >
+                          <option value="">すべて</option>
+                          {uniqueDepartments.map((dept) => (
+                            <option key={dept} value={dept}>
+                              {dept}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="reception-search__field">
+                        <span>担当医</span>
+                        <select
+                          id="reception-search-physician"
+                          name="receptionSearchPhysician"
+                          value={physicianFilter}
+                          onChange={(event) => setPhysicianFilter(event.target.value)}
+                        >
+                          <option value="">すべて</option>
+                          {uniquePhysicians.map((physician) => (
+                            <option key={physician} value={physician}>
+                              {physician}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="reception-search__field">
+                        <span>保険/自費</span>
+                        <select
+                          id="reception-search-payment-mode"
+                          name="receptionSearchPaymentMode"
+                          value={paymentMode}
+                          onChange={(event) => setPaymentMode(normalizePaymentMode(event.target.value))}
+                        >
+                          <option value="all">すべて</option>
+                          <option value="insurance">保険</option>
+                          <option value="self">自費</option>
+                        </select>
+                      </label>
+                      <label className="reception-search__field">
+                        <span>ソート</span>
+                        <select
+                          id="reception-search-sort"
+                          name="receptionSearchSort"
+                          value={sortKey}
+                          onChange={(event) => setSortKey(event.target.value as SortKey)}
+                        >
+                          <option value="time">受付/予約時間</option>
+                          <option value="name">氏名</option>
+                          <option value="department">診療科</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="reception-search__actions">
+                      <button type="submit" className="reception-search__button primary">
+                        検索
+                      </button>
+                      <button
+                        type="button"
+                        className="reception-search__button ghost"
+                        onClick={() => appointmentQuery.refetch()}
+                      >
+                        再取得
+                      </button>
+                      <button type="button" className="reception-search__button ghost" onClick={handleClear}>
+                        クリア
+                      </button>
                       <button
                         type="button"
                         className="reception-search__button ghost"
                         onClick={() => {
-                          if (!acceptPatientIdOverride.trim()) return;
-                          setAcceptPatientId(acceptPatientIdOverride.trim());
+                          const params = new URLSearchParams();
+                          if (keyword) params.set('kw', keyword);
+                          if (departmentFilter) params.set('dept', departmentFilter);
+                          if (physicianFilter) params.set('phys', physicianFilter);
+                          if (paymentMode !== 'all') params.set('pay', paymentMode);
+                          if (sortKey) params.set('sort', sortKey);
+                          if (selectedDate) params.set('date', selectedDate);
+                          params.set('from', 'reception');
+                          navigate(`${buildFacilityPath(session.facilityId, '/patients')}?${params.toString()}`);
                         }}
                       >
-                        手入力を反映
+                        Patients へ
                       </button>
                     </div>
-                  </label>
-                  <label className="reception-accept__field">
-                    <span>診療科（コード）<span className="reception-accept__required">必須</span></span>
-                    <select
-                      id="reception-accept-department"
-                      name="receptionAcceptDepartment"
-                      data-testid="accept-department-select"
-                      value={acceptDepartmentSelection}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setAcceptDepartmentSelection(value);
-                        setAcceptErrors((prev) => ({ ...prev, department: undefined }));
-                      }}
-                      aria-invalid={Boolean(acceptErrors.department)}
-                    >
-                      <option value="">選択してください</option>
-                      {departmentOptions.map(([code, name]) => (
-                        <option key={code} value={code}>
-                          {code} {name}
-                        </option>
-                      ))}
-                    </select>
-                    {departmentOptions.length >= 200 && (
-                      <small className="reception-accept__optional">候補が多いため上位200件に制限しています。</small>
-                    )}
-                    {acceptDepartmentSelection && departmentOptions.length === 1 && departmentOptions[0]?.[0] && (
-                      <small className="reception-accept__optional">暫定: 診療科コードのデフォルトを適用中</small>
-                    )}
-                    {acceptDepartmentSelection && departmentOptions.length > 1 && (
-                      <small className="reception-accept__optional">既定: 先頭の診療科コードを自動選択</small>
-                    )}
-                    {acceptErrors.department && <small className="reception-accept__error">{acceptErrors.department}</small>}
-                  </label>
-                  <label className="reception-accept__field">
-                    <span>保険/自費<span className="reception-accept__required">必須</span></span>
-                    <select
-                      id="reception-accept-payment-mode"
-                      name="receptionAcceptPaymentMode"
-                      value={acceptPaymentMode}
-                      onChange={(event) => setAcceptPaymentMode(event.target.value as 'insurance' | 'self' | '')}
-                      aria-invalid={Boolean(acceptErrors.paymentMode)}
-                    >
-                      <option value="">選択してください</option>
-                      <option value="insurance">保険（InsuranceProvider_Class=1）</option>
-                      <option value="self">自費（InsuranceProvider_Class=9）</option>
-                    </select>
-                    {acceptErrors.paymentMode && <small className="reception-accept__error">{acceptErrors.paymentMode}</small>}
-                  </label>
-                  <label className="reception-accept__field">
-                    <span>担当医<span className="reception-accept__required">必須</span></span>
-                    <select
-                      id="reception-accept-physician"
-                      name="receptionAcceptPhysician"
-                      data-testid="accept-physician-select"
-                      value={acceptPhysicianSelection}
-                      onChange={(event) => {
-                        const value = event.target.value;
-                        setAcceptPhysicianSelection(value);
-                        setAcceptErrors((prev) => ({ ...prev, physician: undefined }));
-                      }}
-                      aria-invalid={Boolean(acceptErrors.physician)}
-                    >
-                      <option value="">選択してください</option>
-                      {physicianOptions.map((physician) => (
-                        <option key={physician} value={physician}>
-                          {physician}
-                        </option>
-                      ))}
-                    </select>
-                    {physicianOptions.length === 0 && (
-                      <small className="reception-accept__optional">担当医が取得できません。フィルタ/受付一覧の読み込みを確認してください。</small>
-                    )}
-                    {acceptPhysicianSelection === '0001' && (
-                      <small className="reception-accept__optional">暫定: 担当医コードのデフォルト(0001)を適用中</small>
-                    )}
-                    {physicianOptions.length >= 200 && (
-                      <small className="reception-accept__optional">候補が多いため上位200件に制限しています。</small>
-                    )}
-                    {acceptPhysicianSelection && physicianOptions.length > 0 && (
-                      <small className="reception-accept__optional">既定: 先頭の担当医を自動選択</small>
-                    )}
-                    {acceptErrors.physician && <small className="reception-accept__error">{acceptErrors.physician}</small>}
-                  </label>
-                  <label className="reception-accept__field">
-                    <span>来院区分<span className="reception-accept__required">必須</span></span>
-                    <select
-                      id="reception-accept-visit-kind"
-                      name="receptionAcceptVisitKind"
-                      value={acceptVisitKind}
-                      onChange={(event) => setAcceptVisitKind(event.target.value)}
-                      aria-invalid={Boolean(acceptErrors.visitKind)}
-                    >
-                      <option value="">選択してください</option>
-                      <option value="1">通常(1)</option>
-                      <option value="2">時間外(2)</option>
-                      <option value="3">救急(3)</option>
-                    </select>
-                    {acceptErrors.visitKind && <small className="reception-accept__error">{acceptErrors.visitKind}</small>}
-                  </label>
-                </div>
-
-                <div className="reception-accept__row">
-                  <fieldset className="reception-accept__field reception-accept__field--inline">
-                    <legend>操作</legend>
-                    <label className="reception-accept__radio">
-                      <input
-                        type="radio"
-                        name="accept-operation"
-                        value="register"
-                        checked={acceptOperation === 'register'}
-                        onChange={() => {
-                          setAcceptOperation('register');
-                          setAcceptErrors({});
+                  </form>
+                  <div className="reception-search__saved" aria-label="保存ビュー">
+                    <div className="reception-search__saved-meta" role="status" aria-live={infoLive}>
+                      <span className="reception-search__saved-share">Reception ↔ Patients で共有</span>
+                      <span className="reception-search__saved-updated">
+                        {selectedSavedView ? `選択中の更新: ${savedViewUpdatedAtLabel ?? '—'}` : '選択中のビューはありません'}
+                      </span>
+                    </div>
+                    <div className="reception-search__saved-row">
+                      <label className="reception-search__field">
+                        <span>保存ビュー</span>
+                        <select
+                          id="reception-search-saved-view"
+                          name="receptionSearchSavedView"
+                          value={selectedViewId}
+                          onChange={(event) => setSelectedViewId(event.target.value)}
+                        >
+                          <option value="">選択してください</option>
+                          {savedViews.map((view) => (
+                            <option key={view.id} value={view.id}>
+                              {view.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className="reception-search__button ghost"
+                        onClick={() => {
+                          const view = savedViews.find((item) => item.id === selectedViewId);
+                          if (view) applySavedView(view);
                         }}
-                      />
-                      受付登録 (Request_Number=01)
-                    </label>
-                    <label className="reception-accept__radio">
-                      <input
-                        type="radio"
-                        name="accept-operation"
-                        value="cancel"
-                        checked={acceptOperation === 'cancel'}
-                        onChange={() => {
-                          setAcceptOperation('cancel');
-                          setAcceptErrors({});
-                        }}
-                      />
-                      受付取消 (Request_Number=02)
-                    </label>
-                  </fieldset>
-                  <label
-                    className={`reception-accept__field${acceptOperation === 'cancel' ? ' reception-accept__field--alert' : ''}`}
-                  >
-                    <span>
-                      受付ID
-                      {acceptOperation === 'cancel' ? (
-                        <span className="reception-accept__required">必須</span>
-                      ) : (
-                        <span className="reception-accept__optional">任意</span>
-                      )}
-                    </span>
-                    <input
-                      id="reception-accept-reception-id"
-                      name="receptionAcceptReceptionId"
-                      type="text"
-                      value={acceptReceptionId}
-                      onChange={(event) => setAcceptReceptionId(event.target.value)}
-                      placeholder="A20260120001"
-                      required={acceptOperation === 'cancel'}
-                      aria-required={acceptOperation === 'cancel'}
-                      aria-disabled={acceptOperation === 'register'}
-                      aria-invalid={Boolean(acceptErrors.receptionId)}
-                    />
-                    {acceptErrors.receptionId && (
-                      <small className="reception-accept__error">{acceptErrors.receptionId}</small>
-                    )}
-                  </label>
-                  <label className="reception-accept__field">
-                    <span>メモ/診療内容</span>
-                    <input
-                      id="reception-accept-note"
-                      name="receptionAcceptNote"
-                      type="text"
-                      value={acceptNote}
-                      onChange={(event) => setAcceptNote(event.target.value)}
-                      placeholder="外来受付メモ"
-                    />
-                  </label>
-                </div>
-
-                <div className="reception-accept__actions">
-                  <div className="reception-accept__hints" aria-live={infoLive}>
-                    <span>Api_Result=00: 受付リストへ即時追加 / Api_Result=21: 受付なし警告を表示</span>
-                    <span>runId/traceId は監査ログ（action=reception_accept）とコンソールに残します</span>
+                        disabled={!selectedViewId}
+                      >
+                        適用
+                      </button>
+                      <button
+                        type="button"
+                        className="reception-search__button ghost"
+                        onClick={handleDeleteView}
+                        disabled={!selectedViewId}
+                      >
+                        削除
+                      </button>
+                    </div>
+                    <div className="reception-search__saved-row">
+                      <label className="reception-search__field">
+                        <span>ビュー名</span>
+                        <input
+                          id="reception-search-saved-view-name"
+                          name="receptionSearchSavedViewName"
+                          value={savedViewName}
+                          onChange={(event) => setSavedViewName(event.target.value)}
+                          placeholder="例: 内科/午前/保険"
+                        />
+                      </label>
+                      <button type="button" className="reception-search__button primary" onClick={handleSaveView}>
+                        現在の条件を保存
+                      </button>
+                    </div>
                   </div>
-                  <div className="reception-accept__buttons">
-                    <button type="button" onClick={() => setAcceptResult(null)} className="reception-search__button ghost">
-                      バナーをクリア
-                    </button>
-                    <button
-                      type="button"
-                      className="reception-search__button ghost"
-                      onClick={sendDirectAcceptMinimalForced}
-                      data-test-id="accept-submit-forced"
-                    >
-                      送信(強制)
-                    </button>
-                    <button
-                      type="button"
-                      className="reception-search__button ghost"
-                      onClick={() => {
-                        if (!selectedEntry) return;
-                        applyAcceptAutoFill(selectedEntry, { force: true });
-                      }}
-                    >
-                      選択中の患者を反映
-                    </button>
-                    <button
-                      type="submit"
-                      className="reception-search__button primary"
-                      onClick={(event) => {
-                        if (isAcceptSubmitting) return;
-                        handleAcceptSubmit(event);
-                      }}
-                      aria-disabled={isAcceptSubmitting}
-                      data-disabled={isAcceptSubmitting ? 'true' : 'false'}
-                    >
-                      {isAcceptSubmitting ? '送信中…' : '受付送信'}
-                    </button>
+                  <div className="reception-summary" aria-live={infoLive} ref={summaryRef} tabIndex={-1}>
+                    <div className="reception-summary__main">
+                      <strong>{summaryText}</strong>
+                      {appointmentQuery.isFetching && <span className="reception-summary__state">更新中…</span>}
+                    </div>
+                    <div className="reception-summary__meta">
+                      <span>最終更新: {appointmentUpdatedAtLabel}</span>
+                      <span>自動更新: {autoRefreshIntervalLabel}</span>
+                      <span>選択保持: {selectedEntry ? '保持中' : '未選択'}</span>
+                    </div>
                   </div>
-                </div>
-              </form>
-
-              {/* TEMP: XHR送信状況の可視化パネル（撤去前提） */}
-              <div className="reception-accept__result" role="status" aria-live={infoLive}>
-                <div className="reception-accept__result-header">
-                  <h3>XHR送信デバッグ（暫定）</h3>
-                </div>
-                <div className="reception-accept__result-meta" data-test-id="accept-xhr-debug">
-                  <span>lastAttemptAt: {xhrDebugState.lastAttemptAt ?? '—'}</span>
-                  <span>status: {xhrDebugState.status ?? '—'}</span>
-                  <span>error: {xhrDebugState.error ?? '—'}</span>
-                </div>
-              </div>
-
-              <div className="reception-accept__result" role="status" aria-live={infoLive}>
-                <div className="reception-accept__result-header">
-                  <h3>送信結果</h3>
-                  {acceptResult?.runId && <RunIdBadge runId={acceptResult.runId} />}
-                </div>
-                {acceptResult ? (
-                  <ToneBanner
-                    tone={acceptResult.tone === 'success' ? 'info' : acceptResult.tone}
-                    message={acceptResult.message}
-                    destination="Reception"
-                    nextAction={acceptResult.tone === 'success' ? '受付リスト更新' : '内容確認'}
-                    runId={acceptResult.runId ?? resolvedRunId}
-                    ariaLive={acceptResult.tone === 'error' ? 'assertive' : 'polite'}
-                  />
-                ) : (
-                  <p className="reception-accept__result-empty">まだ送信していません。入力後に「受付送信」を実行してください。</p>
-                )}
-                <div className="reception-accept__result-meta">
-                  <span data-test-id="accept-api-result">Api_Result: {acceptResult?.apiResult ?? '—'}</span>
-                  <span data-test-id="accept-duration-ms">所要時間: {acceptDurationMs !== null ? `${acceptDurationMs} ms` : '—'}</span>
-                </div>
-                {acceptResult?.detail && <p className="reception-accept__result-detail">{acceptResult.detail}</p>}
-              </div>
-            </section>
-
-            <section className="reception-search" aria-label="検索とフィルタ">
-              <form className="reception-search__form" onSubmit={handleSearchSubmit}>
-                <div className="reception-search__row">
-                  <label className="reception-search__field">
-                    <span>日付</span>
-                    <input
-                      id="reception-search-date"
-                      name="receptionSearchDate"
-                      type="date"
-                      value={selectedDate}
-                      onChange={(event) => setSelectedDate(event.target.value)}
-                      required
-                    />
-                  </label>
-                  <label className="reception-search__field">
-                    <span>検索（患者ID/氏名/カナ）</span>
-                    <input
-                      id="reception-search-keyword"
-                      name="receptionSearchKeyword"
-                      type="search"
-                      value={keyword}
-                      onChange={(event) => setKeyword(event.target.value)}
-                      placeholder="PX-0001 / 山田 / ヤマダ"
-                    />
-                  </label>
-                  <label className="reception-search__field">
-                    <span>診療科</span>
-                    <select
-                      id="reception-search-department"
-                      name="receptionSearchDepartment"
-                      value={departmentFilter}
-                      onChange={(event) => setDepartmentFilter(event.target.value)}
-                    >
-                      <option value="">すべて</option>
-                      {uniqueDepartments.map((dept) => (
-                        <option key={dept} value={dept}>
-                          {dept}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="reception-search__field">
-                    <span>担当医</span>
-                    <select
-                      id="reception-search-physician"
-                      name="receptionSearchPhysician"
-                      value={physicianFilter}
-                      onChange={(event) => setPhysicianFilter(event.target.value)}
-                    >
-                      <option value="">すべて</option>
-                      {uniquePhysicians.map((physician) => (
-                        <option key={physician} value={physician}>
-                          {physician}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="reception-search__field">
-                    <span>保険/自費</span>
-                    <select
-                      id="reception-search-payment-mode"
-                      name="receptionSearchPaymentMode"
-                      value={paymentMode}
-                      onChange={(event) => setPaymentMode(normalizePaymentMode(event.target.value))}
-                    >
-                      <option value="all">すべて</option>
-                      <option value="insurance">保険</option>
-                      <option value="self">自費</option>
-                    </select>
-                  </label>
-                  <label className="reception-search__field">
-                    <span>ソート</span>
-                    <select
-                      id="reception-search-sort"
-                      name="receptionSearchSort"
-                      value={sortKey}
-                      onChange={(event) => setSortKey(event.target.value as SortKey)}
-                    >
-                      <option value="time">受付/予約時間</option>
-                      <option value="name">氏名</option>
-                      <option value="department">診療科</option>
-                    </select>
-                  </label>
-                </div>
-                <div className="reception-search__actions">
-                  <button type="submit" className="reception-search__button primary">
-                    検索
-                  </button>
-                  <button type="button" className="reception-search__button ghost" onClick={() => appointmentQuery.refetch()}>
-                    再取得
-                  </button>
-                  <button type="button" className="reception-search__button ghost" onClick={handleClear}>
-                    クリア
-                  </button>
-                  <button
-                    type="button"
-                    className="reception-search__button ghost"
-                    onClick={() => {
-                      const params = new URLSearchParams();
-                      if (keyword) params.set('kw', keyword);
-                      if (departmentFilter) params.set('dept', departmentFilter);
-                      if (physicianFilter) params.set('phys', physicianFilter);
-                      if (paymentMode !== 'all') params.set('pay', paymentMode);
-                      if (sortKey) params.set('sort', sortKey);
-                      if (selectedDate) params.set('date', selectedDate);
-                      params.set('from', 'reception');
-                      navigate(`${buildFacilityPath(session.facilityId, '/patients')}?${params.toString()}`);
-                    }}
-                  >
-                    Patients へ
-                  </button>
-                </div>
-              </form>
-              <div className="reception-search__saved" aria-label="保存ビュー">
-                <div className="reception-search__saved-meta" role="status" aria-live={infoLive}>
-                  <span className="reception-search__saved-share">Reception ↔ Patients で共有</span>
-                  <span className="reception-search__saved-updated">
-                    {selectedSavedView ? `選択中の更新: ${savedViewUpdatedAtLabel ?? '—'}` : '選択中のビューはありません'}
-                  </span>
-                </div>
-                <div className="reception-search__saved-row">
-                  <label className="reception-search__field">
-                    <span>保存ビュー</span>
-                    <select
-                      id="reception-search-saved-view"
-                      name="receptionSearchSavedView"
-                      value={selectedViewId}
-                      onChange={(event) => setSelectedViewId(event.target.value)}
-                    >
-                      <option value="">選択してください</option>
-                      {savedViews.map((view) => (
-                        <option key={view.id} value={view.id}>
-                          {view.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="reception-search__button ghost"
-                    onClick={() => {
-                      const view = savedViews.find((item) => item.id === selectedViewId);
-                      if (view) applySavedView(view);
-                    }}
-                    disabled={!selectedViewId}
-                  >
-                    適用
-                  </button>
-                  <button
-                    type="button"
-                    className="reception-search__button ghost"
-                    onClick={handleDeleteView}
-                    disabled={!selectedViewId}
-                  >
-                    削除
-                  </button>
-                </div>
-                <div className="reception-search__saved-row">
-                  <label className="reception-search__field">
-                    <span>ビュー名</span>
-                    <input
-                      id="reception-search-saved-view-name"
-                      name="receptionSearchSavedViewName"
-                      value={savedViewName}
-                      onChange={(event) => setSavedViewName(event.target.value)}
-                      placeholder="例: 内科/午前/保険"
-                    />
-                  </label>
-                  <button type="button" className="reception-search__button primary" onClick={handleSaveView}>
-                    現在の条件を保存
-                  </button>
-                </div>
-              </div>
-              <div className="reception-summary" aria-live={infoLive} ref={summaryRef} tabIndex={-1}>
-                <div className="reception-summary__main">
-                  <strong>{summaryText}</strong>
-                  {appointmentQuery.isFetching && <span className="reception-summary__state">更新中…</span>}
-                </div>
-                <div className="reception-summary__meta">
-                  <span>最終更新: {appointmentUpdatedAtLabel}</span>
-                  <span>自動更新: {autoRefreshIntervalLabel}</span>
-                  <span>選択保持: {selectedEntry ? '保持中' : '未選択'}</span>
-                </div>
-              </div>
-              {!appointmentQuery.isLoading && sortedEntries.length === 0 && (
-                <p className="reception-summary__empty" role="status" aria-live={infoLive}>
-                  0件です。日付やキーワードを見直してください。
-                  <span className="reception-summary__empty-hint">ヒント: 診療科・担当医・保険/自費を先に絞ると探しやすくなります。</span>
-                </p>
-              )}
-              {appointmentQuery.isLoading && (
-                <p role="status" aria-live={infoLive} className="reception-status">
-                  外来リストを読み込み中…
-                </p>
-              )}
+                  {!appointmentQuery.isLoading && sortedEntries.length === 0 && (
+                    <p className="reception-summary__empty" role="status" aria-live={infoLive}>
+                      0件です。日付やキーワードを見直してください。
+                      <span className="reception-summary__empty-hint">
+                        ヒント: 診療科・担当医・保険/自費を先に絞ると探しやすくなります。
+                      </span>
+                    </p>
+                  )}
+                  {appointmentQuery.isLoading && (
+                    <p role="status" aria-live={infoLive} className="reception-status">
+                      外来リストを読み込み中…
+                    </p>
+                  )}
+                </>
+              ) : null}
             </section>
 
             <section className="reception-selection" aria-live={infoLive} aria-atomic="true">
@@ -3318,6 +3371,48 @@ export function ReceptionPage({
                 >
                   Charts 新規タブ
                 </button>
+                <button
+                  type="button"
+                  className="reception-selection__button danger"
+                  onClick={() => void handleCancelSelectedEntry()}
+                  disabled={
+                    isAcceptSubmitting ||
+                    !selectedEntry?.patientId ||
+                    !selectedEntry?.receptionId ||
+                    selectedEntry?.status === '予約'
+                  }
+                  title={
+                    isAcceptSubmitting
+                      ? '送信中です'
+                      : !selectedEntry
+                        ? '患者を選択してください'
+                        : !selectedEntry.patientId
+                          ? '患者IDが未登録のため取消できません'
+                          : selectedEntry.status === '予約'
+                            ? '予約は受付取消できません'
+                            : selectedEntry.receptionId
+                              ? '受付取消（一覧選択 → 取消）'
+                              : '受付IDが未登録のため取消できません'
+                  }
+                  data-test-id="reception-cancel-selected"
+                >
+                  受付取消
+                </button>
+                <button
+                  type="button"
+                  className="reception-search__button ghost"
+                  onClick={() => {
+                    if (!selectedEntry?.patientId) return;
+                    openMedicalRecordsModal(
+                      { patientId: selectedEntry.patientId, name: selectedEntry.name },
+                      'selection',
+                    );
+                  }}
+                  disabled={!selectedEntry?.patientId}
+                  title={selectedEntry?.patientId ? '過去カルテをモーダルで確認' : '患者IDが未登録のため過去カルテを表示できません'}
+                >
+                  過去カルテ
+                </button>
                 <span className="reception-selection__hint">
                   行クリックで右ペイン更新 / ダブルクリック・Enter で Charts（新規タブ）
                 </span>
@@ -3333,18 +3428,182 @@ export function ReceptionPage({
               </div>
             </section>
 
-            <ReceptionExceptionList
-              items={exceptionItems}
-              counts={exceptionCounts}
-              runId={mergedMeta.runId}
-              claimEnabled={claimOutpatientEnabled}
-              onSelectEntry={handleSelectEntry}
-              onOpenCharts={handleOpenChartsNewTab}
-              onRetryQueue={handleRetryQueue}
-              retryingPatientId={retryingPatientId}
-            />
+            <div className="reception-board" role="region" aria-label="ステータス別患者一覧">
+              {grouped.map(({ status, items }) => (
+                <section
+                  key={status}
+                  className="reception-board__column"
+                  data-status={status}
+                  aria-label={`${SECTION_LABEL[status]} ${items.length}件`}
+                >
+                  <header className="reception-board__header">
+                    <div className="reception-board__title">
+                      <h2>{SECTION_LABEL[status]}</h2>
+                      <span className="reception-board__count" aria-live={infoLive}>
+                        {items.length}件
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="reception-board__toggle"
+                      aria-expanded={!collapsed[status]}
+                      onClick={() => toggleSection(status)}
+                    >
+                      {collapsed[status] ? '開く' : '折りたたむ'}
+                    </button>
+                  </header>
+                  {!collapsed[status] && (
+                    <div className="reception-board__body" role="list" aria-label={`${SECTION_LABEL[status]}の患者一覧`}>
+                      {items.length === 0 ? (
+                        <p className="reception-board__empty">該当なし</p>
+                      ) : (
+                        items.map((entry) => {
+                          const bundle = resolveBundleForEntry(entry);
+                          const paymentLabel = paymentModeLabel(entry.insurance);
+                          const canOpenCharts = Boolean(entry.patientId);
+                          const orcaQueueEntry = entry.patientId ? orcaQueueByPatientId.get(entry.patientId) : undefined;
+                          const orcaQueueStatus = orcaQueueErrorStatus ?? resolveOrcaQueueStatus(orcaQueueEntry);
+                          const mvpDecision = isReceptionStatusMvpEnabled
+                            ? resolveRec001MvpDecision({
+                                missingMaster: metaMissingMaster,
+                                orcaQueueErrorMessage,
+                                orcaQueueStatus,
+                                orcaQueueEntry,
+                              })
+                            : null;
+                          const cached = entry.patientId ? claimSendCache[entry.patientId] : null;
+                          const isSelected = selectedEntryKey === entryKey(entry);
+                          const rowKey =
+                            entryKey(entry) ??
+                            `${entry.patientId ?? 'unknown'}-${entry.appointmentTime ?? entry.department ?? 'card'}`;
+                          const activeQueue = orcaQueueStatus;
+                          return (
+                            <div
+                              key={rowKey}
+                              tabIndex={0}
+                              role="button"
+                              aria-pressed={isSelected}
+                              className={`reception-card${isSelected ? ' is-selected' : ''}`}
+                              data-test-id="reception-entry-card"
+                              data-patient-id={entry.patientId ?? ''}
+                              data-reception-status={status}
+                              aria-label={`${entry.name ?? '患者'} ${entry.patientId ?? ''}`}
+                              onClick={() => handleSelectRow(entry)}
+                              onDoubleClick={() => handleRowDoubleClick(entry)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  handleRowDoubleClick(entry);
+                                }
+                                if (event.key === ' ') {
+                                  event.preventDefault();
+                                  handleSelectRow(entry);
+                                }
+                              }}
+                            >
+                              <div className="reception-card__head">
+                                <span className="reception-card__time">{entry.appointmentTime ?? '—'}</span>
+                                <span
+                                  className={`reception-badge reception-badge--${status}`}
+                                  aria-label={`状態: ${SECTION_LABEL[status]}`}
+                                >
+                                  {isReceptionStatusMvpEnabled ? (
+                                    <span className="reception-status-mvp" data-test-id="reception-status-mvp">
+                                      <span className="reception-status-mvp__dot" aria-hidden="true" data-status={status} />
+                                      <span className="reception-status-mvp__label">{SECTION_LABEL[status]}</span>
+                                    </span>
+                                  ) : (
+                                    SECTION_LABEL[status]
+                                  )}
+                                </span>
+                              </div>
+                              <div className="reception-card__name">
+                                <strong>{entry.name ?? '未登録'}</strong>
+                                {entry.kana ? <small>{entry.kana}</small> : null}
+                              </div>
+                              <div className="reception-card__meta">
+                                <span>
+                                  患者ID: <code>{entry.patientId ?? '—'}</code>
+                                </span>
+                                {entry.receptionId ? (
+                                  <span>
+                                    受付ID: <code>{entry.receptionId}</code>
+                                  </span>
+                                ) : null}
+                                {entry.appointmentId ? (
+                                  <span>
+                                    予約ID: <code>{entry.appointmentId}</code>
+                                  </span>
+                                ) : null}
+                                <span>{entry.department ?? '—'}</span>
+                                {entry.physician ? <span>担当: {entry.physician}</span> : null}
+                                <span>直近: {resolveLastVisitForEntry(entry)}</span>
+                              </div>
+                              <div className="reception-card__signals">
+                                <StatusPill className="reception-pill" ariaLabel={`支払区分: ${paymentLabel}`} runId={resolvedRunId}>
+                                  {paymentLabel}
+                                </StatusPill>
+                                {bundle?.claimStatus || bundle?.claimStatusText ? (
+                                  <small>請求: {bundle.claimStatus ?? bundle.claimStatusText}</small>
+                                ) : null}
+                                {cached?.invoiceNumber ? <small>invoice: {cached.invoiceNumber}</small> : null}
+                                {cached?.dataId ? <small>data: {cached.dataId}</small> : null}
+                                {cached?.sendStatus ? (
+                                  <small>ORCA送信: {cached.sendStatus === 'success' ? '成功' : '失敗'}</small>
+                                ) : null}
+                                <span className={`reception-queue reception-queue--${activeQueue.tone}`}>{activeQueue.label}</span>
+                                {activeQueue.detail ? <small>{truncateText(activeQueue.detail, 44)}</small> : null}
+                              </div>
+                              {isReceptionStatusMvpPhase2 && mvpDecision ? (
+                                <div className="reception-status-mvp__next" data-tone={mvpDecision.tone}>
+                                  <span className="reception-status-mvp__next-label">次:</span>
+                                  <strong className="reception-status-mvp__next-action">{mvpDecision.nextAction}</strong>
+                                  {mvpDecision.detail ? (
+                                    <small className="reception-status-mvp__next-detail">{truncateText(mvpDecision.detail, 44)}</small>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                              <div className="reception-card__actions">
+                                {isReceptionStatusMvpPhase2 && mvpDecision?.canRetry ? (
+                                  <button
+                                    type="button"
+                                    className="reception-card__action warning"
+                                    data-test-id="reception-status-mvp-retry"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void handleRetryQueue(entry);
+                                    }}
+                                    title={mvpDecision.retryTitle ?? 'ORCA再送を要求します'}
+                                  >
+                                    再送
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="reception-card__action"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleOpenChartsNewTab(entry);
+                                  }}
+                                  disabled={!canOpenCharts}
+                                  title={canOpenCharts ? 'Charts を新規タブで開く' : '患者IDが未登録のため新規タブを開けません'}
+                                >
+                                  Charts
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </section>
+              ))}
+            </div>
 
-            {grouped.map(({ status, items }, index) => {
+            {debugUiEnabled ? (
+              <>
+                {grouped.map(({ status, items }, index) => {
               const sectionId = `reception-section-${index}`;
               const tableHelpId = `${sectionId}-help`;
               const tableStatusId = `${sectionId}-status`;
@@ -3588,218 +3847,536 @@ export function ReceptionPage({
                 )}
               </section>
             )})}
+              </>
+            ) : null}
           </div>
 
           <aside className="reception-layout__side" aria-label="右ペイン" id="reception-sidepane" tabIndex={-1}>
             <section
-              className="reception-sidepane"
+              className="reception-accept"
+              aria-label="当日受付"
               data-run-id={resolvedRunId}
-              role="region"
-              aria-live={infoLive}
-              aria-atomic="true"
-              aria-labelledby="reception-sidepane-patient-title"
-              aria-describedby="reception-sidepane-patient-status"
-              tabIndex={0}
+              id="reception-accept"
+              data-test-id="reception-accept"
             >
-              <header className="reception-sidepane__header">
+              <header className="reception-accept__header">
                 <div>
-                  <h2 id="reception-sidepane-patient-title">患者概要</h2>
-                  <span className="reception-sidepane__meta">
-                    {selectedEntry?.name ?? '未選択'}
-                  </span>
+                  <h2>当日受付</h2>
+                  <p className="reception-accept__lead">患者検索（AND）→ 選択 → 受付登録。</p>
                 </div>
-                <div className="reception-sidepane__actions">
-                  <button
-                    type="button"
-                    className="reception-sidepane__action primary"
-                    onClick={() => {
-                      if (!selectedEntry) return;
-                      handleOpenChartsNewTab(selectedEntry);
-                    }}
-                    disabled={!selectedEntry || !selectedEntry.patientId}
-                    title={
-                      !selectedEntry
-                        ? '患者を選択してください'
-                        : selectedEntry.patientId
-                          ? 'Charts を新規タブで開く'
-                          : '患者IDが未登録のため新規タブを開けません'
-                    }
-                  >
-                    Charts 新規タブ
-                  </button>
+                <div className="reception-accept__meta">
+                  <RunIdBadge runId={resolvedRunId} />
                 </div>
               </header>
-              <div className="reception-sidepane__lead">
-                <span
-                  className={`reception-badge reception-badge--${selectedEntry?.status ?? 'muted'}`}
-                  aria-label={`状態: ${selectedEntry?.status ?? '未選択'}`}
-                >
-                  {selectedEntry?.status ?? '未選択'}
-                </span>
-                <span className="reception-sidepane__lead-meta">
-                  {selectedEntry?.appointmentTime ?? '—'} / {selectedEntry?.department ?? '—'}
-                </span>
-              </div>
-              <p id="reception-sidepane-patient-status" className="sr-only">
-                {selectionSummaryText}
-              </p>
-              {!selectedEntry ? (
-                <p className="reception-sidepane__empty">一覧の行を選択すると詳細が表示されます。</p>
-              ) : (
-                <div className="reception-sidepane__grid">
-                  <div className="reception-sidepane__item reception-sidepane__item--wide">
-                    <span>ID</span>
-                    <strong>
-                      <PatientMetaRow
-                        as="span"
-                        patientId={selectedEntry.patientId}
-                        receptionId={selectedEntry.receptionId}
-                        appointmentId={selectedEntry.appointmentId}
-                        showLabels={false}
-                        showEmpty
-                        separator="slash"
-                        runId={resolvedRunId}
-                      />
-                    </strong>
-                  </div>
-                  <div className="reception-sidepane__item">
-                    <span>氏名/カナ</span>
-                    <strong>{selectedEntry.name ?? '未登録'}</strong>
-                    <small>{selectedEntry.kana ?? '—'}</small>
-                  </div>
-                  <div className="reception-sidepane__item">
-                    <span>性別/生年月日</span>
-                    <strong>
-                      {selectedEntry.sex ?? '—'} / {selectedEntry.birthDate ?? '—'}
-                    </strong>
-                  </div>
-                  <div className="reception-sidepane__item">
-                    <span>支払/保険</span>
-                    <strong>{paymentModeLabel(selectedEntry.insurance)}</strong>
-                    <small>{selectedEntry.insurance ?? '—'}</small>
-                  </div>
-                  <div className="reception-sidepane__item">
-                    <span>来院/担当</span>
-                    <strong>
-                      {selectedEntry.appointmentTime ?? '—'} / {selectedEntry.department ?? '—'}
-                    </strong>
-                    <small>{selectedEntry.physician ? `担当: ${selectedEntry.physician}` : '担当: —'}</small>
-                  </div>
-                  <div className="reception-sidepane__item">
-                    <span>状態/直近</span>
-                    <strong>{selectedEntry.status ?? '—'}</strong>
-                    <small>直近: {resolveLastVisitForEntry(selectedEntry)}</small>
-                  </div>
-                </div>
-              )}
-            </section>
 
-            {claimOutpatientEnabled && (
               <section
-                className="reception-sidepane"
+                className="reception-patient-search reception-patient-search--embedded"
+                aria-label="患者検索"
                 data-run-id={resolvedRunId}
-                role="region"
-                aria-live={infoLive}
-                aria-atomic="true"
-                aria-labelledby="reception-sidepane-order-title"
-                aria-describedby="reception-sidepane-order-status"
-                tabIndex={0}
               >
-                <header className="reception-sidepane__header">
-                  <div>
-                    <h2 id="reception-sidepane-order-title">オーダー概要</h2>
-                    <span className="reception-sidepane__meta">
-                      {selectedBundle?.claimStatus ?? selectedBundle?.claimStatusText ?? '未取得'}
+                <header className="reception-patient-search__header">
+                  <h3>患者検索</h3>
+                  <div className="reception-patient-search__header-actions">
+                    <span className="reception-patient-search__meta" aria-live={infoLive}>
+                      {patientSearchMutation.isPending ? '検索中…' : `${patientSearchResults.length}件`}
                     </span>
-                  </div>
-                  <div className="reception-sidepane__actions">
                     <button
                       type="button"
-                      className="reception-sidepane__action"
-                      onClick={() => {
-                        if (!selectedEntry) return;
-                        handleOpenChartsNewTab(selectedEntry);
-                      }}
-                      disabled={!selectedEntry || !selectedEntry.patientId}
-                      title={
-                        !selectedEntry
-                          ? '患者を選択してください'
-                          : selectedEntry.patientId
-                            ? 'Charts を新規タブで開く'
-                            : '患者IDが未登録のため新規タブを開けません'
-                      }
+                      className="reception-search__button ghost"
+                      onClick={clearPatientSearch}
+                      disabled={patientSearchMutation.isPending && patientSearchResults.length === 0}
                     >
-                      Charts 新規タブ
+                      クリア
                     </button>
                   </div>
                 </header>
-                <p id="reception-sidepane-order-status" className="sr-only">
-                  {orderSummaryText}
-                </p>
-                {!selectedEntry ? (
-                  <p className="reception-sidepane__empty">対象患者を選択してください。</p>
-                ) : (
-                  <div className="reception-sidepane__grid">
-                    <div className="reception-sidepane__item">
-                      <span>請求状態</span>
-                      <strong>{selectedBundle?.claimStatus ?? selectedBundle?.claimStatusText ?? '未取得'}</strong>
-                      {selectedBundle?.bundleNumber && <small>B: {selectedBundle.bundleNumber}</small>}
+
+                <form
+                  className="reception-patient-search__form"
+                  onSubmit={handlePatientSearchSubmit}
+                  data-test-id="reception-patient-search-form"
+                >
+                  <div className="reception-patient-search__row">
+                    <label className="reception-patient-search__field">
+                      <span>患者ID</span>
+                      <input
+                        id="reception-patient-search-patient-id"
+                        name="receptionPatientSearchPatientId"
+                        type="search"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        value={acceptPatientId}
+                        onChange={(event) => setAcceptPatientId(event.target.value)}
+                        placeholder="000001"
+                      />
+                    </label>
+                  </div>
+                  <div className="reception-patient-search__row">
+                    <label className="reception-patient-search__field">
+                      <span>氏名（姓）</span>
+                      <input
+                        id="reception-patient-search-name-sei"
+                        name="receptionPatientSearchNameSei"
+                        type="search"
+                        autoComplete="off"
+                        value={patientSearchNameSei}
+                        onChange={(event) => setPatientSearchNameSei(event.target.value)}
+                        placeholder="山田"
+                      />
+                    </label>
+                    <label className="reception-patient-search__field">
+                      <span>氏名（名）</span>
+                      <input
+                        id="reception-patient-search-name-mei"
+                        name="receptionPatientSearchNameMei"
+                        type="search"
+                        autoComplete="off"
+                        value={patientSearchNameMei}
+                        onChange={(event) => setPatientSearchNameMei(event.target.value)}
+                        placeholder="太郎"
+                      />
+                    </label>
+                  </div>
+                  <div className="reception-patient-search__row">
+                    <label className="reception-patient-search__field">
+                      <span>カナ（セイ）</span>
+                      <input
+                        id="reception-patient-search-kana-sei"
+                        name="receptionPatientSearchKanaSei"
+                        type="search"
+                        autoComplete="off"
+                        value={patientSearchKanaSei}
+                        onChange={(event) => setPatientSearchKanaSei(event.target.value)}
+                        placeholder="ヤマダ"
+                      />
+                    </label>
+                    <label className="reception-patient-search__field">
+                      <span>カナ（メイ）</span>
+                      <input
+                        id="reception-patient-search-kana-mei"
+                        name="receptionPatientSearchKanaMei"
+                        type="search"
+                        autoComplete="off"
+                        value={patientSearchKanaMei}
+                        onChange={(event) => setPatientSearchKanaMei(event.target.value)}
+                        placeholder="タロウ"
+                      />
+                    </label>
+                  </div>
+                  <div className="reception-patient-search__buttons">
+                    <button
+                      type="submit"
+                      className="reception-search__button primary"
+                      disabled={patientSearchMutation.isPending}
+                      data-test-id="reception-patient-search-submit"
+                    >
+                      {patientSearchMutation.isPending ? '検索中…' : '検索'}
+                    </button>
+                  </div>
+                </form>
+
+                {patientSearchError ? (
+                  <ToneBanner
+                    tone="error"
+                    message={patientSearchError}
+                    destination="Reception"
+                    nextAction="条件を見直す"
+                    runId={patientSearchMeta?.runId ?? resolvedRunId}
+                    ariaLive="assertive"
+                  />
+                ) : null}
+
+                <div className="reception-patient-search__list" role="list" aria-label="検索結果">
+                  {patientSearchMutation.isPending ? (
+                    <p className="reception-sidepane__empty">検索中…</p>
+                  ) : patientSearchResults.length === 0 ? (
+                    <p className="reception-sidepane__empty">検索結果がありません。</p>
+                  ) : (
+                    patientSearchResults.map((patient, index) => {
+                      const key = patient.patientId ?? `${patient.name ?? 'unknown'}-${index}`;
+                      const resolvedPatientId = patient.patientId?.trim() ?? '';
+                      const isSelected =
+                        Boolean(resolvedPatientId) &&
+                        Boolean(patientSearchSelected?.patientId) &&
+                        resolvedPatientId === patientSearchSelected?.patientId;
+                      const matchedEntry = resolvedPatientId
+                        ? sortedEntries.find((entry) => entry.patientId === resolvedPatientId)
+                        : undefined;
+                      return (
+                        <div
+                          key={key}
+                          className={`reception-patient-search__item${isSelected ? ' is-selected' : ''}`}
+                          role="listitem"
+                        >
+                          <button
+                            type="button"
+                            className="reception-patient-search__item-select"
+                            onClick={() => handleSelectPatientSearchResult(patient)}
+                            data-test-id={`reception-patient-search-select-${resolvedPatientId || index}`}
+                          >
+                            <strong>{patient.name ?? '氏名未登録'}</strong>
+                            <small>
+                              {[patient.kana, patient.patientId]
+                                .filter((value): value is string => Boolean(value))
+                                .join(' / ') || '—'}
+                            </small>
+                            <div className="reception-patient-search__item-meta">
+                              <span>患者ID: {patient.patientId ?? '—'}</span>
+                              {patient.birthDate ? <span>生年月日: {patient.birthDate}</span> : null}
+                              {patient.sex ? <span>性別: {patient.sex}</span> : null}
+                              {patient.insurance ? <span>保険: {patient.insurance}</span> : null}
+                              {patient.lastVisit ? <span>直近: {patient.lastVisit}</span> : null}
+                              {matchedEntry?.status ? <span>今日: {matchedEntry.status}</span> : null}
+                            </div>
+                          </button>
+                          <div className="reception-patient-search__item-actions" role="group" aria-label="カルテ">
+                            <button
+                              type="button"
+                              className="reception-search__button ghost"
+                              onClick={() =>
+                                openMedicalRecordsModal({ patientId: patient.patientId, name: patient.name }, 'search')
+                              }
+                              disabled={!resolvedPatientId}
+                              title={
+                                resolvedPatientId
+                                  ? '過去カルテをモーダルで確認'
+                                  : '患者IDが未登録のため過去カルテを表示できません'
+                              }
+                            >
+                              カルテ
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+
+              <div className="reception-accept__acceptbar" data-test-id="reception-accept-bar" aria-live={infoLive}>
+                <div className="reception-accept__acceptbar-main">
+                  <span className="reception-accept__acceptbar-label">受付対象</span>
+                  <strong>{acceptTargetPatientLabel}</strong>
+                  <span className="reception-accept__acceptbar-meta">患者ID: {acceptTargetPatientId || '—'}</span>
+                </div>
+                <div className="reception-accept__acceptbar-actions">
+                  <button
+                    type="button"
+                    className="reception-search__button ghost"
+                    onClick={() => setAcceptDetailsCollapsed((prev) => !prev)}
+                    aria-expanded={!acceptDetailsCollapsed}
+                    data-test-id="reception-accept-toggle-details"
+                  >
+                    {acceptDetailsCollapsed ? '詳細' : '詳細を閉じる'}
+                  </button>
+                  <button
+                    type="button"
+                    className="reception-search__button primary"
+                    onClick={(event) => void handleAcceptRegister(event)}
+                    disabled={isAcceptSubmitting || acceptRegisterDecision.disabled}
+                    aria-disabled={isAcceptSubmitting || acceptRegisterDecision.disabled}
+                    data-test-id="reception-accept-register"
+                    title={acceptRegisterDecision.reason}
+                  >
+                    {isAcceptSubmitting ? '受付中…' : acceptRegisterDecision.label}
+                  </button>
+                </div>
+              </div>
+
+              {!acceptDetailsCollapsed ? (
+                <div className="reception-accept__details" data-test-id="reception-accept-details">
+                  <div className="reception-accept__row">
+                    <label className="reception-accept__field">
+                      <span>
+                        診療科（コード）<span className="reception-accept__required">必須</span>
+                      </span>
+                      <select
+                        id="reception-accept-department"
+                        name="receptionAcceptDepartment"
+                        data-testid="accept-department-select"
+                        value={acceptDepartmentSelection}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setAcceptDepartmentSelection(value);
+                          setAcceptErrors((prev) => ({ ...prev, department: undefined }));
+                        }}
+                        aria-invalid={Boolean(acceptErrors.department)}
+                      >
+                        <option value="">選択してください</option>
+                        {departmentOptions.map(([code, name]) => (
+                          <option key={code} value={code}>
+                            {code} {name}
+                          </option>
+                        ))}
+                      </select>
+                      {departmentOptions.length >= 200 && (
+                        <small className="reception-accept__optional">候補が多いため上位200件に制限しています。</small>
+                      )}
+                      {acceptDepartmentSelection && departmentOptions.length === 1 && departmentOptions[0]?.[0] && (
+                        <small className="reception-accept__optional">暫定: 診療科コードのデフォルトを適用中</small>
+                      )}
+                      {acceptDepartmentSelection && departmentOptions.length > 1 && (
+                        <small className="reception-accept__optional">既定: 先頭の診療科コードを自動選択</small>
+                      )}
+                      {acceptErrors.department && <small className="reception-accept__error">{acceptErrors.department}</small>}
+                    </label>
+
+                    <label className="reception-accept__field">
+                      <span>
+                        保険/自費<span className="reception-accept__required">必須</span>
+                      </span>
+                      <select
+                        id="reception-accept-payment-mode"
+                        name="receptionAcceptPaymentMode"
+                        value={acceptPaymentMode}
+                        onChange={(event) => setAcceptPaymentMode(event.target.value as 'insurance' | 'self' | '')}
+                        aria-invalid={Boolean(acceptErrors.paymentMode)}
+                      >
+                        <option value="">自動（既定: 保険）</option>
+                        <option value="insurance">保険（InsuranceProvider_Class=1）</option>
+                        <option value="self">自費（InsuranceProvider_Class=9）</option>
+                      </select>
+                      {acceptErrors.paymentMode && <small className="reception-accept__error">{acceptErrors.paymentMode}</small>}
+                    </label>
+
+                    <label className="reception-accept__field">
+                      <span>
+                        担当医<span className="reception-accept__required">必須</span>
+                      </span>
+                      <select
+                        id="reception-accept-physician"
+                        name="receptionAcceptPhysician"
+                        data-testid="accept-physician-select"
+                        value={acceptPhysicianSelection}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setAcceptPhysicianSelection(value);
+                          setAcceptErrors((prev) => ({ ...prev, physician: undefined }));
+                        }}
+                        aria-invalid={Boolean(acceptErrors.physician)}
+                      >
+                        <option value="">選択してください</option>
+                        {physicianOptions.map((physician) => (
+                          <option key={physician} value={physician}>
+                            {physician}
+                          </option>
+                        ))}
+                      </select>
+                      {physicianOptions.length === 0 && (
+                        <small className="reception-accept__optional">
+                          担当医が取得できません。フィルタ/受付一覧の読み込みを確認してください。
+                        </small>
+                      )}
+                      {acceptPhysicianSelection === '0001' && (
+                        <small className="reception-accept__optional">暫定: 担当医コードのデフォルト(0001)を適用中</small>
+                      )}
+                      {physicianOptions.length >= 200 && (
+                        <small className="reception-accept__optional">候補が多いため上位200件に制限しています。</small>
+                      )}
+                      {acceptPhysicianSelection && physicianOptions.length > 0 && (
+                        <small className="reception-accept__optional">既定: 先頭の担当医を自動選択</small>
+                      )}
+                      {acceptErrors.physician && <small className="reception-accept__error">{acceptErrors.physician}</small>}
+                    </label>
+
+                    <label className="reception-accept__field">
+                      <span>
+                        来院区分<span className="reception-accept__required">必須</span>
+                      </span>
+                      <select
+                        id="reception-accept-visit-kind"
+                        name="receptionAcceptVisitKind"
+                        value={acceptVisitKind}
+                        onChange={(event) => setAcceptVisitKind(event.target.value)}
+                        aria-invalid={Boolean(acceptErrors.visitKind)}
+                      >
+                        <option value="">自動（既定: 通常）</option>
+                        <option value="1">通常(1)</option>
+                        <option value="2">時間外(2)</option>
+                        <option value="3">救急(3)</option>
+                      </select>
+                      {acceptErrors.visitKind && <small className="reception-accept__error">{acceptErrors.visitKind}</small>}
+                    </label>
+                  </div>
+
+                  <div className="reception-accept__row">
+                    <label className="reception-accept__field">
+                      <span>メモ/診療内容</span>
+                      <input
+                        id="reception-accept-note"
+                        name="receptionAcceptNote"
+                        type="text"
+                        value={acceptNote}
+                        onChange={(event) => setAcceptNote(event.target.value)}
+                        placeholder="外来受付メモ（省略可）"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="reception-accept__actions">
+                    <div className="reception-accept__hints" aria-live={infoLive}>
+                      <span>Api_Result=00: 左の一覧へ即時反映 / Api_Result=21: 「受付なし」警告</span>
+                      <span>runId/traceId は監査ログ（action=reception_accept）とコンソールに残します</span>
                     </div>
-                    <div className="reception-sidepane__item">
-                      <span>合計金額/診療時間</span>
-                      <strong>
-                        {selectedBundle?.totalClaimAmount !== undefined
-                          ? `${selectedBundle.totalClaimAmount.toLocaleString()}円`
-                          : '—'}
-                      </strong>
-                      <small>{toDateLabel(selectedBundle?.performTime)}</small>
-                    </div>
-                    <div className="reception-sidepane__item">
-                      <span>送信キャッシュ</span>
-                      <strong>
-                        {selectedSendCache?.sendStatus
-                          ? selectedSendCache.sendStatus === 'success'
-                            ? '送信成功'
-                            : '送信失敗'
-                          : '—'}
-                      </strong>
-                      {selectedSendCache?.invoiceNumber && <small>I: {selectedSendCache.invoiceNumber}</small>}
-                      {selectedSendCache?.dataId && <small>D: {selectedSendCache.dataId}</small>}
-                    </div>
-                    <div className="reception-sidepane__item reception-sidepane__item--wide">
-                      <span>ORCAキュー</span>
-                      <strong>{selectedQueueStatus.label}</strong>
-                      {selectedQueueStatus.detail && <small>{selectedQueueStatus.detail}</small>}
-                      {selectedQueue?.nextRetryAt && <small>次回再送: {selectedQueue.nextRetryAt}</small>}
-                      {selectedQueue?.errorMessage && <small>error: {selectedQueue.errorMessage}</small>}
+                    <div className="reception-accept__buttons">
+                      <button type="button" onClick={() => setAcceptResult(null)} className="reception-search__button ghost">
+                        バナーをクリア
+                      </button>
+                      {debugUiEnabled ? (
+                        <button
+                          type="button"
+                          className="reception-search__button ghost"
+                          onClick={sendDirectAcceptMinimalForced}
+                          data-test-id="accept-submit-forced"
+                        >
+                          送信(強制)
+                        </button>
+                      ) : null}
                     </div>
                   </div>
-                )}
-              </section>
-            )}
+                </div>
+              ) : null}
 
-            <OrderConsole
-              masterSource={masterSource}
-              missingMaster={tonePayload.missingMaster ?? true}
-              cacheHit={tonePayload.cacheHit ?? false}
-              missingMasterNote={missingMasterNote}
-              runId={mergedMeta.runId ?? initialRunId ?? flags.runId}
-              tone={tone}
-              toneMessage={`${toneMessage} ｜ transition=${transitionMeta.label}`}
-              patientId={selectedEntry?.patientId ?? patientId ?? ''}
-              receptionId={selectedEntry?.receptionId ?? receptionId ?? ''}
-              destination={destination}
-              nextAction={tone === 'error' || mergedMeta.missingMaster ? MISSING_MASTER_RECOVERY_NEXT_ACTION : 'ORCA再送'}
-              transitionDescription={transitionMeta.description}
-              onMasterSourceChange={handleMasterSourceChange}
-              onToggleMissingMaster={handleToggleMissingMaster}
-              onToggleCacheHit={handleToggleCacheHit}
-              onMissingMasterNoteChange={handleMissingMasterNoteChange}
-            />
+              {debugUiEnabled ? (
+                <div className="reception-accept__result" role="status" aria-live={infoLive}>
+                  <div className="reception-accept__result-header">
+                    <h3>XHR送信デバッグ（暫定）</h3>
+                  </div>
+                  <div className="reception-accept__result-meta" data-test-id="accept-xhr-debug">
+                    <span>lastAttemptAt: {xhrDebugState.lastAttemptAt ?? '—'}</span>
+                    <span>status: {xhrDebugState.status ?? '—'}</span>
+                    <span>error: {xhrDebugState.error ?? '—'}</span>
+                  </div>
+                </div>
+              ) : null}
+
+              {acceptResult ? (
+                <div className="reception-accept__result" role="status" aria-live={infoLive}>
+                  <div className="reception-accept__result-header">
+                    <h3>送信結果</h3>
+                    {acceptResult.runId && <RunIdBadge runId={acceptResult.runId} />}
+                  </div>
+                  <ToneBanner
+                    tone={acceptResult.tone === 'success' ? 'info' : acceptResult.tone}
+                    message={acceptResult.message}
+                    destination="Reception"
+                    nextAction={acceptResult.tone === 'success' ? '受付リスト更新' : '内容確認'}
+                    runId={acceptResult.runId ?? resolvedRunId}
+                    ariaLive={acceptResult.tone === 'error' ? 'assertive' : 'polite'}
+                  />
+                  <div className="reception-accept__result-meta">
+                    <span data-test-id="accept-api-result">Api_Result: {acceptResult.apiResult ?? '—'}</span>
+                    <span data-test-id="accept-duration-ms">
+                      所要時間: {acceptDurationMs !== null ? `${acceptDurationMs} ms` : '—'}
+                    </span>
+                  </div>
+                  {acceptResult.detail && <p className="reception-accept__result-detail">{acceptResult.detail}</p>}
+                </div>
+              ) : null}
+            </section>
+
+	            {debugUiEnabled ? (
+	              <OrderConsole
+	                masterSource={masterSource}
+                missingMaster={tonePayload.missingMaster ?? true}
+                cacheHit={tonePayload.cacheHit ?? false}
+                missingMasterNote={missingMasterNote}
+                runId={mergedMeta.runId ?? initialRunId ?? flags.runId}
+                tone={tone}
+                toneMessage={`${toneMessage} ｜ transition=${transitionMeta.label}`}
+                patientId={selectedEntry?.patientId ?? patientId ?? ''}
+                receptionId={selectedEntry?.receptionId ?? receptionId ?? ''}
+                destination={destination}
+                nextAction={tone === 'error' || mergedMeta.missingMaster ? MISSING_MASTER_RECOVERY_NEXT_ACTION : 'ORCA再送'}
+                transitionDescription={transitionMeta.description}
+                onMasterSourceChange={handleMasterSourceChange}
+                onToggleMissingMaster={handleToggleMissingMaster}
+                onToggleCacheHit={handleToggleCacheHit}
+                onMissingMasterNoteChange={handleMissingMasterNoteChange}
+              />
+            ) : null}
           </aside>
         </section>
 
-        <ReceptionAuditPanel runId={mergedMeta.runId} selectedEntry={selectedEntry} />
+        {debugUiEnabled ? <ReceptionAuditPanel runId={mergedMeta.runId} selectedEntry={selectedEntry} /> : null}
+
+        <FocusTrapDialog
+          open={exceptionsModalOpen}
+          title={`例外一覧（${exceptionCounts.total}件）`}
+          description="送信エラー・遅延・未承認の詳細を確認します。"
+          onClose={closeExceptionsModal}
+          testId="reception-exceptions-modal"
+        >
+          <div className="reception-modal__actions">
+            <button type="button" className="reception-search__button ghost" onClick={closeExceptionsModal}>
+              閉じる
+            </button>
+          </div>
+          <ReceptionExceptionList
+            variant="modal"
+            items={exceptionItems}
+            counts={exceptionCounts}
+            runId={mergedMeta.runId}
+            claimEnabled={claimOutpatientEnabled}
+            onSelectEntry={(entry) => {
+              handleSelectEntry(entry);
+              closeExceptionsModal();
+            }}
+            onOpenCharts={handleOpenChartsNewTab}
+            onRetryQueue={handleRetryQueue}
+            retryingPatientId={retryingPatientId}
+          />
+        </FocusTrapDialog>
+
+        <FocusTrapDialog
+          open={Boolean(recordsModalPatientId)}
+          title={`過去カルテ（${recordsModalPatientLabel}）`}
+          description={recordsModalPatientId ? `患者ID: ${recordsModalPatientId}` : undefined}
+          onClose={closeMedicalRecordsModal}
+          testId="reception-medical-records-modal"
+        >
+          <div className="reception-modal__actions">
+            {medicalRecordsModalQuery.data?.runId ? <RunIdBadge runId={medicalRecordsModalQuery.data.runId} /> : null}
+            <button type="button" className="reception-search__button ghost" onClick={closeMedicalRecordsModal}>
+              閉じる
+            </button>
+          </div>
+          {!recordsModalPatientId ? null : medicalRecordsModalQuery.isFetching ? (
+            <p className="reception-sidepane__empty">過去カルテを取得中…</p>
+          ) : medicalRecordsModalQuery.isError ? (
+            <ToneBanner
+              tone="error"
+              message={`過去カルテの取得に失敗しました: ${
+                medicalRecordsModalQuery.error instanceof Error ? medicalRecordsModalQuery.error.message : 'unknown'
+              }`}
+              destination="Reception"
+              nextAction="条件を見直す"
+              runId={medicalRecordsModalQuery.data?.runId ?? resolvedRunId}
+              ariaLive="assertive"
+            />
+          ) : medicalRecordsModalQuery.data?.records?.length ? (
+            <div className="reception-history__list" role="list" aria-label="過去カルテ一覧">
+              {medicalRecordsModalQuery.data.records.map((record: MedicalRecordEntry, index: number) => {
+                const key =
+                  record.documentId ?? record.sequentialNumber ?? `${record.performDate ?? 'unknown'}-${index}`;
+                const deptLabel = record.departmentName?.trim() || record.departmentCode?.trim();
+                const metaParts = [
+                  deptLabel ? `科: ${deptLabel}` : undefined,
+                  record.sequentialNumber ? `連番: ${record.sequentialNumber}` : undefined,
+                  record.documentStatus ? `状態: ${record.documentStatus}` : undefined,
+                ].filter((value): value is string => Boolean(value));
+                return (
+                  <div key={key} className="reception-history__item" role="listitem">
+                    <strong>{record.performDate ?? '—'}</strong>
+                    <small>{metaParts.join(' / ') || '—'}</small>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="reception-sidepane__empty">過去カルテがありません。</p>
+          )}
+        </FocusTrapDialog>
       </main>
     </>
   );

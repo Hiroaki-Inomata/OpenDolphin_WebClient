@@ -47,6 +47,8 @@ export type OrderBundleEditPanelProps = {
   itemQuantityLabel: string;
   meta: OrderBundleEditPanelMeta;
   onOpenDocument?: (request: DocumentOpenRequest) => void;
+  historyCopyRequest?: { requestId: string; bundle: OrderBundle } | null;
+  onHistoryCopyConsumed?: (requestId: string) => void;
 };
 
 type PrescriptionLocation = 'in' | 'out';
@@ -547,6 +549,8 @@ export function OrderBundleEditPanel({
   itemQuantityLabel,
   meta,
   onOpenDocument,
+  historyCopyRequest,
+  onHistoryCopyConsumed,
 }: OrderBundleEditPanelProps) {
   const queryClient = useQueryClient();
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -1112,6 +1116,15 @@ export function OrderBundleEditPanel({
       },
     });
   };
+
+  const lastExternalHistoryCopyRequestIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!historyCopyRequest) return;
+    if (historyCopyRequest.requestId === lastExternalHistoryCopyRequestIdRef.current) return;
+    lastExternalHistoryCopyRequestIdRef.current = historyCopyRequest.requestId;
+    copyFromHistory(historyCopyRequest.bundle);
+    onHistoryCopyConsumed?.(historyCopyRequest.requestId);
+  }, [copyFromHistory, historyCopyRequest, onHistoryCopyConsumed]);
 
   const isNoProcedureCharge = isInjectionOrder && form.memo === NO_PROCEDURE_CHARGE_TEXT;
   const bundleNumberLabel = isMedOrder

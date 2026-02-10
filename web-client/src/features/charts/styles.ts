@@ -182,9 +182,9 @@ export const chartsStyles = css`
     --charts-column-center: minmax(420px, 1.6fr);
     --charts-column-right: minmax(300px, 1.05fr);
     --charts-column-gap: var(--charts-space-sm);
-    --charts-utility-compact-width: 64px;
-    --charts-utility-expanded-width: 320px;
-    --charts-utility-expanded-width-wide: 360px;
+    --charts-utility-compact-width: 56px;
+    --charts-utility-expanded-width: 304px;
+    --charts-utility-expanded-width-wide: 340px;
     --charts-utility-expanded-width-narrow: 280px;
     --charts-utility-width: var(--charts-utility-compact-width);
     --charts-utility-height: 0px;
@@ -314,54 +314,228 @@ export const chartsStyles = css`
   }
 
   .charts-patient-summary {
-    display: grid;
-    grid-template-columns: var(--charts-column-left) var(--charts-column-center) var(--charts-column-right);
-    gap: var(--charts-column-gap);
-    align-items: start;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-sm);
   }
 
-  .charts-patient-summary__left {
+  .charts-patient-summary__top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--charts-space-sm);
+    flex-wrap: wrap;
+  }
+
+  .charts-patient-summary__identity {
+    flex: 1;
+    min-width: min(520px, 100%);
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-2xs);
   }
 
-  @media (min-width: 1281px) {
-    .charts-patient-summary__center,
-    .charts-patient-summary__right {
-      border-left: 1px solid rgba(148, 163, 184, 0.28);
-      padding-left: var(--charts-space-sm);
-    }
-  }
-
-  .charts-patient-summary__label {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #64748b;
+  .charts-patient-summary__name-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--charts-space-sm);
+    flex-wrap: wrap;
   }
 
   .charts-patient-summary__name {
     margin: 0;
-    font-size: 1.5rem;
+    font-size: 1.35rem;
     color: #0f172a;
   }
 
   .charts-patient-summary__kana {
     color: #475569;
-    font-size: 0.95rem;
-  }
-
-  .charts-patient-summary__sex-age {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     font-weight: 600;
-    color: #1f2937;
   }
 
-  .charts-patient-summary__center {
+  .charts-patient-summary__facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--charts-space-xs);
+    align-items: center;
+  }
+
+  .charts-patient-summary__fact {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--charts-space-2xs);
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: #f8fafc;
+    color: #0f172a;
+    font-size: 0.82rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .charts-patient-summary__fact-button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--charts-space-2xs);
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.82rem;
+    font-weight: 800;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .charts-patient-summary__fact-button:hover {
+    background: #dbeafe;
+  }
+
+  .charts-patient-summary__fact-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .charts-patient-summary__allergies {
+    margin-top: var(--charts-space-xs);
+    border-radius: var(--charts-radius-sm);
+    border: 1px dashed rgba(245, 158, 11, 0.4);
+    background: rgba(254, 243, 199, 0.35);
+    padding: var(--charts-space-xs) var(--charts-space-sm);
+  }
+
+  .charts-patient-summary__allergies-empty {
+    margin: 0;
+    font-size: 0.82rem;
+    color: #92400e;
+  }
+
+  .charts-patient-summary__allergies-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
     display: flex;
     flex-direction: column;
+    gap: var(--charts-space-2xs);
+  }
+
+  .charts-patient-summary__allergy-item {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--charts-space-xs);
+    align-items: baseline;
+    color: #0f172a;
+    font-size: 0.8rem;
+  }
+
+  .charts-patient-summary__allergy-factor {
+    font-weight: 900;
+    color: #92400e;
+  }
+
+  .charts-patient-summary__allergy-severity {
+    font-weight: 800;
+    color: #b45309;
+  }
+
+  .charts-patient-summary__allergy-date {
+    color: #475569;
+    font-size: 0.75rem;
+  }
+
+  .charts-patient-summary__allergy-memo {
+    color: #0f172a;
+    font-size: 0.75rem;
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 999px;
+    padding: 0.05rem 0.45rem;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+  }
+
+  .charts-patient-summary__allergies-hint {
+    display: block;
+    margin-top: var(--charts-space-2xs);
+    color: #92400e;
+    font-size: 0.75rem;
+  }
+
+  .charts-patient-summary__memo {
+    margin-top: var(--charts-space-2xs);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--charts-space-xs);
+    padding: 0.25rem 0.6rem;
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: #f8fafc;
+    color: #334155;
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
+
+  .charts-patient-summary__memo[data-allergy='1'] {
+    border-color: rgba(245, 158, 11, 0.45);
+    background: #fef3c7;
+    color: #92400e;
+  }
+
+  .charts-patient-summary__memo-label {
+    font-weight: 900;
+  }
+
+  .charts-patient-summary__memo-text {
+    color: inherit;
+    word-break: break-word;
+  }
+
+  .charts-patient-summary__actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--charts-space-xs);
+    flex-wrap: wrap;
+  }
+
+  .charts-patient-summary__action {
+    border-radius: 999px;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    background: #eff6ff;
+    padding: 0.25rem 0.6rem;
+    font-weight: 800;
+    cursor: pointer;
+    color: #0f172a;
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+
+  .charts-patient-summary__action:hover {
+    background: #dbeafe;
+  }
+
+  .charts-patient-summary__detail {
+    border-top: 1px solid rgba(148, 163, 184, 0.25);
+    padding-top: var(--charts-space-sm);
+  }
+
+  .charts-patient-summary__detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: var(--charts-space-sm);
+  }
+
+  .charts-patient-summary__detail-block {
+    min-width: 0;
+  }
+
+  .charts-patient-summary__detail-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-2xs);
+    margin-bottom: var(--charts-space-xs);
   }
 
   .charts-patient-summary__meta-row,
@@ -398,12 +572,6 @@ export const chartsStyles = css`
   .charts-patient-summary__meta-sub {
     font-size: 0.72rem;
     color: #475569;
-  }
-
-  .charts-patient-summary__right {
-    display: flex;
-    flex-direction: column;
-    gap: var(--charts-space-xs);
   }
 
   .charts-orca-original {
@@ -682,25 +850,43 @@ export const chartsStyles = css`
     color: #334155;
   }
 
-  @media (max-width: 1279px) {
-    .charts-patient-summary {
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-    }
-
-    .charts-patient-summary__right {
-      grid-column: 1 / -1;
-      justify-self: end;
-    }
+  .charts-fold {
+    padding: 0;
   }
 
-  @media (max-width: 1023px) {
-    .charts-patient-summary {
-      grid-template-columns: 1fr;
-    }
+  .charts-fold__summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--charts-space-sm);
+    padding: var(--charts-space-sm) var(--charts-space-md);
+    font-weight: 900;
+    color: #0f172a;
+  }
 
-    .charts-patient-summary__right {
-      justify-self: stretch;
-    }
+  .charts-fold__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .charts-fold__summary::after {
+    content: '>';
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    color: #64748b;
+    transition: transform 120ms ease;
+  }
+
+  .charts-fold[open] > .charts-fold__summary {
+    border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  }
+
+  .charts-fold[open] > .charts-fold__summary::after {
+    transform: rotate(90deg);
+  }
+
+  .charts-fold__content {
+    padding: var(--charts-space-sm) var(--charts-space-md);
   }
 
   .charts-workbench__layout {
@@ -712,7 +898,7 @@ export const chartsStyles = css`
 
   .charts-workbench__body {
     display: grid;
-    grid-template-columns: var(--charts-column-left) var(--charts-column-center) var(--charts-column-right);
+    grid-template-columns: var(--charts-column-left) var(--charts-column-center);
     gap: var(--charts-column-gap);
     align-items: start;
     min-width: 0;
@@ -789,6 +975,19 @@ export const chartsStyles = css`
     border: 1px solid rgba(148, 163, 184, 0.3);
     background: #f8fafc;
     margin-bottom: var(--charts-space-sm);
+  }
+
+  .charts-shortcuts--dialog {
+    margin: 0;
+    border: none;
+    background: transparent;
+    padding: 0;
+  }
+
+  .charts-shortcuts--dialog .charts-shortcuts__groups {
+    max-height: min(60vh, 520px);
+    overflow-y: auto;
+    padding-right: var(--charts-space-xs);
   }
 
   .charts-shortcuts__header h3 {
@@ -873,6 +1072,39 @@ export const chartsStyles = css`
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-sm);
+  }
+
+  .charts-docked-panel__mini {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .charts-docked-panel__mini-button {
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: #f8fafc;
+    color: #1d4ed8;
+    cursor: pointer;
+    font-weight: 800;
+    padding: var(--charts-space-2xs) var(--charts-space-sm);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--charts-space-2xs);
+  }
+
+  .charts-docked-panel__mini-button:hover {
+    background: #eff6ff;
+  }
+
+  .charts-docked-panel__mini-button:focus-visible {
+    outline: 2px solid rgba(59, 130, 246, 0.6);
+    outline-offset: 2px;
+  }
+
+  .charts-docked-panel__mini-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
   }
 
   .charts-docked-panel__header {
@@ -1053,6 +1285,14 @@ export const chartsStyles = css`
     min-width: auto;
     font-size: 0.65rem;
     padding: var(--charts-space-2xs);
+  }
+
+  .charts-workbench[data-utility-state='compact'] .charts-docked-panel__mini {
+    justify-content: center;
+  }
+
+  .charts-workbench[data-utility-state='compact'] .charts-docked-panel__mini-label {
+    display: none;
   }
 
   .charts-side-panel__message {
@@ -1989,6 +2229,215 @@ export const chartsStyles = css`
     gap: var(--charts-space-xs);
   }
 
+  .charts-diagnosis__lead {
+    margin: var(--charts-space-2xs) 0 0;
+    font-size: 0.82rem;
+    color: #64748b;
+  }
+
+  .charts-diagnosis__header-actions {
+    display: flex;
+    gap: var(--charts-space-xs);
+    align-items: center;
+  }
+
+  .charts-side-panel__items.charts-diagnosis__items {
+    gap: var(--charts-space-xs);
+  }
+
+  .charts-diagnosis__item.charts-side-panel__items li,
+  .charts-side-panel__items .charts-diagnosis__item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: var(--charts-space-xs);
+    padding: var(--charts-space-xs) var(--charts-space-sm);
+  }
+
+  .charts-diagnosis__item-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .charts-diagnosis__title {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--charts-space-xs);
+    align-items: baseline;
+    min-width: 0;
+  }
+
+  .charts-diagnosis__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
+    color: #0f172a;
+  }
+
+  .charts-diagnosis__code {
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+
+  .charts-diagnosis__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--charts-space-xs);
+    align-items: center;
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+
+  .charts-diagnosis__badges {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .charts-diagnosis__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  .charts-diagnosis__badge--main {
+    border-color: rgba(34, 197, 94, 0.35);
+    background: rgba(34, 197, 94, 0.16);
+    color: #166534;
+  }
+
+  .charts-diagnosis__badge--sub {
+    border-color: rgba(99, 102, 241, 0.3);
+    background: rgba(99, 102, 241, 0.12);
+    color: #3730a3;
+  }
+
+  .charts-diagnosis__badge--suspected {
+    border-color: rgba(234, 88, 12, 0.35);
+    background: rgba(234, 88, 12, 0.12);
+    color: #9a3412;
+  }
+
+  .charts-diagnosis__dates {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .charts-side-panel__item-actions.charts-diagnosis__item-actions button {
+    padding: 2px var(--charts-space-sm);
+    font-size: 0.75rem;
+  }
+
+  .charts-diagnosis__ended {
+    margin-top: var(--charts-space-xs);
+    border-radius: var(--charts-radius-sm);
+    border: 1px dashed rgba(148, 163, 184, 0.4);
+    background: #f8fafc;
+    padding: var(--charts-space-xs);
+  }
+
+  .charts-diagnosis__ended-summary {
+    cursor: pointer;
+    color: #475569;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+
+  .charts-diagnosis__ended-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .charts-diagnosis__ended-summary::after {
+    content: '>';
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    color: #64748b;
+    float: right;
+    transition: transform 120ms ease;
+  }
+
+  .charts-diagnosis__ended[open] > .charts-diagnosis__ended-summary::after {
+    transform: rotate(90deg);
+  }
+
+  .charts-diagnosis__editor {
+    gap: var(--charts-space-sm);
+  }
+
+  .charts-diagnosis__name-row {
+    display: grid;
+    grid-template-columns: minmax(88px, 0.8fr) minmax(180px, 1.8fr) minmax(88px, 0.8fr);
+    gap: var(--charts-space-sm);
+    align-items: end;
+  }
+
+  @media (max-width: 720px) {
+    .charts-diagnosis__name-row {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .charts-diagnosis__advanced {
+    border-radius: var(--charts-radius-sm);
+    border: 1px dashed rgba(148, 163, 184, 0.4);
+    background: #f8fafc;
+    padding: var(--charts-space-xs) var(--charts-space-sm);
+  }
+
+  .charts-diagnosis__advanced-summary {
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 800;
+    color: #475569;
+  }
+
+  .charts-diagnosis__editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--charts-space-xs);
+    flex-wrap: wrap;
+  }
+
+  .charts-diagnosis__editor-actions button {
+    border-radius: 999px;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    background: #ffffff;
+    padding: 0.45rem 0.7rem;
+    cursor: pointer;
+    font-weight: 800;
+    color: #1d4ed8;
+    font-size: 0.82rem;
+  }
+
+  .charts-diagnosis__editor-actions button.charts-side-panel__ghost {
+    border-color: rgba(148, 163, 184, 0.45);
+    color: #475569;
+    background: #f8fafc;
+  }
+
+  .charts-diagnosis__editor-actions button:disabled {
+    background: #e2e8f0;
+    border-color: rgba(148, 163, 184, 0.4);
+    color: #94a3b8;
+    cursor: not-allowed;
+  }
+
+  .charts-diagnosis__hint {
+    display: block;
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+
   .charts-document-list {
     display: flex;
     flex-direction: column;
@@ -2904,6 +3353,12 @@ export const chartsStyles = css`
     font-size: 0.9rem;
   }
 
+  .soap-note__subtitle--meta {
+    margin-top: var(--charts-space-2xs);
+    font-size: 0.8rem;
+    color: #64748b;
+  }
+
   .soap-note__actions {
     display: flex;
     gap: var(--charts-space-sm);
@@ -2948,9 +3403,23 @@ export const chartsStyles = css`
     font-size: 0.9rem;
   }
 
+  .soap-note__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+    gap: var(--charts-space-md);
+    align-items: start;
+  }
+
+  .soap-note__editor {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-md);
+  }
+
   .soap-note__grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-template-columns: 1fr;
     gap: var(--charts-space-md);
   }
 
@@ -3017,6 +3486,204 @@ export const chartsStyles = css`
     background: #e0e7ff;
     border-radius: 999px;
     padding: var(--charts-space-2xs) var(--charts-space-xs);
+  }
+
+  .soap-note__history {
+    border-top: 1px solid rgba(148, 163, 184, 0.25);
+    padding-top: var(--charts-space-sm);
+  }
+
+  .soap-note__history-summary {
+    cursor: pointer;
+    font-weight: 800;
+    color: #1d4ed8;
+    font-size: 0.85rem;
+  }
+
+  .soap-note__history-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .soap-note__history-list {
+    margin-top: var(--charts-space-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-xs);
+    max-height: 240px;
+    overflow-y: auto;
+    padding-right: var(--charts-space-xs);
+  }
+
+  .soap-note__history-card {
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    background: #ffffff;
+    padding: var(--charts-space-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-2xs);
+  }
+
+  .soap-note__history-meta {
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+
+  .soap-note__history-body {
+    white-space: pre-wrap;
+    font-size: 0.85rem;
+    color: #0f172a;
+  }
+
+  .soap-note__subjectives-fold {
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: #f8fafc;
+    overflow: hidden;
+  }
+
+  .soap-note__subjectives-summary {
+    cursor: pointer;
+    font-weight: 800;
+    color: #0f172a;
+    padding: var(--charts-space-sm) var(--charts-space-md);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    list-style: none;
+  }
+
+  .soap-note__subjectives-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .soap-note__subjectives-summary::after {
+    content: '>';
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    color: #64748b;
+    transition: transform 120ms ease;
+  }
+
+  .soap-note__subjectives-fold[open] > .soap-note__subjectives-summary::after {
+    transform: rotate(90deg);
+  }
+
+  .soap-note__subjectives-content {
+    padding: var(--charts-space-sm) var(--charts-space-md);
+    border-top: 1px solid rgba(148, 163, 184, 0.22);
+  }
+
+  .soap-note__paper {
+    position: sticky;
+    top: 1rem;
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    padding: var(--charts-space-sm);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-sm);
+    min-width: 0;
+  }
+
+  .soap-note__paper-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--charts-space-sm);
+  }
+
+  .soap-note__paper-header strong {
+    display: block;
+    font-size: 0.95rem;
+    color: #0f172a;
+  }
+
+  .soap-note__paper-meta {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: #64748b;
+  }
+
+  .soap-note__paper-action {
+    border-radius: 999px;
+    border: 1px solid rgba(59, 130, 246, 0.28);
+    background: #eff6ff;
+    color: #1d4ed8;
+    cursor: pointer;
+    font-weight: 800;
+    padding: var(--charts-space-2xs) var(--charts-space-sm);
+    white-space: nowrap;
+  }
+
+  .soap-note__paper-action:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .soap-note__paper-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-xs);
+  }
+
+  .soap-note__paper-item {
+    padding-bottom: var(--charts-space-xs);
+    border-bottom: 1px dashed rgba(148, 163, 184, 0.35);
+  }
+
+  .soap-note__paper-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .soap-note__paper-drug {
+    display: block;
+    font-size: 0.9rem;
+    color: #0f172a;
+  }
+
+  .soap-note__paper-dose {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.8rem;
+    color: #1f2937;
+  }
+
+  .soap-note__paper-sub {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: #475569;
+  }
+
+  .soap-note__paper-empty {
+    margin: 0;
+    color: #64748b;
+    font-size: 0.85rem;
+  }
+
+  .soap-note__paper-memo {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #475569;
+    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    padding-top: var(--charts-space-xs);
+  }
+
+  @media (max-width: 1280px) {
+    .soap-note__body {
+      grid-template-columns: 1fr;
+    }
+
+    .soap-note__paper {
+      position: static;
+    }
   }
 
   .soap-note__tabs {
@@ -4068,6 +4735,28 @@ export const chartsStyles = css`
     line-height: 1.35;
   }
 
+  .charts-patient-panel__actions {
+    display: flex;
+    gap: var(--charts-space-xs);
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    margin-bottom: var(--charts-space-sm);
+  }
+
+  .charts-patient-panel__actions button {
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: #ffffff;
+    padding: 0.35rem 0.75rem;
+    font-weight: 800;
+    cursor: pointer;
+    color: #0f172a;
+  }
+
+  .charts-patient-panel__actions button:hover {
+    background: #f8fafc;
+  }
+
   .patients-tab {
     display: flex;
     flex-direction: column;
@@ -4120,7 +4809,7 @@ export const chartsStyles = css`
   }
 
   .charts-past-hub__list {
-    max-height: 320px;
+    max-height: clamp(260px, 46vh, 560px);
     overflow: auto;
     padding-right: 2px;
   }

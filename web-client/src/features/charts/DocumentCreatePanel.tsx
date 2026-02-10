@@ -24,6 +24,7 @@ import {
   clearDocumentOutputResult,
   loadDocumentOutputResult,
   saveDocumentPrintPreview,
+  type DocumentOutputResult,
   type DocumentOutputMode,
 } from './print/documentPrintPreviewStorage';
 import { useOptionalSession } from '../../AppRouter';
@@ -74,6 +75,8 @@ export type DocumentCreatePanelProps = {
   onImageAttachmentsChange?: (next: KarteAttachmentReference[]) => void;
   onImageAttachmentsClear?: () => void;
   openRequest?: DocumentOpenRequest | null;
+  historyCopyRequest?: { requestId: string; letterId: number } | null;
+  onHistoryCopyConsumed?: (requestId: string) => void;
 };
 
 type ReferralFormState = {
@@ -503,6 +506,8 @@ export function DocumentCreatePanel({
   onImageAttachmentsChange,
   onImageAttachmentsClear,
   openRequest,
+  historyCopyRequest,
+  onHistoryCopyConsumed,
 }: DocumentCreatePanelProps) {
   const session = useOptionalSession();
   const storageScope = useMemo<StorageScope | undefined>(() => {
@@ -530,7 +535,7 @@ export function DocumentCreatePanel({
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const [karteId, setKarteId] = useState<number | null>(null);
+  const [karteId, setKarteId] = useState<number | null | undefined>(undefined);
   const [userPk, setUserPk] = useState<number | null>(null);
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
@@ -539,6 +544,7 @@ export function DocumentCreatePanel({
   const [filterAudit, setFilterAudit] = useState<'all' | 'success' | 'failed' | 'pending'>('all');
   const [filterPatient, setFilterPatient] = useState<'current' | 'all'>('current');
   const lastOpenRequestRef = useRef<string | null>(null);
+  const pendingOutputResultRef = useRef<DocumentOutputResult | null>(null);
   const observability = useMemo(() => ensureObservabilityMeta({ runId: meta.runId }), [meta.runId]);
   const resolvedRunId = observability.runId ?? meta.runId;
   const hasPermission = useMemo(() => hasStoredAuth(), []);
@@ -621,12 +627,24 @@ export function DocumentCreatePanel({
     let active = true;
     if (!patientId) {
       setKarteId(null);
+      setSavedDocs([]);
+      setIsHistoryLoading(false);
+      setHistoryLoaded(true);
+      setHistoryError(null);
       return;
     }
+    // patientId が切り替わった直後は karteId 未確定。履歴は karteId が確定してから取得する。
+    setKarteId(undefined);
+    setIsHistoryLoading(true);
+    setHistoryLoaded(false);
+    setHistoryError(null);
     fetchKarteIdByPatientId({ patientId }).then((result) => {
       if (!active) return;
       if (!result.ok) {
         setKarteId(null);
+        setSavedDocs([]);
+        setIsHistoryLoading(false);
+        setHistoryLoaded(true);
         setHistoryError(result.error ?? 'カルテ情報の取得に失敗しました。');
         return;
       }
@@ -640,6 +658,7 @@ export function DocumentCreatePanel({
   useEffect(() => {
     const outputResult = loadDocumentOutputResult(storageScope);
     if (!outputResult) return;
+    pendingOutputResultRef.current = outputResult;
     clearDocumentOutputResult(storageScope);
     const outcomeTone = outputResult.outcome === 'success' ? 'success' : 'error';
     const outcomeLabel = outputResult.outcome === 'success' ? '成功' : '失敗';
@@ -647,13 +666,19 @@ export function DocumentCreatePanel({
       tone: outcomeTone,
       message: `文書出力${outcomeLabel}: ${outputResult.detail ?? outputResult.mode ?? '出力処理'}`,
     });
-    setSavedDocs((prev) =>
-      prev.map((doc) => {
+    setSavedDocs((prev) => {
+      const applied = prev.some((doc) => doc.id === outputResult.documentId);
+      const next = prev.map((doc) => {
         if (doc.id !== outputResult.documentId) return doc;
         return {
           ...doc,
           outputAudit: {
-            status: outputResult.outcome === 'success' ? 'success' : outputResult.outcome === 'blocked' ? 'blocked' : 'failed',
+            status:
+              outputResult.outcome === 'success'
+                ? 'success'
+                : outputResult.outcome === 'blocked'
+                  ? 'blocked'
+                  : 'failed',
             mode: outputResult.mode,
             at: outputResult.at,
             detail: outputResult.detail,
@@ -663,8 +688,10 @@ export function DocumentCreatePanel({
             httpStatus: outputResult.httpStatus,
           },
         };
-      }),
-    );
+      });
+      if (applied) pendingOutputResultRef.current = null;
+      return next;
+    });
     recordChartsAuditEvent({
       action: 'PRINT_DOCUMENT',
       outcome: outputResult.outcome === 'success' ? 'success' : 'error',
@@ -697,9 +724,44 @@ export function DocumentCreatePanel({
     resolvedRunId,
   ]);
 
+  useEffect(() => {
+    const outputResult = pendingOutputResultRef.current;
+    if (!outputResult) return;
+    if (!savedDocs.some((doc) => doc.id === outputResult.documentId)) return;
+    // 履歴ロード後に出力結果を反映（ロード時点で savedDocs が空だと取りこぼすため）
+    setSavedDocs((prev) => {
+      const applied = prev.some((doc) => doc.id === outputResult.documentId);
+      if (!applied) return prev;
+      pendingOutputResultRef.current = null;
+      return prev.map((doc) => {
+        if (doc.id !== outputResult.documentId) return doc;
+        return {
+          ...doc,
+          outputAudit: {
+            status:
+              outputResult.outcome === 'success'
+                ? 'success'
+                : outputResult.outcome === 'blocked'
+                  ? 'blocked'
+                  : 'failed',
+            mode: outputResult.mode,
+            at: outputResult.at,
+            detail: outputResult.detail,
+            runId: outputResult.runId,
+            traceId: outputResult.traceId,
+            endpoint: outputResult.endpoint,
+            httpStatus: outputResult.httpStatus,
+          },
+        };
+      });
+    });
+  }, [savedDocs]);
+
   const refreshDocumentHistory = useCallback(async () => {
+    if (karteId === undefined) return;
     if (!karteId) {
       setSavedDocs([]);
+      setIsHistoryLoading(false);
       setHistoryLoaded(true);
       return;
     }
@@ -715,18 +777,10 @@ export function DocumentCreatePanel({
     }
 
     const summaryDocs = listResult.letters.map((letter) => mapLetterToDocument(letter, today));
-    const detailedDocs = await Promise.all(
-      summaryDocs.map(async (doc) => {
-        if (!doc.letterId) return doc;
-        const detail = await fetchLetterDetail({ letterId: doc.letterId });
-        if (!detail.ok || !detail.letter) return doc;
-        return mapLetterToDocument(detail.letter, doc.issuedAt || today);
-      }),
-    );
-
+    // まず一覧(サマリ)を即時反映して、検索/フィルタ UI をブロックしない。
     setSavedDocs((prev) => {
       const prevMap = new Map(prev.map((doc) => [doc.id, doc]));
-      return detailedDocs.map((doc) => {
+      return summaryDocs.map((doc) => {
         const existing = prevMap.get(doc.id);
         if (!existing) return doc;
         const useExistingForm = !doc.detailLoaded && Boolean(existing.detailLoaded);
@@ -742,6 +796,38 @@ export function DocumentCreatePanel({
     });
     setIsHistoryLoading(false);
     setHistoryLoaded(true);
+
+    // サマリに詳細が含まれないケースのみ、必要なものだけ追いかけて補完する。
+    const needsDetail = summaryDocs.filter((doc) => doc.letterId && !doc.detailLoaded);
+    if (needsDetail.length === 0) return;
+
+    const detailedDocs = await Promise.all(
+      needsDetail.map(async (doc) => {
+        if (!doc.letterId) return doc;
+        const detail = await fetchLetterDetail({ letterId: doc.letterId });
+        if (!detail.ok || !detail.letter) return doc;
+        return mapLetterToDocument(detail.letter, doc.issuedAt || today);
+      }),
+    );
+
+    setSavedDocs((prev) => {
+      const prevMap = new Map(prev.map((doc) => [doc.id, doc]));
+      return prev.map((doc) => {
+        const updated = detailedDocs.find((item) => item.id === doc.id);
+        if (!updated) return doc;
+        const existing = prevMap.get(doc.id);
+        if (!existing) return updated;
+        const useExistingForm = !updated.detailLoaded && Boolean(existing.detailLoaded);
+        return {
+          ...updated,
+          form: useExistingForm ? existing.form : updated.form,
+          detailLoaded: updated.detailLoaded || existing.detailLoaded,
+          documentId: updated.documentId ?? existing.documentId,
+          attachmentIds: updated.attachmentIds ?? existing.attachmentIds,
+          outputAudit: updated.outputAudit ?? existing.outputAudit,
+        };
+      });
+    });
   }, [karteId, today]);
 
   useEffect(() => {
@@ -881,6 +967,23 @@ export function DocumentCreatePanel({
       resolvedRunId,
     ],
   );
+
+  const lastExternalHistoryCopyRequestIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!historyCopyRequest) return;
+    if (historyCopyRequest.requestId === lastExternalHistoryCopyRequestIdRef.current) return;
+    if (isHistoryLoading || !historyLoaded) return;
+    const target = savedDocs.find((doc) => doc.letterId === historyCopyRequest.letterId);
+    if (!target) {
+      lastExternalHistoryCopyRequestIdRef.current = historyCopyRequest.requestId;
+      setNotice({ tone: 'error', message: '指定の文書履歴が見つからないためコピーできません。' });
+      onHistoryCopyConsumed?.(historyCopyRequest.requestId);
+      return;
+    }
+    lastExternalHistoryCopyRequestIdRef.current = historyCopyRequest.requestId;
+    void handleReuseDocument(target);
+    onHistoryCopyConsumed?.(historyCopyRequest.requestId);
+  }, [handleReuseDocument, historyCopyRequest, historyLoaded, isHistoryLoading, onHistoryCopyConsumed, savedDocs]);
 
   const handleEditDocument = useCallback(
     async (doc: SavedDocument) => {

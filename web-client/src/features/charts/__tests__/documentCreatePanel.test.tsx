@@ -203,6 +203,7 @@ describe('DocumentCreatePanel', () => {
       </MemoryRouter>,
     );
 
+    await screen.findByLabelText('文書種別フィルタ');
     await user.selectOptions(screen.getByLabelText('文書種別フィルタ'), 'certificate');
     const list = screen.getByRole('list');
     expect(within(list).getByText('会社提出')).toBeInTheDocument();
@@ -232,6 +233,7 @@ describe('DocumentCreatePanel', () => {
       </MemoryRouter>,
     );
 
+    await screen.findByText('東京クリニック');
     const list = screen.getByRole('list');
     expect(within(list).getByText('東京クリニック')).toBeInTheDocument();
     expect(within(list).queryByText('P-200-診断書')).not.toBeInTheDocument();
@@ -254,6 +256,7 @@ describe('DocumentCreatePanel', () => {
       </MemoryRouter>,
     );
 
+    await screen.findByRole('button', { name: 'コピーして編集' });
     await user.click(screen.getByRole('button', { name: 'コピーして編集' }));
     expect(screen.getByLabelText('提出先 *')).toHaveValue('会社提出');
     expect(screen.getByLabelText('診断名 *')).toHaveValue('感冒');
@@ -297,7 +300,7 @@ describe('DocumentCreatePanel', () => {
     );
   });
 
-  it('文書出力の成功結果を履歴とトーストへ反映する', () => {
+  it('文書出力の成功結果を履歴とトーストへ反映する', async () => {
     const listSummary = makeReferralDetail();
     vi.mocked(fetchLetterList).mockResolvedValue({ ok: true, letters: [listSummary] });
     vi.mocked(fetchLetterDetail).mockResolvedValue({ ok: true, letter: listSummary });
@@ -328,8 +331,9 @@ describe('DocumentCreatePanel', () => {
         <DocumentCreatePanel {...baseProps} />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/文書出力成功/)).toBeInTheDocument();
-    expect(within(screen.getByRole('list')).getByText(/監査結果: 成功/)).toBeInTheDocument();
+    await screen.findByText(/文書出力成功/);
+    const list = await screen.findByRole('list');
+    expect(within(list).getByText(/監査結果: 成功/)).toBeInTheDocument();
   });
 
   it('文書出力の失敗結果で監査フィルタと復旧導線が表示される', async () => {
@@ -364,6 +368,7 @@ describe('DocumentCreatePanel', () => {
         <DocumentCreatePanel {...baseProps} />
       </MemoryRouter>,
     );
+    await screen.findByLabelText('監査結果フィルタ');
     await user.selectOptions(screen.getByLabelText('監査結果フィルタ'), 'failed');
     const list = screen.getByRole('list');
     expect(within(list).getByText('会社提出')).toBeInTheDocument();
@@ -402,6 +407,7 @@ describe('DocumentCreatePanel', () => {
       </MemoryRouter>,
     );
 
+    await screen.findByLabelText('監査結果フィルタ');
     await user.selectOptions(screen.getByLabelText('監査結果フィルタ'), 'pending');
     const list = screen.getByRole('list');
     expect(within(list).getByText('東京クリニック')).toBeInTheDocument();
@@ -500,7 +506,7 @@ describe('DocumentCreatePanel', () => {
     expect(attachEvents[0]?.outcome).toBe('error');
   });
 
-  it('編集と削除の導線が表示される', () => {
+  it('編集と削除の導線が表示される', async () => {
     const listSummary = makeReplyDetail();
     vi.mocked(fetchLetterList).mockResolvedValue({ ok: true, letters: [listSummary] });
     vi.mocked(fetchLetterDetail).mockResolvedValue({ ok: true, letter: listSummary });
@@ -511,7 +517,7 @@ describe('DocumentCreatePanel', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole('button', { name: '編集' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '削除' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '編集' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '削除' })).toBeInTheDocument();
   });
 });

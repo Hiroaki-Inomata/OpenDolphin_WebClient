@@ -12,7 +12,9 @@ type PastHubTab = 'encounters' | 'documents' | 'orders' | 'notes';
 
 const ORDER_ENTITIES = [
   { entity: 'medOrder', label: '処方' },
-  { entity: 'generalOrder', label: 'オーダー' },
+  { entity: 'generalOrder', label: '一般オーダー' },
+  { entity: 'treatmentOrder', label: '処置' },
+  { entity: 'testOrder', label: '検査' },
 ] as const;
 
 const DO_COPY_SECTIONS: SoapSectionKey[] = ['subjective', 'objective', 'assessment', 'plan'];
@@ -63,6 +65,12 @@ export type PastHubPanelProps = {
   soapHistory?: SoapEntry[];
   doCopyEnabled?: boolean;
   onRequestDoCopy?: (payload: { section: SoapSectionKey; entry: SoapEntry }) => void;
+  doOrderEnabled?: boolean;
+  doOrderDisabledReason?: string;
+  onRequestOrderDo?: (payload: { entity: (typeof ORDER_ENTITIES)[number]['entity']; bundle: OrderBundle }) => void;
+  doDocumentEnabled?: boolean;
+  doDocumentDisabledReason?: string;
+  onRequestDocumentDo?: (payload: { letter: LetterModulePayload }) => void;
   selectedContext: OutpatientEncounterContext;
   switchLocked: boolean;
   switchLockedReason?: string;
@@ -76,6 +84,12 @@ export function PastHubPanel({
   soapHistory = [],
   doCopyEnabled = false,
   onRequestDoCopy,
+  doOrderEnabled = false,
+  doOrderDisabledReason,
+  onRequestOrderDo,
+  doDocumentEnabled = false,
+  doDocumentDisabledReason,
+  onRequestDocumentDo,
   selectedContext,
   switchLocked,
   switchLockedReason,
@@ -153,7 +167,7 @@ export function PastHubPanel({
       <header className="charts-past-hub__header">
         <div>
           <strong>Past Hub</strong>
-          <p className="charts-past-hub__desc">過去参照（受診/記載/文書/オーダー）を集約して表示します。</p>
+          <p className="charts-past-hub__desc">過去参照（受診/記載/文書/オーダー）を集約して表示します。Do は右の入力パネルへコピーします。</p>
         </div>
         <div className="charts-past-hub__tabs" role="tablist" aria-label="Past Hub タブ">
           <button
@@ -213,7 +227,7 @@ export function PastHubPanel({
               </p>
             ) : (
               <ul className="charts-past-hub__items" aria-label="受診履歴一覧">
-                {historyEntries.slice(0, 12).map((entry) => {
+                {historyEntries.slice(0, 50).map((entry) => {
                   const id = resolveEntryId(entry);
                   const key = [
                     entry.patientId ?? entry.id,
@@ -246,7 +260,7 @@ export function PastHubPanel({
               </ul>
             )}
           </div>
-          <small className="charts-past-hub__hint">上限12件のみ表示（Phase1）。</small>
+          <small className="charts-past-hub__hint">最大50件まで表示します（古い履歴は Reception 側の検索で確認）。</small>
         </div>
       )}
 
@@ -263,7 +277,8 @@ export function PastHubPanel({
                   const entry = soapLatestBySection.get(section);
                   const body = entry?.body?.trim() ?? '';
                   const snippet = body.length > 140 ? `${body.slice(0, 140)}...` : body;
-                  const meta = entry ? `${formatSoapAuthoredAt(entry.authoredAt)} ／ ${entry.authorRole}` : '記載履歴なし';
+                  const who = entry ? (entry.authorName?.trim() || entry.authorRole) : '';
+                  const meta = entry ? `${formatSoapAuthoredAt(entry.authoredAt)} ／ ${who}` : '記載履歴なし';
                   const disabled = !doCopyEnabled || !entry || !body;
                   return (
                     <li key={section} className="charts-past-hub__item">
@@ -313,7 +328,7 @@ export function PastHubPanel({
           {letters.length > 0 ? (
             <div className="charts-past-hub__list">
               <ul className="charts-past-hub__items" aria-label="文書履歴一覧">
-                {letters.slice(0, 12).map((letter, index) => {
+                {letters.slice(0, 20).map((letter, index) => {
                   const issuedAt = resolveLetterIssuedAt(letter);
                   const title = letter.title?.trim() || '文書';
                   const type = letter.letterType?.trim() || 'type不明';
@@ -321,17 +336,35 @@ export function PastHubPanel({
                   const meta = [issuedAt ? `発行:${issuedAt}` : null, `種別:${type}`, handleClass ? `class:${handleClass}` : null]
                     .filter(Boolean)
                     .join(' / ');
+                  const disabled = !doDocumentEnabled || !letter.id;
                   return (
                     <li key={letter.id ?? `${title}-${issuedAt}-${index}`} className="charts-past-hub__item">
                       <div className="charts-past-hub__headline">{title}</div>
                       <div className="charts-past-hub__sub">{meta}</div>
+                      <div className="charts-past-hub__actions" role="group" aria-label="文書Do操作">
+                        <button
+                          type="button"
+                          className="charts-past-hub__do"
+                          disabled={disabled}
+                          title={
+                            !doDocumentEnabled
+                              ? doDocumentDisabledReason ?? '編集ガード中のためコピーできません'
+                              : !letter.id
+                                ? '文書IDが取得できません'
+                                : undefined
+                          }
+                          onClick={() => onRequestDocumentDo?.({ letter })}
+                        >
+                          コピーして編集
+                        </button>
+                      </div>
                     </li>
                   );
                 })}
               </ul>
             </div>
           ) : null}
-          <small className="charts-past-hub__hint">取得API: `fetchLetterList/fetchLetterDetail` 相当（Phase1は read-only）。</small>
+          <small className="charts-past-hub__hint">最大20件まで表示します。コピーは右の「文書」へ反映します。</small>
         </div>
       )}
 
@@ -354,18 +387,32 @@ export function PastHubPanel({
                   {!q.isFetching && bundles.length === 0 ? <p className="patients-tab__detail-empty">履歴はまだありません。</p> : null}
                   {bundles.length > 0 ? (
                     <ul className="charts-past-hub__items" aria-label={`${spec.label}履歴一覧`}>
-                      {bundles.slice(0, 8).map((bundle) => (
+                      {bundles.slice(0, 20).map((bundle) => {
+                        const disabled = !doOrderEnabled;
+                        return (
                         <li key={bundle.documentId ?? `${bundle.bundleName}-${bundle.started}`} className="charts-past-hub__item">
                           <div className="charts-past-hub__headline">{formatOrderBundleLabel(bundle)}</div>
+                          <div className="charts-past-hub__actions" role="group" aria-label={`${spec.label}Do操作`}>
+                            <button
+                              type="button"
+                              className="charts-past-hub__do"
+                              disabled={disabled}
+                              title={!doOrderEnabled ? doOrderDisabledReason ?? '編集ガード中のためコピーできません' : undefined}
+                              onClick={() => onRequestOrderDo?.({ entity: spec.entity, bundle })}
+                            >
+                              コピーして編集
+                            </button>
+                          </div>
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                   ) : null}
                 </section>
               );
             })}
           </div>
-          <small className="charts-past-hub__hint">Phase1は read-only（Do適用/転記は Phase2 で扱う）。</small>
+          <small className="charts-past-hub__hint">最大20件まで表示します。コピーは右の「処方/オーダー/処置/検査」へ反映します。</small>
         </div>
       )}
     </section>
