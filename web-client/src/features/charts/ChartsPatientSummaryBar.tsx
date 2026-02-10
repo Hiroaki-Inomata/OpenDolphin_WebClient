@@ -12,6 +12,7 @@ type PatientDisplay = {
   age?: string;
   birthDateEra?: string;
   birthDateIso?: string;
+  note?: string;
   status?: string;
   department?: string;
   physician?: string;
@@ -39,6 +40,7 @@ type ChartsPatientSummaryBarProps = {
     detail?: string;
   };
   onToggleSafetyDetail?: (open: boolean) => void;
+  onOpenPatientPanel?: () => void;
 };
 
 const normalizeValue = (value?: string): string | undefined => {
@@ -59,6 +61,18 @@ const formatVisitDate = (date?: string, time?: string): string => {
   const safeTime = normalizeValue(time);
   if (safeDate && safeTime) return `${safeDate} ${safeTime}`;
   return safeDate ?? safeTime ?? '—';
+};
+
+const normalizeMemo = (value?: string): string | undefined => {
+  const safe = normalizeValue(value);
+  if (!safe) return undefined;
+  if (safe === 'メモなし') return undefined;
+  return safe;
+};
+
+const truncate = (value: string, max: number): string => {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max)}...`;
 };
 
 const resolveSafetyTone = (params: {
@@ -102,6 +116,7 @@ export function ChartsPatientSummaryBar({
   approvalDetail,
   lockStatus,
   onToggleSafetyDetail,
+  onOpenPatientPanel,
 }: ChartsPatientSummaryBarProps) {
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -119,6 +134,9 @@ export function ChartsPatientSummaryBar({
     if (birthEra && birthIso) return `${birthEra} / ${birthIso}`;
     return birthEra ?? birthIso;
   }, [birthEra, birthIso]);
+  const memo = normalizeMemo(patientDisplay.note);
+  const memoSnippet = memo ? truncate(memo, 26) : undefined;
+  const hasAllergyHint = memo ? /アレル|allerg/i.test(memo) : false;
 
   const detailRows = useMemo(
     () =>
@@ -156,99 +174,121 @@ export function ChartsPatientSummaryBar({
       data-fallback-used={String(fallbackUsed ?? false)}
       data-source-transition={dataSourceTransition}
     >
-      <div className="charts-patient-summary__left">
-        <span className="charts-patient-summary__label">患者サマリ</span>
-        <h2 className="charts-patient-summary__name">{patientDisplay.name}</h2>
-        {kana ? <span className="charts-patient-summary__kana">{kana}</span> : null}
-        <span className="charts-patient-summary__sex-age">{sexAge ?? '—'}</span>
-      </div>
-      <div className="charts-patient-summary__center">
-        <PatientMetaRow
-          patientId={patientId}
-          receptionId={receptionId}
-          appointmentId={appointmentId}
-          showLabels
-          showEmpty
-          separator="none"
-          runId={runId}
-          className="charts-patient-summary__meta-row"
-          itemClassName="charts-patient-summary__meta-item"
-          labelClassName="charts-patient-summary__meta-label"
-          valueClassName="charts-patient-summary__meta-value"
-        />
-        <div className="charts-patient-summary__clinical-row">
-          <div className="charts-patient-summary__meta-item">
-            <span className="charts-patient-summary__meta-label">診療ステータス</span>
-            <strong className="charts-patient-summary__meta-value">{normalizeValue(patientDisplay.status) ?? '—'}</strong>
+      <div className="charts-patient-summary__top">
+        <div className="charts-patient-summary__identity">
+          <div className="charts-patient-summary__name-row">
+            <h2 className="charts-patient-summary__name">{patientDisplay.name}</h2>
+            {kana ? <span className="charts-patient-summary__kana">{kana}</span> : null}
           </div>
-          <div className="charts-patient-summary__meta-item">
-            <span className="charts-patient-summary__meta-label">診療科</span>
-            <strong className="charts-patient-summary__meta-value">{normalizeValue(patientDisplay.department) ?? '—'}</strong>
+          <div className="charts-patient-summary__facts">
+            <span className="charts-patient-summary__fact">{sexAge ?? '—'}</span>
+            <span className="charts-patient-summary__fact" title={birthLabel ?? undefined}>
+              生:{birthIso ?? '—'}
+            </span>
+            <span className="charts-patient-summary__fact">ID:{patientId ?? '—'}</span>
+            <span className="charts-patient-summary__fact">
+              診療日:{formatVisitDate(patientDisplay.visitDate, patientDisplay.appointmentTime)}
+            </span>
           </div>
-          <div className="charts-patient-summary__meta-item">
-            <span className="charts-patient-summary__meta-label">担当者</span>
-            <strong className="charts-patient-summary__meta-value">{normalizeValue(patientDisplay.physician) ?? '—'}</strong>
-          </div>
-          <div className="charts-patient-summary__meta-item">
-            <span className="charts-patient-summary__meta-label">保険/自費</span>
-            <strong className="charts-patient-summary__meta-value">{normalizeValue(patientDisplay.insurance) ?? '—'}</strong>
-          </div>
+          {memoSnippet ? (
+            <div className="charts-patient-summary__memo" data-allergy={hasAllergyHint ? '1' : '0'}>
+              <span className="charts-patient-summary__memo-label">{hasAllergyHint ? 'アレルギー/メモ' : 'メモ'}</span>
+              <span className="charts-patient-summary__memo-text">{memoSnippet}</span>
+            </div>
+          ) : null}
         </div>
-        <div className="charts-patient-summary__clinical-row charts-patient-summary__clinical-row--compact">
-          <div className="charts-patient-summary__meta-item">
-            <span className="charts-patient-summary__meta-label">診療日</span>
-            <strong className="charts-patient-summary__meta-value">
-              {formatVisitDate(patientDisplay.visitDate, patientDisplay.appointmentTime)}
-            </strong>
-          </div>
-          <div className="charts-patient-summary__meta-item charts-patient-summary__meta-item--stack">
-            <span className="charts-patient-summary__meta-label">承認/ロック</span>
-            <strong className="charts-patient-summary__meta-value">{approvalLabel ?? '—'}</strong>
-            <span className="charts-patient-summary__meta-sub">{approvalDetail ?? '—'}</span>
-            <span className="charts-patient-summary__meta-sub">ロック: {lockStatus?.label ?? '—'}</span>
-            <span className="charts-patient-summary__meta-sub">{lockStatus?.detail ?? '—'}</span>
-          </div>
-        </div>
-      </div>
-      <div className="charts-patient-summary__right">
-        <div className="charts-patient-summary__safety-header">
+
+        <div className="charts-patient-summary__actions">
+          {onOpenPatientPanel ? (
+            <button type="button" className="charts-patient-summary__action" onClick={onOpenPatientPanel}>
+              患者/受付
+            </button>
+          ) : null}
           <div
             className={`charts-patient-summary__safety-summary charts-patient-summary__safety-summary--${safetyTone}`}
             role="status"
             aria-live={ariaLive}
           >
-            <span className="charts-patient-summary__safety-label">安全表示</span>
+            <span className="charts-patient-summary__safety-label">安全</span>
             <span className="charts-patient-summary__safety-state">{safetyLabel}</span>
           </div>
           <RunIdBadge runId={runId} className="charts-patient-summary__runid" />
+          <button
+            type="button"
+            className="charts-patient-summary__safety-toggle"
+            aria-expanded={detailOpen}
+            aria-controls="charts-patient-summary-detail"
+            onClick={toggleDetail}
+          >
+            <span className="charts-patient-summary__safety-toggle-icon" aria-hidden="true">
+              {toggleIcon}
+            </span>
+            {toggleLabel}
+          </button>
         </div>
-        <button
-          type="button"
-          className="charts-patient-summary__safety-toggle"
-          aria-expanded={detailOpen}
-          aria-controls="charts-safety-detail"
-          onClick={toggleDetail}
-        >
-          <span className="charts-patient-summary__safety-toggle-icon" aria-hidden="true">
-            {toggleIcon}
-          </span>
-          {toggleLabel}
-        </button>
-        <div
-          id="charts-safety-detail"
-          className="charts-patient-summary__safety-detail"
-          hidden={!detailOpen}
-        >
-          {detailRows.length > 0 ? (
-            detailRows.map((row) => (
-              <div key={row.label} className="charts-patient-summary__safety-item">
-                <span className="charts-patient-summary__safety-item-label">{row.label}</span>
-                <span className="charts-patient-summary__safety-item-value">{row.value}</span>
-              </div>
-            ))
-          ) : (
-            <span className="charts-patient-summary__safety-empty">詳細データなし</span>
-          )}
+      </div>
+
+      <div id="charts-patient-summary-detail" className="charts-patient-summary__detail" hidden={!detailOpen}>
+        <div className="charts-patient-summary__detail-grid">
+          <div className="charts-patient-summary__detail-block" aria-label="ID">
+            <PatientMetaRow
+              patientId={patientId}
+              receptionId={receptionId}
+              appointmentId={appointmentId}
+              showLabels
+              showEmpty
+              separator="none"
+              runId={runId}
+              className="charts-patient-summary__meta-row"
+              itemClassName="charts-patient-summary__meta-item"
+              labelClassName="charts-patient-summary__meta-label"
+              valueClassName="charts-patient-summary__meta-value"
+            />
+          </div>
+          <div className="charts-patient-summary__detail-block" aria-label="診療情報">
+            <div className="charts-patient-summary__detail-row">
+              <span className="charts-patient-summary__meta-label">診療ステータス</span>
+              <strong className="charts-patient-summary__meta-value">{normalizeValue(patientDisplay.status) ?? '—'}</strong>
+            </div>
+            <div className="charts-patient-summary__detail-row">
+              <span className="charts-patient-summary__meta-label">診療科</span>
+              <strong className="charts-patient-summary__meta-value">{normalizeValue(patientDisplay.department) ?? '—'}</strong>
+            </div>
+            <div className="charts-patient-summary__detail-row">
+              <span className="charts-patient-summary__meta-label">担当者</span>
+              <strong className="charts-patient-summary__meta-value">{normalizeValue(patientDisplay.physician) ?? '—'}</strong>
+            </div>
+            <div className="charts-patient-summary__detail-row">
+              <span className="charts-patient-summary__meta-label">保険/自費</span>
+              <strong className="charts-patient-summary__meta-value">{normalizeValue(patientDisplay.insurance) ?? '—'}</strong>
+            </div>
+          </div>
+          <div className="charts-patient-summary__detail-block" aria-label="承認/ロック">
+            <div className="charts-patient-summary__detail-row">
+              <span className="charts-patient-summary__meta-label">承認</span>
+              <strong className="charts-patient-summary__meta-value">{approvalLabel ?? '—'}</strong>
+              <span className="charts-patient-summary__meta-sub">{approvalDetail ?? '—'}</span>
+            </div>
+            <div className="charts-patient-summary__detail-row">
+              <span className="charts-patient-summary__meta-label">ロック</span>
+              <strong className="charts-patient-summary__meta-value">{lockStatus?.label ?? '—'}</strong>
+              <span className="charts-patient-summary__meta-sub">{lockStatus?.detail ?? '—'}</span>
+            </div>
+          </div>
+          <div className="charts-patient-summary__detail-block" aria-label="安全表示詳細">
+            <div className="charts-patient-summary__safety-detail" aria-live={resolveAriaLive('info')}>
+              {detailRows.length > 0 ? (
+                detailRows.map((row) => (
+                  <div key={row.label} className="charts-patient-summary__safety-item">
+                    <span className="charts-patient-summary__safety-item-label">{row.label}</span>
+                    <span className="charts-patient-summary__safety-item-value">{row.value}</span>
+                  </div>
+                ))
+              ) : (
+                <span className="charts-patient-summary__safety-empty">詳細データなし</span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

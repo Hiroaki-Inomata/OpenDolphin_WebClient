@@ -24,6 +24,7 @@ import { DoCopyDialog, type DoCopyDialogState } from '../DoCopyDialog';
 import type { SoapDraft, SoapEntry, SoapSectionKey } from '../soapNote';
 import { SOAP_SECTION_LABELS, SOAP_SECTIONS } from '../soapNote';
 import { chartsStyles } from '../styles';
+import { FocusTrapDialog } from '../../../components/modals/FocusTrapDialog';
 import { ImageDockedPanel } from '../../images/components';
 import type { KarteImageListItem } from '../../images/api';
 import type { ChartImageAttachment } from '../documentImageAttach';
@@ -31,6 +32,8 @@ import { receptionStyles } from '../../reception/styles';
 import { fetchAppointmentOutpatients, fetchClaimFlags, type AppointmentPayload, type ReceptionEntry } from '../../reception/api';
 import { getAuditEventLog, logAuditEvent, logUiState, type AuditEventRecord } from '../../../libs/audit/auditLogger';
 import { fetchOrcaOutpatientSummary } from '../api';
+import type { LetterModulePayload } from '../letterApi';
+import type { OrderBundle } from '../orderBundleApi';
 import { useAdminBroadcast } from '../../../libs/admin/useAdminBroadcast';
 import { AdminBroadcastBanner } from '../../shared/AdminBroadcastBanner';
 import { RunIdBadge } from '../../shared/RunIdBadge';
@@ -245,7 +248,6 @@ function ChartsContent() {
   const tabLockReadOnlyRef = useRef(false);
   const isChartsCompactUi = import.meta.env.VITE_CHARTS_COMPACT_UI === '1';
   const isChartsCompactHeader = import.meta.env.VITE_CHARTS_COMPACT_HEADER === '1';
-  const isChartsPastPanelEnabled = import.meta.env.VITE_CHARTS_PAST_PANEL === '1';
   const isChartsDoCopyEnabled = import.meta.env.VITE_CHARTS_DO_COPY === '1';
   const isChartsUiOptB = import.meta.env.VITE_CHARTS_UI_OPT_B === '1';
   const isOrderEditMvp = import.meta.env.VITE_ORDER_EDIT_MVP === '1';
@@ -369,6 +371,16 @@ function ChartsContent() {
   const utilityLastActionRef = useRef<DockedUtilityAction>('clinical-actions');
   const utilityHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const rightColumnRef = useRef<HTMLDivElement | null>(null);
+  const [isPatientPanelOpen, setIsPatientPanelOpen] = useState(false);
+  const [orderHistoryCopyRequest, setOrderHistoryCopyRequest] = useState<{
+    requestId: string;
+    entity: 'medOrder' | 'generalOrder';
+    bundle: OrderBundle;
+  } | null>(null);
+  const [documentHistoryCopyRequest, setDocumentHistoryCopyRequest] = useState<{
+    requestId: string;
+    letterId: number;
+  } | null>(null);
   const [deliveryAppliedMeta, setDeliveryAppliedMeta] = useState<{
     appliedAt: string;
     appliedTo: string;
@@ -2046,7 +2058,7 @@ function ChartsContent() {
             label: 'セクションを順に巡回（フォーカスが次の位置へ移動）',
           },
         ],
-        note: '移動順: Topbar → ActionBar → Timeline → ORCA Summary → PatientsTab → Telemetry',
+        note: '移動順: Topbar → ActionBar → 病名 → Past Hub → SOAP → Timeline → オーダー → ORCA Summary → Telemetry',
       },
     ],
     [utilityShortcutItems],
@@ -2092,6 +2104,54 @@ function ChartsContent() {
       utilityFocusRestoreRef.current = true;
     }
     setUtilityPanelAction(null);
+  }, []);
+
+  const createCopyRequestId = useCallback(
+    () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+    [],
+  );
+
+  const canDoFromPast = useMemo(() => {
+    if (!patientSelected) return { ok: false, reason: '患者が未選択のためDoできません。' };
+    if (sidePanelMeta.readOnly) {
+      return { ok: false, reason: sidePanelMeta.readOnlyReason ?? '閲覧専用のためDoできません。' };
+    }
+    if (sidePanelMeta.missingMaster) return { ok: false, reason: 'マスター未同期のためDoできません。' };
+    if (sidePanelMeta.fallbackUsed) return { ok: false, reason: 'フォールバックデータのためDoできません。' };
+    return { ok: true, reason: undefined };
+  }, [patientSelected, sidePanelMeta.fallbackUsed, sidePanelMeta.missingMaster, sidePanelMeta.readOnly, sidePanelMeta.readOnlyReason]);
+
+  const handlePastOrderDo = useCallback(
+    (payload: { entity: 'medOrder' | 'generalOrder'; bundle: OrderBundle }) => {
+      if (!canDoFromPast.ok) return;
+      if (payload.entity === 'generalOrder' && isOrderEditMvp) {
+        setOrderEditEntityMvp('generalOrder');
+      }
+      const requestId = createCopyRequestId();
+      setOrderHistoryCopyRequest({ requestId, entity: payload.entity, bundle: payload.bundle });
+      openUtilityPanel(payload.entity === 'medOrder' ? 'prescription-edit' : 'order-edit');
+    },
+    [canDoFromPast.ok, createCopyRequestId, isOrderEditMvp, openUtilityPanel],
+  );
+
+  const handlePastDocumentDo = useCallback(
+    (payload: { letter: LetterModulePayload }) => {
+      if (!canDoFromPast.ok) return;
+      const letterId = payload.letter.id;
+      if (!letterId) return;
+      const requestId = createCopyRequestId();
+      setDocumentHistoryCopyRequest({ requestId, letterId });
+      openUtilityPanel('document');
+    },
+    [canDoFromPast.ok, createCopyRequestId, openUtilityPanel],
+  );
+
+  const handleOrderHistoryCopyConsumed = useCallback((requestId: string) => {
+    setOrderHistoryCopyRequest((prev) => (prev?.requestId === requestId ? null : prev));
+  }, []);
+
+  const handleDocumentHistoryCopyConsumed = useCallback((requestId: string) => {
+    setDocumentHistoryCopyRequest((prev) => (prev?.requestId === requestId ? null : prev));
   }, []);
 
   const handleLockChange = useCallback((locked: boolean, reason?: string) => {
@@ -2176,6 +2236,8 @@ function ChartsContent() {
     if (prevPatientIdRef.current === encounterContext.patientId) return;
     prevPatientIdRef.current = encounterContext.patientId;
     setUtilityPanelAction(null);
+    setOrderHistoryCopyRequest(null);
+    setDocumentHistoryCopyRequest(null);
     utilityFocusRestoreRef.current = false;
     utilityLastActionRef.current = 'clinical-actions';
     requestAnimationFrame(() => {
@@ -2220,13 +2282,19 @@ function ChartsContent() {
       if (!shouldIgnore(event.target) && event.altKey && !event.ctrlKey && key === 'p') {
         event.preventDefault();
         focusRestoreRef.current = document.activeElement as HTMLElement | null;
-        focusById('charts-patient-search');
+        if (!focusById('charts-patient-search')) {
+          setIsPatientPanelOpen(true);
+          requestAnimationFrame(() => requestAnimationFrame(() => focusById('charts-patient-search')));
+        }
         return;
       }
       if (!shouldIgnore(event.target) && event.ctrlKey && !event.altKey && key === 'f') {
         event.preventDefault();
         focusRestoreRef.current = document.activeElement as HTMLElement | null;
-        focusById('charts-patient-search');
+        if (!focusById('charts-patient-search')) {
+          setIsPatientPanelOpen(true);
+          requestAnimationFrame(() => requestAnimationFrame(() => focusById('charts-patient-search')));
+        }
         return;
       }
 
@@ -2277,9 +2345,12 @@ function ChartsContent() {
         const anchors = [
           'charts-topbar',
           'charts-actionbar',
+          'charts-diagnosis',
+          'charts-past-hub',
+          'charts-soap-note',
           'charts-document-timeline',
+          'charts-order-pane',
           'charts-orca-summary',
-          'charts-patients-tab',
           'charts-telemetry',
         ];
         const active = document.activeElement as HTMLElement | null;
@@ -2307,6 +2378,49 @@ function ChartsContent() {
         onUndo={handleDoCopyUndo}
         onClose={closeDoCopyDialog}
       />
+      <FocusTrapDialog
+        open={isPatientPanelOpen}
+        title="患者・受付"
+        description="患者選択/受付履歴/監査/Patients連携をまとめて確認します。"
+        onClose={() => setIsPatientPanelOpen(false)}
+        testId="charts-patient-panel-dialog"
+      >
+        <div className="charts-patient-panel">
+          <div className="charts-patient-panel__actions" role="group" aria-label="患者パネル操作">
+            <button type="button" onClick={() => setIsPatientPanelOpen(false)}>
+              閉じる
+            </button>
+            <button type="button" onClick={handleOpenReception}>
+              Receptionへ
+            </button>
+          </div>
+          <PatientsTab
+            entries={patientEntries}
+            appointmentBanner={appointmentBanner}
+            auditEvent={latestAuditEvent as Record<string, unknown> | undefined}
+            selectedContext={encounterContext}
+            receptionCarryover={receptionCarryover}
+            draftDirty={draftState.dirty}
+            draftDirtySources={draftState.dirtySources ?? []}
+            switchLocked={switchLocked}
+            switchLockedReason={switchLockedReason}
+            onRequestRestoreFocus={() => {
+              const el = focusRestoreRef.current;
+              if (el && typeof el.focus === 'function') el.focus();
+            }}
+            onDraftDirtyChange={(next) => setDraftState(next)}
+            onSelectEncounter={(next) => {
+              if (!next) return;
+              setEncounterContext((prev) => ({
+                ...prev,
+                ...next,
+                visitDate: normalizeVisitDate(next.visitDate) ?? prev.visitDate ?? today,
+              }));
+              setContextAlert(null);
+            }}
+          />
+        </div>
+      </FocusTrapDialog>
       <main
         id="charts-main"
         tabIndex={-1}
@@ -2612,67 +2726,69 @@ function ChartsContent() {
             data-charts-compact-ui={isChartsCompactUi ? '1' : '0'}
           >
             <div className="charts-workbench__sticky">
-	              <div className="charts-workbench__sticky-grid">
-	                <div className="charts-card charts-card--summary" id="charts-patient-summary">
-	                  {isChartsCompactHeader ? (
-	                    <div className="charts-summary__header">
-	                      <strong className="charts-summary__title">患者サマリ</strong>
-	                      <button
-	                        type="button"
-	                        className="charts-summary__toggle"
-	                        aria-controls="charts-patient-summary-details"
-	                        aria-expanded={String(!isPatientSummaryCollapsed)}
-	                        onClick={() => setIsPatientSummaryCollapsed((prev) => !prev)}
-	                      >
-	                        {isPatientSummaryCollapsed ? '開く' : '閉じる'}
-	                      </button>
-	                    </div>
-	                  ) : null}
-	                  <div id="charts-patient-summary-details" hidden={isChartsCompactHeader && isPatientSummaryCollapsed}>
-	                    <ChartsPatientSummaryBar
-	                      patientDisplay={patientDisplay}
-	                      patientId={patientId}
-	                      receptionId={receptionId}
-	                      appointmentId={appointmentId}
-	                      runId={resolvedRunId ?? flags.runId}
-	                      missingMaster={resolvedMissingMaster}
-	                      fallbackUsed={resolvedFallbackUsed}
-	                      cacheHit={resolvedCacheHit}
-	                      dataSourceTransition={resolvedTransition}
-	                      recordsReturned={appointmentMeta?.recordsReturned}
-	                      fetchedAt={appointmentMeta?.fetchedAt}
-	                      approvalLabel={approvalLabel}
-	                      approvalDetail={approvalDetail}
-	                      lockStatus={lockStatus}
-	                    />
-	                  </div>
-	                </div>
-	                <div className="charts-workbench__sticky-side" aria-hidden="true" />
-	              </div>
+              <div className="charts-card charts-card--summary" id="charts-patient-summary">
+                {isChartsCompactHeader ? (
+                  <div className="charts-summary__header">
+                    <strong className="charts-summary__title">患者サマリ</strong>
+                    <button
+                      type="button"
+                      className="charts-summary__toggle"
+                      aria-controls="charts-patient-summary-details"
+                      aria-expanded={String(!isPatientSummaryCollapsed)}
+                      onClick={() => setIsPatientSummaryCollapsed((prev) => !prev)}
+                    >
+                      {isPatientSummaryCollapsed ? '開く' : '閉じる'}
+                    </button>
+                  </div>
+                ) : null}
+                <div id="charts-patient-summary-details" hidden={isChartsCompactHeader && isPatientSummaryCollapsed}>
+                  <ChartsPatientSummaryBar
+                    patientDisplay={patientDisplay}
+                    patientId={patientId}
+                    receptionId={receptionId}
+                    appointmentId={appointmentId}
+                    runId={resolvedRunId ?? flags.runId}
+                    missingMaster={resolvedMissingMaster}
+                    fallbackUsed={resolvedFallbackUsed}
+                    cacheHit={resolvedCacheHit}
+                    dataSourceTransition={resolvedTransition}
+                    recordsReturned={appointmentMeta?.recordsReturned}
+                    fetchedAt={appointmentMeta?.fetchedAt}
+                    approvalLabel={approvalLabel}
+                    approvalDetail={approvalDetail}
+                    lockStatus={lockStatus}
+                    onOpenPatientPanel={() => setIsPatientPanelOpen(true)}
+                  />
+                </div>
+              </div>
             </div>
             <div className="charts-workbench__layout">
               <div className="charts-workbench__body">
                 <div className="charts-workbench__column charts-workbench__column--left">
                   <div className="charts-column-header">
-                    <span className="charts-column-header__label">患者・病名</span>
-                    <span className="charts-column-header__meta">受付 / 監査 / 病名</span>
+                    <span className="charts-column-header__label">病名・過去カルテ</span>
+                    <span className="charts-column-header__meta">保険病名 / Past Hub / Do</span>
                   </div>
-                  <div className="charts-card" id="charts-patients-tab" tabIndex={-1} data-focus-anchor="true">
-                    <PatientsTab
+                  <div className="charts-card" id="charts-diagnosis" tabIndex={-1} data-focus-anchor="true">
+                    <DiagnosisEditPanel patientId={encounterContext.patientId} meta={sidePanelMeta} />
+                  </div>
+                  <div className="charts-card" id="charts-past-hub" tabIndex={-1} data-focus-anchor="true">
+                    <PastHubPanel
+                      patientId={encounterContext.patientId}
                       entries={patientEntries}
-                      appointmentBanner={appointmentBanner}
-                      auditEvent={latestAuditEvent as Record<string, unknown> | undefined}
+                      soapHistory={soapHistory}
+                      doCopyEnabled={isChartsDoCopyEnabled}
+                      onRequestDoCopy={openDoCopyDialog}
+                      doOrderEnabled={canDoFromPast.ok}
+                      doOrderDisabledReason={canDoFromPast.reason}
+                      onRequestOrderDo={handlePastOrderDo}
+                      doDocumentEnabled={canDoFromPast.ok}
+                      doDocumentDisabledReason={canDoFromPast.reason}
+                      onRequestDocumentDo={handlePastDocumentDo}
                       selectedContext={encounterContext}
-                      receptionCarryover={receptionCarryover}
-                      draftDirty={draftState.dirty}
-                      draftDirtySources={draftState.dirtySources ?? []}
                       switchLocked={switchLocked}
                       switchLockedReason={switchLockedReason}
-                      onRequestRestoreFocus={() => {
-                        const el = focusRestoreRef.current;
-                        if (el && typeof el.focus === 'function') el.focus();
-                      }}
-                      onDraftDirtyChange={(next) => setDraftState(next)}
+                      todayIso={today}
                       onSelectEncounter={(next) => {
                         if (!next) return;
                         setEncounterContext((prev) => ({
@@ -2683,33 +2799,6 @@ function ChartsContent() {
                         setContextAlert(null);
                       }}
                     />
-                  </div>
-                  {isChartsPastPanelEnabled && (
-                    <div className="charts-card" id="charts-past-hub" tabIndex={-1} data-focus-anchor="true">
-                      <PastHubPanel
-                        patientId={encounterContext.patientId}
-                        entries={patientEntries}
-                        soapHistory={soapHistory}
-                        doCopyEnabled={isChartsDoCopyEnabled}
-                        onRequestDoCopy={openDoCopyDialog}
-                        selectedContext={encounterContext}
-                        switchLocked={switchLocked}
-                        switchLockedReason={switchLockedReason}
-                        todayIso={today}
-                        onSelectEncounter={(next) => {
-                          if (!next) return;
-                          setEncounterContext((prev) => ({
-                            ...prev,
-                            ...next,
-                            visitDate: normalizeVisitDate(next.visitDate) ?? prev.visitDate ?? today,
-                          }));
-                          setContextAlert(null);
-                        }}
-                      />
-                    </div>
-                  )}
-                  <div className="charts-card" id="charts-diagnosis" tabIndex={-1} data-focus-anchor="true">
-                    <DiagnosisEditPanel patientId={encounterContext.patientId} meta={sidePanelMeta} />
                   </div>
                   {showDebugUi ? (
                     <div className="charts-card">
@@ -2779,20 +2868,24 @@ function ChartsContent() {
                       onOpenReception={handleOpenReception}
                     />
                   </div>
-                </div>
-                <div className="charts-workbench__column charts-workbench__column--right" ref={rightColumnRef}>
+
                   <div className="charts-column-header">
-                    <span className="charts-column-header__label">サマリ・原本</span>
-                    <span className="charts-column-header__meta">メモ / ORCA / 記録</span>
+                    <span className="charts-column-header__label">ORCA参照</span>
+                    <span className="charts-column-header__meta">メモ / サマリ / 原本</span>
                   </div>
-                  <div className="charts-card charts-card--memo" id="charts-patient-memo">
-                    <div className="charts-patient-memo">
-                      <span className="charts-patient-memo__label">患者メモ</span>
-                      <p className="charts-patient-memo__text">
-                        {patientDisplay.note?.trim() ? patientDisplay.note : 'メモなし'}
-                      </p>
+
+                  <details className="charts-card charts-fold" id="charts-patient-memo">
+                    <summary className="charts-fold__summary">患者メモ</summary>
+                    <div className="charts-fold__content">
+                      <div className="charts-patient-memo">
+                        <span className="charts-patient-memo__label">メモ</span>
+                        <p className="charts-patient-memo__text">
+                          {patientDisplay.note?.trim() ? patientDisplay.note : 'メモなし'}
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  </details>
+
                   <div className="charts-card" id="charts-orca-summary" tabIndex={-1} data-focus-anchor="true">
                     <OrcaSummary
                       summary={orcaSummaryQuery.data}
@@ -2805,16 +2898,25 @@ function ChartsContent() {
                       isRefreshing={isManualRefreshing}
                     />
                   </div>
-                  <div className="charts-card" id="charts-orca-original" tabIndex={-1} data-focus-anchor="true">
-                    <OrcaOriginalPanel
-                      patientId={encounterContext.patientId}
-                      visitDate={encounterContext.visitDate}
-                      runId={resolvedRunId ?? flags.runId}
-                    />
-                  </div>
-                  <div className="charts-card">
-                    <MedicalOutpatientRecordPanel summary={orcaSummaryQuery.data} selectedPatientId={encounterContext.patientId} />
-                  </div>
+
+                  <details className="charts-card charts-fold" id="charts-orca-original">
+                    <summary className="charts-fold__summary">ORCA 原本（XML/JSON）</summary>
+                    <div className="charts-fold__content">
+                      <OrcaOriginalPanel
+                        patientId={encounterContext.patientId}
+                        visitDate={encounterContext.visitDate}
+                        runId={resolvedRunId ?? flags.runId}
+                      />
+                    </div>
+                  </details>
+
+                  <details className="charts-card charts-fold">
+                    <summary className="charts-fold__summary">ORCA 記録（要約）</summary>
+                    <div className="charts-fold__content">
+                      <MedicalOutpatientRecordPanel summary={orcaSummaryQuery.data} selectedPatientId={encounterContext.patientId} />
+                    </div>
+                  </details>
+
                   {showDebugUi ? (
                     <div className="charts-card" id="charts-telemetry" tabIndex={-1} data-focus-anchor="true">
                       <TelemetryFunnelPanel />
@@ -2829,8 +2931,16 @@ function ChartsContent() {
                     />
                   )}
                 </div>
+
               </div>
-              <aside className="charts-workbench__side" aria-label="ユーティリティドロワー">
+              <aside
+                className="charts-workbench__side"
+                id="charts-order-pane"
+                tabIndex={-1}
+                data-focus-anchor="true"
+                aria-label="オーダー入力（ユーティリティ）"
+                ref={rightColumnRef}
+              >
                 <section className="charts-shortcuts" aria-label="キーボードショートカット">
                   <div className="charts-shortcuts__header">
                     <p className="charts-shortcuts__eyebrow">Keyboard</p>
@@ -2944,6 +3054,12 @@ function ChartsContent() {
                             bundleLabel="RP名"
                             itemQuantityLabel="用量"
                             meta={sidePanelMeta}
+                            historyCopyRequest={
+                              orderHistoryCopyRequest?.entity === 'medOrder'
+                                ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
+                                : null
+                            }
+                            onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
                           />
                         )}
                         {utilityPanelAction === 'order-edit' && (
@@ -2980,6 +3096,12 @@ function ChartsContent() {
                               bundleLabel={isOrderEditMvp ? orderEditEntityMeta[orderEditEntityMvp].bundleLabel : 'オーダー名'}
                               itemQuantityLabel={isOrderEditMvp ? orderEditEntityMeta[orderEditEntityMvp].itemQuantityLabel : '数量'}
                               meta={sidePanelMeta}
+                              historyCopyRequest={
+                                orderHistoryCopyRequest?.entity === 'generalOrder'
+                                  ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
+                                  : null
+                              }
+                              onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
                             />
                           </>
                         )}
@@ -2993,6 +3115,8 @@ function ChartsContent() {
                           imageAttachments={documentImageAttachments}
                           onImageAttachmentsChange={setDocumentImageAttachments}
                           onImageAttachmentsClear={clearDocumentAttachments}
+                          historyCopyRequest={documentHistoryCopyRequest}
+                          onHistoryCopyConsumed={handleDocumentHistoryCopyConsumed}
                           onClose={() => closeUtilityPanel(true)}
                         />
                       </div>

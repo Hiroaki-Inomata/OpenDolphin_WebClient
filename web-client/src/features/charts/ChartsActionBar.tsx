@@ -248,8 +248,8 @@ export function ChartsActionBar({
   queueEntry,
   hasUnsavedDraft = false,
   hasPermission = true,
-  requireServerRouteForSend = false,
-  requirePatientForSend = false,
+  requireServerRouteForSend = true,
+  requirePatientForSend = true,
   networkDegradedReason,
   approvalLock,
   editLock,
@@ -1701,7 +1701,7 @@ export function ChartsActionBar({
               queueTraceId,
             };
             retryDetail = `retryQueue=${retryApplied ? 'applied' : 'requested'}${retryReason ? `(${retryReason})` : ''}`;
-          } catch (retryError) {
+          } catch {
             retryMeta = { retryRequested: true, retryApplied: false, retryReason: 'retry_request_failed' };
             retryDetail = 'retryQueue=error';
           }

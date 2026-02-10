@@ -120,7 +120,7 @@ describe('SubjectivesPanel warnings', () => {
 
     await waitFor(() => expect(fetchSubjectivesListXml).toHaveBeenCalled());
     await screen.findByRole('button', { name: '再取得' });
-    expect(screen.getByText('症状詳記の取得に失敗しました。')).toBeInTheDocument();
+    expect(screen.getByText(/症状詳記の取得に失敗しました。/)).toBeInTheDocument();
   });
 
   it('empty-body 相当の結果では missingTags 警告を表示する', async () => {
