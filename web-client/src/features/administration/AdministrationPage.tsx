@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { getAuditEventLog, logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
@@ -58,6 +58,7 @@ import {
 } from './orcaInternalWrapperApi';
 import { LegacyRestPanel } from './LegacyRestPanel';
 import { TouchAdmPhrPanel } from './TouchAdmPhrPanel';
+import { AccessManagementPanel } from './AccessManagementPanel';
 import './administration.css';
 import {
   publishAdminBroadcast,
@@ -395,6 +396,22 @@ const formatDeliveryValue = (value: boolean | string | undefined) => (value === 
 export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const isSystemAdmin = isSystemAdminRole(role);
   const session = useSession();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') === 'access' ? 'access' : 'delivery';
+  const handleTabChange = (next: 'delivery' | 'access') => {
+    setSearchParams(
+      (prev) => {
+        const updated = new URLSearchParams(prev);
+        if (next === 'delivery') {
+          updated.delete('tab');
+        } else {
+          updated.set('tab', next);
+        }
+        return updated;
+      },
+      { replace: true },
+    );
+  };
   const appliedMeta = useRef<Partial<AuthServiceFlags>>({});
   const guardLogRef = useRef<{ runId?: string; role?: string }>({});
   const forbiddenLogRef = useRef<{ runId?: string; noted?: boolean }>({});
@@ -1434,71 +1451,118 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
         tabIndex={-1}
       >
         <div className="administration-page__header">
-        <h1>Administration（設定配信）</h1>
-        <p className="administration-page__lead" role="status" aria-live={infoLive}>
-          管理者が ORCA 接続・MSW トグル・配信フラグを編集し、保存時に broadcast / audit を送ります。RUN_ID:{' '}
-          <strong>{resolvedRunId}</strong>
-        </p>
-        <div className="administration-page__meta" aria-live={infoLive}>
-          <RunIdBadge runId={resolvedRunId} />
-          <AuditSummaryInline auditEvent={latestAuditEvent} className="administration-page__pill" variant="inline" runId={resolvedRunId} />
-          <span className="administration-page__pill">role: {role ?? 'unknown'}</span>
-          <span className="administration-page__pill">配信元: {configQuery.data?.source ?? 'live'}</span>
-          <span className="administration-page__pill">環境: {environmentLabel}</span>
-          <span className="administration-page__pill">deliveryMode: {deliveryMode ?? '―'}</span>
-          <span className="administration-page__pill">ETag: {effectiveDeliveryEtag ?? '―'}</span>
-          <span className="administration-page__pill">配信状態: {deliverySummary.summary}</span>
-          <span className="administration-page__pill">最終配信: {formatTimestampWithAgo(lastDeliveredAt)}</span>
-          <span className="administration-page__pill">
-            検証フラグ: {form.verifyAdminDelivery ? 'enabled' : 'disabled'}
-          </span>
-          <span className="administration-page__pill">
-            ORCA queue: {form.useMockOrcaQueue ? 'mock (MSW)' : 'live'}
-          </span>
-          <span className="administration-page__pill">
-            Charts表示: {form.chartsDisplayEnabled ? 'enabled' : 'disabled'}
-          </span>
-          <span className="administration-page__pill">
-            Charts送信: {form.chartsSendEnabled ? 'enabled' : 'disabled'}
-          </span>
-          <span className="administration-page__pill">Charts master: {form.chartsMasterSource}</span>
-        <span className="administration-page__pill">
-          syncMismatch: {syncMismatch === undefined ? '―' : syncMismatch ? `true（${deliveryPriorityLabel}）` : 'false'}
-        </span>
-        <span className="administration-page__pill">mismatchFields: {syncMismatchFields ?? '―'}</span>
-      </div>
-      {isForbidden ? (
-        <ToneBanner
-          tone="error"
-          message="管理APIが 403 Forbidden を返しました。権限付与後に再ログインするか、システム管理者へ依頼してください。"
-          destination="Administration"
-          runId={resolvedRunId}
-          nextAction="権限確認 / 再ログイン"
-        />
-      ) : null}
-      {!isSystemAdmin ? (
-        <div className="admin-guard" role="alert" aria-live={resolveAriaLive('warning')} id={guardMessageId}>
-          <div className="admin-guard__header">
-            <span className="admin-guard__title">操作ガード中</span>
-            <span className="admin-guard__badge">system_adminのみ</span>
-            </div>
-            <p className="admin-guard__message">
-              現在のロール（{role ?? 'unknown'}）では配信設定の変更・キュー操作はできません。閲覧のみ可能です。
-            </p>
-            <ul className="admin-guard__next" id={guardDetailsId}>
-              <li>system_admin で再ログインしてください。</li>
-              <li>権限保持者へ配信依頼を行ってください。</li>
-              <li>
-                <Link to={buildFacilityPath(session.facilityId, '/reception')} className="admin-guard__link">
-                  Reception へ戻って受付状況を確認
-                </Link>
-              </li>
-            </ul>
-          </div>
-        ) : null}
-      </div>
+          <h1>Administration</h1>
 
-      {warningEntries.length > 0 ? (
+          {activeTab === 'delivery' ? (
+            <p className="administration-page__lead" role="status" aria-live={infoLive}>
+              管理者が ORCA 接続・MSW トグル・配信フラグを編集し、保存時に broadcast / audit を送ります。RUN_ID:{' '}
+              <strong>{resolvedRunId}</strong>
+            </p>
+          ) : (
+            <p className="administration-page__lead" role="status" aria-live={infoLive}>
+              職員ユーザーの作成/編集、パスワードリセットを行います。RUN_ID: <strong>{resolvedRunId}</strong>
+            </p>
+          )}
+
+          <div className="administration-page__meta" aria-live={infoLive}>
+            <RunIdBadge runId={resolvedRunId} />
+            <AuditSummaryInline
+              auditEvent={latestAuditEvent}
+              className="administration-page__pill"
+              variant="inline"
+              runId={resolvedRunId}
+            />
+            <span className="administration-page__pill">role: {role ?? 'unknown'}</span>
+            <span className="administration-page__pill">施設ID: {session.facilityId}</span>
+            <span className="administration-page__pill">環境: {environmentLabel}</span>
+            {activeTab === 'delivery' ? (
+              <>
+                <span className="administration-page__pill">配信元: {configQuery.data?.source ?? 'live'}</span>
+                <span className="administration-page__pill">deliveryMode: {deliveryMode ?? '―'}</span>
+                <span className="administration-page__pill">ETag: {effectiveDeliveryEtag ?? '―'}</span>
+                <span className="administration-page__pill">配信状態: {deliverySummary.summary}</span>
+                <span className="administration-page__pill">最終配信: {formatTimestampWithAgo(lastDeliveredAt)}</span>
+                <span className="administration-page__pill">
+                  検証フラグ: {form.verifyAdminDelivery ? 'enabled' : 'disabled'}
+                </span>
+                <span className="administration-page__pill">
+                  ORCA queue: {form.useMockOrcaQueue ? 'mock (MSW)' : 'live'}
+                </span>
+                <span className="administration-page__pill">
+                  Charts表示: {form.chartsDisplayEnabled ? 'enabled' : 'disabled'}
+                </span>
+                <span className="administration-page__pill">
+                  Charts送信: {form.chartsSendEnabled ? 'enabled' : 'disabled'}
+                </span>
+                <span className="administration-page__pill">Charts master: {form.chartsMasterSource}</span>
+                <span className="administration-page__pill">
+                  syncMismatch:{' '}
+                  {syncMismatch === undefined ? '―' : syncMismatch ? `true（${deliveryPriorityLabel}）` : 'false'}
+                </span>
+                <span className="administration-page__pill">mismatchFields: {syncMismatchFields ?? '―'}</span>
+              </>
+            ) : null}
+          </div>
+
+          <div className="administration-tabs" role="tablist" aria-label="Administration tabs">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'delivery'}
+              className={`administration-tab${activeTab === 'delivery' ? ' is-active' : ''}`}
+              onClick={() => handleTabChange('delivery')}
+            >
+              設定配信
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'access'}
+              className={`administration-tab${activeTab === 'access' ? ' is-active' : ''}`}
+              onClick={() => handleTabChange('access')}
+            >
+              アクセス管理
+            </button>
+          </div>
+
+          {isForbidden && activeTab === 'delivery' ? (
+            <ToneBanner
+              tone="error"
+              message="管理APIが 403 Forbidden を返しました。権限付与後に再ログインするか、システム管理者へ依頼してください。"
+              destination="Administration"
+              runId={resolvedRunId}
+              nextAction="権限確認 / 再ログイン"
+            />
+          ) : null}
+          {!isSystemAdmin ? (
+            <div className="admin-guard" role="alert" aria-live={resolveAriaLive('warning')} id={guardMessageId}>
+              <div className="admin-guard__header">
+                <span className="admin-guard__title">操作ガード中</span>
+                <span className="admin-guard__badge">system_adminのみ</span>
+              </div>
+              <p className="admin-guard__message">
+                現在のロール（{role ?? 'unknown'}）では Administration の操作はできません。閲覧のみ可能です。
+              </p>
+              <ul className="admin-guard__next" id={guardDetailsId}>
+                <li>system_admin で再ログインしてください。</li>
+                <li>権限保持者へ作業依頼を行ってください。</li>
+                <li>
+                  <Link to={buildFacilityPath(session.facilityId, '/reception')} className="admin-guard__link">
+                    Reception へ戻って受付状況を確認
+                  </Link>
+                </li>
+              </ul>
+            </div>
+          ) : null}
+        </div>
+
+        {activeTab === 'access' ? (
+          <div className="administration-grid administration-grid--wide">
+            <AccessManagementPanel runId={resolvedRunId} role={role} />
+          </div>
+        ) : (
+          <>
+            {warningEntries.length > 0 ? (
         <ToneBanner
           tone="warning"
           message={`未配信・失敗バンドルが ${warningEntries.length} 件あります（遅延判定:${warningThresholdMinutes}分）。再送または破棄を実施してください。`}
@@ -2469,6 +2533,8 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
           </tbody>
         </table>
       </section>
+          </>
+        )}
       </main>
     </>
   );

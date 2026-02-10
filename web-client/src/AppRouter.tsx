@@ -1225,6 +1225,10 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
     navigate('/login', { state: { from: location, switchContext }, replace: true });
   };
 
+  const handleOpenAdministration = () => {
+    navigate(buildFacilityPath(session.facilityId, '/administration'));
+  };
+
   return (
     <AppToastProvider value={{ enqueue: enqueueToast, dismiss: dismissToast }}>
       <ChartEventStreamBridge />
@@ -1255,6 +1259,16 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
               RUN_ID: {resolvedRunId}
               <span className="app-shell__pill-note">クリックでコピー</span>
             </button>
+            {isSystemAdminRole(session.role) ? (
+              <button
+                type="button"
+                className="app-shell__admin"
+                onClick={handleOpenAdministration}
+                aria-label="管理画面を開く"
+              >
+                管理画面
+              </button>
+            ) : null}
             <button type="button" className="app-shell__logout" onClick={handleSwitchAccount}>
               施設/ユーザー切替
             </button>
