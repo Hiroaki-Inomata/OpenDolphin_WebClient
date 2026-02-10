@@ -326,6 +326,12 @@ export function ChartsPatientSummaryBar({
               <span className="charts-patient-summary__meta-sub">{lockStatus?.detail ?? '—'}</span>
             </div>
           </div>
+          <div className="charts-patient-summary__detail-block" aria-label="患者メモ">
+            <div className="charts-patient-summary__detail-row">
+              <span className="charts-patient-summary__meta-label">患者メモ</span>
+              <p className="charts-patient-summary__memo-full">{memo ?? 'メモなし'}</p>
+            </div>
+          </div>
           <div className="charts-patient-summary__detail-block" aria-label="安全表示詳細">
             <div className="charts-patient-summary__safety-detail" aria-live={resolveAriaLive('info')}>
               {detailRows.length > 0 ? (

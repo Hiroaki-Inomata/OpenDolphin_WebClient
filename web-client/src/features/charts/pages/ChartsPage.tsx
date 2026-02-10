@@ -17,6 +17,7 @@ import { DiagnosisEditPanel } from '../DiagnosisEditPanel';
 import { DocumentCreatePanel } from '../DocumentCreatePanel';
 import { OrderBundleEditPanel } from '../OrderBundleEditPanel';
 import { PastHubPanel } from '../PastHubPanel';
+import { PatientSummaryPanel } from '../PatientSummaryPanel';
 import { StampLibraryPanel } from '../StampLibraryPanel';
 import { normalizeAuditEventLog, normalizeAuditEventPayload, recordChartsAuditEvent } from '../audit';
 import { SoapNotePanel } from '../SoapNotePanel';
@@ -33,7 +34,7 @@ import { fetchAppointmentOutpatients, fetchClaimFlags, type AppointmentPayload, 
 import { getAuditEventLog, logAuditEvent, logUiState, type AuditEventRecord } from '../../../libs/audit/auditLogger';
 import { fetchOrcaOutpatientSummary } from '../api';
 import { fetchKarteIdByPatientId, type LetterModulePayload } from '../letterApi';
-import type { OrderBundle } from '../orderBundleApi';
+import { fetchOrderBundles, type OrderBundle } from '../orderBundleApi';
 import { useAdminBroadcast } from '../../../libs/admin/useAdminBroadcast';
 import { AdminBroadcastBanner } from '../../shared/AdminBroadcastBanner';
 import { RunIdBadge } from '../../shared/RunIdBadge';
@@ -168,8 +169,10 @@ type SoapHistoryStorage = {
 type DockedUtilityAction =
   | 'clinical-actions'
   | 'prescription-edit'
-  | 'order-edit'
-  | 'lab'
+  | 'order-injection'
+  | 'order-treatment'
+  | 'order-test'
+  | 'order-charge'
   | 'document'
   | 'imaging'
   | 'stamps';
@@ -251,7 +254,6 @@ function ChartsContent() {
   const isChartsCompactHeader = import.meta.env.VITE_CHARTS_COMPACT_HEADER === '1';
   const isChartsDoCopyEnabled = import.meta.env.VITE_CHARTS_DO_COPY === '1';
   const isChartsUiOptB = import.meta.env.VITE_CHARTS_UI_OPT_B === '1';
-  const isOrderEditMvp = import.meta.env.VITE_ORDER_EDIT_MVP === '1';
   const isPatientImagesMvpEnabled = import.meta.env.VITE_PATIENT_IMAGES_MVP === '1';
   const stampboxMvpPhaseRaw = Number(import.meta.env.VITE_STAMPBOX_MVP ?? 0);
   const stampboxMvpPhase: 0 | 1 | 2 =
@@ -275,45 +277,68 @@ function ChartsContent() {
     [session.facilityId, session.userId],
   );
 
-  type OrderEditEntityMvp = 'generalOrder' | 'treatmentOrder' | 'testOrder';
-  type PastOrderEntity = 'medOrder' | OrderEditEntityMvp;
-  const ORDER_EDIT_ENTITY_MVP_OPTIONS: Array<{ value: OrderEditEntityMvp; label: string }> = [
-    { value: 'generalOrder', label: '一般オーダー' },
-    { value: 'treatmentOrder', label: '処置' },
-    { value: 'testOrder', label: '検査' },
-  ];
-  const ORDER_EDIT_ENTITY_STORAGE_BASE = 'opendolphin:web-client:charts:order-edit-entity';
-  const ORDER_EDIT_ENTITY_STORAGE_VERSION = 'v1';
-  const loadOrderEditEntity = (): OrderEditEntityMvp => {
-    if (!isOrderEditMvp || typeof sessionStorage === 'undefined') return 'generalOrder';
-    const scopedKey = buildScopedStorageKey(ORDER_EDIT_ENTITY_STORAGE_BASE, ORDER_EDIT_ENTITY_STORAGE_VERSION, storageScope);
-    if (!scopedKey) return 'generalOrder';
-    try {
-      const raw = sessionStorage.getItem(scopedKey);
-      const value = typeof raw === 'string' ? raw.trim() : '';
-      const allowed = new Set(ORDER_EDIT_ENTITY_MVP_OPTIONS.map((entry) => entry.value));
-      return allowed.has(value as OrderEditEntityMvp) ? (value as OrderEditEntityMvp) : 'generalOrder';
-    } catch {
-      return 'generalOrder';
-    }
-  };
-  const [orderEditEntityMvp, setOrderEditEntityMvp] = useState<OrderEditEntityMvp>(() => loadOrderEditEntity());
-  useEffect(() => {
-    if (!isOrderEditMvp || typeof sessionStorage === 'undefined') return;
-    const scopedKey = buildScopedStorageKey(ORDER_EDIT_ENTITY_STORAGE_BASE, ORDER_EDIT_ENTITY_STORAGE_VERSION, storageScope);
-    if (!scopedKey) return;
-    try {
-      sessionStorage.setItem(scopedKey, orderEditEntityMvp);
-    } catch {
-      // ignore storage errors
-    }
-  }, [isOrderEditMvp, orderEditEntityMvp, storageScope]);
+  type PastOrderEntity =
+    | 'medOrder'
+    | 'generalOrder'
+    | 'injectionOrder'
+    | 'treatmentOrder'
+    | 'surgeryOrder'
+    | 'otherOrder'
+    | 'testOrder'
+    | 'physiologyOrder'
+    | 'bacteriaOrder'
+    | 'radiologyOrder'
+    | 'instractionChargeOrder'
+    | 'baseChargeOrder'
+    ;
+
+  type TreatmentOrderEntity = 'treatmentOrder' | 'generalOrder' | 'surgeryOrder' | 'otherOrder';
+  type TestOrderEntity = 'testOrder' | 'physiologyOrder' | 'bacteriaOrder' | 'radiologyOrder';
+  type ChargeOrderEntity = 'baseChargeOrder' | 'instractionChargeOrder';
+
+  const [treatmentOrderEntity, setTreatmentOrderEntity] = useState<TreatmentOrderEntity>('treatmentOrder');
+  const [testOrderEntity, setTestOrderEntity] = useState<TestOrderEntity>('testOrder');
+  const [chargeOrderEntity, setChargeOrderEntity] = useState<ChargeOrderEntity>('baseChargeOrder');
+
+  const treatmentOrderEntityOptions = useMemo<Array<{ value: TreatmentOrderEntity; label: string }>>(
+    () => [
+      { value: 'treatmentOrder', label: '処置' },
+      { value: 'generalOrder', label: '一般' },
+      { value: 'surgeryOrder', label: '手術' },
+      { value: 'otherOrder', label: 'その他' },
+    ],
+    [],
+  );
+  const testOrderEntityOptions = useMemo<Array<{ value: TestOrderEntity; label: string }>>(
+    () => [
+      { value: 'testOrder', label: '検査' },
+      { value: 'physiologyOrder', label: '生理検査' },
+      { value: 'bacteriaOrder', label: '細菌検査' },
+      { value: 'radiologyOrder', label: '放射線' },
+    ],
+    [],
+  );
+  const chargeOrderEntityOptions = useMemo<Array<{ value: ChargeOrderEntity; label: string }>>(
+    () => [
+      { value: 'baseChargeOrder', label: '基本料' },
+      { value: 'instractionChargeOrder', label: '指導料' },
+    ],
+    [],
+  );
 
   const orderEditEntityMeta = useMemo(() => {
-    const meta: Record<OrderEditEntityMvp, { title: string; bundleLabel: string; itemQuantityLabel: string }> = {
-      generalOrder: { title: 'オーダー編集', bundleLabel: 'オーダー名', itemQuantityLabel: '数量' },
-      treatmentOrder: { title: '処置編集', bundleLabel: '処置名', itemQuantityLabel: '数量' },
-      testOrder: { title: '検査編集', bundleLabel: '検査名', itemQuantityLabel: '数量' },
+    const meta: Record<Exclude<PastOrderEntity, 'medOrder'>, { title: string; bundleLabel: string; itemQuantityLabel: string }> = {
+      generalOrder: { title: '一般オーダー', bundleLabel: 'オーダー名', itemQuantityLabel: '数量' },
+      injectionOrder: { title: '注射', bundleLabel: '注射名', itemQuantityLabel: '数量' },
+      treatmentOrder: { title: '処置', bundleLabel: '処置名', itemQuantityLabel: '数量' },
+      surgeryOrder: { title: '手術', bundleLabel: '手技', itemQuantityLabel: '数量' },
+      otherOrder: { title: 'その他', bundleLabel: '項目', itemQuantityLabel: '数量' },
+      testOrder: { title: '検査', bundleLabel: '検査名', itemQuantityLabel: '数量' },
+      physiologyOrder: { title: '生理検査', bundleLabel: '検査名', itemQuantityLabel: '数量' },
+      bacteriaOrder: { title: '細菌検査', bundleLabel: '検査名', itemQuantityLabel: '数量' },
+      radiologyOrder: { title: '放射線', bundleLabel: '検査名', itemQuantityLabel: '数量' },
+      instractionChargeOrder: { title: '指導料', bundleLabel: '算定', itemQuantityLabel: '数量' },
+      baseChargeOrder: { title: '基本料', bundleLabel: '算定', itemQuantityLabel: '数量' },
     };
     return meta;
   }, []);
@@ -1473,11 +1498,31 @@ function ChartsContent() {
     staleTime: 60_000,
   });
 
+  const orderBundleSummaryQuery = useQuery({
+    queryKey: ['charts-order-bundles', patientId, actionVisitDate],
+    queryFn: async () => {
+      if (!patientId) return { ok: false, bundles: [] as OrderBundle[], message: 'patientId is missing' };
+      try {
+        return await fetchOrderBundles({ patientId, from: actionVisitDate });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { ok: false, bundles: [] as OrderBundle[], message };
+      }
+    },
+    enabled: Boolean(patientId),
+    staleTime: 30_000,
+  });
+
   const safetyPayload = safetySummaryQuery.data?.ok ? safetySummaryQuery.data.payload : undefined;
   const allergies = safetyPayload?.allergies ?? [];
   const allergiesError = safetySummaryQuery.data && !safetySummaryQuery.data.ok ? safetySummaryQuery.data.error : undefined;
   const rpEntries = rpHistoryQuery.data?.ok ? rpHistoryQuery.data.entries : [];
   const rpError = rpHistoryQuery.data && !rpHistoryQuery.data.ok ? rpHistoryQuery.data.error : undefined;
+  const orderBundles = orderBundleSummaryQuery.data?.ok ? orderBundleSummaryQuery.data.bundles : [];
+  const orderBundlesError =
+    orderBundleSummaryQuery.data && !orderBundleSummaryQuery.data.ok
+      ? orderBundleSummaryQuery.data.message ?? 'オーダー情報の取得に失敗しました。'
+      : undefined;
 
   const patientDisplay = useMemo(() => {
     const baseDate = parseDate(actionVisitDate) ?? new Date();
@@ -2035,10 +2080,12 @@ function ChartsContent() {
 
   const utilityPanelTitles: Record<DockedUtilityAction, string> = {
     'clinical-actions': '診療操作',
-    'prescription-edit': '処方編集',
-    'order-edit': 'オーダー編集',
-    lab: '検査オーダー',
-    document: '文書作成',
+    'prescription-edit': '処方',
+    'order-injection': '注射',
+    'order-treatment': '処置',
+    'order-test': '検査',
+    'order-charge': '算定',
+    document: '文書',
     imaging: '画像',
     stamps: 'スタンプ',
   };
@@ -2046,26 +2093,25 @@ function ChartsContent() {
     Array<{ id: DockedUtilityAction; label: string; shortLabel: string; requiresEdit: boolean; shortcut: string }>
   >(
     () => {
-      const items: Array<{
-        id: DockedUtilityAction;
-        label: string;
-        shortLabel: string;
-        requiresEdit: boolean;
-        shortcut: string;
-      }> = [
-        { id: 'clinical-actions', label: '診療操作', shortLabel: '診療', requiresEdit: false, shortcut: 'Ctrl+Shift+1' },
-        { id: 'prescription-edit', label: '処方編集', shortLabel: '処方', requiresEdit: true, shortcut: 'Ctrl+Shift+2' },
-        { id: 'order-edit', label: 'オーダー編集', shortLabel: 'オーダ', requiresEdit: true, shortcut: 'Ctrl+Shift+3' },
-        { id: 'document', label: '文書作成', shortLabel: '文書', requiresEdit: true, shortcut: 'Ctrl+Shift+4' },
-        { id: 'lab', label: '検査', shortLabel: '検査', requiresEdit: true, shortcut: 'Ctrl+Shift+6' },
+      const base: Array<{ id: DockedUtilityAction; label: string; shortLabel: string; requiresEdit: boolean }> = [
+        { id: 'clinical-actions', label: '診療操作', shortLabel: '診療', requiresEdit: false },
+        { id: 'prescription-edit', label: '処方', shortLabel: '処方', requiresEdit: true },
+        { id: 'order-injection', label: '注射', shortLabel: '注射', requiresEdit: true },
+        { id: 'order-treatment', label: '処置', shortLabel: '処置', requiresEdit: true },
+        { id: 'order-test', label: '検査', shortLabel: '検査', requiresEdit: true },
+        { id: 'order-charge', label: '算定', shortLabel: '算定', requiresEdit: true },
+        { id: 'document', label: '文書', shortLabel: '文書', requiresEdit: true },
       ];
       if (isPatientImagesMvpEnabled) {
-        items.splice(4, 0, { id: 'imaging', label: '画像', shortLabel: '画像', requiresEdit: false, shortcut: 'Ctrl+Shift+5' });
+        base.push({ id: 'imaging', label: '画像', shortLabel: '画像', requiresEdit: false });
       }
       if (stampboxMvpEnabled) {
-        items.push({ id: 'stamps', label: 'スタンプ', shortLabel: 'スタ', requiresEdit: false, shortcut: 'Ctrl+Shift+7' });
+        base.push({ id: 'stamps', label: 'スタンプ', shortLabel: 'スタ', requiresEdit: false });
       }
-      return items;
+      return base.map((item, index) => ({
+        ...item,
+        shortcut: `Ctrl+Shift+${index + 1}`,
+      }));
     },
     [isPatientImagesMvpEnabled, stampboxMvpEnabled],
   );
@@ -2104,7 +2150,7 @@ function ChartsContent() {
             label: 'セクションを順に巡回（フォーカスが次の位置へ移動）',
           },
         ],
-        note: '移動順: Topbar → ActionBar → 病名 → Past Hub → SOAP → Timeline → オーダー → ORCA Summary → Telemetry',
+        note: '移動順: Topbar → 患者概要 → ActionBar → 病名 → Past Hub → SOAP → オーダー → ORCA Summary → Telemetry',
       },
     ],
     [utilityShortcutItems],
@@ -2145,6 +2191,63 @@ function ChartsContent() {
     [canOpenUtilityAction, resolveUtilityTrigger],
   );
 
+  const openOrderEditor = useCallback(
+    (entity: PastOrderEntity, trigger?: HTMLButtonElement | null) => {
+      switch (entity) {
+        case 'medOrder':
+          openUtilityPanel('prescription-edit', trigger);
+          return;
+        case 'injectionOrder':
+          openUtilityPanel('order-injection', trigger);
+          return;
+        case 'treatmentOrder':
+        case 'generalOrder':
+        case 'surgeryOrder':
+        case 'otherOrder':
+          setTreatmentOrderEntity(entity);
+          openUtilityPanel('order-treatment', trigger);
+          return;
+        case 'testOrder':
+        case 'physiologyOrder':
+        case 'bacteriaOrder':
+        case 'radiologyOrder':
+          setTestOrderEntity(entity);
+          openUtilityPanel('order-test', trigger);
+          return;
+        case 'baseChargeOrder':
+        case 'instractionChargeOrder':
+          setChargeOrderEntity(entity);
+          openUtilityPanel('order-charge', trigger);
+          return;
+      }
+    },
+    [openUtilityPanel],
+  );
+
+  const handleOpenOrderEditorFromEntity = useCallback(
+    (entity: string) => {
+      switch (entity) {
+        case 'medOrder':
+        case 'generalOrder':
+        case 'injectionOrder':
+        case 'treatmentOrder':
+        case 'surgeryOrder':
+        case 'otherOrder':
+        case 'testOrder':
+        case 'physiologyOrder':
+        case 'bacteriaOrder':
+        case 'radiologyOrder':
+        case 'instractionChargeOrder':
+        case 'baseChargeOrder':
+          openOrderEditor(entity);
+          return;
+        default:
+          return;
+      }
+    },
+    [openOrderEditor],
+  );
+
   const closeUtilityPanel = useCallback((restoreFocus: boolean) => {
     if (restoreFocus) {
       utilityFocusRestoreRef.current = true;
@@ -2170,12 +2273,11 @@ function ChartsContent() {
   const handlePastOrderDo = useCallback(
     (payload: { entity: PastOrderEntity; bundle: OrderBundle }) => {
       if (!canDoFromPast.ok) return;
-      if (payload.entity !== 'medOrder') setOrderEditEntityMvp(payload.entity);
       const requestId = createCopyRequestId();
       setOrderHistoryCopyRequest({ requestId, entity: payload.entity, bundle: payload.bundle });
-      openUtilityPanel(payload.entity === 'medOrder' ? 'prescription-edit' : 'order-edit');
+      openOrderEditor(payload.entity);
     },
-    [canDoFromPast.ok, createCopyRequestId, openUtilityPanel],
+    [canDoFromPast.ok, createCopyRequestId, openOrderEditor],
   );
 
   const handlePastDocumentDo = useCallback(
@@ -2388,11 +2490,11 @@ function ChartsContent() {
         event.preventDefault();
         const anchors = [
           'charts-topbar',
+          'charts-patient-summary',
           'charts-actionbar',
           'charts-diagnosis',
           'charts-past-hub',
           'charts-soap-note',
-          'charts-document-timeline',
           'charts-order-pane',
           'charts-orca-summary',
           'charts-telemetry',
@@ -2691,102 +2793,6 @@ function ChartsContent() {
 
       {!chartsDisplayEnabled ? null : (
         <>
-          <div className="charts-card charts-card--actions" tabIndex={-1}>
-            <ChartsActionBar
-              runId={resolvedRunId ?? flags.runId}
-              cacheHit={resolvedCacheHit ?? false}
-              missingMaster={resolvedMissingMaster ?? false}
-              dataSourceTransition={resolvedTransition ?? 'snapshot'}
-              fallbackUsed={resolvedFallbackUsed}
-              selectedEntry={selectedEntry}
-              sendEnabled={sendAllowedByDelivery}
-              compactHeader={isChartsCompactHeader}
-              sendDisabledReason={sendDisabledReason}
-              patientId={patientId}
-              visitDate={actionVisitDate}
-              queueEntry={actionBarQueueEntry}
-              hasUnsavedDraft={draftState.dirty}
-              hasPermission={hasPermission}
-              requireServerRouteForSend
-              requirePatientForSend
-              networkDegradedReason={networkDegradedReason}
-              approvalLock={{
-                locked: approvalLocked,
-                approvedAt: approvalState.record?.approvedAt,
-                runId: approvalState.record?.runId,
-                action: approvalState.record?.action,
-              }}
-              editLock={{
-                readOnly: tabLock.isReadOnly,
-                reason: tabLock.readOnlyReason,
-                ownerRunId: tabLock.ownerRunId,
-                expiresAt: tabLock.expiresAt,
-                lockStatus: tabLock.status,
-              }}
-              onReloadLatest={handleRefreshSummary}
-              onDiscardChanges={() => {
-                setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
-                recordChartsAuditEvent({
-                  action: 'CHARTS_CONFLICT',
-                  outcome: 'discarded',
-                  subject: 'charts-tab-lock',
-                  patientId: lockTarget.patientId,
-                  appointmentId: lockTarget.appointmentId,
-                  runId: resolvedRunId ?? flags.runId,
-                  cacheHit: resolvedCacheHit,
-                  missingMaster: resolvedMissingMaster,
-                  fallbackUsed: resolvedFallbackUsed,
-                  dataSourceTransition: resolvedTransition,
-                  details: {
-                    operationPhase: 'lock',
-                    trigger: 'tab',
-                    resolution: 'discard',
-                    lockStatus: tabLock.status,
-                    tabSessionId: tabLock.tabSessionId,
-                    lockOwnerRunId: tabLock.ownerRunId,
-                    lockExpiresAt: tabLock.expiresAt,
-                    receptionId: lockTarget.receptionId,
-                    facilityId: session.facilityId,
-                    userId: session.userId,
-                  },
-                });
-              }}
-              onForceTakeover={() => {
-                const wasReadOnly = tabLock.isReadOnly;
-                tabLock.forceTakeover();
-                recordChartsAuditEvent({
-                  action: 'CHARTS_EDIT_LOCK',
-                  outcome: wasReadOnly ? 'stolen' : 'acquired',
-                  subject: 'charts-tab-lock',
-                  patientId: lockTarget.patientId,
-                  appointmentId: lockTarget.appointmentId,
-                  runId: resolvedRunId ?? flags.runId,
-                  cacheHit: resolvedCacheHit,
-                  missingMaster: resolvedMissingMaster,
-                  fallbackUsed: resolvedFallbackUsed,
-                  dataSourceTransition: resolvedTransition,
-                  details: {
-                    operationPhase: 'lock',
-                    trigger: 'tab',
-                    resolution: 'force_takeover',
-                    lockStatus: tabLock.status,
-                    tabSessionId: tabLock.tabSessionId,
-                    lockOwnerRunId: tabLock.ownerRunId,
-                    lockExpiresAt: tabLock.expiresAt,
-                    receptionId: lockTarget.receptionId,
-                    facilityId: session.facilityId,
-                    userId: session.userId,
-                  },
-                });
-              }}
-              onApprovalConfirmed={handleApprovalConfirmed}
-              onApprovalUnlock={handleApprovalUnlock}
-              onAfterSend={handleRefreshSummary}
-              onAfterFinish={handleRefreshSummary}
-              onDraftSaved={() => setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }))}
-              onLockChange={handleLockChange}
-            />
-          </div>
           <section
             className="charts-workbench"
             aria-label="外来カルテ作業台"
@@ -2794,30 +2800,131 @@ function ChartsContent() {
             data-utility-state={utilityPanelAction ? 'expanded' : 'compact'}
             data-charts-compact-ui={isChartsCompactUi ? '1' : '0'}
           >
-	            <div className="charts-workbench__sticky">
-	              <div className="charts-card charts-card--summary" id="charts-patient-summary">
-	                <ChartsPatientSummaryBar
-	                  patientDisplay={patientDisplay}
-	                  patientId={patientId}
-	                  receptionId={receptionId}
-	                  appointmentId={appointmentId}
-	                  runId={resolvedRunId ?? flags.runId}
-	                  allergies={allergies}
-	                  allergiesLoading={safetySummaryQuery.isFetching}
-	                  allergiesError={allergiesError}
-	                  missingMaster={resolvedMissingMaster}
-	                  fallbackUsed={resolvedFallbackUsed}
-	                  cacheHit={resolvedCacheHit}
-	                  dataSourceTransition={resolvedTransition}
-	                  recordsReturned={appointmentMeta?.recordsReturned}
-	                  fetchedAt={appointmentMeta?.fetchedAt}
-	                  approvalLabel={approvalLabel}
-	                  approvalDetail={approvalDetail}
-	                  lockStatus={lockStatus}
-	                  onOpenPatientPanel={() => setIsPatientPanelOpen(true)}
-	                />
-	              </div>
-	            </div>
+            <div className="charts-workbench__sticky">
+              <div className="charts-workbench__sticky-grid">
+                <div className="charts-encounter-header" aria-label="患者情報と診療操作">
+                  <div className="charts-card charts-card--summary" id="charts-patient-summary" tabIndex={-1} data-focus-anchor="true">
+                    <ChartsPatientSummaryBar
+                      patientDisplay={patientDisplay}
+                      patientId={patientId}
+                      receptionId={receptionId}
+                      appointmentId={appointmentId}
+                      runId={resolvedRunId ?? flags.runId}
+                      allergies={allergies}
+                      allergiesLoading={safetySummaryQuery.isFetching}
+                      allergiesError={allergiesError}
+                      missingMaster={resolvedMissingMaster}
+                      fallbackUsed={resolvedFallbackUsed}
+                      cacheHit={resolvedCacheHit}
+                      dataSourceTransition={resolvedTransition}
+                      recordsReturned={appointmentMeta?.recordsReturned}
+                      fetchedAt={appointmentMeta?.fetchedAt}
+                      approvalLabel={approvalLabel}
+                      approvalDetail={approvalDetail}
+                      lockStatus={lockStatus}
+                      onOpenPatientPanel={() => setIsPatientPanelOpen(true)}
+                    />
+                  </div>
+                  <div className="charts-card charts-card--actions" id="charts-actionbar" tabIndex={-1} data-focus-anchor="true">
+                    <ChartsActionBar
+                      runId={resolvedRunId ?? flags.runId}
+                      cacheHit={resolvedCacheHit ?? false}
+                      missingMaster={resolvedMissingMaster ?? false}
+                      dataSourceTransition={resolvedTransition ?? 'snapshot'}
+                      fallbackUsed={resolvedFallbackUsed}
+                      selectedEntry={selectedEntry}
+                      sendEnabled={sendAllowedByDelivery}
+                      compactHeader
+                      sendDisabledReason={sendDisabledReason}
+                      patientId={patientId}
+                      visitDate={actionVisitDate}
+                      queueEntry={actionBarQueueEntry}
+                      hasUnsavedDraft={draftState.dirty}
+                      hasPermission={hasPermission}
+                      requireServerRouteForSend
+                      requirePatientForSend
+                      networkDegradedReason={networkDegradedReason}
+                      approvalLock={{
+                        locked: approvalLocked,
+                        approvedAt: approvalState.record?.approvedAt,
+                        runId: approvalState.record?.runId,
+                        action: approvalState.record?.action,
+                      }}
+                      editLock={{
+                        readOnly: tabLock.isReadOnly,
+                        reason: tabLock.readOnlyReason,
+                        ownerRunId: tabLock.ownerRunId,
+                        expiresAt: tabLock.expiresAt,
+                        lockStatus: tabLock.status,
+                      }}
+                      onReloadLatest={handleRefreshSummary}
+                      onDiscardChanges={() => {
+                        setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
+                        recordChartsAuditEvent({
+                          action: 'CHARTS_CONFLICT',
+                          outcome: 'discarded',
+                          subject: 'charts-tab-lock',
+                          patientId: lockTarget.patientId,
+                          appointmentId: lockTarget.appointmentId,
+                          runId: resolvedRunId ?? flags.runId,
+                          cacheHit: resolvedCacheHit,
+                          missingMaster: resolvedMissingMaster,
+                          fallbackUsed: resolvedFallbackUsed,
+                          dataSourceTransition: resolvedTransition,
+                          details: {
+                            operationPhase: 'lock',
+                            trigger: 'tab',
+                            resolution: 'discard',
+                            lockStatus: tabLock.status,
+                            tabSessionId: tabLock.tabSessionId,
+                            lockOwnerRunId: tabLock.ownerRunId,
+                            lockExpiresAt: tabLock.expiresAt,
+                            receptionId: lockTarget.receptionId,
+                            facilityId: session.facilityId,
+                            userId: session.userId,
+                          },
+                        });
+                      }}
+                      onForceTakeover={() => {
+                        const wasReadOnly = tabLock.isReadOnly;
+                        tabLock.forceTakeover();
+                        recordChartsAuditEvent({
+                          action: 'CHARTS_EDIT_LOCK',
+                          outcome: wasReadOnly ? 'stolen' : 'acquired',
+                          subject: 'charts-tab-lock',
+                          patientId: lockTarget.patientId,
+                          appointmentId: lockTarget.appointmentId,
+                          runId: resolvedRunId ?? flags.runId,
+                          cacheHit: resolvedCacheHit,
+                          missingMaster: resolvedMissingMaster,
+                          fallbackUsed: resolvedFallbackUsed,
+                          dataSourceTransition: resolvedTransition,
+                          details: {
+                            operationPhase: 'lock',
+                            trigger: 'tab',
+                            resolution: 'force_takeover',
+                            lockStatus: tabLock.status,
+                            tabSessionId: tabLock.tabSessionId,
+                            lockOwnerRunId: tabLock.ownerRunId,
+                            lockExpiresAt: tabLock.expiresAt,
+                            receptionId: lockTarget.receptionId,
+                            facilityId: session.facilityId,
+                            userId: session.userId,
+                          },
+                        });
+                      }}
+                      onApprovalConfirmed={handleApprovalConfirmed}
+                      onApprovalUnlock={handleApprovalUnlock}
+                      onAfterSend={handleRefreshSummary}
+                      onAfterFinish={handleRefreshSummary}
+                      onDraftSaved={() => setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }))}
+                      onLockChange={handleLockChange}
+                    />
+                  </div>
+                </div>
+                <div className="charts-workbench__sticky-side" aria-hidden="true" />
+              </div>
+            </div>
             <div className="charts-workbench__layout">
               <div className="charts-workbench__body">
                 <div className="charts-workbench__column charts-workbench__column--left">
@@ -2828,6 +2935,11 @@ function ChartsContent() {
                   <div className="charts-card" id="charts-diagnosis" tabIndex={-1} data-focus-anchor="true">
                     <DiagnosisEditPanel patientId={encounterContext.patientId} meta={sidePanelMeta} />
                   </div>
+                  <PatientSummaryPanel
+                    patientId={encounterContext.patientId}
+                    readOnly={tabLock.isReadOnly || approvalLocked}
+                    readOnlyReason={approvalLocked ? approvalReason : tabLock.readOnlyReason}
+                  />
                   <div className="charts-card" id="charts-past-hub" tabIndex={-1} data-focus-anchor="true">
                     <PastHubPanel
                       patientId={encounterContext.patientId}
@@ -2864,87 +2976,92 @@ function ChartsContent() {
                 </div>
                 <div className="charts-workbench__column charts-workbench__column--center">
                   <div className="charts-column-header">
-                    <span className="charts-column-header__label">SOAP・タイムライン</span>
-                    <span className="charts-column-header__meta">記録 / 履歴 / 送信</span>
+                    <span className="charts-column-header__label">カルテ記載</span>
+                    <span className="charts-column-header__meta">SOAP / 履歴 / オーダー</span>
                   </div>
                   <div className="charts-card" id="charts-soap-note" tabIndex={-1} data-focus-anchor="true">
-	                    <SoapNotePanel
-	                      history={soapHistory}
-	                      meta={soapNoteMeta}
-	                      author={soapNoteAuthor}
-	                      readOnly={tabLock.isReadOnly || approvalLocked}
-	                      readOnlyReason={approvalLocked ? approvalReason : tabLock.readOnlyReason}
-	                      rpHistory={rpEntries}
-	                      rpHistoryLoading={rpHistoryQuery.isFetching}
-	                      rpHistoryError={rpError}
-	                      onOpenPrescriptionEditor={() => openUtilityPanel('prescription-edit')}
-	                      onDraftSnapshot={setSoapDraftSnapshot}
-	                      applyDraftPatch={applySoapDraftPatch}
-	                      attachmentInsert={pendingSoapAttachment}
-	                      onAttachmentInserted={() => setPendingSoapAttachment(null)}
-	                      onAppendHistory={appendSoapHistory}
+		                    <SoapNotePanel
+		                      history={soapHistory}
+		                      meta={soapNoteMeta}
+		                      author={soapNoteAuthor}
+		                      readOnly={tabLock.isReadOnly || approvalLocked}
+		                      readOnlyReason={approvalLocked ? approvalReason : tabLock.readOnlyReason}
+		                      rpHistory={rpEntries}
+		                      rpHistoryLoading={rpHistoryQuery.isFetching}
+		                      rpHistoryError={rpError}
+		                      orderBundles={orderBundles}
+		                      orderBundlesLoading={orderBundleSummaryQuery.isFetching}
+		                      orderBundlesError={orderBundlesError}
+		                      onOpenPrescriptionEditor={() => openUtilityPanel('prescription-edit')}
+		                      onOpenOrderEditor={handleOpenOrderEditorFromEntity}
+		                      onDraftSnapshot={setSoapDraftSnapshot}
+		                      applyDraftPatch={applySoapDraftPatch}
+		                      attachmentInsert={pendingSoapAttachment}
+		                      onAttachmentInserted={() => setPendingSoapAttachment(null)}
+		                      onAppendHistory={appendSoapHistory}
                       onDraftDirtyChange={setDraftState}
                       onClearHistory={clearSoapHistory}
                       onAuditLogged={() => setAuditEvents(getAuditEventLog())}
                     />
                   </div>
-                  <div className="charts-card" id="charts-document-timeline" tabIndex={-1} data-focus-anchor="true">
-                    <DocumentTimeline
-                      entries={patientEntries}
-                      appointmentBanner={appointmentBanner}
-                      appointmentMeta={appointmentMeta}
-                      auditEvent={latestAuditEvent as Record<string, unknown> | undefined}
-                      soapHistory={soapHistory}
-                      selectedPatientId={encounterContext.patientId}
-                      selectedAppointmentId={encounterContext.appointmentId}
-                      selectedReceptionId={encounterContext.receptionId}
-                      claimData={claimQuery.data as ClaimOutpatientPayload | undefined}
-                      claimError={claimErrorForTimeline}
-                      isClaimLoading={claimQuery.isFetching}
-                      orcaQueue={orcaQueueQuery.data}
-                      orcaQueueUpdatedAt={orcaQueueQuery.dataUpdatedAt}
-                      isOrcaQueueLoading={orcaQueueQuery.isFetching}
-                      orcaQueueError={
-                        orcaQueueQuery.isError
-                          ? (orcaQueueQuery.error instanceof Error ? orcaQueueQuery.error : new Error(String(orcaQueueQuery.error)))
-                          : undefined
-                      }
-                      orcaPushEvents={orcaPushEventQuery.data}
-                      orcaPushEventsUpdatedAt={orcaPushEventQuery.dataUpdatedAt}
-                      isOrcaPushEventsLoading={orcaPushEventQuery.isFetching}
-                      orcaPushEventsError={
-                        orcaPushEventQuery.isError
-                          ? (orcaPushEventQuery.error instanceof Error ? orcaPushEventQuery.error : new Error(String(orcaPushEventQuery.error)))
-                          : undefined
-                      }
-                      onRetryClaim={handleRetryClaim}
-                      recordsReturned={appointmentRecordsReturned}
-                      hasNextPage={hasNextAppointments}
-                      onLoadMore={() => appointmentQuery.fetchNextPage()}
-                      isLoadingMore={appointmentQuery.isFetchingNextPage}
-                      isInitialLoading={appointmentQuery.isLoading}
-                      pageSize={appointmentQuery.data?.pages?.[0]?.size ?? 50}
-                      isRefetchingList={appointmentQuery.isFetching && !appointmentQuery.isLoading}
-                      onOpenReception={handleOpenReception}
+                  {showDebugUi ? (
+                    <details className="charts-card charts-fold" id="charts-document-timeline" tabIndex={-1} data-focus-anchor="true">
+                      <summary className="charts-fold__summary">Document Timeline（デバッグ）</summary>
+                      <div className="charts-fold__content">
+                        <DocumentTimeline
+                          entries={patientEntries}
+                          appointmentBanner={appointmentBanner}
+                          appointmentMeta={appointmentMeta}
+                          auditEvent={latestAuditEvent as Record<string, unknown> | undefined}
+                          soapHistory={soapHistory}
+                          selectedPatientId={encounterContext.patientId}
+                          selectedAppointmentId={encounterContext.appointmentId}
+                          selectedReceptionId={encounterContext.receptionId}
+                          claimData={claimQuery.data as ClaimOutpatientPayload | undefined}
+                          claimError={claimErrorForTimeline}
+                          isClaimLoading={claimQuery.isFetching}
+                          orcaQueue={orcaQueueQuery.data}
+                          orcaQueueUpdatedAt={orcaQueueQuery.dataUpdatedAt}
+                          isOrcaQueueLoading={orcaQueueQuery.isFetching}
+                          orcaQueueError={
+                            orcaQueueQuery.isError
+                              ? (orcaQueueQuery.error instanceof Error ? orcaQueueQuery.error : new Error(String(orcaQueueQuery.error)))
+                              : undefined
+                          }
+                          orcaPushEvents={orcaPushEventQuery.data}
+                          orcaPushEventsUpdatedAt={orcaPushEventQuery.dataUpdatedAt}
+                          isOrcaPushEventsLoading={orcaPushEventQuery.isFetching}
+                          orcaPushEventsError={
+                            orcaPushEventQuery.isError
+                              ? (orcaPushEventQuery.error instanceof Error ? orcaPushEventQuery.error : new Error(String(orcaPushEventQuery.error)))
+                              : undefined
+                          }
+                          onRetryClaim={handleRetryClaim}
+                          recordsReturned={appointmentRecordsReturned}
+                          hasNextPage={hasNextAppointments}
+                          onLoadMore={() => appointmentQuery.fetchNextPage()}
+                          isLoadingMore={appointmentQuery.isFetchingNextPage}
+                          isInitialLoading={appointmentQuery.isLoading}
+                          pageSize={appointmentQuery.data?.pages?.[0]?.size ?? 50}
+                          isRefetchingList={appointmentQuery.isFetching && !appointmentQuery.isLoading}
+                          onOpenReception={handleOpenReception}
+                        />
+                      </div>
+                    </details>
+                  ) : (
+                    <div
+                      className="charts-focus-anchor"
+                      id="charts-document-timeline"
+                      tabIndex={-1}
+                      data-focus-anchor="true"
+                      aria-hidden="true"
                     />
-                  </div>
+                  )}
 
                   <div className="charts-column-header">
-                    <span className="charts-column-header__label">ORCA参照</span>
-                    <span className="charts-column-header__meta">メモ / サマリ / 原本</span>
+                    <span className="charts-column-header__label">ORCAサマリ</span>
+                    <span className="charts-column-header__meta">会計 / 送信 / 確認</span>
                   </div>
-
-                  <details className="charts-card charts-fold" id="charts-patient-memo">
-                    <summary className="charts-fold__summary">患者メモ</summary>
-                    <div className="charts-fold__content">
-                      <div className="charts-patient-memo">
-                        <span className="charts-patient-memo__label">メモ</span>
-                        <p className="charts-patient-memo__text">
-                          {patientDisplay.note?.trim() ? patientDisplay.note : 'メモなし'}
-                        </p>
-                      </div>
-                    </div>
-                  </details>
 
                   <div className="charts-card" id="charts-orca-summary" tabIndex={-1} data-focus-anchor="true">
                     <OrcaSummary
@@ -2959,23 +3076,27 @@ function ChartsContent() {
                     />
                   </div>
 
-                  <details className="charts-card charts-fold" id="charts-orca-original">
-                    <summary className="charts-fold__summary">ORCA 原本（XML/JSON）</summary>
-                    <div className="charts-fold__content">
-                      <OrcaOriginalPanel
-                        patientId={encounterContext.patientId}
-                        visitDate={encounterContext.visitDate}
-                        runId={resolvedRunId ?? flags.runId}
-                      />
-                    </div>
-                  </details>
+                  {showDebugUi ? (
+                    <>
+                      <details className="charts-card charts-fold" id="charts-orca-original">
+                        <summary className="charts-fold__summary">ORCA 原本（XML/JSON）</summary>
+                        <div className="charts-fold__content">
+                          <OrcaOriginalPanel
+                            patientId={encounterContext.patientId}
+                            visitDate={encounterContext.visitDate}
+                            runId={resolvedRunId ?? flags.runId}
+                          />
+                        </div>
+                      </details>
 
-                  <details className="charts-card charts-fold">
-                    <summary className="charts-fold__summary">ORCA 記録（要約）</summary>
-                    <div className="charts-fold__content">
-                      <MedicalOutpatientRecordPanel summary={orcaSummaryQuery.data} selectedPatientId={encounterContext.patientId} />
-                    </div>
-                  </details>
+                      <details className="charts-card charts-fold">
+                        <summary className="charts-fold__summary">ORCA 記録（要約）</summary>
+                        <div className="charts-fold__content">
+                          <MedicalOutpatientRecordPanel summary={orcaSummaryQuery.data} selectedPatientId={encounterContext.patientId} />
+                        </div>
+                      </details>
+                    </>
+                  ) : null}
 
                   {showDebugUi ? (
                     <div className="charts-card" id="charts-telemetry" tabIndex={-1} data-focus-anchor="true">
@@ -3092,13 +3213,17 @@ function ChartsContent() {
                     data-open={utilityPanelAction ? 'true' : 'false'}
                     data-docked-panel-content="true"
                   >
-                    {(utilityPanelAction === 'prescription-edit' || utilityPanelAction === 'order-edit') && (
+                    {(utilityPanelAction === 'prescription-edit' ||
+                      utilityPanelAction === 'order-injection' ||
+                      utilityPanelAction === 'order-treatment' ||
+                      utilityPanelAction === 'order-test' ||
+                      utilityPanelAction === 'order-charge') && (
                       <div className="charts-side-panel__content">
                         {utilityPanelAction === 'prescription-edit' && (
                           <OrderBundleEditPanel
                             patientId={encounterContext.patientId}
                             entity="medOrder"
-                            title="処方編集"
+                            title="処方"
                             bundleLabel="RP名"
                             itemQuantityLabel="用量"
                             meta={sidePanelMeta}
@@ -3110,49 +3235,137 @@ function ChartsContent() {
                             onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
                           />
                         )}
-                        {utilityPanelAction === 'order-edit' && (
+                        {utilityPanelAction === 'order-injection' ? (
+                          <OrderBundleEditPanel
+                            patientId={encounterContext.patientId}
+                            key="order-injection"
+                            entity="injectionOrder"
+                            title={orderEditEntityMeta.injectionOrder.title}
+                            bundleLabel={orderEditEntityMeta.injectionOrder.bundleLabel}
+                            itemQuantityLabel={orderEditEntityMeta.injectionOrder.itemQuantityLabel}
+                            meta={sidePanelMeta}
+                            historyCopyRequest={
+                              orderHistoryCopyRequest?.entity === 'injectionOrder'
+                                ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
+                                : null
+                            }
+                            onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
+                          />
+                        ) : null}
+                        {utilityPanelAction === 'order-treatment' ? (
                           <>
-                            {isOrderEditMvp && (
-                              <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
-                                <div className="charts-side-panel__subheader">
-                                  <strong>オーダー種別（MVP）</strong>
-                                </div>
-                                <div className="charts-side-panel__field">
-                                  <label htmlFor="charts-order-edit-entity">対象エディタ</label>
-                                  <select
-                                    id="charts-order-edit-entity"
-                                    value={orderEditEntityMvp}
-                                    onChange={(event) => setOrderEditEntityMvp(event.target.value as OrderEditEntityMvp)}
-                                  >
-                                    {ORDER_EDIT_ENTITY_MVP_OPTIONS.map((option) => (
-                                      <option key={option.value} value={option.value}>
-                                        {option.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <p className="charts-side-panel__help">
-                                    legacy EditorSet の editor 切替を最小で代替します（StampBoxツリーUIとは独立）。
-                                  </p>
-                                </div>
+                            <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
+                              <div className="charts-side-panel__subheader">
+                                <strong>処置カテゴリ</strong>
                               </div>
-                            )}
-	                            <OrderBundleEditPanel
-	                              patientId={encounterContext.patientId}
-	                              key={`order-edit-${orderEditEntityMvp}`}
-	                              entity={orderEditEntityMvp}
-	                              title={orderEditEntityMeta[orderEditEntityMvp].title}
-	                              bundleLabel={orderEditEntityMeta[orderEditEntityMvp].bundleLabel}
-	                              itemQuantityLabel={orderEditEntityMeta[orderEditEntityMvp].itemQuantityLabel}
-	                              meta={sidePanelMeta}
-	                              historyCopyRequest={
-	                                orderHistoryCopyRequest?.entity === orderEditEntityMvp
-	                                  ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
-	                                  : null
-	                              }
-	                              onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
-	                            />
+                              <div className="charts-side-panel__field">
+                                <label htmlFor="charts-order-treatment-entity">種類</label>
+                                <select
+                                  id="charts-order-treatment-entity"
+                                  value={treatmentOrderEntity}
+                                  onChange={(event) => setTreatmentOrderEntity(event.target.value as TreatmentOrderEntity)}
+                                >
+                                  {treatmentOrderEntityOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <OrderBundleEditPanel
+                              patientId={encounterContext.patientId}
+                              key={`order-treatment-${treatmentOrderEntity}`}
+                              entity={treatmentOrderEntity}
+                              title={orderEditEntityMeta[treatmentOrderEntity].title}
+                              bundleLabel={orderEditEntityMeta[treatmentOrderEntity].bundleLabel}
+                              itemQuantityLabel={orderEditEntityMeta[treatmentOrderEntity].itemQuantityLabel}
+                              meta={sidePanelMeta}
+                              historyCopyRequest={
+                                orderHistoryCopyRequest?.entity === treatmentOrderEntity
+                                  ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
+                                  : null
+                              }
+                              onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
+                            />
                           </>
-                        )}
+                        ) : null}
+                        {utilityPanelAction === 'order-test' ? (
+                          <>
+                            <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
+                              <div className="charts-side-panel__subheader">
+                                <strong>検査カテゴリ</strong>
+                              </div>
+                              <div className="charts-side-panel__field">
+                                <label htmlFor="charts-order-test-entity">種類</label>
+                                <select
+                                  id="charts-order-test-entity"
+                                  value={testOrderEntity}
+                                  onChange={(event) => setTestOrderEntity(event.target.value as TestOrderEntity)}
+                                >
+                                  {testOrderEntityOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <OrderBundleEditPanel
+                              patientId={encounterContext.patientId}
+                              key={`order-test-${testOrderEntity}`}
+                              entity={testOrderEntity}
+                              title={orderEditEntityMeta[testOrderEntity].title}
+                              bundleLabel={orderEditEntityMeta[testOrderEntity].bundleLabel}
+                              itemQuantityLabel={orderEditEntityMeta[testOrderEntity].itemQuantityLabel}
+                              meta={sidePanelMeta}
+                              historyCopyRequest={
+                                orderHistoryCopyRequest?.entity === testOrderEntity
+                                  ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
+                                  : null
+                              }
+                              onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
+                            />
+                          </>
+                        ) : null}
+                        {utilityPanelAction === 'order-charge' ? (
+                          <>
+                            <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
+                              <div className="charts-side-panel__subheader">
+                                <strong>算定カテゴリ</strong>
+                              </div>
+                              <div className="charts-side-panel__field">
+                                <label htmlFor="charts-order-charge-entity">種類</label>
+                                <select
+                                  id="charts-order-charge-entity"
+                                  value={chargeOrderEntity}
+                                  onChange={(event) => setChargeOrderEntity(event.target.value as ChargeOrderEntity)}
+                                >
+                                  {chargeOrderEntityOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <OrderBundleEditPanel
+                              patientId={encounterContext.patientId}
+                              key={`order-charge-${chargeOrderEntity}`}
+                              entity={chargeOrderEntity}
+                              title={orderEditEntityMeta[chargeOrderEntity].title}
+                              bundleLabel={orderEditEntityMeta[chargeOrderEntity].bundleLabel}
+                              itemQuantityLabel={orderEditEntityMeta[chargeOrderEntity].itemQuantityLabel}
+                              meta={sidePanelMeta}
+                              historyCopyRequest={
+                                orderHistoryCopyRequest?.entity === chargeOrderEntity
+                                  ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
+                                  : null
+                              }
+                              onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
+                            />
+                          </>
+                        ) : null}
                       </div>
                     )}
                     {utilityPanelAction === 'document' && (
@@ -3178,8 +3391,8 @@ function ChartsContent() {
                           <button type="button" onClick={() => focusSectionById('charts-actionbar')}>
                             診療操作へ移動
                           </button>
-                          <button type="button" onClick={() => focusSectionById('charts-document-timeline')}>
-                            タイムラインへ移動
+                          <button type="button" onClick={() => focusSectionById('charts-soap-note')}>
+                            SOAPへ移動
                           </button>
                           <button type="button" onClick={() => focusSectionById('charts-orca-summary')}>
                             ORCAサマリへ移動
@@ -3202,25 +3415,10 @@ function ChartsContent() {
                         />
                       </div>
                     )}
-                    {utilityPanelAction === 'lab' && (
-                      <>
-                        <p className="charts-side-panel__message">
-                          検査オーダーは実運用で検索・登録 UI を開く位置です。現在は関連セクションへの移動を補助します。
-                        </p>
-                        <div className="charts-side-panel__actions">
-                          <button type="button" onClick={() => focusSectionById('charts-telemetry')}>
-                            テレメトリへ移動
-                          </button>
-                          <button type="button" onClick={() => focusSectionById('charts-document-timeline')}>
-                            タイムラインへ移動
-                          </button>
-                        </div>
-                      </>
-                    )}
                     {utilityPanelAction === 'stamps' && stampboxMvpEnabled && (
                       <StampLibraryPanel
                         phase={stampboxMvpPhase === 2 ? 2 : 1}
-                        onOpenOrderEdit={stampboxMvpPhase >= 2 ? () => openUtilityPanel('order-edit') : undefined}
+                        onOpenOrderEdit={stampboxMvpPhase >= 2 ? () => openUtilityPanel('order-treatment') : undefined}
                       />
                     )}
                     {!utilityPanelAction && <p className="charts-docked-panel__empty">ユーティリティを選択してください。</p>}

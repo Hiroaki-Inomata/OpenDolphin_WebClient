@@ -1,21 +1,60 @@
-import { useMemo, useState } from 'react';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
 import type { ReceptionEntry } from '../outpatient/types';
 import type { OutpatientEncounterContext } from './encounterContext';
 import { normalizeVisitDate } from './encounterContext';
-import { fetchKarteIdByPatientId, fetchLetterList, type LetterModulePayload } from './letterApi';
+import type { LetterModulePayload } from './letterApi';
 import { fetchOrderBundles, type OrderBundle } from './orderBundleApi';
 import { SOAP_SECTION_LABELS, formatSoapAuthoredAt, getLatestSoapEntries, type SoapEntry, type SoapSectionKey } from './soapNote';
 
-type PastHubTab = 'encounters' | 'documents' | 'orders' | 'notes';
+export type PastHubOrderEntity =
+  | 'medOrder'
+  | 'injectionOrder'
+  | 'treatmentOrder'
+  | 'generalOrder'
+  | 'surgeryOrder'
+  | 'otherOrder'
+  | 'testOrder'
+  | 'physiologyOrder'
+  | 'bacteriaOrder'
+  | 'radiologyOrder'
+  | 'instractionChargeOrder'
+  | 'baseChargeOrder';
 
-const ORDER_ENTITIES = [
-  { entity: 'medOrder', label: '処方' },
-  { entity: 'generalOrder', label: '一般オーダー' },
-  { entity: 'treatmentOrder', label: '処置' },
-  { entity: 'testOrder', label: '検査' },
-] as const;
+const ORDER_ENTITY_LABEL: Record<PastHubOrderEntity, string> = {
+  medOrder: '処方',
+  injectionOrder: '注射',
+  treatmentOrder: '処置',
+  generalOrder: '一般',
+  surgeryOrder: '手術',
+  otherOrder: 'その他',
+  testOrder: '検査',
+  physiologyOrder: '生理検査',
+  bacteriaOrder: '細菌検査',
+  radiologyOrder: '放射線',
+  instractionChargeOrder: '指導料',
+  baseChargeOrder: '基本料',
+};
+
+const ORDER_ENTITY_SORT: PastHubOrderEntity[] = [
+  'medOrder',
+  'injectionOrder',
+  'treatmentOrder',
+  'generalOrder',
+  'surgeryOrder',
+  'otherOrder',
+  'testOrder',
+  'physiologyOrder',
+  'bacteriaOrder',
+  'radiologyOrder',
+  'instractionChargeOrder',
+  'baseChargeOrder',
+];
+
+const isPastHubOrderEntity = (value: string): value is PastHubOrderEntity => {
+  return (ORDER_ENTITY_SORT as readonly string[]).includes(value);
+};
 
 const DO_COPY_SECTIONS: SoapSectionKey[] = ['subjective', 'objective', 'assessment', 'plan'];
 
@@ -36,14 +75,6 @@ const formatEntryLabel = (entry: ReceptionEntry): string => {
   return parts.join(' / ') || '受診情報不明';
 };
 
-const resolveLetterIssuedAt = (letter: LetterModulePayload): string => {
-  const raw = letter.confirmed ?? letter.recorded ?? letter.started ?? '';
-  if (!raw) return '';
-  // Server payload sometimes contains timestamp or datetime-ish strings; show the date portion when possible.
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
-  return raw;
-};
-
 const formatOrderBundleLabel = (bundle: OrderBundle): string => {
   const started = bundle.started?.slice(0, 10);
   const items = bundle.items?.length ?? 0;
@@ -59,6 +90,11 @@ const makeFromDate = (todayIso: string, days: number): string => {
   return toIsoDate(base);
 };
 
+type DayGroup = {
+  date: string;
+  entries: ReceptionEntry[];
+};
+
 export type PastHubPanelProps = {
   patientId?: string;
   entries: ReceptionEntry[];
@@ -67,7 +103,7 @@ export type PastHubPanelProps = {
   onRequestDoCopy?: (payload: { section: SoapSectionKey; entry: SoapEntry }) => void;
   doOrderEnabled?: boolean;
   doOrderDisabledReason?: string;
-  onRequestOrderDo?: (payload: { entity: (typeof ORDER_ENTITIES)[number]['entity']; bundle: OrderBundle }) => void;
+  onRequestOrderDo?: (payload: { entity: PastHubOrderEntity; bundle: OrderBundle }) => void;
   doDocumentEnabled?: boolean;
   doDocumentDisabledReason?: string;
   onRequestDocumentDo?: (payload: { letter: LetterModulePayload }) => void;
@@ -87,58 +123,74 @@ export function PastHubPanel({
   doOrderEnabled = false,
   doOrderDisabledReason,
   onRequestOrderDo,
-  doDocumentEnabled = false,
-  doDocumentDisabledReason,
-  onRequestDocumentDo,
   selectedContext,
   switchLocked,
   switchLockedReason,
   todayIso,
   onSelectEncounter,
 }: PastHubPanelProps) {
-  const [tab, setTab] = useState<PastHubTab>('encounters');
   const historyEntries = useMemo(() => {
     const copy = [...entries];
     copy.sort((a, b) => (resolveVisitDate(b) || '').localeCompare(resolveVisitDate(a) || ''));
     return copy;
   }, [entries]);
 
+  const dayGroups = useMemo<DayGroup[]>(() => {
+    const map = new Map<string, ReceptionEntry[]>();
+    historyEntries.forEach((entry) => {
+      const date = resolveVisitDate(entry) || '—';
+      const list = map.get(date) ?? [];
+      list.push(entry);
+      map.set(date, list);
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([date, list]) => ({ date, entries: list }));
+  }, [historyEntries]);
+
+  const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    // Patient switch: reset "initially open last 2" behavior.
+    setOpenDays({});
+  }, [patientId]);
+  useEffect(() => {
+    if (!patientId) return;
+    if (Object.keys(openDays).length > 0) return;
+    if (dayGroups.length === 0) return;
+    const next: Record<string, boolean> = {};
+    dayGroups.slice(0, 2).forEach((group) => {
+      next[group.date] = true;
+    });
+    setOpenDays(next);
+  }, [dayGroups, openDays, patientId]);
+
   const from90Days = useMemo(() => makeFromDate(todayIso, 90), [todayIso]);
-
-  const karteIdQuery = useQuery({
-    queryKey: ['charts-past-hub-karte', patientId],
+  const bundlesQuery = useQuery({
+    queryKey: ['charts-past-hub-order-bundles', patientId, from90Days],
     queryFn: async () => {
-      if (!patientId) return { ok: false as const, karteId: null as number | null, error: 'patientId is required' };
-      const result = await fetchKarteIdByPatientId({ patientId });
-      return { ok: result.ok, karteId: result.karteId ?? null, error: result.error };
+      if (!patientId) return { ok: false, bundles: [] as OrderBundle[], message: 'patientId is missing' };
+      try {
+        return await fetchOrderBundles({ patientId, from: from90Days });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { ok: false, bundles: [] as OrderBundle[], message };
+      }
     },
-    enabled: Boolean(patientId) && tab === 'documents',
+    enabled: Boolean(patientId),
     staleTime: 30 * 1000,
   });
 
-  const lettersQuery = useQuery({
-    queryKey: ['charts-past-hub-letters', karteIdQuery.data?.karteId],
-    queryFn: async () => {
-      const karteId = karteIdQuery.data?.karteId;
-      if (!karteId) return { ok: false as const, letters: [] as LetterModulePayload[], error: 'karteId is missing' };
-      const result = await fetchLetterList({ karteId });
-      return { ok: result.ok, letters: result.letters ?? [], error: result.error };
-    },
-    enabled: tab === 'documents' && Boolean(karteIdQuery.data?.karteId),
-    staleTime: 30 * 1000,
-  });
-
-  const orderQueries = useQueries({
-    queries: ORDER_ENTITIES.map((spec) => ({
-      queryKey: ['charts-past-hub-order-bundles', patientId, spec.entity, from90Days],
-      queryFn: () => {
-        if (!patientId) return Promise.resolve({ ok: false, bundles: [] as OrderBundle[] });
-        return fetchOrderBundles({ patientId, entity: spec.entity, from: from90Days });
-      },
-      enabled: Boolean(patientId) && tab === 'orders',
-      staleTime: 30 * 1000,
-    })),
-  });
+  const bundlesByDate = useMemo(() => {
+    const map = new Map<string, OrderBundle[]>();
+    const bundles = bundlesQuery.data?.ok ? bundlesQuery.data.bundles : [];
+    bundles.forEach((bundle) => {
+      const started = bundle.started?.slice(0, 10) ?? '—';
+      const list = map.get(started) ?? [];
+      list.push(bundle);
+      map.set(started, list);
+    });
+    return map;
+  }, [bundlesQuery.data]);
 
   const selectedEncounterKey = useMemo(() => {
     return [
@@ -149,272 +201,237 @@ export function PastHubPanel({
     ].join('::');
   }, [selectedContext.appointmentId, selectedContext.patientId, selectedContext.receptionId, selectedContext.visitDate]);
 
-  const handleSelect = (entry: ReceptionEntry) => {
-    const next = {
-      patientId: entry.patientId ?? entry.id,
-      appointmentId: entry.appointmentId,
-      receptionId: entry.receptionId,
-      visitDate: normalizeVisitDate(entry.visitDate),
-    };
-    onSelectEncounter(next);
-  };
-
-  const letters = (lettersQuery.data?.letters ?? []).slice().sort((a, b) => resolveLetterIssuedAt(b).localeCompare(resolveLetterIssuedAt(a)));
   const soapLatestBySection = useMemo(() => getLatestSoapEntries(soapHistory), [soapHistory]);
+  const canDoCopy = Boolean(doCopyEnabled && onRequestDoCopy);
+  const activeDate = normalizeVisitDate(selectedContext.visitDate) ?? '';
+
+  if (!patientId) {
+    return (
+      <section className="charts-past-hub" aria-label="Past Hub（過去カルテとオーダー）">
+        <header className="charts-past-hub__header">
+          <div>
+            <strong>Past Hub</strong>
+            <p className="charts-past-hub__desc">患者未選択のため過去参照は表示できません。</p>
+          </div>
+        </header>
+        <p className="patients-tab__detail-empty" role="status">
+          患者未選択です。
+        </p>
+      </section>
+    );
+  }
 
   return (
-    <section className="charts-past-hub" aria-label="Past Hub（過去参照集約）" data-tab={tab}>
+    <section className="charts-past-hub" aria-label="Past Hub（過去カルテとオーダー）">
       <header className="charts-past-hub__header">
         <div>
           <strong>Past Hub</strong>
-          <p className="charts-past-hub__desc">過去参照（受診/記載/文書/オーダー）を集約して表示します。Do は右の入力パネルへコピーします。</p>
-        </div>
-        <div className="charts-past-hub__tabs" role="tablist" aria-label="Past Hub タブ">
-          <button
-            type="button"
-            role="tab"
-            className={`patients-tab__tab${tab === 'encounters' ? ' is-active' : ''}`}
-            aria-selected={tab === 'encounters'}
-            onClick={() => setTab('encounters')}
-          >
-            受診
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`patients-tab__tab${tab === 'notes' ? ' is-active' : ''}`}
-            aria-selected={tab === 'notes'}
-            onClick={() => setTab('notes')}
-          >
-            記載
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`patients-tab__tab${tab === 'documents' ? ' is-active' : ''}`}
-            aria-selected={tab === 'documents'}
-            onClick={() => setTab('documents')}
-            disabled={!patientId}
-            title={!patientId ? '患者未選択' : undefined}
-          >
-            文書
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`patients-tab__tab${tab === 'orders' ? ' is-active' : ''}`}
-            aria-selected={tab === 'orders'}
-            onClick={() => setTab('orders')}
-            disabled={!patientId}
-            title={!patientId ? '患者未選択' : undefined}
-          >
-            オーダー
-          </button>
+          <p className="charts-past-hub__desc">日付ごとに折りたたみ、左に過去カルテ、右にオーダー情報をまとめます（初期表示は直近2回）。</p>
         </div>
       </header>
 
-      {tab === 'encounters' && (
-        <div className="charts-past-hub__content" aria-label="過去受診">
-          {switchLocked ? (
-            <p className="charts-past-hub__guard" role="status">
-              患者切替はロック中です: {switchLockedReason ?? '処理中/閲覧専用'}
-            </p>
-          ) : null}
-          <div className="charts-past-hub__list">
-            {historyEntries.length === 0 ? (
-              <p className="patients-tab__detail-empty" role="status">
-                受診履歴がありません。
-              </p>
-            ) : (
-              <ul className="charts-past-hub__items" aria-label="受診履歴一覧">
-                {historyEntries.slice(0, 50).map((entry) => {
-                  const id = resolveEntryId(entry);
-                  const key = [
-                    entry.patientId ?? entry.id,
-                    entry.appointmentId ?? 'none',
-                    entry.receptionId ?? 'none',
-                    resolveVisitDate(entry) || 'none',
-                  ].join('::');
-                  const active = key === selectedEncounterKey;
-                  return (
-                    <li key={id} className="charts-past-hub__item">
-                      <button
-                        type="button"
-                        className={`patients-tab__history-row${active ? ' is-active' : ''}`}
-                        onClick={() => handleSelect(entry)}
-                        disabled={switchLocked}
-                        aria-current={active ? 'true' : undefined}
-                      >
-                        <div className="patients-tab__history-main">
-                          <strong>{formatEntryLabel(entry)}</strong>
-                          <span className="patients-tab__history-badge">{entry.status}</span>
-                        </div>
-                        <div className="patients-tab__history-sub">
-                          <span>{entry.insurance ?? '保険不明'}</span>
-                          {entry.receptionId ? <span>受付ID:{entry.receptionId}</span> : null}
-                        </div>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-          <small className="charts-past-hub__hint">最大50件まで表示します（古い履歴は Reception 側の検索で確認）。</small>
-        </div>
-      )}
+      <div className="charts-past-hub__content" aria-label="過去カルテ一覧">
+        {switchLocked ? (
+          <p className="charts-past-hub__guard" role="status">
+            患者切替はロック中です: {switchLockedReason ?? '処理中/閲覧専用'}
+          </p>
+        ) : null}
 
-      {tab === 'notes' && (
-        <div className="charts-past-hub__content" aria-label="過去記載（SOAP履歴）">
-          {soapHistory.length === 0 ? (
-            <p className="patients-tab__detail-empty" role="status">
-              SOAP履歴がありません。中央の SOAP パネルで「保存/更新」を実行すると履歴が作成されます。
-            </p>
-          ) : (
-            <div className="charts-past-hub__list">
-              <ul className="charts-past-hub__items" aria-label="SOAP履歴（最新）">
-                {DO_COPY_SECTIONS.map((section) => {
-                  const entry = soapLatestBySection.get(section);
-                  const body = entry?.body?.trim() ?? '';
-                  const snippet = body.length > 140 ? `${body.slice(0, 140)}...` : body;
-                  const who = entry ? (entry.authorName?.trim() || entry.authorRole) : '';
-                  const meta = entry ? `${formatSoapAuthoredAt(entry.authoredAt)} ／ ${who}` : '記載履歴なし';
-                  const disabled = !doCopyEnabled || !entry || !body;
-                  return (
-                    <li key={section} className="charts-past-hub__item">
-                      <div className="charts-past-hub__headline">{SOAP_SECTION_LABELS[section]}</div>
-                      <div className="charts-past-hub__sub">{meta}</div>
-                      <div className="charts-past-hub__sub">{snippet ? `「${snippet}」` : '—'}</div>
-                      <div className="charts-past-hub__actions" role="group" aria-label={`${SOAP_SECTION_LABELS[section]} 操作`}>
-                        <button
-                          type="button"
-                          className="charts-past-hub__do"
-                          disabled={disabled}
-                          title={!doCopyEnabled ? 'flag off（VITE_CHARTS_DO_COPY=0）' : !entry ? '履歴なし' : undefined}
-                          onClick={() => {
-                            if (!entry) return;
-                            onRequestDoCopy?.({ section, entry });
-                          }}
-                        >
-                          Do転記
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-          <small className="charts-past-hub__hint">
-            Phase1: Do転記はローカルドラフトへ反映（プレビュー/Undoあり）。server保存/監査整合は後続で拡張。
-          </small>
-        </div>
-      )}
+        {dayGroups.length === 0 ? (
+          <p className="patients-tab__detail-empty" role="status">
+            受診履歴がありません。
+          </p>
+        ) : (
+          <div className="charts-past-hub__days" role="list">
+            {dayGroups.slice(0, 20).map((group, index) => {
+              const bundlesForDay = bundlesByDate.get(group.date) ?? [];
+              const isActiveDay = activeDate && group.date === activeDate;
+              const head = group.entries[0];
+              const dept = head?.department ?? '';
+              const phys = head?.physician ?? '';
+              const meta = [dept, phys].filter(Boolean).join(' / ');
 
-      {tab === 'documents' && (
-        <div className="charts-past-hub__content" aria-label="過去文書">
-          {!patientId ? <p className="patients-tab__detail-empty">患者未選択のため文書履歴は表示できません。</p> : null}
-          {karteIdQuery.isFetching || lettersQuery.isFetching ? (
-            <p className="patients-tab__detail-empty" role="status">
-              文書履歴を取得しています...
-            </p>
-          ) : null}
-          {lettersQuery.isError ? (
-            <p className="patients-tab__detail-empty">文書履歴の取得に失敗しました。</p>
-          ) : null}
-          {lettersQuery.data && letters.length === 0 && !lettersQuery.isFetching ? (
-            <p className="patients-tab__detail-empty">文書履歴はまだありません。</p>
-          ) : null}
-          {letters.length > 0 ? (
-            <div className="charts-past-hub__list">
-              <ul className="charts-past-hub__items" aria-label="文書履歴一覧">
-                {letters.slice(0, 20).map((letter, index) => {
-                  const issuedAt = resolveLetterIssuedAt(letter);
-                  const title = letter.title?.trim() || '文書';
-                  const type = letter.letterType?.trim() || 'type不明';
-                  const handleClass = letter.handleClass?.trim();
-                  const meta = [issuedAt ? `発行:${issuedAt}` : null, `種別:${type}`, handleClass ? `class:${handleClass}` : null]
-                    .filter(Boolean)
-                    .join(' / ');
-                  const disabled = !doDocumentEnabled || !letter.id;
-                  return (
-                    <li key={letter.id ?? `${title}-${issuedAt}-${index}`} className="charts-past-hub__item">
-                      <div className="charts-past-hub__headline">{title}</div>
-                      <div className="charts-past-hub__sub">{meta}</div>
-                      <div className="charts-past-hub__actions" role="group" aria-label="文書Do操作">
-                        <button
-                          type="button"
-                          className="charts-past-hub__do"
-                          disabled={disabled}
-                          title={
-                            !doDocumentEnabled
-                              ? doDocumentDisabledReason ?? '編集ガード中のためコピーできません'
-                              : !letter.id
-                                ? '文書IDが取得できません'
-                                : undefined
-                          }
-                          onClick={() => onRequestDocumentDo?.({ letter })}
-                        >
-                          コピーして編集
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ) : null}
-          <small className="charts-past-hub__hint">最大20件まで表示します。コピーは右の「文書」へ反映します。</small>
-        </div>
-      )}
+              const bundlesByEntity = new Map<PastHubOrderEntity, OrderBundle[]>();
+              bundlesForDay.forEach((bundle) => {
+                const rawEntity = (bundle.entity ?? '').trim();
+                if (!rawEntity) return;
+                if (!isPastHubOrderEntity(rawEntity)) return;
+                const list = bundlesByEntity.get(rawEntity) ?? [];
+                list.push(bundle);
+                bundlesByEntity.set(rawEntity, list);
+              });
 
-      {tab === 'orders' && (
-        <div className="charts-past-hub__content" aria-label="過去オーダー">
-          {!patientId ? <p className="patients-tab__detail-empty">患者未選択のためオーダー履歴は表示できません。</p> : null}
-          <div className="charts-past-hub__list">
-            {ORDER_ENTITIES.map((spec, index) => {
-              const q = orderQueries[index];
-              const bundles = (q.data?.bundles ?? []).slice().sort((a, b) => (b.started ?? '').localeCompare(a.started ?? ''));
+              const sortedEntities = ORDER_ENTITY_SORT.filter((entity) => (bundlesByEntity.get(entity) ?? []).length > 0);
+
               return (
-                <section key={spec.entity} className="charts-past-hub__group" aria-label={`過去${spec.label}`}>
-                  <header className="charts-past-hub__group-header">
-                    <strong>{spec.label}</strong>
-                    <span className="charts-past-hub__group-meta">
-                      {q.isFetching ? '取得中' : `${bundles.length}件`} / from={from90Days}
-                    </span>
-                  </header>
-                  {q.isError ? <p className="patients-tab__detail-empty">取得に失敗しました。</p> : null}
-                  {!q.isFetching && bundles.length === 0 ? <p className="patients-tab__detail-empty">履歴はまだありません。</p> : null}
-                  {bundles.length > 0 ? (
-                    <ul className="charts-past-hub__items" aria-label={`${spec.label}履歴一覧`}>
-                      {bundles.slice(0, 20).map((bundle) => {
-                        const disabled = !doOrderEnabled;
-                        return (
-                        <li key={bundle.documentId ?? `${bundle.bundleName}-${bundle.started}`} className="charts-past-hub__item">
-                          <div className="charts-past-hub__headline">{formatOrderBundleLabel(bundle)}</div>
-                          <div className="charts-past-hub__actions" role="group" aria-label={`${spec.label}Do操作`}>
-                            <button
-                              type="button"
-                              className="charts-past-hub__do"
-                              disabled={disabled}
-                              title={!doOrderEnabled ? doOrderDisabledReason ?? '編集ガード中のためコピーできません' : undefined}
-                              onClick={() => onRequestOrderDo?.({ entity: spec.entity, bundle })}
-                            >
-                              コピーして編集
-                            </button>
+                <details
+                  key={`past-hub-${group.date}`}
+                  className="charts-past-hub__day"
+                  role="listitem"
+                  open={Boolean(openDays[group.date])}
+                  onToggle={(event) => {
+                    const nextOpen = event.currentTarget.open;
+                    setOpenDays((prev) => ({ ...prev, [group.date]: nextOpen }));
+                  }}
+                  data-active={isActiveDay ? '1' : '0'}
+                >
+                  <summary className="charts-past-hub__day-summary">
+                    <span className="charts-past-hub__day-date">{group.date}</span>
+                    <span className="charts-past-hub__day-meta">{meta || '—'}</span>
+                    <span className="charts-past-hub__day-count">オーダー:{bundlesForDay.length}</span>
+                    {isActiveDay ? <span className="charts-past-hub__day-active">表示中</span> : null}
+                  </summary>
+
+                  <div className="charts-past-hub__day-content">
+                    <div className="charts-past-hub__columns">
+                      <div className="charts-past-hub__col charts-past-hub__col--chart" aria-label="過去カルテ">
+                        <div className="charts-past-hub__col-header">
+                          <strong>過去カルテ</strong>
+                          <span className="charts-past-hub__col-meta">受診 {group.entries.length} 件</span>
+                        </div>
+
+                        <ul className="charts-past-hub__encounters" aria-label="受診一覧">
+                          {group.entries.slice(0, 6).map((entry) => {
+                            const id = resolveEntryId(entry);
+                            const key = [
+                              entry.patientId ?? entry.id,
+                              entry.appointmentId ?? 'none',
+                              entry.receptionId ?? 'none',
+                              resolveVisitDate(entry) || 'none',
+                            ].join('::');
+                            const active = key === selectedEncounterKey;
+                            return (
+                              <li key={id} className="charts-past-hub__encounter" data-active={active ? '1' : '0'}>
+                                <div className="charts-past-hub__headline">{formatEntryLabel(entry)}</div>
+                                <div className="charts-past-hub__actions">
+                                  <button
+                                    type="button"
+                                    className="charts-past-hub__do"
+                                    disabled={switchLocked}
+                                    title={switchLocked ? switchLockedReason ?? '処理中のため切替できません。' : undefined}
+                                    onClick={() => {
+                                      const next = {
+                                        patientId: entry.patientId ?? entry.id,
+                                        appointmentId: entry.appointmentId,
+                                        receptionId: entry.receptionId,
+                                        visitDate: normalizeVisitDate(entry.visitDate),
+                                      };
+                                      onSelectEncounter(next);
+                                    }}
+                                  >
+                                    {active ? '表示中' : '表示'}
+                                  </button>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+
+                        {isActiveDay ? (
+                          <div className="charts-past-hub__notes" aria-label="記載（表示中）">
+                            <div className="charts-past-hub__col-header">
+                              <strong>記載（表示中）</strong>
+                              <span className="charts-past-hub__col-meta">SOAP 最新</span>
+                            </div>
+                            <div className="charts-past-hub__notes-grid" role="list">
+                              {DO_COPY_SECTIONS.map((section) => {
+                                const entry = soapLatestBySection.get(section);
+                                const body = entry?.body?.trim() ?? '';
+                                const metaLine = entry ? `${formatSoapAuthoredAt(entry.authoredAt)} / ${entry.authorName ?? entry.authorRole ?? '—'}` : '—';
+                                return (
+                                  <div key={section} className="charts-past-hub__note" role="listitem">
+                                    <div className="charts-past-hub__note-head">
+                                      <strong>{SOAP_SECTION_LABELS[section]}</strong>
+                                      <span className="charts-past-hub__note-meta">{metaLine}</span>
+                                    </div>
+                                    <p className="charts-past-hub__note-body">{body ? body.slice(0, 140) : '記載なし'}</p>
+                                    <div className="charts-past-hub__actions">
+                                      <button
+                                        type="button"
+                                        className="charts-past-hub__do"
+                                        disabled={!canDoCopy || !entry}
+                                        title={!canDoCopy ? 'Do転記は無効です。' : !entry ? '記載がありません。' : undefined}
+                                        onClick={() => {
+                                          if (!entry) return;
+                                          onRequestDoCopy?.({ section, entry });
+                                        }}
+                                      >
+                                        Do転記
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </li>
-                        );
-                      })}
-                    </ul>
-                  ) : null}
-                </section>
+                        ) : null}
+                      </div>
+
+                      <div className="charts-past-hub__col charts-past-hub__col--orders" aria-label="オーダー情報">
+                        <div className="charts-past-hub__col-header">
+                          <strong>オーダー</strong>
+                          <span className="charts-past-hub__col-meta">
+                            {bundlesQuery.isFetching ? '取得中…' : bundlesQuery.data && !bundlesQuery.data.ok ? '取得失敗' : `${bundlesForDay.length} 件`}
+                          </span>
+                        </div>
+
+                        {bundlesQuery.data && !bundlesQuery.data.ok ? (
+                          <p className="charts-past-hub__hint" role="status">
+                            オーダー取得に失敗しました: {bundlesQuery.data.message ?? 'unknown error'}
+                          </p>
+                        ) : bundlesForDay.length === 0 ? (
+                          <p className="charts-past-hub__hint" role="status">
+                            オーダーはありません。
+                          </p>
+                        ) : (
+                          <div className="charts-past-hub__order-groups" aria-label="オーダー種別">
+                            {sortedEntities.map((entity) => {
+                              const list = bundlesByEntity.get(entity) ?? [];
+                              const label = ORDER_ENTITY_LABEL[entity] ?? entity;
+                              return (
+                                <div key={entity} className="charts-past-hub__order-group" data-entity={entity}>
+                                  <div className="charts-past-hub__group-header">
+                                    <strong>{label}</strong>
+                                    <span className="charts-past-hub__group-meta">{list.length} 件</span>
+                                  </div>
+                                  <ul className="charts-past-hub__order-items" aria-label={`${label}一覧`}>
+                                    {list.slice(0, 6).map((bundle, bundleIndex) => (
+                                      <li
+                                        key={`${entity}-${bundle.documentId ?? 'doc'}-${bundle.moduleId ?? 'mod'}-${bundleIndex}`}
+                                        className="charts-past-hub__order-item"
+                                      >
+                                        <span className="charts-past-hub__order-label">{formatOrderBundleLabel(bundle)}</span>
+                                        <div className="charts-past-hub__actions">
+                                          {onRequestOrderDo ? (
+                                            <button
+                                              type="button"
+                                              className="charts-past-hub__do"
+                                              disabled={!doOrderEnabled}
+                                              title={!doOrderEnabled ? doOrderDisabledReason ?? 'Doできません。' : undefined}
+                                              onClick={() => onRequestOrderDo({ entity, bundle })}
+                                            >
+                                              Do
+                                            </button>
+                                          ) : null}
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                  {list.length > 6 ? <p className="charts-past-hub__hint">他 {list.length - 6} 件</p> : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </details>
               );
             })}
           </div>
-          <small className="charts-past-hub__hint">最大20件まで表示します。コピーは右の「処方/オーダー/処置/検査」へ反映します。</small>
-        </div>
-      )}
+        )}
+      </div>
     </section>
   );
 }

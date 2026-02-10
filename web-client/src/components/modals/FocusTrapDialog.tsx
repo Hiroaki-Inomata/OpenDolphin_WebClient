@@ -122,7 +122,14 @@ export function FocusTrapDialog({
   if (!open) return null;
 
   return createPortal(
-    <div className="focus-trap-dialog__backdrop" data-test-id={testId}>
+    <div
+      className="focus-trap-dialog__backdrop"
+      data-test-id={testId}
+      onMouseDown={() => {
+        if (!isTopMost(stackId)) return;
+        onClose();
+      }}
+    >
       <div
         className="focus-trap-dialog__panel"
         ref={panelRef}
@@ -136,6 +143,9 @@ export function FocusTrapDialog({
           <h2 id={titleId} className="focus-trap-dialog__title">
             {title}
           </h2>
+          <button type="button" className="focus-trap-dialog__close" onClick={onClose} aria-label="ダイアログを閉じる">
+            ×
+          </button>
         </header>
         {description ? (
           <p id={descriptionId} className="focus-trap-dialog__description">
