@@ -2565,9 +2565,12 @@ function ChartsContent() {
     const activeKey = activePatientTabKey;
     if (!activeKey) return;
     // 診療終了 = この患者のタブを閉じて次へ進む運用。
-    setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
+    if (draftState.dirty) {
+      setTabGuard({ action: 'close', targetKey: activeKey });
+      return;
+    }
     forceClosePatientTab(activeKey);
-  }, [activePatientTabKey, forceClosePatientTab, handleRefreshSummary]);
+  }, [activePatientTabKey, draftState.dirty, forceClosePatientTab, handleRefreshSummary]);
 
   const utilityPanelTitles: Record<DockedUtilityAction, string> = {
     'clinical-actions': '診療操作',
