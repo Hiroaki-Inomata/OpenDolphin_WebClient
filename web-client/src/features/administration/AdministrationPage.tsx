@@ -46,6 +46,12 @@ import {
   type OrcaXmlProxyResponse,
 } from './orcaXmlProxyApi';
 import {
+  fetchOrcaConnectionConfig,
+  saveOrcaConnectionConfig,
+  testOrcaConnection,
+  type OrcaConnectionTestResponse,
+} from './orcaConnectionApi';
+import {
   postBirthDelivery,
   postMedicalRecords,
   postMedicalSets,
@@ -100,6 +106,30 @@ type OrcaInternalWrapperFormState = {
   result?: OrcaInternalWrapperResult | null;
   parseError?: string;
 };
+type OrcaConnectionFormState = {
+  useWeborca: boolean;
+  serverUrl: string;
+  port: string;
+  username: string;
+  password: string;
+  passwordConfigured: boolean;
+  passwordUpdatedAt?: string;
+  clientAuthEnabled: boolean;
+  clientCertificateFile: File | null;
+  clientCertificateConfigured: boolean;
+  clientCertificateFileName?: string;
+  clientCertificateUploadedAt?: string;
+  clientCertificatePassphrase: string;
+  clientCertificatePassphraseConfigured: boolean;
+  clientCertificatePassphraseUpdatedAt?: string;
+  caCertificateFile: File | null;
+  caCertificateConfigured: boolean;
+  caCertificateFileName?: string;
+  caCertificateUploadedAt?: string;
+  updatedAt?: string;
+  auditSummary?: string;
+};
+type OrcaConnectionTestState = OrcaConnectionTestResponse | null;
 type GuardAction =
   | 'access'
   | 'edit'
@@ -112,6 +142,7 @@ type GuardAction =
   | 'medicalset-search'
   | 'orca-xml-proxy'
   | 'orca-internal-wrapper'
+  | 'orca-connection'
   | 'legacy-rest'
   | 'touch-adm-phr';
 
@@ -131,6 +162,22 @@ const DEFAULT_FORM: AdminConfigPayload = {
   chartsDisplayEnabled: true,
   chartsSendEnabled: true,
   chartsMasterSource: 'auto',
+};
+
+const DEFAULT_ORCA_CONNECTION_FORM: OrcaConnectionFormState = {
+  useWeborca: true,
+  serverUrl: '',
+  port: '443',
+  username: '',
+  password: '',
+  passwordConfigured: false,
+  clientAuthEnabled: false,
+  clientCertificateFile: null,
+  clientCertificateConfigured: false,
+  clientCertificatePassphrase: '',
+  clientCertificatePassphraseConfigured: false,
+  caCertificateFile: null,
+  caCertificateConfigured: false,
 };
 
 const ORCA_XML_PROXY_OPTIONS: Array<{
@@ -420,6 +467,9 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const internalWrapperOptions = useMemo(() => buildInternalWrapperOptions(today), [today]);
   const [form, setForm] = useState<AdminConfigPayload>(DEFAULT_FORM);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [orcaConnectionForm, setOrcaConnectionForm] = useState<OrcaConnectionFormState>(DEFAULT_ORCA_CONNECTION_FORM);
+  const [orcaConnectionFeedback, setOrcaConnectionFeedback] = useState<Feedback | null>(null);
+  const [orcaConnectionTestResult, setOrcaConnectionTestResult] = useState<OrcaConnectionTestState>(null);
   const [masterLastUpdateResult, setMasterLastUpdateResult] = useState<MasterLastUpdateResponse | null>(null);
   const [medicationSyncResult, setMedicationSyncResult] = useState<MedicationModResponse | null>(null);
   const [medicationSyncClass, setMedicationSyncClass] = useState('01');
@@ -480,6 +530,13 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     queryKey: ['admin-config'],
     queryFn: fetchEffectiveAdminConfig,
     staleTime: 60_000,
+  });
+
+  const orcaConnectionQuery = useQuery({
+    queryKey: ['admin-orca-connection'],
+    queryFn: fetchOrcaConnectionConfig,
+    staleTime: 60_000,
+    enabled: isSystemAdmin && activeTab === 'delivery',
   });
 
   const queueQuery = useQuery({
@@ -665,6 +722,42 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     );
   }, [bumpRunId, configQuery.data, setCacheHit, setDataSourceTransition, setFallbackUsed, setMissingMaster]);
 
+  useEffect(() => {
+    const data = orcaConnectionQuery.data;
+    if (!data) return;
+    if (!data.ok) {
+      if (data.error) {
+        setOrcaConnectionFeedback({ tone: 'warning', message: `WebORCA 接続設定の取得に失敗しました: ${data.error}` });
+      }
+      return;
+    }
+    setOrcaConnectionForm((prev) => ({
+      ...prev,
+      useWeborca: data.useWeborca ?? prev.useWeborca,
+      serverUrl: data.serverUrl ?? prev.serverUrl,
+      port: data.port !== undefined ? String(data.port) : prev.port,
+      username: data.username ?? prev.username,
+      password: '',
+      passwordConfigured: Boolean(data.passwordConfigured),
+      passwordUpdatedAt: data.passwordUpdatedAt,
+      clientAuthEnabled: Boolean(data.clientAuthEnabled),
+      clientCertificateFile: null,
+      clientCertificateConfigured: Boolean(data.clientCertificateConfigured),
+      clientCertificateFileName: data.clientCertificateFileName,
+      clientCertificateUploadedAt: data.clientCertificateUploadedAt,
+      clientCertificatePassphrase: '',
+      clientCertificatePassphraseConfigured: Boolean(data.clientCertificatePassphraseConfigured),
+      clientCertificatePassphraseUpdatedAt: data.clientCertificatePassphraseUpdatedAt,
+      caCertificateFile: null,
+      caCertificateConfigured: Boolean(data.caCertificateConfigured),
+      caCertificateFileName: data.caCertificateFileName,
+      caCertificateUploadedAt: data.caCertificateUploadedAt,
+      updatedAt: data.updatedAt,
+      auditSummary: data.auditSummary,
+    }));
+    setOrcaConnectionFeedback(null);
+  }, [orcaConnectionQuery.data]);
+
   const configMutation = useMutation({
     mutationFn: saveAdminConfig,
     onSuccess: (data) => {
@@ -739,6 +832,80 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     },
     onError: () => {
       setFeedback({ tone: 'error', message: '保存に失敗しました。再度お試しください。' });
+    },
+  });
+
+  const orcaConnectionSaveMutation = useMutation({
+    mutationFn: saveOrcaConnectionConfig,
+    onSuccess: (data) => {
+      if (!data.ok) {
+        setOrcaConnectionFeedback({ tone: 'error', message: data.error ?? 'WebORCA 接続設定の保存に失敗しました。' });
+        return;
+      }
+      setOrcaConnectionFeedback({ tone: 'success', message: 'WebORCA 接続設定を保存しました。' });
+      setOrcaConnectionForm((prev) => ({
+        ...prev,
+        useWeborca: data.useWeborca ?? prev.useWeborca,
+        serverUrl: data.serverUrl ?? prev.serverUrl,
+        port: data.port !== undefined ? String(data.port) : prev.port,
+        username: data.username ?? prev.username,
+        password: '',
+        passwordConfigured: Boolean(data.passwordConfigured),
+        passwordUpdatedAt: data.passwordUpdatedAt,
+        clientAuthEnabled: Boolean(data.clientAuthEnabled),
+        clientCertificateFile: null,
+        clientCertificateConfigured: Boolean(data.clientCertificateConfigured),
+        clientCertificateFileName: data.clientCertificateFileName,
+        clientCertificateUploadedAt: data.clientCertificateUploadedAt,
+        clientCertificatePassphrase: '',
+        clientCertificatePassphraseConfigured: Boolean(data.clientCertificatePassphraseConfigured),
+        clientCertificatePassphraseUpdatedAt: data.clientCertificatePassphraseUpdatedAt,
+        caCertificateFile: null,
+        caCertificateConfigured: Boolean(data.caCertificateConfigured),
+        caCertificateFileName: data.caCertificateFileName,
+        caCertificateUploadedAt: data.caCertificateUploadedAt,
+        updatedAt: data.updatedAt,
+        auditSummary: data.auditSummary,
+      }));
+      queryClient.invalidateQueries({ queryKey: ['admin-orca-connection'] });
+    },
+    onError: (error) => {
+      setOrcaConnectionFeedback({
+        tone: 'error',
+        message: `WebORCA 接続設定の保存に失敗しました: ${toErrorMessage(error)}`,
+      });
+    },
+  });
+
+  const orcaConnectionTestMutation = useMutation({
+    mutationFn: testOrcaConnection,
+    onSuccess: (data) => {
+      setOrcaConnectionTestResult(data);
+      if (data.ok) {
+        setOrcaConnectionFeedback({
+          tone: 'success',
+          message: `接続テストに成功しました（HTTP ${data.orcaHttpStatus ?? '―'} / Api_Result=${data.apiResult ?? '―'}）。`,
+        });
+      } else {
+        setOrcaConnectionFeedback({
+          tone: 'error',
+          message: data.error
+            ? `接続テストに失敗しました: ${data.error}`
+            : '接続テストに失敗しました。接続先・認証・証明書を確認してください。',
+        });
+      }
+    },
+    onError: (error) => {
+      setOrcaConnectionTestResult({
+        ok: false,
+        status: 0,
+        errorCategory: 'unknown',
+        error: toErrorMessage(error),
+      });
+      setOrcaConnectionFeedback({
+        tone: 'error',
+        message: `接続テストに失敗しました: ${toErrorMessage(error)}`,
+      });
     },
   });
 
@@ -1243,6 +1410,87 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     return queueEntries.filter((entry) => isOrcaQueueWarningEntry(entry, nowMs).isWarning);
   }, [queueEntries]);
 
+  const patchOrcaConnectionForm = useCallback(
+    (patch: Partial<OrcaConnectionFormState>) => {
+      if (!isSystemAdmin) {
+        reportGuardedAction('orca-connection');
+        return;
+      }
+      setOrcaConnectionForm((prev) => ({ ...prev, ...patch }));
+    },
+    [isSystemAdmin, reportGuardedAction],
+  );
+
+  const handleOrcaConnectionWeborcaToggle = (next: boolean) => {
+    const currentPort = Number(orcaConnectionForm.port);
+    const shouldAutoSwitchPort = !Number.isFinite(currentPort) || currentPort === 443 || currentPort === 8000;
+    patchOrcaConnectionForm({
+      useWeborca: next,
+      port: shouldAutoSwitchPort ? String(next ? 443 : 8000) : orcaConnectionForm.port,
+    });
+  };
+
+  const handleOrcaConnectionSave = () => {
+    if (!isSystemAdmin) {
+      reportGuardedAction('orca-connection');
+      return;
+    }
+    const serverUrl = orcaConnectionForm.serverUrl.trim();
+    const port = Number(orcaConnectionForm.port);
+    const username = orcaConnectionForm.username.trim();
+    const password = orcaConnectionForm.password.trim();
+    const passphrase = orcaConnectionForm.clientCertificatePassphrase.trim();
+
+    if (!serverUrl) {
+      setOrcaConnectionFeedback({ tone: 'error', message: 'サーバURLは必須です。' });
+      return;
+    }
+    if (!Number.isFinite(port) || port <= 0 || port > 65535) {
+      setOrcaConnectionFeedback({ tone: 'error', message: 'ポート番号が不正です。' });
+      return;
+    }
+    if (!username) {
+      setOrcaConnectionFeedback({ tone: 'error', message: 'ユーザー名は必須です。' });
+      return;
+    }
+    if (!orcaConnectionForm.passwordConfigured && !password) {
+      setOrcaConnectionFeedback({ tone: 'error', message: 'パスワードまたは API キーは必須です。' });
+      return;
+    }
+    if (orcaConnectionForm.clientAuthEnabled) {
+      const hasP12 = orcaConnectionForm.clientCertificateConfigured || Boolean(orcaConnectionForm.clientCertificateFile);
+      if (!hasP12) {
+        setOrcaConnectionFeedback({ tone: 'error', message: 'クライアント証明書（.p12）は必須です。' });
+        return;
+      }
+      const passphraseRequired = !orcaConnectionForm.clientCertificatePassphraseConfigured;
+      if (!passphrase && passphraseRequired) {
+        setOrcaConnectionFeedback({ tone: 'error', message: 'クライアント証明書のパスフレーズは必須です。' });
+        return;
+      }
+    }
+
+    orcaConnectionSaveMutation.mutate({
+      useWeborca: orcaConnectionForm.useWeborca,
+      serverUrl,
+      port,
+      username,
+      password: password || undefined,
+      clientAuthEnabled: orcaConnectionForm.clientAuthEnabled,
+      clientCertificatePassphrase: passphrase || undefined,
+      clientCertificateFile: orcaConnectionForm.clientCertificateFile,
+      caCertificateFile: orcaConnectionForm.caCertificateFile,
+    });
+  };
+
+  const handleOrcaConnectionTest = () => {
+    if (!isSystemAdmin) {
+      reportGuardedAction('orca-connection');
+      return;
+    }
+    orcaConnectionTestMutation.mutate();
+  };
+
   const handleInputChange = (key: keyof AdminConfigPayload, value: string | boolean) => {
     if (!isSystemAdmin) {
       reportGuardedAction('edit', `field:${key}`);
@@ -1434,6 +1682,8 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const systemInfoStatusTone = resolveStatusTone(systemInfoResult, systemHealthMutation.isPending);
   const systemDailyStatusTone = resolveStatusTone(systemDailyResult, systemHealthMutation.isPending);
   const medicalSetStatusTone = resolveStatusTone(medicalSetResult, medicalSetMutation.isPending);
+  const orcaConnectionStatusTone = resolveStatusTone(orcaConnectionTestResult, orcaConnectionTestMutation.isPending);
+  const orcaConnectionStatusLabel = resolveStatusLabel(orcaConnectionTestResult, orcaConnectionTestMutation.isPending);
   const xmlProxyStatusLabel = resolveStatusLabel(xmlProxyResult, xmlProxyMutation.isPending);
   const isMasterUpdateDetected = masterUpdateLabel === '更新あり';
   const masterUpdateHeadline = isMasterUpdateDetected ? '更新検知: 同期推奨' : `更新検知: ${masterUpdateLabel}`;
@@ -1585,6 +1835,235 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
       )}
 
       <div className="administration-grid">
+        <section className="administration-card" aria-label="WebORCA 接続設定">
+          <h2 className="administration-card__title">WebORCA 接続設定</h2>
+          <form className="admin-form" onSubmit={(e) => e.preventDefault()}>
+            <div className="admin-form__toggles">
+              <div className="admin-toggle">
+                <div className="admin-toggle__label">
+                  <span>WebORCA モード（/api を自動付与）</span>
+                  <span className="admin-toggle__hint">ON: 443 / OFF: 8000（必要に応じて変更可）</span>
+                </div>
+                <input
+                  id="orca-connection-use-weborca"
+                  name="orcaConnectionUseWeborca"
+                  type="checkbox"
+                  aria-label="WebORCA モード（/api を自動付与）"
+                  checked={orcaConnectionForm.useWeborca}
+                  onChange={(event) => handleOrcaConnectionWeborcaToggle(event.target.checked)}
+                  disabled={!isSystemAdmin}
+                  aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+                />
+              </div>
+
+              <div className="admin-toggle">
+                <div className="admin-toggle__label">
+                  <span>SSL クライアント認証（mTLS）</span>
+                  <span className="admin-toggle__hint">ON のとき .p12 とパスフレーズが必要</span>
+                </div>
+                <input
+                  id="orca-connection-client-auth-enabled"
+                  name="orcaConnectionClientAuthEnabled"
+                  type="checkbox"
+                  aria-label="SSL クライアント認証（mTLS）"
+                  checked={orcaConnectionForm.clientAuthEnabled}
+                  onChange={(event) => patchOrcaConnectionForm({ clientAuthEnabled: event.target.checked })}
+                  disabled={!isSystemAdmin}
+                  aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+                />
+              </div>
+            </div>
+
+            <div className="admin-form__field">
+              <label htmlFor="orca-connection-server-url">サーバ URL</label>
+              <input
+                id="orca-connection-server-url"
+                type="text"
+                value={orcaConnectionForm.serverUrl}
+                onChange={(event) => patchOrcaConnectionForm({ serverUrl: event.target.value })}
+                disabled={!isSystemAdmin}
+                aria-readonly={!isSystemAdmin}
+                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+              />
+              <p className="admin-quiet">
+                WebORCA モードの場合、リクエスト先パス先頭に <code>/api</code> を自動付与します（URL に <code>/api</code>{' '}
+                を含めても二重付与は吸収されます）。
+              </p>
+              <p className="admin-quiet">例: https://weborca.cloud.orcamo.jp / https://demo-weborca.cloud.orcamo.jp</p>
+            </div>
+
+            <div className="admin-form__field">
+              <label htmlFor="orca-connection-port">ポート番号</label>
+              <input
+                id="orca-connection-port"
+                type="number"
+                value={orcaConnectionForm.port}
+                onChange={(event) => patchOrcaConnectionForm({ port: event.target.value })}
+                disabled={!isSystemAdmin}
+                aria-readonly={!isSystemAdmin}
+                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+              />
+              <p className="admin-quiet">既定値: WebORCA=443 / オンプレ=8000</p>
+            </div>
+
+            <div className="admin-form__field">
+              <label htmlFor="orca-connection-username">ユーザ名（オペレータID）</label>
+              <input
+                id="orca-connection-username"
+                type="text"
+                value={orcaConnectionForm.username}
+                onChange={(event) => patchOrcaConnectionForm({ username: event.target.value })}
+                disabled={!isSystemAdmin}
+                aria-readonly={!isSystemAdmin}
+                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+              />
+            </div>
+
+            <div className="admin-form__field">
+              <label htmlFor="orca-connection-password">パスワードまたは API キー</label>
+              <input
+                id="orca-connection-password"
+                type="password"
+                value={orcaConnectionForm.password}
+                onChange={(event) => patchOrcaConnectionForm({ password: event.target.value })}
+                disabled={!isSystemAdmin}
+                aria-readonly={!isSystemAdmin}
+                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+                placeholder={orcaConnectionForm.passwordConfigured ? '（登録済み。変更する場合のみ入力）' : ''}
+              />
+              <p className="admin-quiet">
+                {orcaConnectionForm.passwordConfigured
+                  ? `登録済み（最終更新: ${formatTimestamp(orcaConnectionForm.passwordUpdatedAt)}）`
+                  : '未登録'}
+              </p>
+              <p className="admin-quiet">保存後は平文で再表示されません。再設定時のみ入力してください。</p>
+            </div>
+
+            <div className="admin-divider" />
+
+            <div className="admin-form__field">
+              <label htmlFor="orca-connection-client-cert">クライアント証明書ファイル（.p12）</label>
+              <input
+                id="orca-connection-client-cert"
+                type="file"
+                accept=".p12,.pfx,application/x-pkcs12"
+                onChange={(event) =>
+                  patchOrcaConnectionForm({ clientCertificateFile: event.target.files?.[0] ?? null })
+                }
+                disabled={!isSystemAdmin || !orcaConnectionForm.clientAuthEnabled}
+                aria-readonly={!isSystemAdmin || !orcaConnectionForm.clientAuthEnabled}
+                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+              />
+              <p className="admin-quiet">
+                {orcaConnectionForm.clientCertificateConfigured
+                  ? `登録済み: ${orcaConnectionForm.clientCertificateFileName ?? '（ファイル名不明）'} / ${formatTimestamp(
+                      orcaConnectionForm.clientCertificateUploadedAt,
+                    )}`
+                  : '未登録'}
+              </p>
+              <p className="admin-quiet">保存後はダウンロードできません（ファイル名と登録日時のみ表示）。</p>
+            </div>
+
+            <div className="admin-form__field">
+              <label htmlFor="orca-connection-client-passphrase">パスフレーズ</label>
+              <input
+                id="orca-connection-client-passphrase"
+                type="password"
+                value={orcaConnectionForm.clientCertificatePassphrase}
+                onChange={(event) => patchOrcaConnectionForm({ clientCertificatePassphrase: event.target.value })}
+                disabled={!isSystemAdmin || !orcaConnectionForm.clientAuthEnabled}
+                aria-readonly={!isSystemAdmin || !orcaConnectionForm.clientAuthEnabled}
+                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+                placeholder={orcaConnectionForm.clientCertificatePassphraseConfigured ? '（登録済み。変更する場合のみ入力）' : ''}
+              />
+              <p className="admin-quiet">
+                {orcaConnectionForm.clientCertificatePassphraseConfigured
+                  ? `登録済み（最終更新: ${formatTimestamp(orcaConnectionForm.clientCertificatePassphraseUpdatedAt)}）`
+                  : '未登録'}
+              </p>
+            </div>
+
+            <div className="admin-form__field">
+              <label htmlFor="orca-connection-ca-cert">CA 証明書（任意）</label>
+              <input
+                id="orca-connection-ca-cert"
+                type="file"
+                accept=".crt,.pem,.cer,application/x-x509-ca-cert"
+                onChange={(event) => patchOrcaConnectionForm({ caCertificateFile: event.target.files?.[0] ?? null })}
+                disabled={!isSystemAdmin}
+                aria-readonly={!isSystemAdmin}
+                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+              />
+              <p className="admin-quiet">
+                {orcaConnectionForm.caCertificateConfigured
+                  ? `登録済み: ${orcaConnectionForm.caCertificateFileName ?? '（ファイル名不明）'} / ${formatTimestamp(
+                      orcaConnectionForm.caCertificateUploadedAt,
+                    )}`
+                  : '未登録'}
+              </p>
+            </div>
+
+            <div className="admin-actions">
+              <button
+                type="button"
+                className="admin-button admin-button--primary"
+                onClick={handleOrcaConnectionSave}
+                disabled={orcaConnectionSaveMutation.isPending}
+                aria-disabled={!isSystemAdmin || orcaConnectionSaveMutation.isPending}
+                data-guarded={!isSystemAdmin}
+                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+              >
+                保存
+              </button>
+              <button
+                type="button"
+                className="admin-button admin-button--secondary"
+                onClick={() => orcaConnectionQuery.refetch()}
+                disabled={orcaConnectionQuery.isFetching}
+              >
+                再取得
+              </button>
+              <button
+                type="button"
+                className="admin-button admin-button--secondary"
+                onClick={handleOrcaConnectionTest}
+                disabled={orcaConnectionTestMutation.isPending}
+                aria-disabled={!isSystemAdmin || orcaConnectionTestMutation.isPending}
+                data-guarded={!isSystemAdmin}
+                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+              >
+                接続テスト
+              </button>
+            </div>
+
+            {orcaConnectionFeedback ? (
+              <p className="status-message" role="status" aria-live={resolveAriaLive(orcaConnectionFeedback.tone)}>
+                {orcaConnectionFeedback.message}
+              </p>
+            ) : null}
+
+            <div className="admin-status-row">
+              <span className="admin-status-label">接続テスト結果</span>
+              <span className={`admin-status admin-status--${orcaConnectionStatusTone}`}>{orcaConnectionStatusLabel}</span>
+            </div>
+
+            {orcaConnectionTestResult ? (
+              <div className="admin-result admin-result--stack">
+                <div>HTTP: {orcaConnectionTestResult.orcaHttpStatus ?? '―'}</div>
+                <div>Api_Result: {orcaConnectionTestResult.apiResult ?? '―'}</div>
+                <div>Api_Result_Message: {orcaConnectionTestResult.apiResultMessage ?? '―'}</div>
+                {!orcaConnectionTestResult.ok ? (
+                  <>
+                    <div>errorCategory: {orcaConnectionTestResult.errorCategory ?? 'unknown'}</div>
+                    <div>error: {orcaConnectionTestResult.error ?? '―'}</div>
+                  </>
+                ) : null}
+                <div>testedAt: {formatTimestamp(orcaConnectionTestResult.testedAt)}</div>
+              </div>
+            ) : null}
+          </form>
+        </section>
+
         <section className="administration-card" aria-label="配信設定フォーム">
           <h2 className="administration-card__title">配信設定</h2>
           <form className="admin-form" onSubmit={(e) => e.preventDefault()}>

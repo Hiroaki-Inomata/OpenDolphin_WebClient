@@ -58,6 +58,9 @@ public class OrcaReportResource extends AbstractResource {
     OrcaTransport orcaTransport;
 
     @Inject
+    RestOrcaTransport restOrcaTransport;
+
+    @Inject
     SessionAuditDispatcher sessionAuditDispatcher;
 
     private final HttpClient client = HttpClient.newBuilder()
@@ -255,11 +258,11 @@ public class OrcaReportResource extends AbstractResource {
 
     private byte[] fetchBlobWithRetry(HttpServletRequest request, String dataId, Map<String, Object> details,
             String resourcePath, String action) {
-        String authHeader = RestOrcaTransport.resolveBasicAuthHeader();
+        String authHeader = restOrcaTransport != null ? restOrcaTransport.resolveBasicAuthHeader() : null;
         if (authHeader == null || authHeader.isBlank()) {
             throw new OrcaGatewayException("ORCA basic auth is not configured");
         }
-        String primaryUrl = RestOrcaTransport.buildOrcaUrl("/blobapi/" + dataId);
+        String primaryUrl = restOrcaTransport != null ? restOrcaTransport.buildOrcaUrl("/blobapi/" + dataId) : null;
         String secondaryUrl = resolveAlternateBlobUrl(primaryUrl);
         BlobResult lastResult = null;
         RuntimeException lastFailure = null;
@@ -317,13 +320,16 @@ public class OrcaReportResource extends AbstractResource {
 
     private BlobResult fetchBlob(String url, String authHeader) {
         try {
+            HttpClient resolvedClient = restOrcaTransport != null && restOrcaTransport.rawHttpClient() != null
+                    ? restOrcaTransport.rawHttpClient()
+                    : client;
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .timeout(DEFAULT_READ_TIMEOUT)
                     .header("Authorization", authHeader)
                     .GET()
                     .build();
-            HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            HttpResponse<byte[]> response = resolvedClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
             String contentType = response.headers().firstValue("Content-Type").orElse(null);
             long contentLength = response.headers().firstValueAsLong("Content-Length").orElse(-1L);
             return new BlobResult(url, response.statusCode(), response.body(), contentType, contentLength);

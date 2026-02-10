@@ -70,7 +70,7 @@ class OrcaTrialIntegrationTest {
         assertTrue(result.getBody().contains("Api_Result") || result.getBody().contains("Data_Id"));
         String dataId = extractDataId(result.getBody());
         if (dataId != null) {
-            byte[] blob = fetchBlob(dataId);
+            byte[] blob = fetchBlob(transport, dataId);
             assertNotNull(blob);
             assertTrue(blob.length > 0);
         }
@@ -147,11 +147,14 @@ class OrcaTrialIntegrationTest {
         return Optional.empty();
     }
 
-    private byte[] fetchBlob(String dataId) throws IOException, InterruptedException {
-        String authHeader = RestOrcaTransport.resolveBasicAuthHeader();
+    private byte[] fetchBlob(RestOrcaTransport transport, String dataId) throws IOException, InterruptedException {
+        String authHeader = transport != null ? transport.resolveBasicAuthHeader() : null;
         Assumptions.assumeTrue(authHeader != null && !authHeader.isBlank(), "basic auth missing");
-        String url = RestOrcaTransport.buildOrcaUrl("/blobapi/" + dataId);
-        java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder().build();
+        String url = transport != null ? transport.buildOrcaUrl("/blobapi/" + dataId) : null;
+        Assumptions.assumeTrue(url != null && !url.isBlank(), "ORCA url missing");
+        java.net.http.HttpClient client = transport != null && transport.rawHttpClient() != null
+                ? transport.rawHttpClient()
+                : java.net.http.HttpClient.newBuilder().build();
         java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
                 .uri(java.net.URI.create(url))
                 .header("Authorization", authHeader)

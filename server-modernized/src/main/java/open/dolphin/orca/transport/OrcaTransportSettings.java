@@ -137,6 +137,42 @@ public final class OrcaTransportSettings {
         );
     }
 
+    /**
+     * Build settings from admin-managed ORCA connection config.
+     *
+     * <p>When {@code baseUrl} is provided, it is always used as the primary URL resolver
+     * (same precedence as {@code ORCA_BASE_URL}).</p>
+     */
+    public static OrcaTransportSettings fromAdminConfig(String baseUrl,
+            boolean useWeborca,
+            String user,
+            String password) {
+        String resolvedBaseUrl = trim(baseUrl);
+        if (resolvedBaseUrl == null || resolvedBaseUrl.isBlank()) {
+            throw new IllegalArgumentException("baseUrl is required");
+        }
+        HostSpec spec = parseHostSpec(resolvedBaseUrl, null);
+        String host = spec != null ? spec.host : null;
+        String scheme = spec != null ? spec.schemeOverride : null;
+        int port = spec != null ? spec.portOverride : -1;
+        String mode = useWeborca ? "weborca" : "onprem";
+        boolean autoApiPrefixEnabled = true;
+        return new OrcaTransportSettings(
+                host,
+                port,
+                scheme,
+                user,
+                password,
+                null,
+                false,
+                autoApiPrefixEnabled,
+                parseInt(env(ENV_ORCA_API_RETRY_MAX), DEFAULT_RETRY_MAX),
+                parseLong(env(ENV_ORCA_API_RETRY_BACKOFF_MS), DEFAULT_RETRY_BACKOFF_MS),
+                resolvedBaseUrl,
+                mode
+        );
+    }
+
     public boolean isReady() {
         return (hasBaseUrl() || (host != null && !host.isBlank() && port > 0))
                 && hasCredentials();

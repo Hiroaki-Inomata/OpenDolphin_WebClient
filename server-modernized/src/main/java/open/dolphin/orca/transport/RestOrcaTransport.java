@@ -6,10 +6,14 @@ import jakarta.inject.Inject;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.net.ssl.SSLContext;
+import open.dolphin.orca.config.OrcaConnectionConfigStore;
 import open.dolphin.msg.gateway.ExternalServiceAuditLogger;
 import open.dolphin.orca.OrcaGatewayException;
 import open.dolphin.orca.transport.OrcaHttpClient.OrcaHttpResponse;
@@ -26,16 +30,25 @@ public class RestOrcaTransport implements OrcaTransport {
     private static final Logger LOGGER = Logger.getLogger(RestOrcaTransport.class.getName());
     private static final String ORCA_ACCEPT = "application/xml";
 
-    private static volatile OrcaTransportSettings cachedSettings;
-
     private OrcaHttpClient httpClient;
+    private HttpClient rawHttpClient;
+    private volatile OrcaTransportSettings cachedSettings;
 
     @Inject
     SessionTraceManager traceManager;
 
+    @Inject
+    OrcaConnectionConfigStore orcaConnectionConfigStore;
+
+    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
+
     @PostConstruct
     private void initialize() {
-        this.httpClient = new OrcaHttpClient();
+        this.rawHttpClient = HttpClient.newBuilder()
+                .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
+        this.httpClient = new OrcaHttpClient(rawHttpClient);
         OrcaTransportSettings settings = reloadSettings();
         if (settings != null) {
             LOGGER.log(Level.INFO, "ORCA transport settings loaded: {0}", settings.auditSummary());
@@ -154,12 +167,16 @@ public class RestOrcaTransport implements OrcaTransport {
         return context != null ? context.getTraceId() : null;
     }
 
-    public static String buildOrcaUrl(String path) {
+    public HttpClient rawHttpClient() {
+        return rawHttpClient;
+    }
+
+    public String buildOrcaUrl(String path) {
         OrcaTransportSettings settings = currentSettings();
         return settings != null ? settings.buildOrcaUrl(path) : null;
     }
 
-    public static String resolveBasicAuthHeader() {
+    public String resolveBasicAuthHeader() {
         OrcaTransportSettings settings = currentSettings();
         if (settings == null || !settings.hasCredentials()) {
             return null;
@@ -186,7 +203,7 @@ public class RestOrcaTransport implements OrcaTransport {
         return settings != null ? settings.auditSummary() : "orca.host=unknown";
     }
 
-    private static OrcaTransportSettings currentSettings() {
+    private OrcaTransportSettings currentSettings() {
         OrcaTransportSettings settings = cachedSettings;
         if (settings == null) {
             settings = reloadCache();
@@ -194,14 +211,59 @@ public class RestOrcaTransport implements OrcaTransport {
         return settings;
     }
 
-    private static synchronized OrcaTransportSettings reloadCache() {
-        OrcaTransportSettings settings = OrcaTransportSettings.load();
+    private synchronized OrcaTransportSettings reloadCache() {
+        OrcaTransportSettings settings = null;
+        try {
+            settings = loadSettingsFromAdminConfig();
+        } catch (RuntimeException ex) {
+            LOGGER.log(Level.WARNING, "Failed to load ORCA transport settings from admin config: " + ex.getMessage(), ex);
+        }
+        if (settings == null) {
+            settings = OrcaTransportSettings.load();
+            // Reset to default client when falling back.
+            this.rawHttpClient = HttpClient.newBuilder()
+                    .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
+                    .followRedirects(HttpClient.Redirect.NEVER)
+                    .build();
+            this.httpClient = new OrcaHttpClient(rawHttpClient);
+        }
         if (settings == null) {
             LOGGER.warning("ORCA transport settings load returned null");
         } else if (!settings.isReady()) {
             LOGGER.log(Level.WARNING, "ORCA transport settings not ready: {0}", settings.auditSummary());
         }
         cachedSettings = settings;
+        return settings;
+    }
+
+    private OrcaTransportSettings loadSettingsFromAdminConfig() {
+        if (orcaConnectionConfigStore == null) {
+            return null;
+        }
+        OrcaConnectionConfigStore.ResolvedOrcaConnection resolved = orcaConnectionConfigStore.resolve();
+        if (resolved == null) {
+            return null;
+        }
+        OrcaTransportSettings settings = OrcaTransportSettings.fromAdminConfig(
+                resolved.baseUrl(),
+                resolved.useWeborca(),
+                resolved.username(),
+                resolved.password()
+        );
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NEVER);
+        boolean hasCustomCa = resolved.caCertificate() != null && resolved.caCertificate().length > 0;
+        if (resolved.clientAuthEnabled() || hasCustomCa) {
+            SSLContext sslContext = OrcaTlsSupport.buildSslContext(
+                    resolved.clientAuthEnabled() ? resolved.clientCertificateP12() : null,
+                    resolved.clientAuthEnabled() ? resolved.clientCertificatePassphrase() : null,
+                    resolved.caCertificate()
+            );
+            builder.sslContext(sslContext);
+        }
+        this.rawHttpClient = builder.build();
+        this.httpClient = new OrcaHttpClient(rawHttpClient);
         return settings;
     }
 

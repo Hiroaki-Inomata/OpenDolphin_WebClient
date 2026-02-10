@@ -163,10 +163,35 @@ public class PatientModV2OutpatientResource extends AbstractResource {
         try {
             switch (operation.toLowerCase(Locale.ROOT)) {
                 case "create" -> {
-                    // Treat "create" as "import from ORCA" (ORCA is authoritative for new patient registration).
-                    syncedPatient = importFromOrcaAndFetchLocal(facilityId, patch.patientId, runId, details);
-                    apiResultMessage = "ORCAから取り込みました";
-                    success = true;
+                    // Idempotency: if the local patient already exists and the provided payload matches,
+                    // return success without calling ORCA.
+                    if (patientServiceBean == null) {
+                        throw new IllegalStateException("PatientServiceBean is not available");
+                    }
+                    PatientModel existing = patientServiceBean.getPatientById(facilityId, patch.patientId);
+                    if (existing != null) {
+                        if (matchesLocalPatient(existing, patch)) {
+                            response.put("idempotent", Boolean.TRUE);
+                            response.put("idempotentReason", "existing_patient");
+                            details.put("idempotent", Boolean.TRUE);
+                            details.put("idempotentReason", "existing_patient");
+                            syncedPatient = existing;
+                            apiResultMessage = "既存患者のためスキップしました";
+                            success = true;
+                        } else {
+                            details.put("idempotent", Boolean.FALSE);
+                            details.put("idempotentReason", "existing_patient_conflict");
+                            details.put("localPatientDbId", existing.getId());
+                            details.put("localPatientSnapshot", toPatientRecord(existing));
+                            throw restError(request, Response.Status.CONFLICT, "patient_exists",
+                                    "患者が既に存在します。患者IDと内容を確認してください。");
+                        }
+                    } else {
+                        // Treat "create" as "import from ORCA" (ORCA is authoritative for new patient registration).
+                        syncedPatient = importFromOrcaAndFetchLocal(facilityId, patch.patientId, runId, details);
+                        apiResultMessage = "ORCAから取り込みました";
+                        success = true;
+                    }
                 }
                 case "update" -> {
                     OrcaMutationResult result = updateOrcaAndSyncLocal(facilityId, patch, runId, details);
@@ -596,6 +621,39 @@ public class PatientModV2OutpatientResource extends AbstractResource {
         }
     }
 
+    private boolean matchesLocalPatient(PatientModel existing, PatientPatch patch) {
+        if (existing == null || patch == null) {
+            return false;
+        }
+        if (!equalsIfProvided(patch.name, existing.getFullName())) return false;
+        if (!equalsIfProvided(patch.kana, existing.getKanaName())) return false;
+        if (!equalsIfProvided(patch.birthDate, existing.getBirthday())) return false;
+        if (!equalsIfProvided(patch.sex, existing.getGender())) return false;
+
+        String existingPhone = firstNonBlank(existing.getTelephone(), existing.getMobilePhone());
+        if (!equalsIfProvided(patch.phone, existingPhone)) return false;
+
+        SimpleAddressModel address = existing.getAddress();
+        String existingZip = address != null ? address.getZipCode() : null;
+        String existingAddress = address != null ? address.getAddress() : null;
+        if (!equalsIfProvided(patch.zip, existingZip)) return false;
+        if (!equalsIfProvided(patch.address, existingAddress)) return false;
+
+        return true;
+    }
+
+    private boolean equalsIfProvided(String provided, String baseline) {
+        String next = safeTrim(provided);
+        if (next == null) {
+            return true;
+        }
+        String prev = safeTrimKeepEmpty(baseline);
+        if (prev == null) {
+            prev = "";
+        }
+        return next.equals(prev);
+    }
+
     private Map<String, Object> toPatientRecord(PatientModel model) {
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("patientId", model.getPatientId());
@@ -968,4 +1026,3 @@ public class PatientModV2OutpatientResource extends AbstractResource {
         private PatientModel patient;
     }
 }
-
