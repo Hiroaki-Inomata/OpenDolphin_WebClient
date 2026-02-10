@@ -345,6 +345,84 @@ export const outpatientHandlers = [
     }
     return respond(buildPatientListFixture(scenario.flags, '/orca/patients/local-search/mock'));
   }),
+  http.post('/orca/patients/import', async ({ request }) => {
+    const fault = parseFaultSpec(request);
+    const scenario = applyRequestScenario(request);
+    await applyFaultDelay(fault);
+    if (hasNetworkFault(fault)) {
+      return HttpResponse.error();
+    }
+    const httpFaultStatus = resolveHttpFaultStatus(fault);
+    if (httpFaultStatus) {
+      return respond({
+        apiResult: '99',
+        apiResultMessage: `HTTP fault injected (${httpFaultStatus})`,
+        runId: scenario.flags.runId,
+        traceId: scenario.flags.traceId ?? `trace-${scenario.flags.runId}`,
+        requestId: `req-${scenario.flags.runId}`,
+        facilityId: 'F-1',
+        requestedCount: 0,
+        fetchedCount: 0,
+        createdCount: 0,
+        updatedCount: 0,
+        skippedCount: 0,
+        errors: [],
+        status: httpFaultStatus,
+      });
+    }
+    if (fault.tokens.has('timeout')) {
+      return respond({
+        apiResult: '99',
+        apiResultMessage: 'timeout',
+        runId: scenario.flags.runId,
+        traceId: scenario.flags.traceId ?? `trace-${scenario.flags.runId}`,
+        requestId: `req-${scenario.flags.runId}`,
+        facilityId: 'F-1',
+        requestedCount: 0,
+        fetchedCount: 0,
+        createdCount: 0,
+        updatedCount: 0,
+        skippedCount: 0,
+        errors: [],
+        status: 504,
+      });
+    }
+    if (fault.tokens.has('http-500') || fault.tokens.has('500')) {
+      return respond({
+        apiResult: '99',
+        apiResultMessage: 'MSW injected 500 for patients/import',
+        runId: scenario.flags.runId,
+        traceId: scenario.flags.traceId ?? `trace-${scenario.flags.runId}`,
+        requestId: `req-${scenario.flags.runId}`,
+        facilityId: 'F-1',
+        requestedCount: 0,
+        fetchedCount: 0,
+        createdCount: 0,
+        updatedCount: 0,
+        skippedCount: 0,
+        errors: [],
+        status: 500,
+      });
+    }
+
+    const raw = (await request.json().catch(() => ({}))) as any;
+    const patientIds: string[] = Array.isArray(raw?.patientIds) ? raw.patientIds : [];
+    return respond({
+      apiResult: '00',
+      apiResultMessage: 'OK',
+      runId: scenario.flags.runId,
+      traceId: scenario.flags.traceId ?? `trace-${scenario.flags.runId}`,
+      requestId: `req-${scenario.flags.runId}`,
+      facilityId: 'F-1',
+      requestedCount: patientIds.length,
+      fetchedCount: patientIds.length,
+      createdCount: patientIds.length,
+      updatedCount: 0,
+      skippedCount: 0,
+      errors: [],
+      status: 200,
+    });
+  }),
   http.post('/orca12/patientmodv2/outpatient', async ({ request }) => {
     const fault = parseFaultSpec(request);
     const scenario = applyRequestScenario(request);

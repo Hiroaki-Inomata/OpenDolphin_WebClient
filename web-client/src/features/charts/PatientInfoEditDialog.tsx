@@ -91,6 +91,18 @@ export function PatientInfoEditDialog({
 
   const changedKeys = useMemo(() => diffPatientKeys({ baseline, draft, section }), [baseline, draft, section]);
 
+  const editAllowedResolved = useMemo(() => {
+    if (section === 'insurance') return false;
+    return editAllowed;
+  }, [editAllowed, section]);
+
+  const editBlockedReasonResolved = useMemo(() => {
+    if (section === 'insurance') {
+      return '保険/自費は ORCA 側で更新してください（電子カルテからの更新は未対応です）。';
+    }
+    return editBlockedReason;
+  }, [editBlockedReason, section]);
+
   useEffect(() => {
     if (!open) {
       wasOpenRef.current = false;
@@ -120,9 +132,9 @@ export function PatientInfoEditDialog({
       dataSourceTransition: meta.dataSourceTransition ?? 'server',
       fallbackUsed: meta.fallbackUsed ?? false,
       action: 'open',
-      outcome: editAllowed ? 'success' : 'blocked',
+      outcome: editAllowedResolved ? 'success' : 'blocked',
       note: section,
-      reason: editAllowed ? undefined : editBlockedReason ?? 'edit not allowed',
+      reason: editAllowedResolved ? undefined : editBlockedReasonResolved ?? 'edit not allowed',
     });
 
     logUiState({
@@ -140,15 +152,15 @@ export function PatientInfoEditDialog({
         receptionId: meta.receptionId,
         appointmentId: meta.appointmentId,
         visitDate: meta.visitDate,
-        editAllowed,
-        editBlockedReason,
+        editAllowed: editAllowedResolved,
+        editBlockedReason: editBlockedReasonResolved,
       },
     });
   }, [
     baseDraft,
     changedKeys.length,
-    editAllowed,
-    editBlockedReason,
+    editAllowedResolved,
+    editBlockedReasonResolved,
     meta.appointmentId,
     meta.cacheHit,
     meta.dataSourceTransition,
@@ -241,7 +253,7 @@ export function PatientInfoEditDialog({
     },
   });
 
-  const canEdit = editAllowed && masterOk;
+  const canEdit = editAllowedResolved && masterOk;
   const operation: PatientOperation = draft.patientId ? 'update' : 'create';
 
   const validate = () => {
@@ -302,7 +314,7 @@ export function PatientInfoEditDialog({
 
   const onSave = () => {
     if (!canEdit) {
-      setNotice({ tone: 'error', message: '編集ガード中のため保存できません。', detail: editBlockedReason });
+      setNotice({ tone: 'error', message: '編集ガード中のため保存できません。', detail: editBlockedReasonResolved });
       return;
     }
     const validation = validate();
@@ -320,8 +332,11 @@ export function PatientInfoEditDialog({
     mutation.mutate({ patient: payload, operation, changedKeys: changed });
   };
 
-  const title = section === 'insurance' ? '保険・公費を更新' : '患者基本情報を更新';
-  const description = section === 'insurance' ? '保存前に差分を確認し、/orca12/patientmodv2/outpatient で更新します。' : '保存前に差分を確認し、/orca12/patientmodv2/outpatient で更新します。';
+  const title = section === 'insurance' ? '保険/自費（編集不可）' : '患者基本情報を更新';
+  const description =
+    section === 'insurance'
+      ? '保険/自費は ORCA 側で更新してください。電子カルテからの更新は未対応です。'
+      : '保存前に差分を確認し、/orca12/patientmodv2/outpatient で更新します。';
 
   const fieldErrorMap = useMemo(() => {
     const map = new Map<keyof PatientRecord, string>();
@@ -358,10 +373,10 @@ export function PatientInfoEditDialog({
       }}
       testId="patient-info-edit-dialog"
     >
-      {!editAllowed ? (
+      {!editAllowedResolved ? (
         <div className="patient-edit__blocked" role="alert" aria-live={resolveAriaLive('warning')}>
           <p>編集ガード中のため更新できません。</p>
-          {editBlockedReason ? <p className="patient-edit__blocked-reason">{editBlockedReason}</p> : null}
+          {editBlockedReasonResolved ? <p className="patient-edit__blocked-reason">{editBlockedReasonResolved}</p> : null}
           <div className="patient-edit__actions">
             <button type="button" className="patients-tab__ghost" onClick={onClose}>
               閉じる
@@ -486,7 +501,6 @@ export function PatientInfoEditDialog({
                         <option value="">未選択</option>
                         <option value="M">男性</option>
                         <option value="F">女性</option>
-                        <option value="O">その他</option>
                       </select>
                       {fieldErrorMap.has('sex') ? (
                         <small id="patient-edit-error-sex" className="patient-edit__field-error" role="alert">

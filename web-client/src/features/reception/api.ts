@@ -5,6 +5,7 @@ import { updateObservabilityMeta } from '../../libs/observability/observability'
 import type { DataSourceTransition, ResolveMasterSource } from '../../libs/observability/types';
 import { recordOutpatientFunnel } from '../../libs/telemetry/telemetryClient';
 import { fetchWithResolver } from '../outpatient/fetchWithResolver';
+import { importPatientsFromOrca } from '../outpatient/orcaPatientImportApi';
 import { attachAppointmentMeta, mergeOutpatientMeta, parseAppointmentEntries } from '../outpatient/transformers';
 import type {
   AppointmentPayload,
@@ -521,6 +522,19 @@ export async function mutateVisit(
       traceId: payload.traceId,
     },
   });
+
+  // 受付登録直後に Patients/Charts 側で「見つからない」状況を減らすため、
+  // ORCA の患者番号（Patient_ID）をキーにローカルDBへ取り込みを試みる。
+  if (result.ok && params.requestNumber !== '02') {
+    const pid = payload.patient?.patientId ?? params.patientId;
+    if (pid && /^\d+$/.test(pid)) {
+      try {
+        await importPatientsFromOrca({ patientIds: [pid], runId: payload.runId });
+      } catch (error) {
+        console.warn('[reception] patient import failed', error);
+      }
+    }
+  }
 
   updateObservabilityMeta({
     runId: payload.runId,

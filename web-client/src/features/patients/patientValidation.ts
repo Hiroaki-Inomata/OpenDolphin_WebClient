@@ -56,6 +56,10 @@ export function validatePatientMutation(params: {
     return errors;
   }
 
+  if (!patientId) {
+    errors.push({ field: 'patientId', message: '患者ID（ORCA患者番号）は必須です。', kind: 'missing' });
+  }
+
   if (!name) {
     errors.push({ field: 'name', message: '氏名は必須です。', kind: 'missing' });
   }
@@ -72,8 +76,8 @@ export function validatePatientMutation(params: {
     errors.push({ field: 'birthDate', message: '生年月日は YYYY-MM-DD 形式で入力してください。', kind: 'format' });
   }
 
-  if (sex && !['M', 'F', 'O'].includes(sex)) {
-    errors.push({ field: 'sex', message: '性別は M/F/O のいずれかを選択してください。', kind: 'format' });
+  if (sex && !['M', 'F'].includes(sex)) {
+    errors.push({ field: 'sex', message: '性別は M/F のいずれかを選択してください。', kind: 'format' });
   }
 
   if (phone && !/^[0-9()+\-\s]{6,24}$/.test(phone)) {

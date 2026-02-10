@@ -238,10 +238,8 @@ export function PatientsTab({
     return role === 'doctor' || role === 'nurse';
   }, [session.role]);
 
-  const canEditPatientInfoByRole = useMemo(() => {
-    const role = session.role?.toLowerCase?.() ?? '';
-    return role === 'reception' || role === 'system_admin' || role === 'admin' || role === 'system-admin' || role === 'clerk' || role === 'office';
-  }, [session.role]);
+  // Patient master edits are allowed for all authenticated users (no role restriction).
+  const canEditPatientInfoByRole = true;
 
   const canEditByStatus = useMemo(() => {
     if (!selected) return false;
@@ -251,7 +249,7 @@ export function PatientsTab({
   const canEditMemo = canEditMemoByRole && !editBlockedByMaster;
   const canEditPatientInfoNow =
     Boolean(selectedPatientId) && canEditPatientInfoByRole && canEditByStatus && !editBlockedByMaster && !switchLocked && !draftDirty;
-  const canDeepLinkPatientsBasic = canEditPatientInfoByRole && canEditByStatus && !editBlockedByMaster;
+  const canDeepLinkPatientsBasic = Boolean(selectedPatientId);
   const canDeepLinkPatientsInsurance = canDeepLinkPatientsBasic;
 
   const patientEditBlockedReason = useMemo(() => {
@@ -260,17 +258,14 @@ export function PatientsTab({
     if (draftDirty) return '未保存ドラフトあり（ドラフトを保存/破棄してから患者更新してください）。';
     if (editBlockedByMaster) return `編集不可（master/tone ガード）: ${editBlockedReason}`;
     if (!canEditByStatus) return `編集不可（受付ステータス=${selected?.status ?? '不明'}）`;
-    if (!canEditPatientInfoByRole) return `編集不可（role=${session.role}）`;
     return undefined;
   }, [
     canEditByStatus,
-    canEditPatientInfoByRole,
     draftDirty,
     editBlockedByMaster,
     editBlockedReason,
     selected?.status,
     selectedPatientId,
-    session.role,
     switchLocked,
     switchLockedReason,
   ]);
@@ -281,11 +276,9 @@ export function PatientsTab({
     if (draftDirty) reasons.push('draft_dirty');
     if (editBlockedByMaster) reasons.push('master_guard');
     if (!canEditByStatus) reasons.push('status_blocked');
-    if (!canEditPatientInfoByRole) reasons.push('role_blocked');
     return reasons;
   }, [
     canEditByStatus,
-    canEditPatientInfoByRole,
     draftDirty,
     editBlockedByMaster,
     selectedPatientId,
@@ -302,22 +295,17 @@ export function PatientsTab({
     if (!canEditByStatus) {
       return `編集不可（受付ステータス=${selected?.status ?? '不明'}）: 会計待ち以降は編集できません。`;
     }
-    if (!canEditPatientInfoByRole && !canEditMemoByRole) {
-      return `編集不可（role=${session.role}）: 権限不足。`;
-    }
     if (draftDirty) {
       return '未保存ドラフトあり（ORCA送信前にドラフト保存してください）';
     }
-    return '閲覧モード（編集は権限とガード条件を満たす場合のみ）';
+    return '閲覧モード（ガード条件を満たす場合のみ編集可）';
   }, [
     canEditByStatus,
     canEditMemoByRole,
-    canEditPatientInfoByRole,
     draftDirty,
     editBlockedByMaster,
     editBlockedReason,
     selected?.status,
-    session.role,
     switchLocked,
     switchLockedReason,
   ]);
