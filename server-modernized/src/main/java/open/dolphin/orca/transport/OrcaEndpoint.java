@@ -15,7 +15,7 @@ public enum OrcaEndpoint {
             "Patient_ID", "Perform_Date"),
     VISIT_LIST("/api01rv2/visitptlstv2", "orca/stub/18_visitptlstv2_response.sample.xml", true, false, null,
             "Request_Number", "Visit_Date"),
-    PATIENT_ID_LIST("/api01rv2/patientlst1v2", "orca/stub/08_patientlst1v2_response.sample.xml", true, false, null,
+    PATIENT_ID_LIST("/api01rv2/patientlst1v2", "orca/stub/08_patientlst1v2_response.sample.xml", true, true, null,
             "Base_StartDate", "Base_EndDate"),
     PATIENT_BATCH("/api01rv2/patientlst2v2", "orca/stub/09_patientlst2v2_response.sample.xml", true, true, null,
             "Patient_ID_Information"),

@@ -11,6 +11,8 @@ public class PatientDetail {
     private PatientSummary summary;
     private String zipCode;
     private String address;
+    private String phoneNumber1;
+    private String phoneNumber2;
     private String outpatientClass;
     private final List<InsuranceCombination> insurances = new ArrayList<>();
     private final List<PublicInsuranceInfo> publicInsurances = new ArrayList<>();
@@ -37,6 +39,22 @@ public class PatientDetail {
 
     public void setAddress(String address) {
         this.address = address;
+    }
+
+    public String getPhoneNumber1() {
+        return phoneNumber1;
+    }
+
+    public void setPhoneNumber1(String phoneNumber1) {
+        this.phoneNumber1 = phoneNumber1;
+    }
+
+    public String getPhoneNumber2() {
+        return phoneNumber2;
+    }
+
+    public void setPhoneNumber2(String phoneNumber2) {
+        this.phoneNumber2 = phoneNumber2;
     }
 
     public String getOutpatientClass() {

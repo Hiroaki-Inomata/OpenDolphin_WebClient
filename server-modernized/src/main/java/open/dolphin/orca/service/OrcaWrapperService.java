@@ -684,7 +684,8 @@ public class OrcaWrapperService {
         builder.append("<Base_StartTime>00:00:00</Base_StartTime>");
         builder.append("<Base_EndDate>").append(endDate).append("</Base_EndDate>");
         builder.append("<Contain_TestPatient_Flag>")
-                .append(request.isIncludeTestPatient() ? "1" : "0")
+                // ORCA仕様: 1 が「テスト患者を対象外」。includeTestPatient=true のときは除外しない (=0)。
+                .append(request.isIncludeTestPatient() ? "0" : "1")
                 .append("</Contain_TestPatient_Flag>");
         builder.append("</patientlst1req></data>");
         return builder.toString();

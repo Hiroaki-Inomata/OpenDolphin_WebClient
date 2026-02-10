@@ -254,7 +254,12 @@ public class OrcaXmlMapper {
             detail.setSummary(toPatientSummary(node));
             JsonNode address = node.path("Home_Address_Information");
             detail.setZipCode(address.path("Address_ZipCode").asText(null));
-            detail.setAddress(address.path("WholeAddress1").asText(null));
+            String wholeAddress1 = address.path("WholeAddress1").asText(null);
+            String wholeAddress2 = address.path("WholeAddress2").asText(null);
+            detail.setAddress(concat(wholeAddress1, wholeAddress2));
+            JsonNode phone = node.path("PhoneNumber_Information");
+            detail.setPhoneNumber1(phone.path("PhoneNumber1").asText(null));
+            detail.setPhoneNumber2(phone.path("PhoneNumber2").asText(null));
             detail.setOutpatientClass(node.path("Outpatient_Class").asText(null));
             for (JsonNode insurance : iterable(node.path("HealthInsurance_Information"))) {
                 detail.getInsurances().add(toInsuranceCombination(insurance));
@@ -262,6 +267,15 @@ public class OrcaXmlMapper {
             populatePublicInsurances(node.path("PublicInsurance_Information"), detail.getPublicInsurances());
             response.getPatients().add(detail);
         }
+    }
+
+    private static String concat(String left, String right) {
+        String a = left != null ? left.trim() : "";
+        String b = right != null ? right.trim() : "";
+        if (a.isEmpty() && b.isEmpty()) {
+            return null;
+        }
+        return a + b;
     }
 
     private void populateCommon(JsonNode body, OrcaApiResponse response) {

@@ -13,7 +13,7 @@ import jakarta.persistence.*;
  * -
  */
 @Entity
-@Table(name = "d_patient")
+@Table(name = "d_patient", uniqueConstraints = @UniqueConstraint(columnNames = {"facilityId", "patientId"}))
 public class PatientModel extends InfoModel implements java.io.Serializable {
     
     //PK
