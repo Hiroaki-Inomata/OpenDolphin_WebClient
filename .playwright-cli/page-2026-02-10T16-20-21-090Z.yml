@@ -1,0 +1,676 @@
+- generic [ref=e2]:
+  - link "本文へスキップ" [ref=e34] [cursor=pointer]:
+    - /url: "#app-shell-main"
+  - generic [ref=e35]:
+    - status [ref=e36]:
+      - generic [ref=e37]:
+        - generic [ref=e38]: OpenDolphin Web
+        - generic [ref=e39]: 電子カルテデモシェル
+      - generic [ref=e40]:
+        - generic [ref=e41]: "施設ID: 1.3.6.1.4.1.9414.10.1"
+        - generic [ref=e42]: "ユーザー: Dolphin Dev"
+        - generic [ref=e43]: "role: admin 認可ロール"
+        - 'button "RUN_ID をコピー: 20260210T161945Z" [ref=e44] [cursor=pointer]':
+          - text: "RUN_ID: 20260210T161945Z"
+          - generic [ref=e45]: クリックでコピー
+        - button "管理画面を開く" [active] [ref=e46] [cursor=pointer]: 管理画面
+        - button "施設/ユーザー切替" [ref=e47] [cursor=pointer]
+        - button "ログアウト" [ref=e48] [cursor=pointer]
+    - status "画面ナビゲーション" [ref=e49]:
+      - link "Reception" [ref=e50] [cursor=pointer]:
+        - /url: /f/1.3.6.1.4.1.9414.10.1/reception
+      - link "Charts" [ref=e51] [cursor=pointer]:
+        - /url: /f/1.3.6.1.4.1.9414.10.1/charts
+      - link "Patients" [ref=e52] [cursor=pointer]:
+        - /url: /f/1.3.6.1.4.1.9414.10.1/patients
+      - link "Administration" [ref=e53] [cursor=pointer]:
+        - /url: /f/1.3.6.1.4.1.9414.10.1/administration
+      - status [ref=e54]:
+        - generic [ref=e55]: RUN_ID
+        - generic [ref=e56]: 20260210T161945Z
+        - button "RUN_ID をコピー" [ref=e57] [cursor=pointer]: コピー
+    - generic [ref=e58]:
+      - link "本文へスキップ" [ref=e624] [cursor=pointer]:
+        - /url: "#administration-main"
+      - main [ref=e625]:
+        - generic [ref=e626]:
+          - heading "Administration" [level=1] [ref=e627]
+          - status [ref=e628]:
+            - text: "管理者が ORCA 接続・MSW トグル・配信フラグを編集し、保存時に broadcast / audit を送ります。RUN_ID:"
+            - strong [ref=e629]: 20260210T161945Z
+          - generic [ref=e630]:
+            - status [ref=e631]:
+              - generic [ref=e632]: RUN_ID
+              - generic [ref=e633]: 20260210T161945Z
+              - button "RUN_ID をコピー" [ref=e634] [cursor=pointer]: コピー
+            - status [ref=e635]:
+              - generic [ref=e636]: APPOINTMENT_OUTPATIENT_FETCH(success)
+            - generic [ref=e637]: "role: admin"
+            - generic [ref=e638]: "施設ID: 1.3.6.1.4.1.9414.10.1"
+            - generic [ref=e639]: "環境: dev"
+            - generic [ref=e640]: "配信元: live"
+            - generic [ref=e641]: "deliveryMode: manual"
+            - generic [ref=e642]: "ETag: v1770740385871"
+            - generic [ref=e643]: "配信状態: 即時反映"
+            - generic [ref=e644]: "最終配信: 2026/2/11 1:19:45（1分以内）"
+            - generic [ref=e645]: "検証フラグ: disabled"
+            - generic [ref=e646]: "ORCA queue: live"
+            - generic [ref=e647]: "Charts表示: enabled"
+            - generic [ref=e648]: "Charts送信: enabled"
+            - generic [ref=e649]: "Charts master: auto"
+            - generic [ref=e650]: "syncMismatch: false"
+            - generic [ref=e651]: "mismatchFields: ―"
+          - tablist "Administration tabs" [ref=e652]:
+            - tab "設定配信" [selected] [ref=e653] [cursor=pointer]
+            - tab "アクセス管理" [ref=e654] [cursor=pointer]
+        - paragraph [ref=e655]: 未配信キューの遅延は検知されていません（遅延閾値:5分）。
+        - generic [ref=e656]:
+          - region "配信設定フォーム" [ref=e657]:
+            - heading "配信設定" [level=2] [ref=e658]
+            - generic [ref=e659]:
+              - generic [ref=e660]:
+                - generic [ref=e661]: ORCA 接続先
+                - textbox "ORCA 接続先" [ref=e662]: https://weborca-trial.orca.med.or.jp:443
+                - paragraph [ref=e663]: "例: https://localhost:9080/openDolphin/resources"
+              - generic [ref=e664]:
+                - generic [ref=e665]:
+                  - generic [ref=e666]:
+                    - generic [ref=e667]: Charts 表示フラグ
+                    - generic [ref=e668]: Charts の表示（カード一式）を切替
+                  - checkbox "Charts 表示フラグ" [checked] [ref=e669]
+                - generic [ref=e670]:
+                  - generic [ref=e671]:
+                    - generic [ref=e672]: Charts 送信フラグ
+                    - generic [ref=e673]: ORCA送信（ActionBar）を切替
+                  - checkbox "Charts 送信フラグ" [checked] [ref=e674]
+              - generic [ref=e675]:
+                - generic [ref=e676]: Charts master ソース
+                - combobox "Charts master ソース" [ref=e677]:
+                  - option "auto（環境変数に従う）" [selected]
+                  - option "server（実 API 優先）"
+                  - option "mock（MSW/fixture 優先）"
+                  - option "fallback（送信停止・フォールバック扱い）"
+                  - option "snapshot（将来拡張）"
+                - paragraph [ref=e678]: "`fallback` は Charts 側で送信をブロックし、ToneBanner で「server→fallback」を明示します（デモ用途）。"
+              - generic [ref=e679]:
+                - button "保存して配信" [ref=e680] [cursor=pointer]
+                - button "再取得" [ref=e681] [cursor=pointer]
+          - region "配信ステータス" [ref=e682]:
+            - heading "配信ステータス" [level=2] [ref=e683]
+            - list [ref=e684]:
+              - listitem [ref=e685]: "deliveryId: b1a57e30-d89d-4dd8-9724-9ee438890ce8"
+              - listitem [ref=e686]: "deliveryVersion: v1770740385871"
+              - listitem [ref=e687]: "ETag: v1770740385871"
+              - listitem [ref=e688]: "deliveredAt: 2026/2/11 1:19:45"
+              - listitem [ref=e689]: "environment: dev"
+              - listitem [ref=e690]: "deliveryMode: manual"
+              - listitem [ref=e691]: "verified: false"
+              - listitem [ref=e692]: "chartsDisplayEnabled: true"
+              - listitem [ref=e693]: "chartsSendEnabled: true"
+              - listitem [ref=e694]: "chartsMasterSource: auto"
+            - paragraph [ref=e695]: "表示優先: delivery → config（rawConfig / rawDelivery を併記）"
+            - list "Charts 配信状態" [ref=e696]:
+              - listitem [ref=e697]:
+                - generic [ref=e698]: Charts表示
+                - generic [ref=e699]: "rawConfig: true / rawDelivery: true"
+                - generic [ref=e700]: 配信済み
+              - listitem [ref=e701]:
+                - generic [ref=e702]: Charts送信
+                - generic [ref=e703]: "rawConfig: true / rawDelivery: true"
+                - generic [ref=e704]: 配信済み
+              - listitem [ref=e705]:
+                - generic [ref=e706]: Charts master
+                - generic [ref=e707]: "rawConfig: auto / rawDelivery: auto"
+                - generic [ref=e708]: 配信済み
+            - paragraph [ref=e709]: 保存時に broadcast を発行し、Reception/Charts へ「設定更新」バナーを表示します。system_admin 以外は読み取り専用です。
+        - generic [ref=e710]:
+          - region "ORCA マスタ同期" [ref=e711]:
+            - heading "ORCA マスタ同期" [level=2] [ref=e712]
+            - generic [ref=e713]:
+              - generic [ref=e714]: 未実行
+              - generic [ref=e715]: "更新検知:"
+              - generic [ref=e716]: 初回取得
+              - generic [ref=e717]: "更新差分: ―"
+              - generic [ref=e718]: "最終更新日: ―"
+            - generic [ref=e719]:
+              - generic [ref=e720]:
+                - paragraph [ref=e721]: "更新検知: 初回取得"
+                - list [ref=e722]:
+                  - listitem [ref=e723]: masterlastupdatev3 で更新有無を確認
+                  - listitem [ref=e724]: 更新ありなら medicatonmodv2 で点数マスタ同期
+                  - listitem [ref=e725]: 同期後に再度更新確認して反映確認
+              - generic [ref=e727]: 未実行
+            - button "更新確認" [ref=e729] [cursor=pointer]
+            - generic [ref=e731]:
+              - generic [ref=e732]:
+                - generic [ref=e733]: medicatonmodv2 class
+                - textbox "medicatonmodv2 class" [ref=e734]: "01"
+                - paragraph [ref=e735]: "例: 01（点数マスタ登録）"
+              - generic [ref=e736]:
+                - generic [ref=e737]: medicatonmodv2 payload (XML)
+                - textbox "medicatonmodv2 payload (XML)" [ref=e738]: <data> <medicatonmodreq type="record"> <Request_Number type="string">01</Request_Number> <Base_Date type="string">2026-02-11</Base_Date> </medicatonmodreq> </data>
+            - button "点数マスタ同期" [ref=e740] [cursor=pointer]
+          - region "システムヘルスチェック" [ref=e741]:
+            - heading "システムヘルスチェック" [level=2] [ref=e742]
+            - generic [ref=e743]:
+              - generic [ref=e744]: "総合: 未実行"
+              - generic [ref=e745]: "systeminfv2: 未実行"
+              - generic [ref=e746]: "system01dailyv2: 未実行"
+              - generic [ref=e747]: "バージョン差分: ―"
+            - generic [ref=e749]:
+              - paragraph [ref=e750]: systeminfv2 / system01dailyv2 統合サマリー
+              - generic [ref=e751]:
+                - generic [ref=e752]:
+                  - generic [ref=e753]: JMA Receipt
+                  - generic [ref=e754]: ―
+                - generic [ref=e755]:
+                  - generic [ref=e756]: DB(Local/New)
+                  - generic [ref=e757]: ― / ―
+                - generic [ref=e758]:
+                  - generic [ref=e759]: Master更新日
+                  - generic [ref=e760]: ―
+                - generic [ref=e761]:
+                  - generic [ref=e762]: system01dailyv2 Base_Date
+                  - generic [ref=e763]: 2026-02-11
+                - generic [ref=e764]:
+                  - generic [ref=e765]: 取得日時
+                  - generic [ref=e766]: ― / ―
+            - generic [ref=e768]:
+              - generic [ref=e769]: system01dailyv2 Base_Date
+              - textbox "system01dailyv2 Base_Date" [ref=e770]: 2026-02-11
+            - button "ヘルスチェック実行" [ref=e772] [cursor=pointer]
+            - generic [ref=e773]:
+              - generic [ref=e774]: "JMA Receipt: ―"
+              - generic [ref=e775]: "DB(Local/New): ― / ―"
+              - generic [ref=e776]: "Master更新日: ―"
+              - generic [ref=e777]: "systeminfv2 取得日時: ―"
+              - generic [ref=e778]: "system01dailyv2 Base_Date: 2026-02-11"
+              - generic [ref=e779]: "system01dailyv2 取得日時: ―"
+            - table [ref=e781]:
+              - rowgroup [ref=e782]:
+                - row "マスタ名 Local New 状態" [ref=e783]:
+                  - columnheader "マスタ名" [ref=e784]
+                  - columnheader "Local" [ref=e785]
+                  - columnheader "New" [ref=e786]
+                  - columnheader "状態" [ref=e787]
+              - rowgroup [ref=e788]:
+                - row "バージョン情報は未取得です。" [ref=e789]:
+                  - cell "バージョン情報は未取得です。" [ref=e790]
+          - region "診療セット検索" [ref=e791]:
+            - heading "診療セット検索" [level=2] [ref=e792]
+            - generic [ref=e793]:
+              - generic [ref=e794]: 未実行
+              - generic [ref=e795]: "結果: ―"
+            - generic [ref=e796]:
+              - generic [ref=e797]:
+                - paragraph [ref=e798]: セット検索の起点
+                - paragraph [ref=e799]: Administration で条件を入力 → セット検索 → Charts オーダーへ接続します。
+              - link "Charts で利用" [ref=e801] [cursor=pointer]:
+                - /url: /f/1.3.6.1.4.1.9414.10.1/charts
+            - generic [ref=e802]:
+              - generic [ref=e803]:
+                - generic [ref=e804]: Base_Date
+                - textbox "Base_Date" [ref=e805]: 2026-02-11
+              - generic [ref=e806]:
+                - generic [ref=e807]: Set_Code
+                - textbox "Set_Code" [ref=e808]
+              - generic [ref=e809]:
+                - generic [ref=e810]: Set_Code_Name
+                - textbox "Set_Code_Name" [ref=e811]
+              - generic [ref=e812]:
+                - generic [ref=e813]: Start_Date
+                - textbox "Start_Date" [ref=e814]: 2026-02-11
+              - generic [ref=e815]:
+                - generic [ref=e816]: Ende_Date
+                - textbox "Ende_Date" [ref=e817]
+              - generic [ref=e818]:
+                - generic [ref=e819]: InOut
+                - combobox "InOut" [ref=e820]:
+                  - option "指定なし"
+                  - option "O（外来）" [selected]
+                  - option "I（入院）"
+            - button "セット検索" [ref=e822] [cursor=pointer]
+            - table [ref=e824]:
+              - rowgroup [ref=e825]:
+                - row "Set_Code 名称 期間 InOut 内容" [ref=e826]:
+                  - columnheader "Set_Code" [ref=e827]
+                  - columnheader "名称" [ref=e828]
+                  - columnheader "期間" [ref=e829]
+                  - columnheader "InOut" [ref=e830]
+                  - columnheader "内容" [ref=e831]
+              - rowgroup [ref=e832]:
+                - row "検索結果はまだありません。" [ref=e833]:
+                  - cell "検索結果はまだありません。" [ref=e834]
+          - region "ORCA公式XMLプロキシ" [ref=e835]:
+            - heading "ORCA公式XMLプロキシ" [level=2] [ref=e836]
+            - generic [ref=e837]:
+              - generic [ref=e838]: 未実行
+              - generic [ref=e839]: "エンドポイント: acceptlstv2（受付一覧）"
+              - generic [ref=e840]: "HTTP: ―"
+              - generic [ref=e841]: "Api_Result: ―"
+            - generic [ref=e842]:
+              - generic [ref=e843]:
+                - generic [ref=e844]: エンドポイント
+                - combobox "エンドポイント" [ref=e845]:
+                  - option "acceptlstv2（受付一覧）" [selected]
+                  - option "system01lstv2（システム管理一覧）"
+                  - option "manageusersv2（ユーザー管理）"
+                  - option "insprogetv2（保険者マスタ）"
+                - paragraph [ref=e846]: class=01/02 で受付一覧を取得
+              - generic [ref=e847]:
+                - generic [ref=e848]: class
+                - textbox "class" [ref=e849]: "01"
+              - generic [ref=e850]:
+                - generic [ref=e851]: XML2 payload
+                - textbox "XML2 payload" [ref=e852]: <data> <acceptlstv2req type="record"> <Acceptance_Date type="string">2026-02-11</Acceptance_Date> <Acceptance_Time type="string">01:20:18</Acceptance_Time> </acceptlstv2req> </data>
+            - generic [ref=e853]:
+              - button "送信" [ref=e854] [cursor=pointer]
+              - button "テンプレ再生成" [ref=e855] [cursor=pointer]
+          - region "ORCA内製ラッパー" [ref=e856]:
+            - heading "ORCA内製ラッパー（stub混在）" [level=2] [ref=e857]
+            - generic [ref=e858]:
+              - generic [ref=e859]: 未実行
+              - generic [ref=e860]: "エンドポイント: /orca/medical-sets（診療セット）"
+              - generic [ref=e861]: "HTTP: ―"
+              - generic [ref=e862]: "Api_Result: ―"
+              - generic [ref=e863]: "source: ―"
+              - generic [ref=e864]: stub固定
+            - generic [ref=e865]:
+              - generic [ref=e866]:
+                - generic [ref=e867]: エンドポイント
+                - combobox "エンドポイント" [ref=e868]:
+                  - option "/orca/medical-sets（診療セット）" [selected]
+                  - option "/orca/tensu/sync（点数マスタ同期）"
+                  - option "/orca/birth-delivery（出産育児一時金）"
+                  - option "/orca/medical/records（診療記録取得）"
+                  - option "/orca/patient/mutation（患者作成/更新/削除）"
+                  - option "/orca/chart/subjectives（主訴登録）"
+                - paragraph [ref=e869]: Trial 閉鎖のため stub 応答固定（Api_Result=79）
+              - generic [ref=e870]:
+                - generic [ref=e871]: payload (JSON)
+                - textbox "payload (JSON)" [ref=e872]: "{ \"requestNumber\": \"01\", \"patientId\": \"00002\", \"sets\": [ { \"medicalClass\": \"120\", \"medicationCode\": \"112007410\", \"medicationName\": \"テスト処方\", \"quantity\": \"1\", \"note\": \"stub\" } ] }"
+            - generic [ref=e873]:
+              - button "送信" [ref=e874] [cursor=pointer]
+              - button "テンプレ再生成" [ref=e875] [cursor=pointer]
+        - region "Legacy REST 互換 API" [ref=e876]:
+          - generic [ref=e877]:
+            - heading "Legacy REST 互換 API（通常導線）" [level=2] [ref=e878]
+            - generic [ref=e879]: Legacy REST
+          - paragraph [ref=e880]: system_admin 専用の疎通確認。2xx/4xx 判定と監査ログ（legacy=true）を記録します。
+          - list [ref=e881]:
+            - listitem [ref=e882]:
+              - generic [ref=e883]:
+                - generic [ref=e884]:
+                  - strong [ref=e885]: /pvt
+                  - generic [ref=e886]: GET
+                - paragraph [ref=e887]: 受付/来院（PVT）一覧。
+                - paragraph [ref=e888]: 未送信
+              - generic [ref=e889]:
+                - button "疎通確認" [ref=e890] [cursor=pointer]
+                - status [ref=e891]: 未送信
+            - listitem [ref=e892]:
+              - generic [ref=e893]:
+                - generic [ref=e894]:
+                  - strong [ref=e895]: /pvt2
+                  - generic [ref=e896]: GET
+                - paragraph [ref=e897]: 受付/来院（PVT2）一覧。
+                - paragraph [ref=e898]: 未送信
+              - generic [ref=e899]:
+                - button "疎通確認" [ref=e900] [cursor=pointer]
+                - status [ref=e901]: 未送信
+            - listitem [ref=e902]:
+              - generic [ref=e903]:
+                - generic [ref=e904]:
+                  - strong [ref=e905]: /appo
+                  - generic [ref=e906]: GET
+                - paragraph [ref=e907]: 予約/来院情報（Legacy appo）。
+                - paragraph [ref=e908]: 未送信
+              - generic [ref=e909]:
+                - button "疎通確認" [ref=e910] [cursor=pointer]
+                - status [ref=e911]: 未送信
+            - listitem [ref=e912]:
+              - generic [ref=e913]:
+                - generic [ref=e914]:
+                  - strong [ref=e915]: /karte
+                  - generic [ref=e916]: GET
+                - paragraph [ref=e917]: カルテ（Karte）情報。
+                - paragraph [ref=e918]: 未送信
+              - generic [ref=e919]:
+                - button "疎通確認" [ref=e920] [cursor=pointer]
+                - status [ref=e921]: 未送信
+            - listitem [ref=e922]:
+              - generic [ref=e923]:
+                - generic [ref=e924]:
+                  - strong [ref=e925]: /stamp
+                  - generic [ref=e926]: GET
+                - paragraph [ref=e927]: スタンプツリー/スタンプ情報。
+                - paragraph [ref=e928]: 未送信
+              - generic [ref=e929]:
+                - button "疎通確認" [ref=e930] [cursor=pointer]
+                - status [ref=e931]: 未送信
+            - listitem [ref=e932]:
+              - generic [ref=e933]:
+                - generic [ref=e934]:
+                  - strong [ref=e935]: /patient
+                  - generic [ref=e936]: GET
+                - paragraph [ref=e937]: 患者情報（Legacy REST）。
+                - paragraph [ref=e938]: 未送信
+              - generic [ref=e939]:
+                - button "疎通確認" [ref=e940] [cursor=pointer]
+                - status [ref=e941]: 未送信
+            - listitem [ref=e942]:
+              - generic [ref=e943]:
+                - generic [ref=e944]:
+                  - strong [ref=e945]: /odletter
+                  - generic [ref=e946]: GET
+                - paragraph [ref=e947]: 文書（紹介状など）情報。
+                - paragraph [ref=e948]: 未送信
+              - generic [ref=e949]:
+                - button "疎通確認" [ref=e950] [cursor=pointer]
+                - status [ref=e951]: 未送信
+            - listitem [ref=e952]:
+              - generic [ref=e953]:
+                - generic [ref=e954]:
+                  - strong [ref=e955]: /schedule
+                  - generic [ref=e956]: GET
+                - paragraph [ref=e957]: スケジュール情報。
+                - paragraph [ref=e958]: 未送信
+              - generic [ref=e959]:
+                - button "疎通確認" [ref=e960] [cursor=pointer]
+                - status [ref=e961]: 未送信
+            - listitem [ref=e962]:
+              - generic [ref=e963]:
+                - generic [ref=e964]:
+                  - strong [ref=e965]: /reporting/karte
+                  - generic [ref=e966]: GET
+                - paragraph [ref=e967]: 帳票（カルテ）出力。
+                - paragraph [ref=e968]: 未送信
+              - generic [ref=e969]:
+                - button "疎通確認" [ref=e970] [cursor=pointer]
+                - status [ref=e971]: 未送信
+            - listitem [ref=e972]:
+              - generic [ref=e973]:
+                - generic [ref=e974]:
+                  - strong [ref=e975]: /lab
+                  - generic [ref=e976]: GET
+                - paragraph [ref=e977]: 検体/検査関連情報。
+                - paragraph [ref=e978]: 未送信
+              - generic [ref=e979]:
+                - button "疎通確認" [ref=e980] [cursor=pointer]
+                - status [ref=e981]: 未送信
+            - listitem [ref=e982]:
+              - generic [ref=e983]:
+                - generic [ref=e984]:
+                  - strong [ref=e985]: /mml
+                  - generic [ref=e986]: GET
+                - paragraph [ref=e987]: MML データ連携。
+                - paragraph [ref=e988]: 未送信
+              - generic [ref=e989]:
+                - button "疎通確認" [ref=e990] [cursor=pointer]
+                - status [ref=e991]: 未送信
+            - listitem [ref=e992]:
+              - generic [ref=e993]:
+                - generic [ref=e994]:
+                  - strong [ref=e995]: /chartEvent
+                  - generic [ref=e996]: GET
+                - paragraph [ref=e997]: チャートイベント履歴。
+                - paragraph [ref=e998]: 未送信
+              - generic [ref=e999]:
+                - button "疎通確認" [ref=e1000] [cursor=pointer]
+                - status [ref=e1001]: 未送信
+            - listitem [ref=e1002]:
+              - generic [ref=e1003]:
+                - generic [ref=e1004]:
+                  - strong [ref=e1005]: /chart-events
+                  - generic [ref=e1006]: GET
+                - paragraph [ref=e1007]: チャートイベントストリーム。
+                - paragraph [ref=e1008]: 未送信
+              - generic [ref=e1009]:
+                - button "疎通確認" [ref=e1010] [cursor=pointer]
+                - status [ref=e1011]: 未送信
+            - listitem [ref=e1012]:
+              - generic [ref=e1013]:
+                - generic [ref=e1014]:
+                  - strong [ref=e1015]: /system
+                  - generic [ref=e1016]: GET
+                - paragraph [ref=e1017]: システム情報（Legacy REST）。
+                - paragraph [ref=e1018]: 未送信
+              - generic [ref=e1019]:
+                - button "疎通確認" [ref=e1020] [cursor=pointer]
+                - status [ref=e1021]: 未送信
+            - listitem [ref=e1022]:
+              - generic [ref=e1023]:
+                - generic [ref=e1024]:
+                  - strong [ref=e1025]: /serverinfo
+                  - generic [ref=e1026]: GET
+                - paragraph [ref=e1027]: サーバー情報。
+                - paragraph [ref=e1028]: 未送信
+              - generic [ref=e1029]:
+                - button "疎通確認" [ref=e1030] [cursor=pointer]
+                - status [ref=e1031]: 未送信
+            - listitem [ref=e1032]:
+              - generic [ref=e1033]:
+                - generic [ref=e1034]:
+                  - strong [ref=e1035]: /demo
+                  - generic [ref=e1036]: GET
+                - paragraph [ref=e1037]: デモ系エンドポイント。
+                - paragraph [ref=e1038]: 未送信
+              - generic [ref=e1039]:
+                - button "疎通確認" [ref=e1040] [cursor=pointer]
+                - status [ref=e1041]: 未送信
+        - region "Touch/ADM/PHR API" [ref=e1042]:
+          - generic [ref=e1043]:
+            - heading "Touch / ADM / PHR API（接続確認）" [level=2] [ref=e1044]
+            - generic [ref=e1045]: Touch/ADM/PHR
+          - paragraph [ref=e1046]: system_admin 専用の疎通確認。主要 endpoint を 200/4xx で確認し、監査ログと UI メトリクスを記録します。
+          - generic [ref=e1047]:
+            - generic [ref=e1048]:
+              - generic [ref=e1049]: facilityId
+              - textbox "facilityId" [ref=e1050]: 1.3.6.1.4.1.9414.10.1
+            - generic [ref=e1051]:
+              - generic [ref=e1052]: userId
+              - textbox "userId" [ref=e1053]: 1.3.6.1.4.1.9414.10.1:dolphindev
+            - generic [ref=e1054]:
+              - generic [ref=e1055]: patientId
+              - textbox "patientId" [ref=e1056]: "00002"
+            - generic [ref=e1057]:
+              - generic [ref=e1058]: patientPk
+              - textbox "patientPk" [ref=e1059]: "1"
+            - generic [ref=e1060]:
+              - generic [ref=e1061]: accessKey
+              - textbox "accessKey" [ref=e1062]: ACCESS-KEY
+          - generic [ref=e1063]:
+            - generic [ref=e1064]:
+              - heading "Touch" [level=3] [ref=e1065]
+              - generic [ref=e1066]: 9 endpoints
+            - list [ref=e1067]:
+              - listitem [ref=e1068]:
+                - generic [ref=e1069]:
+                  - generic [ref=e1070]:
+                    - strong [ref=e1071]: /touch/user/1.3.6.1.4.1.9414.10.1:dolphindev,1.3.6.1.4.1.9414.10.1,1cc2f4c06fd32d0a6e2fa33f6e1c9164
+                    - generic [ref=e1072]: GET
+                  - paragraph [ref=e1073]: Touch ユーザー取得。パラメータ不足は 4xx 想定。
+                  - paragraph [ref=e1074]: 未送信
+                - generic [ref=e1075]:
+                  - button "疎通確認" [ref=e1076] [cursor=pointer]
+                  - status [ref=e1077]: 未送信
+              - listitem [ref=e1078]:
+                - generic [ref=e1079]:
+                  - generic [ref=e1080]:
+                    - strong [ref=e1081]: /touch/patient/1
+                    - generic [ref=e1082]: GET
+                  - paragraph [ref=e1083]: Touch 患者情報。pk は DB 主キー。
+                  - paragraph [ref=e1084]: 未送信
+                - generic [ref=e1085]:
+                  - button "疎通確認" [ref=e1086] [cursor=pointer]
+                  - status [ref=e1087]: 未送信
+              - listitem [ref=e1088]:
+                - generic [ref=e1089]:
+                  - generic [ref=e1090]:
+                    - strong [ref=e1091]: /touch/patientPackage/1
+                    - generic [ref=e1092]: GET
+                  - paragraph [ref=e1093]: Touch 患者パッケージ。pk は DB 主キー。
+                  - paragraph [ref=e1094]: 未送信
+                - generic [ref=e1095]:
+                  - button "疎通確認" [ref=e1096] [cursor=pointer]
+                  - status [ref=e1097]: 未送信
+              - listitem [ref=e1098]:
+                - generic [ref=e1099]:
+                  - generic [ref=e1100]:
+                    - strong [ref=e1101]: /touch/patients/name/1.3.6.1.4.1.9414.10.1,テスト,0,10
+                    - generic [ref=e1102]: GET
+                  - paragraph [ref=e1103]: Touch 患者検索。facilityId,キーワード,開始,件数。
+                  - paragraph [ref=e1104]: 未送信
+                - generic [ref=e1105]:
+                  - button "疎通確認" [ref=e1106] [cursor=pointer]
+                  - status [ref=e1107]: 未送信
+              - listitem [ref=e1108]:
+                - generic [ref=e1109]:
+                  - generic [ref=e1110]:
+                    - strong [ref=e1111]: /touch/patient/visit?facility=1.3.6.1.4.1.9414.10.1&offset=0&limit=10&sort=pvtDate&order=desc
+                    - generic [ref=e1112]: GET
+                  - paragraph [ref=e1113]: Touch 受付一覧（JSON）。
+                  - paragraph [ref=e1114]: 未送信
+                - generic [ref=e1115]:
+                  - button "疎通確認" [ref=e1116] [cursor=pointer]
+                  - status [ref=e1117]: 未送信
+              - listitem [ref=e1118]:
+                - generic [ref=e1119]:
+                  - generic [ref=e1120]:
+                    - strong [ref=e1121]: /jtouch/patients/count
+                    - generic [ref=e1122]: GET
+                  - paragraph [ref=e1123]: JsonTouch 患者件数。
+                  - paragraph [ref=e1124]: 未送信
+                - generic [ref=e1125]:
+                  - button "疎通確認" [ref=e1126] [cursor=pointer]
+                  - status [ref=e1127]: 未送信
+              - listitem [ref=e1128]:
+                - generic [ref=e1129]:
+                  - generic [ref=e1130]:
+                    - strong [ref=e1131]: /jtouch/patients/name/テスト,0,10
+                    - generic [ref=e1132]: GET
+                  - paragraph [ref=e1133]: JsonTouch 患者検索（facilityId は認証から取得）。
+                  - paragraph [ref=e1134]: 未送信
+                - generic [ref=e1135]:
+                  - button "疎通確認" [ref=e1136] [cursor=pointer]
+                  - status [ref=e1137]: 未送信
+              - listitem [ref=e1138]:
+                - generic [ref=e1139]:
+                  - generic [ref=e1140]:
+                    - strong [ref=e1141]: /jtouch/user/1.3.6.1.4.1.9414.10.1:1.3.6.1.4.1.9414.10.1:dolphindev
+                    - generic [ref=e1142]: GET
+                  - paragraph [ref=e1143]: JsonTouch ユーザー情報。
+                  - paragraph [ref=e1144]: 未送信
+                - generic [ref=e1145]:
+                  - button "疎通確認" [ref=e1146] [cursor=pointer]
+                  - status [ref=e1147]: 未送信
+              - listitem [ref=e1148]:
+                - generic [ref=e1149]:
+                  - generic [ref=e1150]:
+                    - strong [ref=e1151]: /10/eht/serverinfo
+                    - generic [ref=e1152]: GET
+                  - paragraph [ref=e1153]: Touch EHT サーバー設定。
+                  - paragraph [ref=e1154]: 未送信
+                - generic [ref=e1155]:
+                  - button "疎通確認" [ref=e1156] [cursor=pointer]
+                  - status [ref=e1157]: 未送信
+          - generic [ref=e1158]:
+            - generic [ref=e1159]:
+              - heading "ADM10" [level=3] [ref=e1160]
+              - generic [ref=e1161]: 2 endpoints
+            - list [ref=e1162]:
+              - listitem [ref=e1163]:
+                - generic [ref=e1164]:
+                  - generic [ref=e1165]:
+                    - strong [ref=e1166]: /10/adm/jtouch/patients/count
+                    - generic [ref=e1167]: GET
+                  - paragraph [ref=e1168]: ADM10 JsonTouch 患者件数。
+                  - paragraph [ref=e1169]: 未送信
+                - generic [ref=e1170]:
+                  - button "疎通確認" [ref=e1171] [cursor=pointer]
+                  - status [ref=e1172]: 未送信
+              - listitem [ref=e1173]:
+                - generic [ref=e1174]:
+                  - generic [ref=e1175]:
+                    - strong [ref=e1176]: /10/adm/jtouch/patients/name/テスト,0,10
+                    - generic [ref=e1177]: GET
+                  - paragraph [ref=e1178]: ADM10 JsonTouch 患者検索。
+                  - paragraph [ref=e1179]: 未送信
+                - generic [ref=e1180]:
+                  - button "疎通確認" [ref=e1181] [cursor=pointer]
+                  - status [ref=e1182]: 未送信
+          - generic [ref=e1183]:
+            - generic [ref=e1184]:
+              - heading "ADM20" [level=3] [ref=e1185]
+              - generic [ref=e1186]: 3 endpoints
+            - list [ref=e1187]:
+              - listitem [ref=e1188]:
+                - generic [ref=e1189]:
+                  - generic [ref=e1190]:
+                    - strong [ref=e1191]: /20/adm/jtouch/patients/count
+                    - generic [ref=e1192]: GET
+                  - paragraph [ref=e1193]: ADM20 JsonTouch 患者件数。
+                  - paragraph [ref=e1194]: 未送信
+                - generic [ref=e1195]:
+                  - button "疎通確認" [ref=e1196] [cursor=pointer]
+                  - status [ref=e1197]: 未送信
+              - listitem [ref=e1198]:
+                - generic [ref=e1199]:
+                  - generic [ref=e1200]:
+                    - strong [ref=e1201]: /20/adm/eht/serverinfo
+                    - generic [ref=e1202]: GET
+                  - paragraph [ref=e1203]: ADM20 EHT サーバー設定。
+                  - paragraph [ref=e1204]: 未送信
+                - generic [ref=e1205]:
+                  - button "疎通確認" [ref=e1206] [cursor=pointer]
+                  - status [ref=e1207]: 未送信
+              - listitem [ref=e1208]:
+                - generic [ref=e1209]:
+                  - generic [ref=e1210]:
+                    - strong [ref=e1211]: /20/adm/carePlan/1
+                    - generic [ref=e1212]: GET
+                  - paragraph [ref=e1213]: ADM20 入院ケアプラン。
+                  - paragraph [ref=e1214]: 未送信
+                - generic [ref=e1215]:
+                  - button "疎通確認" [ref=e1216] [cursor=pointer]
+                  - status [ref=e1217]: 未送信
+          - generic [ref=e1218]:
+            - generic [ref=e1219]:
+              - heading "PHR" [level=3] [ref=e1220]
+              - generic [ref=e1221]: 2 endpoints
+            - list [ref=e1222]:
+              - listitem [ref=e1223]:
+                - generic [ref=e1224]:
+                  - generic [ref=e1225]:
+                    - strong [ref=e1226]: /20/adm/phr/accessKey/ACCESS-KEY
+                    - generic [ref=e1227]: GET
+                  - paragraph [ref=e1228]: PHR アクセスキー取得。
+                  - paragraph [ref=e1229]: 未送信
+                - generic [ref=e1230]:
+                  - button "疎通確認" [ref=e1231] [cursor=pointer]
+                  - status [ref=e1232]: 未送信
+              - listitem [ref=e1233]:
+                - generic [ref=e1234]:
+                  - generic [ref=e1235]:
+                    - strong [ref=e1236]: /20/adm/phr/patient/00002
+                    - generic [ref=e1237]: GET
+                  - paragraph [ref=e1238]: PHR 患者キー取得。
+                  - paragraph [ref=e1239]: 未送信
+                - generic [ref=e1240]:
+                  - button "疎通確認" [ref=e1241] [cursor=pointer]
+                  - status [ref=e1242]: 未送信
+        - region "配信キュー一覧" [ref=e1243]:
+          - heading "配信キュー" [level=2] [ref=e1244]
+          - paragraph [ref=e1245]: 未配信のバンドルを確認し、必要に応じて再送（retry）または破棄します。遅延判定は 5分超の pending を対象とし、失敗と合わせて警告バナーに反映します。
+          - table [ref=e1246]:
+            - rowgroup [ref=e1247]:
+              - row "patientId status lastDispatch headers actions" [ref=e1248]:
+                - columnheader "patientId" [ref=e1249]
+                - columnheader "status" [ref=e1250]
+                - columnheader "lastDispatch" [ref=e1251]
+                - columnheader "headers" [ref=e1252]
+                - columnheader "actions" [ref=e1253]: 操作
+            - rowgroup [ref=e1254]:
+              - row "未配信キューはありません。" [ref=e1255]:
+                - cell "未配信キューはありません。" [ref=e1256]
+    - complementary

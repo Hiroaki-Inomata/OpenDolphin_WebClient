@@ -1,0 +1,659 @@
+- generic [ref=e2]:
+  - link "本文へスキップ" [ref=e34] [cursor=pointer]:
+    - /url: "#app-shell-main"
+  - generic [ref=e35]:
+    - status [ref=e36]:
+      - generic [ref=e37]:
+        - generic [ref=e38]: OpenDolphin Web
+        - generic [ref=e39]: 電子カルテデモシェル
+      - generic [ref=e40]:
+        - generic [ref=e41]: "施設ID: 1.3.6.1.4.1.9414.10.1"
+        - generic [ref=e42]: "ユーザー: Dolphin Dev"
+        - generic [ref=e43]: "role: admin 認可ロール"
+        - 'button "RUN_ID をコピー: 20260210T161945Z" [ref=e44] [cursor=pointer]':
+          - text: "RUN_ID: 20260210T161945Z"
+          - generic [ref=e45]: クリックでコピー
+        - button "管理画面を開く" [ref=e46] [cursor=pointer]: 管理画面
+        - button "施設/ユーザー切替" [ref=e47] [cursor=pointer]
+        - button "ログアウト" [ref=e48] [cursor=pointer]
+    - status "画面ナビゲーション" [ref=e49]:
+      - link "Reception" [active] [ref=e50] [cursor=pointer]:
+        - /url: /f/1.3.6.1.4.1.9414.10.1/reception
+      - link "Charts" [ref=e51] [cursor=pointer]:
+        - /url: /f/1.3.6.1.4.1.9414.10.1/charts
+      - link "Patients" [ref=e52] [cursor=pointer]:
+        - /url: /f/1.3.6.1.4.1.9414.10.1/patients
+      - link "Administration" [ref=e53] [cursor=pointer]:
+        - /url: /f/1.3.6.1.4.1.9414.10.1/administration
+      - status [ref=e54]:
+        - generic [ref=e55]: RUN_ID
+        - generic [ref=e56]: 20260210T161945Z
+        - button "RUN_ID をコピー" [ref=e57] [cursor=pointer]: コピー
+    - main [ref=e1403]:
+      - link "検索結果へスキップ" [ref=e1404] [cursor=pointer]:
+        - /url: "#reception-results"
+      - link "右ペインへスキップ" [ref=e1405] [cursor=pointer]:
+        - /url: "#reception-sidepane"
+      - generic [ref=e1406]:
+        - heading "Reception 受付一覧と更新状況" [level=1] [ref=e1407]
+        - paragraph [ref=e1408]: 受付一覧の状態と更新時刻をひと目で確認し、例外対応とカルテ起動の優先度を判断します。選択した患者は右ペインで詳細を確認できます。
+        - status [ref=e1409]:
+          - status [ref=e1410]:
+            - generic [ref=e1411]: RUN_ID
+            - generic [ref=e1412]: 20260210T161945Z
+            - button "RUN_ID をコピー" [ref=e1413] [cursor=pointer]: コピー
+          - 'status "dataSourceTransition: server" [ref=e1414]':
+            - generic [ref=e1415]: dataSourceTransition
+            - generic [ref=e1416]: server
+          - 'status "missingMaster: false" [ref=e1417]':
+            - generic [ref=e1418]: missingMaster
+            - generic [ref=e1419]: "false"
+          - 'status "cacheHit: false" [ref=e1420]':
+            - generic [ref=e1421]: cacheHit
+            - generic [ref=e1422]: "false"
+          - status [ref=e1423]:
+            - generic [ref=e1424]: "監査サマリ:"
+            - generic [ref=e1425]: RECEPTION_EXCEPTION_LIST(info)
+          - 'status "最終更新: 2026/2/11 1:45:26" [ref=e1973]':
+            - generic [ref=e1427]: 最終更新
+            - generic [ref=e1428]: 2026/2/11 1:45:26
+          - button "例外一覧を開く（0件）" [ref=e1429] [cursor=pointer]:
+            - generic [ref=e1430]: "!"
+            - generic [ref=e1431]: 例外
+            - generic [ref=e1432]: "0"
+        - region "検索とフィルタ" [ref=e1433]:
+          - generic [ref=e1434]:
+            - generic [ref=e1435]:
+              - heading "検索/フィルタ" [level=2] [ref=e1436]
+              - generic [ref=e1437]:
+                - generic [ref=e1438]: "日付: 2026-02-10"
+                - generic [ref=e1439]: "kw: —"
+                - generic [ref=e1440]: "科: すべて"
+                - generic [ref=e1441]: "医: すべて"
+                - generic [ref=e1442]: "支払: すべて"
+                - generic [ref=e1443]: "sort: time"
+              - generic [ref=e1444]: "検索結果 21件（予約: 0件 / 受付中: 21件 / 診療中: 0件 / 会計待ち: 0件 / 会計済み: 0件）"
+            - button "開く" [ref=e1445] [cursor=pointer]
+        - region "警告/通知" [ref=e1446]:
+          - 'alert "注意、予約/来院データに不整合があります（患者ID欠損: 21 / 予約ID欠損: 21 / 受付ID欠損: 21）、送信先: Reception、次アクション: 一覧を確認" [ref=e1447]':
+            - generic [ref=e1448]: 注意
+            - paragraph [ref=e1449]: "予約/来院データに不整合があります（患者ID欠損: 21 / 予約ID欠損: 21 / 受付ID欠損: 21） ｜ 送信先: Reception ｜ 次アクション: 一覧を確認"
+      - generic [ref=e1450]:
+        - generic [ref=e1451]:
+          - generic [ref=e1452]:
+            - generic [ref=e1453]:
+              - generic [ref=e1454]: 選択中
+              - strong [ref=e1455]: 未選択
+              - generic [ref=e1456]: 一覧の行を選択してください。
+            - generic [ref=e1457]:
+              - button "Charts 新規タブ" [disabled] [ref=e1458]
+              - button "受付取消" [disabled] [ref=e1459]
+              - button "過去カルテ" [disabled] [ref=e1460] [cursor=pointer]
+              - generic [ref=e1461]: 行クリックで右ペイン更新 / ダブルクリック・Enter で Charts（新規タブ）
+          - region "ステータス別患者一覧" [ref=e1462]:
+            - region "予約カート 0件" [ref=e1463]:
+              - generic [ref=e1464]:
+                - generic [ref=e1465]:
+                  - heading "予約カート" [level=2] [ref=e1466]
+                  - generic [ref=e1467]: 0件
+                - button "折りたたむ" [expanded] [ref=e1468] [cursor=pointer]
+              - list "予約カートの患者一覧" [ref=e1469]:
+                - paragraph [ref=e1470]: 該当なし
+            - region "受付中 21件" [ref=e1471]:
+              - generic [ref=e1472]:
+                - generic [ref=e1473]:
+                  - heading "受付中" [level=2] [ref=e1474]
+                  - generic [ref=e1475]: 21件
+                - button "折りたたむ" [expanded] [ref=e1476] [cursor=pointer]
+              - list "受付中の患者一覧" [ref=e1477]:
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1478] [cursor=pointer]':
+                  - generic [ref=e1479]:
+                    - 'generic "受付: —" [ref=e1480]':
+                      - generic [ref=e1481]:
+                        - generic [ref=e1482]: 受付
+                        - generic [ref=e1483]: —
+                      - generic "種別/経過" [ref=e1484]:
+                        - generic "予約なし（当日受付）" [ref=e1485]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1486]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1487]:
+                    - generic [ref=e1488]:
+                      - text: "患者ID:"
+                      - code [ref=e1489]
+                    - generic [ref=e1490]: "直近: 2026-02-10"
+                  - generic [ref=e1491]:
+                    - 'status "支払区分: 不明" [ref=e1492]': 不明
+                    - generic [ref=e1493]: 未取得
+                  - generic [ref=e1494]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1495]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1496]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1497]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1498] [cursor=pointer]':
+                  - generic [ref=e1499]:
+                    - 'generic "受付: —" [ref=e1500]':
+                      - generic [ref=e1501]:
+                        - generic [ref=e1502]: 受付
+                        - generic [ref=e1503]: —
+                      - generic "種別/経過" [ref=e1504]:
+                        - generic "予約なし（当日受付）" [ref=e1505]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1506]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1507]:
+                    - generic [ref=e1508]:
+                      - text: "患者ID:"
+                      - code [ref=e1509]
+                    - generic [ref=e1510]: "直近: 2026-02-10"
+                  - generic [ref=e1511]:
+                    - 'status "支払区分: 不明" [ref=e1512]': 不明
+                    - generic [ref=e1513]: 未取得
+                  - generic [ref=e1514]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1515]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1516]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1517]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1518] [cursor=pointer]':
+                  - generic [ref=e1519]:
+                    - 'generic "受付: —" [ref=e1520]':
+                      - generic [ref=e1521]:
+                        - generic [ref=e1522]: 受付
+                        - generic [ref=e1523]: —
+                      - generic "種別/経過" [ref=e1524]:
+                        - generic "予約なし（当日受付）" [ref=e1525]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1526]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1527]:
+                    - generic [ref=e1528]:
+                      - text: "患者ID:"
+                      - code [ref=e1529]
+                    - generic [ref=e1530]: "直近: 2026-02-10"
+                  - generic [ref=e1531]:
+                    - 'status "支払区分: 不明" [ref=e1532]': 不明
+                    - generic [ref=e1533]: 未取得
+                  - generic [ref=e1534]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1535]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1536]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1537]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1538] [cursor=pointer]':
+                  - generic [ref=e1539]:
+                    - 'generic "受付: —" [ref=e1540]':
+                      - generic [ref=e1541]:
+                        - generic [ref=e1542]: 受付
+                        - generic [ref=e1543]: —
+                      - generic "種別/経過" [ref=e1544]:
+                        - generic "予約なし（当日受付）" [ref=e1545]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1546]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1547]:
+                    - generic [ref=e1548]:
+                      - text: "患者ID:"
+                      - code [ref=e1549]
+                    - generic [ref=e1550]: "直近: 2026-02-10"
+                  - generic [ref=e1551]:
+                    - 'status "支払区分: 不明" [ref=e1552]': 不明
+                    - generic [ref=e1553]: 未取得
+                  - generic [ref=e1554]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1555]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1556]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1557]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1558] [cursor=pointer]':
+                  - generic [ref=e1559]:
+                    - 'generic "受付: —" [ref=e1560]':
+                      - generic [ref=e1561]:
+                        - generic [ref=e1562]: 受付
+                        - generic [ref=e1563]: —
+                      - generic "種別/経過" [ref=e1564]:
+                        - generic "予約なし（当日受付）" [ref=e1565]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1566]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1567]:
+                    - generic [ref=e1568]:
+                      - text: "患者ID:"
+                      - code [ref=e1569]
+                    - generic [ref=e1570]: "直近: 2026-02-10"
+                  - generic [ref=e1571]:
+                    - 'status "支払区分: 不明" [ref=e1572]': 不明
+                    - generic [ref=e1573]: 未取得
+                  - generic [ref=e1574]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1575]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1576]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1577]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1578] [cursor=pointer]':
+                  - generic [ref=e1579]:
+                    - 'generic "受付: —" [ref=e1580]':
+                      - generic [ref=e1581]:
+                        - generic [ref=e1582]: 受付
+                        - generic [ref=e1583]: —
+                      - generic "種別/経過" [ref=e1584]:
+                        - generic "予約なし（当日受付）" [ref=e1585]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1586]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1587]:
+                    - generic [ref=e1588]:
+                      - text: "患者ID:"
+                      - code [ref=e1589]
+                    - generic [ref=e1590]: "直近: 2026-02-10"
+                  - generic [ref=e1591]:
+                    - 'status "支払区分: 不明" [ref=e1592]': 不明
+                    - generic [ref=e1593]: 未取得
+                  - generic [ref=e1594]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1595]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1596]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1597]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1598] [cursor=pointer]':
+                  - generic [ref=e1599]:
+                    - 'generic "受付: —" [ref=e1600]':
+                      - generic [ref=e1601]:
+                        - generic [ref=e1602]: 受付
+                        - generic [ref=e1603]: —
+                      - generic "種別/経過" [ref=e1604]:
+                        - generic "予約なし（当日受付）" [ref=e1605]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1606]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1607]:
+                    - generic [ref=e1608]:
+                      - text: "患者ID:"
+                      - code [ref=e1609]
+                    - generic [ref=e1610]: "直近: 2026-02-10"
+                  - generic [ref=e1611]:
+                    - 'status "支払区分: 不明" [ref=e1612]': 不明
+                    - generic [ref=e1613]: 未取得
+                  - generic [ref=e1614]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1615]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1616]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1617]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1618] [cursor=pointer]':
+                  - generic [ref=e1619]:
+                    - 'generic "受付: —" [ref=e1620]':
+                      - generic [ref=e1621]:
+                        - generic [ref=e1622]: 受付
+                        - generic [ref=e1623]: —
+                      - generic "種別/経過" [ref=e1624]:
+                        - generic "予約なし（当日受付）" [ref=e1625]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1626]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1627]:
+                    - generic [ref=e1628]:
+                      - text: "患者ID:"
+                      - code [ref=e1629]
+                    - generic [ref=e1630]: "直近: 2026-02-10"
+                  - generic [ref=e1631]:
+                    - 'status "支払区分: 不明" [ref=e1632]': 不明
+                    - generic [ref=e1633]: 未取得
+                  - generic [ref=e1634]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1635]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1636]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1637]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1638] [cursor=pointer]':
+                  - generic [ref=e1639]:
+                    - 'generic "受付: —" [ref=e1640]':
+                      - generic [ref=e1641]:
+                        - generic [ref=e1642]: 受付
+                        - generic [ref=e1643]: —
+                      - generic "種別/経過" [ref=e1644]:
+                        - generic "予約なし（当日受付）" [ref=e1645]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1646]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1647]:
+                    - generic [ref=e1648]:
+                      - text: "患者ID:"
+                      - code [ref=e1649]
+                    - generic [ref=e1650]: "直近: 2026-02-10"
+                  - generic [ref=e1651]:
+                    - 'status "支払区分: 不明" [ref=e1652]': 不明
+                    - generic [ref=e1653]: 未取得
+                  - generic [ref=e1654]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1655]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1656]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1657]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1658] [cursor=pointer]':
+                  - generic [ref=e1659]:
+                    - 'generic "受付: —" [ref=e1660]':
+                      - generic [ref=e1661]:
+                        - generic [ref=e1662]: 受付
+                        - generic [ref=e1663]: —
+                      - generic "種別/経過" [ref=e1664]:
+                        - generic "予約なし（当日受付）" [ref=e1665]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1666]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1667]:
+                    - generic [ref=e1668]:
+                      - text: "患者ID:"
+                      - code [ref=e1669]
+                    - generic [ref=e1670]: "直近: 2026-02-10"
+                  - generic [ref=e1671]:
+                    - 'status "支払区分: 不明" [ref=e1672]': 不明
+                    - generic [ref=e1673]: 未取得
+                  - generic [ref=e1674]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1675]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1676]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1677]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1678] [cursor=pointer]':
+                  - generic [ref=e1679]:
+                    - 'generic "受付: —" [ref=e1680]':
+                      - generic [ref=e1681]:
+                        - generic [ref=e1682]: 受付
+                        - generic [ref=e1683]: —
+                      - generic "種別/経過" [ref=e1684]:
+                        - generic "予約なし（当日受付）" [ref=e1685]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1686]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1687]:
+                    - generic [ref=e1688]:
+                      - text: "患者ID:"
+                      - code [ref=e1689]
+                    - generic [ref=e1690]: "直近: 2026-02-10"
+                  - generic [ref=e1691]:
+                    - 'status "支払区分: 不明" [ref=e1692]': 不明
+                    - generic [ref=e1693]: 未取得
+                  - generic [ref=e1694]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1695]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1696]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1697]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1698] [cursor=pointer]':
+                  - generic [ref=e1699]:
+                    - 'generic "受付: —" [ref=e1700]':
+                      - generic [ref=e1701]:
+                        - generic [ref=e1702]: 受付
+                        - generic [ref=e1703]: —
+                      - generic "種別/経過" [ref=e1704]:
+                        - generic "予約なし（当日受付）" [ref=e1705]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1706]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1707]:
+                    - generic [ref=e1708]:
+                      - text: "患者ID:"
+                      - code [ref=e1709]
+                    - generic [ref=e1710]: "直近: 2026-02-10"
+                  - generic [ref=e1711]:
+                    - 'status "支払区分: 不明" [ref=e1712]': 不明
+                    - generic [ref=e1713]: 未取得
+                  - generic [ref=e1714]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1715]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1716]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1717]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1718] [cursor=pointer]':
+                  - generic [ref=e1719]:
+                    - 'generic "受付: —" [ref=e1720]':
+                      - generic [ref=e1721]:
+                        - generic [ref=e1722]: 受付
+                        - generic [ref=e1723]: —
+                      - generic "種別/経過" [ref=e1724]:
+                        - generic "予約なし（当日受付）" [ref=e1725]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1726]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1727]:
+                    - generic [ref=e1728]:
+                      - text: "患者ID:"
+                      - code [ref=e1729]
+                    - generic [ref=e1730]: "直近: 2026-02-10"
+                  - generic [ref=e1731]:
+                    - 'status "支払区分: 不明" [ref=e1732]': 不明
+                    - generic [ref=e1733]: 未取得
+                  - generic [ref=e1734]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1735]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1736]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1737]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1738] [cursor=pointer]':
+                  - generic [ref=e1739]:
+                    - 'generic "受付: —" [ref=e1740]':
+                      - generic [ref=e1741]:
+                        - generic [ref=e1742]: 受付
+                        - generic [ref=e1743]: —
+                      - generic "種別/経過" [ref=e1744]:
+                        - generic "予約なし（当日受付）" [ref=e1745]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1746]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1747]:
+                    - generic [ref=e1748]:
+                      - text: "患者ID:"
+                      - code [ref=e1749]
+                    - generic [ref=e1750]: "直近: 2026-02-10"
+                  - generic [ref=e1751]:
+                    - 'status "支払区分: 不明" [ref=e1752]': 不明
+                    - generic [ref=e1753]: 未取得
+                  - generic [ref=e1754]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1755]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1756]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1757]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1758] [cursor=pointer]':
+                  - generic [ref=e1759]:
+                    - 'generic "受付: —" [ref=e1760]':
+                      - generic [ref=e1761]:
+                        - generic [ref=e1762]: 受付
+                        - generic [ref=e1763]: —
+                      - generic "種別/経過" [ref=e1764]:
+                        - generic "予約なし（当日受付）" [ref=e1765]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1766]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1767]:
+                    - generic [ref=e1768]:
+                      - text: "患者ID:"
+                      - code [ref=e1769]
+                    - generic [ref=e1770]: "直近: 2026-02-10"
+                  - generic [ref=e1771]:
+                    - 'status "支払区分: 不明" [ref=e1772]': 不明
+                    - generic [ref=e1773]: 未取得
+                  - generic [ref=e1774]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1775]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1776]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1777]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1778] [cursor=pointer]':
+                  - generic [ref=e1779]:
+                    - 'generic "受付: —" [ref=e1780]':
+                      - generic [ref=e1781]:
+                        - generic [ref=e1782]: 受付
+                        - generic [ref=e1783]: —
+                      - generic "種別/経過" [ref=e1784]:
+                        - generic "予約なし（当日受付）" [ref=e1785]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1786]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1787]:
+                    - generic [ref=e1788]:
+                      - text: "患者ID:"
+                      - code [ref=e1789]
+                    - generic [ref=e1790]: "直近: 2026-02-10"
+                  - generic [ref=e1791]:
+                    - 'status "支払区分: 不明" [ref=e1792]': 不明
+                    - generic [ref=e1793]: 未取得
+                  - generic [ref=e1794]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1795]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1796]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1797]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1798] [cursor=pointer]':
+                  - generic [ref=e1799]:
+                    - 'generic "受付: —" [ref=e1800]':
+                      - generic [ref=e1801]:
+                        - generic [ref=e1802]: 受付
+                        - generic [ref=e1803]: —
+                      - generic "種別/経過" [ref=e1804]:
+                        - generic "予約なし（当日受付）" [ref=e1805]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1806]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1807]:
+                    - generic [ref=e1808]:
+                      - text: "患者ID:"
+                      - code [ref=e1809]
+                    - generic [ref=e1810]: "直近: 2026-02-10"
+                  - generic [ref=e1811]:
+                    - 'status "支払区分: 不明" [ref=e1812]': 不明
+                    - generic [ref=e1813]: 未取得
+                  - generic [ref=e1814]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1815]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1816]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1817]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1818] [cursor=pointer]':
+                  - generic [ref=e1819]:
+                    - 'generic "受付: —" [ref=e1820]':
+                      - generic [ref=e1821]:
+                        - generic [ref=e1822]: 受付
+                        - generic [ref=e1823]: —
+                      - generic "種別/経過" [ref=e1824]:
+                        - generic "予約なし（当日受付）" [ref=e1825]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1826]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1827]:
+                    - generic [ref=e1828]:
+                      - text: "患者ID:"
+                      - code [ref=e1829]
+                    - generic [ref=e1830]: "直近: 2026-02-10"
+                  - generic [ref=e1831]:
+                    - 'status "支払区分: 不明" [ref=e1832]': 不明
+                    - generic [ref=e1833]: 未取得
+                  - generic [ref=e1834]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1835]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1836]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1837]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1838] [cursor=pointer]':
+                  - generic [ref=e1839]:
+                    - 'generic "受付: —" [ref=e1840]':
+                      - generic [ref=e1841]:
+                        - generic [ref=e1842]: 受付
+                        - generic [ref=e1843]: —
+                      - generic "種別/経過" [ref=e1844]:
+                        - generic "予約なし（当日受付）" [ref=e1845]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1846]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1847]:
+                    - generic [ref=e1848]:
+                      - text: "患者ID:"
+                      - code [ref=e1849]
+                    - generic [ref=e1850]: "直近: 2026-02-10"
+                  - generic [ref=e1851]:
+                    - 'status "支払区分: 不明" [ref=e1852]': 不明
+                    - generic [ref=e1853]: 未取得
+                  - generic [ref=e1854]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1855]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1856]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1857]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1858] [cursor=pointer]':
+                  - generic [ref=e1859]:
+                    - 'generic "受付: —" [ref=e1860]':
+                      - generic [ref=e1861]:
+                        - generic [ref=e1862]: 受付
+                        - generic [ref=e1863]: —
+                      - generic "種別/経過" [ref=e1864]:
+                        - generic "予約なし（当日受付）" [ref=e1865]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1866]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1867]:
+                    - generic [ref=e1868]:
+                      - text: "患者ID:"
+                      - code [ref=e1869]
+                    - generic [ref=e1870]: "直近: 2026-02-10"
+                  - generic [ref=e1871]:
+                    - 'status "支払区分: 不明" [ref=e1872]': 不明
+                    - generic [ref=e1873]: 未取得
+                  - generic [ref=e1874]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1875]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1876]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1877]: Charts新規
+                - 'button "受付: — 状態: 受付中 患者ID: 直近: 2026-02-10 支払区分: 不明 未取得 過去カルテ（カード） 受付取消（カード） Charts新規タブ（カード）" [pressed] [ref=e1878] [cursor=pointer]':
+                  - generic [ref=e1879]:
+                    - 'generic "受付: —" [ref=e1880]':
+                      - generic [ref=e1881]:
+                        - generic [ref=e1882]: 受付
+                        - generic [ref=e1883]: —
+                      - generic "種別/経過" [ref=e1884]:
+                        - generic "予約なし（当日受付）" [ref=e1885]: 当日受付
+                    - 'generic "状態: 受付中" [ref=e1886]': 受付中
+                  - generic:
+                    - strong
+                  - generic [ref=e1887]:
+                    - generic [ref=e1888]:
+                      - text: "患者ID:"
+                      - code [ref=e1889]
+                    - generic [ref=e1890]: "直近: 2026-02-10"
+                  - generic [ref=e1891]:
+                    - 'status "支払区分: 不明" [ref=e1892]': 不明
+                    - generic [ref=e1893]: 未取得
+                  - generic [ref=e1894]:
+                    - button "過去カルテ（カード）" [disabled] [ref=e1895]: 過去カルテ
+                    - button "受付取消（カード）" [disabled] [ref=e1896]: 受付取消
+                    - button "Charts新規タブ（カード）" [disabled] [ref=e1897]: Charts新規
+            - region "診療中 0件" [ref=e1898]:
+              - generic [ref=e1899]:
+                - generic [ref=e1900]:
+                  - heading "診療中" [level=2] [ref=e1901]
+                  - generic [ref=e1902]: 0件
+                - button "折りたたむ" [expanded] [ref=e1903] [cursor=pointer]
+              - list "診療中の患者一覧" [ref=e1904]:
+                - paragraph [ref=e1905]: 該当なし
+            - region "会計待ち 0件" [ref=e1906]:
+              - generic [ref=e1907]:
+                - generic [ref=e1908]:
+                  - heading "会計待ち" [level=2] [ref=e1909]
+                  - generic [ref=e1910]: 0件
+                - button "折りたたむ" [expanded] [ref=e1911] [cursor=pointer]
+              - list "会計待ちの患者一覧" [ref=e1912]:
+                - paragraph [ref=e1913]: 該当なし
+            - region "会計済み 0件" [ref=e1914]:
+              - generic [ref=e1915]:
+                - generic [ref=e1916]:
+                  - heading "会計済み" [level=2] [ref=e1917]
+                  - generic [ref=e1918]: 0件
+                - button "開く" [ref=e1919] [cursor=pointer]
+        - complementary "右ペイン" [ref=e1920]:
+          - region "当日受付" [ref=e1921]:
+            - generic [ref=e1922]:
+              - generic [ref=e1923]:
+                - heading "当日受付" [level=2] [ref=e1924]
+                - paragraph [ref=e1925]: 患者検索（AND）→ 選択 → 受付登録。
+              - status [ref=e1927]:
+                - generic [ref=e1928]: RUN_ID
+                - generic [ref=e1929]: 20260210T161945Z
+                - button "RUN_ID をコピー" [ref=e1930] [cursor=pointer]: コピー
+            - region "患者検索" [ref=e1931]:
+              - generic [ref=e1932]:
+                - heading "患者検索" [level=3] [ref=e1933]
+                - generic [ref=e1934]:
+                  - generic [ref=e1935]: 0件
+                  - button "クリア" [ref=e1936] [cursor=pointer]
+              - generic [ref=e1937]:
+                - generic [ref=e1939]:
+                  - generic [ref=e1940]: 患者ID
+                  - searchbox "患者ID" [ref=e1941]
+                - generic [ref=e1942]:
+                  - generic [ref=e1943]:
+                    - generic [ref=e1944]: 氏名（姓）
+                    - searchbox "氏名（姓）" [ref=e1945]
+                  - generic [ref=e1946]:
+                    - generic [ref=e1947]: 氏名（名）
+                    - searchbox "氏名（名）" [ref=e1948]
+                - generic [ref=e1949]:
+                  - generic [ref=e1950]:
+                    - generic [ref=e1951]: カナ（セイ）
+                    - searchbox "カナ（セイ）" [ref=e1952]
+                  - generic [ref=e1953]:
+                    - generic [ref=e1954]: カナ（メイ）
+                    - searchbox "カナ（メイ）" [ref=e1955]
+                - button "検索" [ref=e1957] [cursor=pointer]
+              - list "検索結果" [ref=e1958]:
+                - paragraph [ref=e1959]: 検索結果がありません。
+            - generic [ref=e1960]:
+              - generic [ref=e1961]:
+                - generic [ref=e1962]: 受付対象
+                - strong [ref=e1963]: 未選択
+                - generic [ref=e1964]: "患者ID: —"
+              - generic [ref=e1965]:
+                - button "詳細" [ref=e1966] [cursor=pointer]
+                - button "受付登録" [disabled] [ref=e1967] [cursor=pointer]
+    - complementary
