@@ -14,7 +14,7 @@ import {
 
 type StampLibraryPanelProps = {
   phase: 1 | 2;
-  onOpenOrderEdit?: () => void;
+  onOpenOrderEdit?: (targetEntity: string) => void;
 };
 
 type EntityFilter = 'all' | string;
@@ -110,6 +110,13 @@ const groupByKey = <T,>(items: T[], keyOf: (item: T) => string) => {
     }
   });
   return map;
+};
+
+const resolveOrderTargetEntity = (item: StampListItem): string => {
+  if (item.source === 'local') {
+    return item.target?.trim() || item.entity?.trim() || '';
+  }
+  return item.entity?.trim() || '';
 };
 
 export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelProps) {
@@ -316,7 +323,19 @@ export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelP
             クリップボードへコピー（Phase2）
           </button>
           {phase >= 2 && onOpenOrderEdit ? (
-            <button type="button" onClick={() => onOpenOrderEdit()} disabled={!selected}>
+            <button
+              type="button"
+              onClick={() => {
+                if (!selected) return;
+                const targetEntity = resolveOrderTargetEntity(selected);
+                if (!targetEntity) {
+                  setCopyNotice('対象オーダー種別が判定できないため遷移できません。');
+                  return;
+                }
+                onOpenOrderEdit(targetEntity);
+              }}
+              disabled={!selected}
+            >
               オーダー編集を開く
             </button>
           ) : null}
@@ -474,4 +493,3 @@ export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelP
     </div>
   );
 }
-

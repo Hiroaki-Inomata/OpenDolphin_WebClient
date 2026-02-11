@@ -40,6 +40,7 @@
 - `docs/web-client/ux/playwright-scenarios.md`
 - `docs/web-client/ux/order-document-set-fastpath-check-20260120.md`
 - `docs/web-client/ux/charts-compact-layout-proposal-20260110.md`
+- `docs/web-client/ux/charts-stamp-set-consolidation-20260211.md`
 
 ### ORCA 追加API / 接続計画
 - `docs/web-client-orca-additional-api-plan.md`
