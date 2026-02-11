@@ -67,6 +67,7 @@ import { FacilityLoginResolver } from './features/login/FacilityLoginResolver';
 import { addRecentFacility } from './features/login/recentFacilityStore';
 import { resolveSwitchContext, type LoginSwitchContext } from './features/login/loginRouteState';
 import { isSystemAdminRole } from './libs/auth/roles';
+import { testOrcaConnection, type OrcaConnectionTestResponse } from './features/administration/orcaConnectionApi';
 
 type Session = LoginResult;
 const AUTH_STORAGE_KEY = 'opendolphin:web-client:auth';
@@ -215,6 +216,69 @@ const TOAST_PRIORITY: Record<AppToast['tone'], number> = {
   warning: 2,
   success: 1,
   info: 0,
+};
+const ORCA_TOP_STATUS_POLL_MS = 5 * 60 * 1000;
+
+type OrcaTopStatus = {
+  tone: 'info' | 'success' | 'warning' | 'error';
+  label: string;
+  detail: string;
+  checkedAt: string | null;
+};
+
+const ORCA_TOP_STATUS_CHECKING: OrcaTopStatus = {
+  tone: 'info',
+  label: 'ORCA: 確認中',
+  detail: 'ORCA 接続テストを実行しています。',
+  checkedAt: null,
+};
+
+const ORCA_TOP_STATUS_FETCH_ERROR: OrcaTopStatus = {
+  tone: 'error',
+  label: 'ORCA: 確認失敗',
+  detail: 'ORCA 接続テスト API の呼び出しに失敗しました。',
+  checkedAt: null,
+};
+
+const formatOrcaTopStatusTimestamp = (value: string | null): string | null => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('ja-JP', { hour12: false });
+};
+
+const resolveOrcaTopStatus = (result: OrcaConnectionTestResponse): OrcaTopStatus => {
+  const checkedAt = result.testedAt ?? null;
+  if (result.ok) {
+    return {
+      tone: 'success',
+      label: 'ORCA: 接続OK',
+      detail: `HTTP ${result.orcaHttpStatus ?? '—'} / Api_Result ${result.apiResult ?? '—'}`,
+      checkedAt,
+    };
+  }
+  if (result.status === 401 || result.status === 403) {
+    return {
+      tone: 'warning',
+      label: 'ORCA: 認証要確認',
+      detail: '管理者認証が未確認です。再ログイン後に確認してください。',
+      checkedAt,
+    };
+  }
+  if (result.errorCategory === 'config_incomplete') {
+    return {
+      tone: 'warning',
+      label: 'ORCA: 設定要確認',
+      detail: result.error ?? 'ORCA 接続設定が未完了です。',
+      checkedAt,
+    };
+  }
+  return {
+    tone: 'error',
+    label: 'ORCA: 接続NG',
+    detail: result.error ?? `HTTP ${result.status}`,
+    checkedAt,
+  };
 };
 
 const LEGACY_ROUTES = [
@@ -1043,8 +1107,10 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
   const navigate = useNavigate();
   const session = useSession();
   const { flags } = useAuthService();
+  const isSystemAdmin = isSystemAdminRole(session.role);
   const resolvedRunId = flags.runId || session.runId;
   const [toasts, setToasts] = useState<AppToast[]>([]);
+  const [orcaTopStatus, setOrcaTopStatus] = useState<OrcaTopStatus>(ORCA_TOP_STATUS_CHECKING);
   const toastTimers = useRef<Map<string, number>>(new Map());
   const runIdNoticeRef = useRef<string | undefined>(resolvedRunId);
 
@@ -1127,10 +1193,48 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
   }, [resolvedRunId, session]);
 
   useEffect(() => {
+    if (!isSystemAdmin) {
+      setOrcaTopStatus(ORCA_TOP_STATUS_CHECKING);
+      return;
+    }
+    let cancelled = false;
+    let timerId: number | null = null;
+    const refreshOrcaTopStatus = async (showPending: boolean) => {
+      if (showPending) {
+        setOrcaTopStatus(ORCA_TOP_STATUS_CHECKING);
+      }
+      try {
+        const result = await testOrcaConnection();
+        if (cancelled) return;
+        setOrcaTopStatus(resolveOrcaTopStatus(result));
+      } catch {
+        if (cancelled) return;
+        setOrcaTopStatus(ORCA_TOP_STATUS_FETCH_ERROR);
+      }
+    };
+    void refreshOrcaTopStatus(true);
+    timerId = window.setInterval(() => {
+      void refreshOrcaTopStatus(false);
+    }, ORCA_TOP_STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      if (timerId !== null) {
+        window.clearInterval(timerId);
+      }
+    };
+  }, [isSystemAdmin]);
+
+  useEffect(() => {
     if (!resolvedRunId || runIdNoticeRef.current === resolvedRunId) return;
     runIdNoticeRef.current = resolvedRunId;
     enqueueToast({ tone: 'info', message: 'RUN_ID が更新されました', detail: resolvedRunId, id: `runid-${resolvedRunId}` });
   }, [enqueueToast, resolvedRunId]);
+
+  const orcaTopStatusTooltip = useMemo(() => {
+    const checkedAt = formatOrcaTopStatusTimestamp(orcaTopStatus.checkedAt);
+    if (!checkedAt) return orcaTopStatus.detail;
+    return `${orcaTopStatus.detail} / 最終確認: ${checkedAt}`;
+  }, [orcaTopStatus.checkedAt, orcaTopStatus.detail]);
 
   const navItems = useMemo(
     () =>
@@ -1261,15 +1365,25 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
               RUN_ID: {resolvedRunId}
               <span className="app-shell__pill-note">クリックでコピー</span>
             </button>
-            {isSystemAdminRole(session.role) ? (
-              <button
-                type="button"
-                className="app-shell__admin"
-                onClick={handleOpenAdministration}
-                aria-label="管理画面を開く"
-              >
-                管理画面
-              </button>
+            {isSystemAdmin ? (
+              <>
+                <span
+                  className={`status-pill status-pill--xs status-pill--${orcaTopStatus.tone}`}
+                  role="status"
+                  aria-live="polite"
+                  title={orcaTopStatusTooltip}
+                >
+                  {orcaTopStatus.label}
+                </span>
+                <button
+                  type="button"
+                  className="app-shell__admin"
+                  onClick={handleOpenAdministration}
+                  aria-label="管理画面を開く"
+                >
+                  管理画面
+                </button>
+              </>
             ) : null}
             <button type="button" className="app-shell__logout" onClick={handleSwitchAccount}>
               施設/ユーザー切替

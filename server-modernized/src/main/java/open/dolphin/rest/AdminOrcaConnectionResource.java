@@ -98,6 +98,9 @@ public class AdminOrcaConnectionResource extends AbstractResource {
             updated = orcaConnectionConfigStore.update(update, p12, ca, runId, actor);
         } catch (IllegalArgumentException ex) {
             throw restError(request, Response.Status.BAD_REQUEST, "invalid_request", ex.getMessage());
+        } catch (IllegalStateException ex) {
+            throw restError(request, Response.Status.INTERNAL_SERVER_ERROR,
+                    "persist_failed", "接続設定の永続化に失敗しました。サーバー設定を確認してください。");
         }
 
         // Apply immediately.
@@ -596,4 +599,3 @@ public class AdminOrcaConnectionResource extends AbstractResource {
     private record Failure(String category, String message, Integer orcaHttpStatus) {
     }
 }
-
