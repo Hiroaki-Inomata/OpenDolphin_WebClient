@@ -85,15 +85,32 @@ describe('OrderBundleEditPanel contraindication warning', () => {
 
     vi.mocked(fetchOrderMasterSearch).mockResolvedValue({
       ok: true,
-      items: [
-        {
-          type: 'generic-class',
-          code: 'A100',
-          name: 'アムロジピン',
-          unit: '錠',
-        },
-      ],
-      totalCount: 1,
+      items: [],
+      totalCount: 0,
+    });
+    vi.mocked(fetchOrderMasterSearch).mockImplementation(async ({ type }) => {
+      if (type === 'generic-class') {
+        return {
+          ok: true,
+          items: [
+            {
+              type: 'generic-class',
+              code: 'A100',
+              name: 'アムロジピン',
+              unit: '錠',
+            },
+          ],
+          totalCount: 1,
+        };
+      }
+      if (type === 'youhou') {
+        return {
+          ok: true,
+          items: [{ type: 'youhou', name: '1日1回' }],
+          totalCount: 1,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
     });
 
     vi.mocked(fetchContraindicationCheckXml).mockResolvedValue({
@@ -134,6 +151,15 @@ describe('OrderBundleEditPanel contraindication warning', () => {
     expect(rowButton).not.toBeNull();
     fireEvent.click(rowButton!);
 
+    fireEvent.change(
+      screen.getByLabelText('キーワード', {
+        selector: 'input[id$="-usage-keyword"]',
+      }),
+      { target: { value: '1日1回' } },
+    );
+    await waitFor(() =>
+      expect((screen.getByLabelText('用法') as HTMLSelectElement).querySelector('option[value="1日1回"]')).not.toBeNull(),
+    );
     fireEvent.change(screen.getByLabelText('用法'), { target: { value: '1日1回' } });
 
     fireEvent.click(screen.getByRole('button', { name: '保存して追加' }));
@@ -152,15 +178,32 @@ describe('OrderBundleEditPanel contraindication warning', () => {
 
     vi.mocked(fetchOrderMasterSearch).mockResolvedValue({
       ok: true,
-      items: [
-        {
-          type: 'generic-class',
-          code: 'A200',
-          name: 'ロサルタン',
-          unit: '錠',
-        },
-      ],
-      totalCount: 1,
+      items: [],
+      totalCount: 0,
+    });
+    vi.mocked(fetchOrderMasterSearch).mockImplementation(async ({ type }) => {
+      if (type === 'generic-class') {
+        return {
+          ok: true,
+          items: [
+            {
+              type: 'generic-class',
+              code: 'A200',
+              name: 'ロサルタン',
+              unit: '錠',
+            },
+          ],
+          totalCount: 1,
+        };
+      }
+      if (type === 'youhou') {
+        return {
+          ok: true,
+          items: [{ type: 'youhou', name: '1日1回' }],
+          totalCount: 1,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
     });
 
     vi.mocked(fetchContraindicationCheckXml).mockResolvedValue({
@@ -201,6 +244,15 @@ describe('OrderBundleEditPanel contraindication warning', () => {
     expect(rowButton).not.toBeNull();
     fireEvent.click(rowButton!);
 
+    fireEvent.change(
+      screen.getByLabelText('キーワード', {
+        selector: 'input[id$="-usage-keyword"]',
+      }),
+      { target: { value: '1日1回' } },
+    );
+    await waitFor(() =>
+      expect((screen.getByLabelText('用法') as HTMLSelectElement).querySelector('option[value="1日1回"]')).not.toBeNull(),
+    );
     fireEvent.change(screen.getByLabelText('用法'), { target: { value: '1日1回' } });
 
     fireEvent.click(screen.getByRole('button', { name: '保存して追加' }));

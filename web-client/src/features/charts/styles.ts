@@ -178,15 +178,15 @@ export const chartsStyles = css`
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-md);
-    --charts-column-left: minmax(290px, 0.86fr);
-    --charts-column-center: minmax(620px, 2.3fr);
-    --charts-column-right: minmax(300px, 1.05fr);
+    --charts-column-left: minmax(250px, 0.82fr);
+    --charts-column-center: minmax(460px, 2.25fr);
+    --charts-column-right: minmax(260px, 1fr);
     --charts-column-gap: var(--charts-space-sm);
     --charts-utility-compact-width: 72px;
-    --charts-utility-expanded-width: clamp(420px, 33vw, 620px);
-    --charts-utility-expanded-height: clamp(560px, 84vh, 900px);
+    --charts-utility-expanded-width: clamp(340px, 31vw, 560px);
+    --charts-utility-expanded-height: clamp(500px, 80vh, 860px);
     --charts-utility-width: var(--charts-utility-compact-width);
-    --charts-utility-height: clamp(520px, 82vh, 860px);
+    --charts-utility-height: clamp(460px, 78vh, 820px);
     --charts-side-width: var(--charts-utility-width);
     position: relative;
     isolation: isolate;
@@ -194,40 +194,40 @@ export const chartsStyles = css`
 
   .charts-workbench[data-utility-state='expanded'] {
     --charts-utility-width: min(var(--charts-utility-expanded-width), 44vw);
-    --charts-column-left: minmax(220px, 0.72fr);
-    --charts-column-center: minmax(420px, 1.22fr);
+    --charts-column-left: minmax(200px, 0.68fr);
+    --charts-column-center: minmax(360px, 1.14fr);
     --charts-column-gap: var(--charts-space-xs);
   }
 
   .charts-workbench[data-utility-state='expanded'][data-charts-compact-ui='1'] {
-    --charts-column-left: minmax(200px, 0.66fr);
-    --charts-column-center: minmax(380px, 1.1fr);
+    --charts-column-left: minmax(180px, 0.62fr);
+    --charts-column-center: minmax(320px, 1.02fr);
   }
 
   .charts-workbench[data-charts-compact-ui='1'] {
-    --charts-column-left: minmax(260px, 0.8fr);
-    --charts-column-center: minmax(660px, 2.45fr);
-    --charts-column-right: minmax(260px, 0.9fr);
+    --charts-column-left: minmax(230px, 0.75fr);
+    --charts-column-center: minmax(520px, 2.25fr);
+    --charts-column-right: minmax(230px, 0.86fr);
   }
 
   .charts-page[data-charts-ui-opt-b='1'] .charts-workbench {
     /* Center-first distribution while keeping 3 columns (layout only). */
-    --charts-column-left: minmax(280px, 0.82fr);
-    --charts-column-center: minmax(660px, 2.5fr);
-    --charts-column-right: minmax(280px, 0.95fr);
+    --charts-column-left: minmax(240px, 0.76fr);
+    --charts-column-center: minmax(560px, 2.32fr);
+    --charts-column-right: minmax(240px, 0.88fr);
     --charts-column-gap: var(--charts-space-xs);
   }
 
   .charts-page[data-charts-ui-opt-b='1'] .charts-workbench[data-charts-compact-ui='1'] {
-    --charts-column-left: minmax(240px, 0.72fr);
-    --charts-column-center: minmax(700px, 2.65fr);
-    --charts-column-right: minmax(240px, 0.85fr);
+    --charts-column-left: minmax(220px, 0.68fr);
+    --charts-column-center: minmax(580px, 2.42fr);
+    --charts-column-right: minmax(220px, 0.8fr);
     --charts-column-gap: var(--charts-space-xs);
   }
 
   .charts-page[data-charts-ui-opt-b='1'] .charts-workbench[data-utility-state='expanded'] {
-    --charts-column-left: minmax(210px, 0.7fr);
-    --charts-column-center: minmax(400px, 1.18fr);
+    --charts-column-left: minmax(180px, 0.62fr);
+    --charts-column-center: minmax(340px, 1.04fr);
     --charts-column-gap: var(--charts-space-xs);
   }
 
@@ -1365,8 +1365,8 @@ export const chartsStyles = css`
   .charts-workbench[data-utility-state='expanded'] .charts-workbench__side {
     position: sticky;
     top: 1.25rem;
-    max-height: min(var(--charts-utility-expanded-height), calc(100vh - 1.75rem));
-    height: min(var(--charts-utility-expanded-height), calc(100vh - 1.75rem));
+    max-height: min(var(--charts-utility-expanded-height), calc(100dvh - 1.25rem));
+    height: min(var(--charts-utility-expanded-height), calc(100dvh - 1.25rem));
     z-index: 4;
     overflow: hidden;
     box-shadow: 0 28px 64px rgba(15, 23, 42, 0.28);
@@ -1655,7 +1655,7 @@ export const chartsStyles = css`
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-sm);
-    max-height: calc(100vh - 12rem);
+    max-height: calc(100dvh - 10rem);
     overflow-y: auto;
     box-shadow: var(--charts-shadow-none);
   }
@@ -4056,7 +4056,7 @@ export const chartsStyles = css`
 
   .soap-note__body {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+    grid-template-columns: minmax(0, 1fr) minmax(190px, clamp(220px, 24vw, 280px));
     gap: var(--charts-space-md);
     align-items: start;
   }
@@ -4157,7 +4157,7 @@ export const chartsStyles = css`
 
   .soap-note__grid {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
     gap: var(--charts-space-md);
   }
 
@@ -4194,6 +4194,18 @@ export const chartsStyles = css`
     font-family: inherit;
     resize: vertical;
     background: #ffffff;
+  }
+
+  .soap-note__section[data-section='free'] {
+    grid-column: 1 / -1;
+  }
+
+  .soap-note__section[data-section='free'] textarea {
+    min-height: clamp(8rem, 22vh, 14rem);
+  }
+
+  .soap-note__section:not([data-section='free']) textarea {
+    min-height: clamp(4.75rem, 10vh, 8rem);
   }
 
   .soap-note__section-actions {
@@ -4323,6 +4335,8 @@ export const chartsStyles = css`
     flex-direction: column;
     gap: var(--charts-space-sm);
     min-width: 0;
+    max-height: min(62dvh, 520px);
+    overflow: auto;
   }
 
   .soap-note__paper-header {
@@ -4493,6 +4507,26 @@ export const chartsStyles = css`
 
     .soap-note__paper {
       position: static;
+    }
+  }
+
+  @media (max-height: 900px) {
+    .soap-note__body {
+      grid-template-columns: 1fr;
+      gap: var(--charts-space-sm);
+    }
+
+    .soap-note__grid {
+      gap: var(--charts-space-sm);
+    }
+
+    .soap-note__section {
+      padding: var(--charts-space-sm);
+    }
+
+    .soap-note__paper {
+      position: static;
+      max-height: clamp(180px, 38dvh, 360px);
     }
   }
 

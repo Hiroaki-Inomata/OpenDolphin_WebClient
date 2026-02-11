@@ -145,6 +145,50 @@ describe('OrderBundleEditPanel master search UI', () => {
     expect(itemNameInput.value).toBe('A100 アムロジピン');
   });
 
+  it('項目名入力のリアルタイム候補で主項目を補完できる', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type, keyword }) => {
+      if (type === 'generic-class' && keyword.includes('アム')) {
+        return {
+          ok: true,
+          items: [
+            {
+              type: 'generic-class',
+              code: 'A100',
+              name: 'アムロジピン',
+              unit: '錠',
+              note: '予測候補',
+            },
+          ],
+          totalCount: 1,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+
+    const user = userEvent.setup();
+    const { container } = renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    const itemNameInput = screen.getByPlaceholderText('項目名') as HTMLInputElement;
+    await user.type(itemNameInput, 'アム');
+    await waitFor(() =>
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'generic-class', keyword: 'アム' })),
+    );
+
+    const predictiveOption = container.querySelector('datalist[id$="-item-predictive-list"] option[value="A100 アムロジピン"]');
+    expect(predictiveOption).not.toBeNull();
+
+    await user.clear(itemNameInput);
+    await user.type(itemNameInput, 'A100 アムロジピン');
+    await user.tab();
+
+    await waitFor(() => expect(itemNameInput.value).toBe('A100 アムロジピン'));
+    const itemUnitInput = container.querySelector<HTMLInputElement>('input[id$="-item-unit-0"]');
+    expect(itemUnitInput?.value).toBe('錠');
+  });
+
   it('readOnly の場合は検索入力が無効化される', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
@@ -355,6 +399,46 @@ describe('OrderBundleEditPanel master search UI', () => {
     const commentNameInput = container.querySelector<HTMLInputElement>('input[id$="-comment-name-0"]');
     expect(commentCodeInput?.value).toBe('0082');
     expect(commentNameInput?.value).toBe('服薬指示');
+  });
+
+  it('コメントコードはプルダウンから選択して追加できる', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type, keyword }) => {
+      if (type === 'comment' && keyword.includes('服薬')) {
+        return {
+          ok: true,
+          items: [{ type: 'comment', code: '0082', name: '服薬指示', unit: '', note: '' }],
+          totalCount: 1,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+
+    const user = userEvent.setup();
+    const { container } = renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    const commentKeywordInput = container.querySelector<HTMLInputElement>('input[id$="-comment-keyword"]');
+    expect(commentKeywordInput).not.toBeNull();
+    await user.type(commentKeywordInput!, '服薬');
+    await waitFor(() =>
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'comment', keyword: '服薬' })),
+    );
+
+    const commentSelect = container.querySelector<HTMLSelectElement>('select[id$="-comment-select"]');
+    expect(commentSelect).not.toBeNull();
+    await user.selectOptions(commentSelect!, '0082|服薬指示');
+
+    const addButton = screen.getByRole('button', { name: 'コメント追加' });
+    await user.click(addButton);
+
+    const commentCodeInput = container.querySelector<HTMLInputElement>('input[id$="-comment-code-0"]');
+    const commentNameInput = container.querySelector<HTMLInputElement>('input[id$="-comment-name-0"]');
+    expect(commentCodeInput?.value).toBe('0082');
+    expect(commentNameInput?.value).toBe('服薬指示');
+    expect(commentCodeInput).toHaveAttribute('readonly');
+    expect(commentNameInput).toHaveAttribute('readonly');
   });
 
   it('コード検索で返る選択式コメント候補をコメントコードへ追加できる', async () => {

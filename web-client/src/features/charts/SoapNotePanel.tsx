@@ -920,8 +920,8 @@ export function SoapNotePanel({
                   const templateLabel = latest?.templateId ? `template=${latest.templateId}` : 'templateなし';
                   const hasOrigin = Boolean(first && latest && first.id !== latest.id);
                   const textareaRows = (() => {
-                    if (section === 'free') return viewMode === 'free' ? 8 : 5;
-                    return viewMode === 'soap' ? 5 : 3;
+                    if (section === 'free') return viewMode === 'free' ? 6 : 4;
+                    return viewMode === 'soap' ? 4 : 2;
                   })();
                   return (
                     <article key={section} className="soap-note__section" data-section={section}>
