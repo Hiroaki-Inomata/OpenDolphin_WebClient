@@ -275,20 +275,28 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
 
         boolean includeFacilityRows = includeFacility == null || includeFacility;
         int resolvedPatientLimit = clampLimit(patientLimit, DEFAULT_PATIENT_LIMIT);
-        int resolvedFacilityLimit = clampLimit(facilityLimit, DEFAULT_FACILITY_LIMIT);
+        int resolvedFacilityLimit = clampOptionalLimit(facilityLimit, DEFAULT_FACILITY_LIMIT);
         int resolvedScanLimit = clampScanLimit(scanLimit);
         String resolvedEntity = hasText(entity) ? entity.trim() : null;
         Date since = parseDate(from, Date.from(Instant.now().minusSeconds(60L * 60L * 24L * 180L)));
 
         Map<String, RecommendationAggregate> patientAggregates = new LinkedHashMap<>();
-        List<DocumentModel> documents = resolveDocuments(karte, since);
-        int scanned = collectAggregatesFromDocuments(documents, resolvedEntity, patientAggregates);
+        int patientScanned = collectAggregatesFromPatient(
+                facilityId,
+                patientId,
+                karte,
+                resolvedEntity,
+                since,
+                resolvedScanLimit,
+                patientAggregates);
 
         Map<String, RecommendationAggregate> facilityAggregates = new LinkedHashMap<>();
+        int facilityScanned = 0;
         if (includeFacilityRows && resolvedFacilityLimit > 0) {
-            scanned += collectAggregatesFromFacility(facilityId, patientId, resolvedEntity, since, resolvedScanLimit,
+            facilityScanned = collectAggregatesFromFacility(facilityId, patientId, resolvedEntity, since, resolvedScanLimit,
                     facilityAggregates);
         }
+        int scanned = patientScanned + facilityScanned;
 
         List<OrderBundleRecommendationResponse.OrderRecommendationEntry> recommendations = new ArrayList<>();
         Map<String, Boolean> usedKeys = new HashMap<>();
@@ -333,6 +341,8 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         audit.put("patientLimit", resolvedPatientLimit);
         audit.put("facilityLimit", resolvedFacilityLimit);
         audit.put("scanLimit", resolvedScanLimit);
+        audit.put("patientScanned", patientScanned);
+        audit.put("facilityScanned", facilityScanned);
         audit.put("recordsScanned", scanned);
         audit.put("recordsReturned", recommendations.size());
         recordAudit(request, "ORCA_ORDER_RECOMMENDATION_FETCH", audit, AuditEventEnvelope.Outcome.SUCCESS);
@@ -735,6 +745,51 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         return scanned;
     }
 
+    private int collectAggregatesFromPatient(String facilityId,
+            String patientId,
+            KarteBean karte,
+            String entity,
+            Date fromDate,
+            int scanLimit,
+            Map<String, RecommendationAggregate> aggregates) {
+        if (entityManager != null && scanLimit > 0) {
+            List<ModuleModel> modules;
+            try {
+                StringBuilder jpql = new StringBuilder(
+                        "SELECT m FROM ModuleModel m JOIN m.karte k JOIN k.patient p "
+                                + "WHERE p.facilityId = :facilityId AND p.patientId = :patientId");
+                if (entity != null) {
+                    jpql.append(" AND m.moduleInfo.entity = :entity");
+                }
+                if (fromDate != null) {
+                    jpql.append(" AND m.started >= :fromDate");
+                }
+                jpql.append(" ORDER BY m.started DESC");
+                var query = entityManager.createQuery(jpql.toString(), ModuleModel.class)
+                        .setParameter("facilityId", facilityId)
+                        .setParameter("patientId", patientId)
+                        .setMaxResults(scanLimit);
+                if (entity != null) {
+                    query.setParameter("entity", entity);
+                }
+                if (fromDate != null) {
+                    query.setParameter("fromDate", fromDate);
+                }
+                modules = query.getResultList();
+                return collectAggregatesFromModules(modules, entity, aggregates);
+            } catch (RuntimeException ex) {
+                LOGGER.warn(
+                        "Failed to load patient order recommendation rows with JPQL, falling back to document scan (facilityId={}, patientId={}, entity={})",
+                        facilityId,
+                        patientId,
+                        entity,
+                        ex);
+            }
+        }
+        List<DocumentModel> documents = resolveDocuments(karte, fromDate, scanLimit);
+        return collectAggregatesFromDocuments(documents, entity, aggregates);
+    }
+
     private int collectAggregatesFromFacility(String facilityId,
             String patientId,
             String entity,
@@ -745,7 +800,7 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
             return 0;
         }
         StringBuilder jpql = new StringBuilder(
-                "SELECT m FROM ModuleModel m JOIN m.karteBean k JOIN k.patientModel p "
+                "SELECT m FROM ModuleModel m JOIN m.karte k JOIN k.patient p "
                         + "WHERE p.facilityId = :facilityId AND p.patientId <> :patientId");
         if (entity != null) {
             jpql.append(" AND m.moduleInfo.entity = :entity");
@@ -772,10 +827,22 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
                     facilityId, patientId, entity, ex);
             return 0;
         }
+        return collectAggregatesFromModules(modules, entity, aggregates);
+    }
+
+    private int collectAggregatesFromModules(List<ModuleModel> modules,
+            String entity,
+            Map<String, RecommendationAggregate> aggregates) {
         int scanned = 0;
+        if (modules == null || modules.isEmpty()) {
+            return scanned;
+        }
         for (ModuleModel module : modules) {
             String moduleEntity = module.getModuleInfoBean() != null ? module.getModuleInfoBean().getEntity() : null;
             if (!hasText(moduleEntity) || !isValidEntity(moduleEntity)) {
+                continue;
+            }
+            if (entity != null && !entity.equals(moduleEntity)) {
                 continue;
             }
             BundleDolphin bundle = decodeBundle(module);
@@ -956,6 +1023,13 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
             return fallback;
         }
         return Math.max(1, Math.min(MAX_LIMIT, value));
+    }
+
+    private int clampOptionalLimit(Integer value, int fallback) {
+        if (value == null) {
+            return Math.max(0, Math.min(MAX_LIMIT, fallback));
+        }
+        return Math.max(0, Math.min(MAX_LIMIT, value));
     }
 
     private int clampScanLimit(Integer value) {
@@ -1201,6 +1275,10 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
     }
 
     private List<DocumentModel> resolveDocuments(KarteBean karte, Date fromDate) {
+        return resolveDocuments(karte, fromDate, Integer.MAX_VALUE);
+    }
+
+    private List<DocumentModel> resolveDocuments(KarteBean karte, Date fromDate, int limit) {
         List<open.dolphin.infomodel.DocInfoModel> docInfos =
                 karteServiceBean.getDocumentList(karte.getId(), fromDate, true);
         if (docInfos == null || docInfos.isEmpty()) {
@@ -1209,6 +1287,7 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         List<Long> ids = docInfos.stream()
                 .map(open.dolphin.infomodel.DocInfoModel::getDocPk)
                 .filter(id -> id != null && id > 0)
+                .limit(Math.max(1, limit))
                 .collect(Collectors.toList());
         if (ids.isEmpty()) {
             return List.of();

@@ -878,14 +878,13 @@ export function OrderBundleEditPanel({
     queryKey: recommendationQueryKey,
     queryFn: () => {
       if (!patientId) throw new Error('patientId is required');
-      const includeFacility = entity !== 'medOrder';
       return fetchOrderRecommendations({
         patientId,
         entity,
         from: recommendationFrom,
-        includeFacility,
+        includeFacility: false,
         patientLimit: 8,
-        facilityLimit: includeFacility ? 8 : 0,
+        facilityLimit: 0,
         scanLimit: 800,
       });
     },
@@ -2722,7 +2721,7 @@ export function OrderBundleEditPanel({
 
       <div className="charts-side-panel__subsection">
         <div className="charts-side-panel__subheader">
-          <strong>頻用オーダー（患者優先）</strong>
+          <strong>頻用オーダー（患者個別）</strong>
           <span className="charts-side-panel__search-count">{recommendationCandidates.length}件</span>
         </div>
         {recommendationCandidates.length === 0 ? (
@@ -2745,7 +2744,7 @@ export function OrderBundleEditPanel({
             ))}
           </div>
         )}
-        <p className="charts-side-panel__help">患者傾向を優先し、不足分を施設全体傾向から補います。</p>
+        <p className="charts-side-panel__help">同一患者の過去オーダー傾向から候補を生成します。</p>
       </div>
 
       <div className="charts-side-panel__subsection">
