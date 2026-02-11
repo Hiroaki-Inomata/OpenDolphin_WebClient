@@ -3043,7 +3043,7 @@ function ChartsContent() {
     [persistUtilityPanelLayout],
   );
   const beginUtilityPanelDrag = useCallback(
-    (event: React.PointerEvent<HTMLElement>) => {
+    (event: ReactPointerEvent<HTMLElement>) => {
       if (event.button !== 0 || !utilityPanelAction) return;
       const target = event.target as HTMLElement | null;
       if (!target || target.closest('button, input, select, textarea, [data-no-drag="true"]')) return;
@@ -3059,7 +3059,7 @@ function ChartsContent() {
     [utilityPanelAction],
   );
   const beginUtilityPanelResize = useCallback(
-    (event: React.PointerEvent<HTMLButtonElement>) => {
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
       if (event.button !== 0 || !utilityPanelAction) return;
       event.preventDefault();
       event.stopPropagation();
@@ -3227,6 +3227,68 @@ function ChartsContent() {
   useEffect(() => {
     utilityPanelActionRef.current = utilityPanelAction;
   }, [utilityPanelAction]);
+
+  useEffect(() => {
+    utilityPanelLayoutRef.current = utilityPanelLayout;
+  }, [utilityPanelLayout]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedLayout = readUtilityPanelLayoutStorage(storageScope);
+    if (storedLayout) {
+      updateUtilityPanelLayout(storedLayout, { persist: false });
+      return;
+    }
+    updateUtilityPanelLayout(buildDefaultUtilityPanelLayout(window.innerWidth, window.innerHeight), { persist: false });
+  }, [storageScope, updateUtilityPanelLayout]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => {
+      updateUtilityPanelLayout((prev) => clampUtilityPanelLayout(prev, window.innerWidth, window.innerHeight));
+    };
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [updateUtilityPanelLayout]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handlePointerMove = (event: PointerEvent) => {
+      const dragState = utilityPanelDragRef.current;
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      const deltaX = event.clientX - dragState.startX;
+      const deltaY = event.clientY - dragState.startY;
+      const nextLayout =
+        dragState.mode === 'move'
+          ? {
+              ...dragState.startLayout,
+              left: dragState.startLayout.left + deltaX,
+              top: dragState.startLayout.top + deltaY,
+            }
+          : {
+              ...dragState.startLayout,
+              width: dragState.startLayout.width + deltaX,
+              height: dragState.startLayout.height + deltaY,
+            };
+      updateUtilityPanelLayout(nextLayout, { persist: false });
+    };
+    const handlePointerEnd = (event: PointerEvent) => {
+      const dragState = utilityPanelDragRef.current;
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      utilityPanelDragRef.current = null;
+      persistUtilityPanelLayout(utilityPanelLayoutRef.current);
+    };
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+    };
+  }, [persistUtilityPanelLayout, updateUtilityPanelLayout]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
