@@ -6,6 +6,7 @@ import type { ReactElement } from 'react';
 
 import { OrderBundleEditPanel } from '../OrderBundleEditPanel';
 import { fetchOrderBundles, mutateOrderBundles } from '../orderBundleApi';
+import { fetchOrderMasterSearch } from '../orderMasterSearchApi';
 
 vi.mock('../orderBundleApi', async () => ({
   fetchOrderBundles: vi.fn().mockResolvedValue({
@@ -58,23 +59,50 @@ afterEach(() => {
 });
 
 describe('OrderBundleEditPanel bundle number UI', () => {
+  const mockUsageMaster = () => {
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type, keyword }) => {
+      if (type === 'youhou' && keyword.trim().length > 0) {
+        return {
+          ok: true,
+          items: [{ type: 'youhou', name: '1日1回' }],
+          totalCount: 1,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+  };
+
+  const selectUsage = async (user: ReturnType<typeof userEvent.setup>) => {
+    const usageSelect = screen.getByLabelText('用法') as HTMLSelectElement;
+    await user.type(
+      screen.getByLabelText('キーワード', {
+        selector: 'input[id$="-usage-keyword"]',
+      }),
+      '1日1回',
+    );
+    await waitFor(() => expect(usageSelect.querySelector('option[value="1日1回"]')).not.toBeNull());
+    await user.selectOptions(usageSelect, '1日1回');
+  };
+
   it('用法入力後に日数入力が編集可能になる', async () => {
+    mockUsageMaster();
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const adminInput = screen.getByLabelText('用法');
     const bundleNumberInput = screen.getByLabelText('日数');
     expect(bundleNumberInput).toBeDisabled();
 
-    await user.type(adminInput, '1日1回');
+    await selectUsage(user);
     expect(bundleNumberInput).toBeEnabled();
   });
 
   it('頓用/臨時では回数ラベルと説明文になる', async () => {
+    mockUsageMaster();
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    await user.type(screen.getByLabelText('用法'), '1日1回');
+    await selectUsage(user);
     expect(screen.getByLabelText('日数')).toBeInTheDocument();
 
     await user.click(screen.getByLabelText('頓用'));
@@ -86,12 +114,13 @@ describe('OrderBundleEditPanel bundle number UI', () => {
   });
 
   it('保存時に処方区分メタが送信される', async () => {
+    mockUsageMaster();
     const user = userEvent.setup();
     vi.mocked(mutateOrderBundles).mockResolvedValueOnce({ ok: true, runId: 'RUN-ORDER' });
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
     await user.type(screen.getByPlaceholderText('項目名'), 'アムロジピン');
-    await user.type(screen.getByLabelText('用法'), '1回');
+    await selectUsage(user);
     await user.click(screen.getByLabelText('院内'));
     await user.click(screen.getByLabelText('頓用'));
     await user.clear(screen.getByLabelText('回数'));

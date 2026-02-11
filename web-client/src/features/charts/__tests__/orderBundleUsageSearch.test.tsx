@@ -60,6 +60,40 @@ afterEach(() => {
 });
 
 describe('OrderBundleEditPanel usage search UI', () => {
+  it('用法入力欄はプルダウンで、候補を直接選択できる', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type }) => {
+      if (type === 'youhou') {
+        return {
+          ok: true,
+          items: [
+            { type: 'youhou', code: '0010001', name: '1日1回 朝食後' },
+            { type: 'youhou', code: '0010002', name: '1日2回 朝夕食後' },
+          ],
+          totalCount: 2,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    const usageKeywordInput = screen.getByLabelText('キーワード', {
+      selector: 'input[id$="-usage-keyword"]',
+    });
+    await user.type(usageKeywordInput, '朝');
+
+    await waitFor(() => expect(searchMock).toHaveBeenCalled());
+    const usageSelect = screen.getByLabelText('用法') as HTMLSelectElement;
+    expect(usageSelect.tagName).toBe('SELECT');
+
+    await user.selectOptions(usageSelect, '0010002 1日2回 朝夕食後');
+    expect(usageSelect.value).toBe('0010002 1日2回 朝夕食後');
+  });
+
   it('用法検索の行選択で用法が反映される', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
@@ -97,7 +131,7 @@ describe('OrderBundleEditPanel usage search UI', () => {
     expect(rowButton).not.toBeNull();
     await user.click(rowButton!);
 
-    const adminInput = screen.getByLabelText('用法') as HTMLInputElement;
+    const adminInput = screen.getByLabelText('用法') as HTMLSelectElement;
     expect(adminInput.value).toBe('0010001 1日1回 朝食後');
   });
 

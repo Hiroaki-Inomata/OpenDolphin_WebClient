@@ -164,6 +164,7 @@ const USAGE_FILTER_OPTIONS = [
   { value: '001', label: '全て', pattern: '001' },
 ];
 const DEFAULT_USAGE_LIMIT = 50;
+const DEFAULT_PREDICTIVE_LIMIT = 20;
 
 const MASTER_KEYWORD_PLACEHOLDER: Record<OrderMasterSearchType, string> = {
   'generic-class': '例: アムロジピン',
@@ -619,6 +620,7 @@ const toClipboardEntryFromStamp = (
 const formatBundleName = (bundle: OrderBundle) => bundle.bundleName ?? '名称未設定';
 const formatMasterLabel = (item: OrderMasterSearchItem) => (item.code ? `${item.code} ${item.name}` : item.name);
 const formatUsageLabel = (item: OrderMasterSearchItem) => formatMasterLabel(item);
+const normalizePredictiveLabel = (value: string) => value.replace(/\s+/g, ' ').trim();
 const resolveUsagePattern = (value: string) =>
   USAGE_FILTER_OPTIONS.find((option) => option.value === value)?.pattern ?? '';
 const matchesUsagePattern = (code: string | undefined, pattern: string) => {
@@ -773,6 +775,7 @@ export function OrderBundleEditPanel({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [selectedItemRowId, setSelectedItemRowId] = useState<string | null>(null);
   const [optimisticBundles, setOptimisticBundles] = useState<OrderBundle[]>([]);
+  const [commentSelectValue, setCommentSelectValue] = useState('');
   const [commentDraft, setCommentDraft] = useState<OrderBundleItem>({
     code: '',
     name: '',
@@ -858,6 +861,7 @@ export function OrderBundleEditPanel({
     setMasterSearchType(resolveDefaultMasterSearchType(entity));
     setMasterKeyword('');
     setCommentKeyword('');
+    setCommentSelectValue('');
   }, [entity]);
 
   useEffect(() => {
@@ -1213,6 +1217,83 @@ export function OrderBundleEditPanel({
     [usageItems, usageLimit],
   );
 
+  const selectedItemForPrediction = useMemo(() => {
+    const rows = form.items as OrderBundleItemWithRowId[];
+    if (rows.length === 0) return null;
+    if (!selectedItemRowId) return rows[0];
+    return rows.find((row) => row.rowId === selectedItemRowId) ?? rows[0];
+  }, [form.items, selectedItemRowId]);
+  const selectedItemPredictionKeyword = selectedItemForPrediction?.name?.trim() ?? '';
+  const itemPredictiveSearchType = masterSearchType;
+  const itemPredictiveQuery = useQuery({
+    queryKey: ['charts-order-item-predictive', entity, itemPredictiveSearchType, selectedItemPredictionKeyword],
+    queryFn: () =>
+      fetchOrderMasterSearch({
+        type: itemPredictiveSearchType,
+        keyword: selectedItemPredictionKeyword,
+        page: 1,
+        size: DEFAULT_PREDICTIVE_LIMIT,
+      }),
+    enabled: selectedItemPredictionKeyword.length > 0,
+    staleTime: 30 * 1000,
+  });
+  const itemPredictiveItems = useMemo(
+    () =>
+      itemPredictiveQuery.data?.ok
+        ? itemPredictiveQuery.data.items.slice(0, DEFAULT_PREDICTIVE_LIMIT)
+        : [],
+    [itemPredictiveQuery.data],
+  );
+  const itemPredictiveCandidates = useMemo(
+    () =>
+      itemPredictiveItems.map((item) => ({
+        item,
+        label: formatMasterLabel(item),
+      })),
+    [itemPredictiveItems],
+  );
+
+  const usageSelectOptions = useMemo(() => {
+    const options = [...usageItemsLimited];
+    const currentAdmin = form.admin.trim();
+    if (!currentAdmin) {
+      return options;
+    }
+    const exists = options.some((item) => formatUsageLabel(item) === currentAdmin);
+    if (!exists) {
+      options.unshift({
+        type: 'youhou',
+        code: form.adminMemo?.trim() || undefined,
+        name: currentAdmin,
+      });
+    }
+    return options;
+  }, [form.admin, form.adminMemo, usageItemsLimited]);
+
+  const commentMasterOptions = useMemo(() => {
+    const map = new Map<string, OrderMasterSearchItem>();
+    if (commentSearchQuery.data?.ok) {
+      commentSearchQuery.data.items.forEach((item) => {
+        const code = item.code?.trim();
+        const name = item.name.trim();
+        if (!code || !name) return;
+        map.set(`${code}|${name}`, item);
+      });
+    }
+    const draftCode = commentDraft.code?.trim();
+    const draftName = commentDraft.name?.trim();
+    if (draftCode && draftName && !map.has(`${draftCode}|${draftName}`)) {
+      map.set(`${draftCode}|${draftName}`, {
+        type: 'comment',
+        code: draftCode,
+        name: draftName,
+        unit: commentDraft.unit ?? '',
+        note: commentDraft.memo ?? '',
+      });
+    }
+    return Array.from(map.values());
+  }, [commentDraft.code, commentDraft.memo, commentDraft.name, commentDraft.unit, commentSearchQuery.data]);
+
   const parseStampSelection = (value: string): StampSelection | null => {
     if (!value) return null;
     const [source, id] = value.split('::');
@@ -1245,11 +1326,61 @@ export function OrderBundleEditPanel({
     });
   };
 
+  const resolvePredictiveItem = (value: string) => {
+    const normalized = normalizePredictiveLabel(value);
+    if (!normalized) return null;
+    return (
+      itemPredictiveCandidates.find((candidate) => normalizePredictiveLabel(candidate.label) === normalized)?.item ??
+      itemPredictiveCandidates.find((candidate) => normalizePredictiveLabel(candidate.item.name) === normalized)?.item ??
+      itemPredictiveCandidates.find((candidate) => normalizePredictiveLabel(candidate.item.code ?? '') === normalized)?.item ??
+      null
+    );
+  };
+
+  const applyPredictiveItemSelection = (rowId: string | undefined, value: string) => {
+    if (!rowId) return;
+    const matched = resolvePredictiveItem(value);
+    if (!matched) return;
+    setForm((prev) => ({
+      ...prev,
+      items: prev.items.map((row) => {
+        const currentRow = row as OrderBundleItemWithRowId;
+        if (currentRow.rowId !== rowId) return row;
+        return {
+          ...row,
+          code: matched.code ?? row.code,
+          name: formatMasterLabel(matched),
+          unit: row.unit?.trim() ? row.unit : matched.unit ?? '',
+          memo: row.memo?.trim() ? row.memo : matched.note ?? '',
+        };
+      }),
+    }));
+  };
+
+  const applyCommentDraftSelection = (value: string) => {
+    setCommentSelectValue(value);
+    if (!value) {
+      setCommentDraft((prev) => ({ ...prev, code: '', name: '' }));
+      return;
+    }
+    const selected = commentMasterOptions.find((item) => `${item.code?.trim() ?? ''}|${item.name.trim()}` === value);
+    if (!selected) return;
+    setCommentDraft((prev) => ({
+      ...prev,
+      code: selected.code?.trim() ?? '',
+      name: selected.name.trim(),
+      unit: selected.unit ?? prev.unit ?? '',
+      memo: selected.note ?? prev.memo ?? '',
+    }));
+  };
+
   const applyRecommendation = (candidate: OrderRecommendationCandidate) => {
     if (isBlocked) return;
     const nextForm = toFormStateFromRecommendation(candidate.template, today);
+    const firstComment = candidate.template.commentItems[0] ?? { code: '', name: '', quantity: '', unit: '', memo: '' };
     setForm(nextForm);
-    setCommentDraft(candidate.template.commentItems[0] ?? { code: '', name: '', quantity: '', unit: '', memo: '' });
+    setCommentDraft(firstComment);
+    setCommentSelectValue(firstComment.code?.trim() && firstComment.name.trim() ? `${firstComment.code.trim()}|${firstComment.name.trim()}` : '');
     setNotice({
       tone: 'info',
       message: `頻用オーダーを反映しました（${candidate.source === 'patient' ? '患者傾向' : '施設傾向'} / ${candidate.count}回）。`,
@@ -1261,7 +1392,7 @@ export function OrderBundleEditPanel({
     setForm((prev) => ({
       ...prev,
       admin: label,
-      adminMemo: item.code ?? prev.adminMemo,
+      adminMemo: item.code?.trim() ?? '',
     }));
   };
 
@@ -1309,6 +1440,7 @@ export function OrderBundleEditPanel({
       unit: item.unit ?? '',
       memo: item.note ?? '',
     });
+    setCommentSelectValue(`${code}|${name}`);
   };
 
   const resolveBundleClassMeta = (bundleForm: BundleFormState) => {
@@ -2618,6 +2750,7 @@ export function OrderBundleEditPanel({
       commentItems: [],
     }));
     setCommentDraft({ code: '', name: '', quantity: '', unit: '', memo: '' });
+    setCommentSelectValue('');
   };
 
   const removeItemRowById = (rowId?: string | null) => {
@@ -2647,6 +2780,17 @@ export function OrderBundleEditPanel({
     }
   }, [form.items, selectedItemRowId]);
 
+  useEffect(() => {
+    const code = commentDraft.code?.trim();
+    const name = commentDraft.name?.trim();
+    if (!code || !name) {
+      setCommentSelectValue('');
+      return;
+    }
+    const nextValue = `${code}|${name}`;
+    setCommentSelectValue((prev) => (prev === nextValue ? prev : nextValue));
+  }, [commentDraft.code, commentDraft.name]);
+
   if (!patientId) {
     return <p className="charts-side-panel__empty">患者IDが未選択のため {title} を開始できません。</p>;
   }
@@ -2675,6 +2819,7 @@ export function OrderBundleEditPanel({
             setMaterialKeyword('');
             setBodyPartKeyword('');
             setCommentKeyword('');
+            setCommentSelectValue('');
             setCommentDraft({
               code: '',
               name: '',
@@ -2973,15 +3118,42 @@ export function OrderBundleEditPanel({
         <div className="charts-side-panel__field-row">
           <div className="charts-side-panel__field">
             <label htmlFor={`${entity}-admin`}>{orderUiProfile.instructionLabel}</label>
-            <input
-              id={`${entity}-admin`}
-              value={form.admin}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, admin: event.target.value, adminMemo: '' }))
-              }
-              placeholder={orderUiProfile.instructionPlaceholder}
-              disabled={isBlocked}
-            />
+            {supportsUsageSearch ? (
+              <select
+                id={`${entity}-admin`}
+                value={form.admin}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  const selected = usageSelectOptions.find((item) => formatUsageLabel(item) === nextValue);
+                  setForm((prev) => ({
+                    ...prev,
+                    admin: nextValue,
+                    adminMemo: selected?.code?.trim() ?? '',
+                  }));
+                }}
+                disabled={isBlocked}
+              >
+                <option value="">{orderUiProfile.instructionPlaceholder}</option>
+                {usageSelectOptions.map((item) => {
+                  const label = formatUsageLabel(item);
+                  return (
+                    <option key={`${item.code ?? 'nocode'}-${item.name}`} value={label}>
+                      {label}
+                    </option>
+                  );
+                })}
+              </select>
+            ) : (
+              <input
+                id={`${entity}-admin`}
+                value={form.admin}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, admin: event.target.value, adminMemo: '' }))
+                }
+                placeholder={orderUiProfile.instructionPlaceholder}
+                disabled={isBlocked}
+              />
+            )}
           </div>
           <div className="charts-side-panel__field">
             <label htmlFor={`${entity}-bundle-number`}>{bundleNumberLabel}</label>
@@ -3011,6 +3183,9 @@ export function OrderBundleEditPanel({
                     : ''}
               </span>
             </div>
+            <p className="charts-side-panel__message">
+              用法は手入力ではなく候補選択で入力します。上の{orderUiProfile.instructionLabel}プルダウンに即時反映されます。
+            </p>
             <div className="charts-side-panel__field-row">
               <div className="charts-side-panel__field">
                 <label htmlFor={`${entity}-usage-keyword`}>キーワード</label>
@@ -3467,6 +3642,32 @@ export function OrderBundleEditPanel({
               </button>
             </div>
           </div>
+          <p className="charts-side-panel__help">
+            {selectedItemPredictionKeyword
+                ? itemPredictiveQuery.isFetching
+                ? '入力候補を検索中...'
+                : itemPredictiveItems.length > 0
+                  ? `入力候補 ${itemPredictiveItems.length}件（ORCA ${itemPredictiveSearchType} マスタ）`
+                  : '入力候補はありません。'
+              : '項目名入力中に ORCA マスタ候補をリアルタイム表示します。'}
+          </p>
+          {itemPredictiveQuery.data && !itemPredictiveQuery.data.ok && (
+            <div className="charts-side-panel__notice charts-side-panel__notice--error">
+              {itemPredictiveQuery.data.message ?? '予測候補の検索に失敗しました。'}
+            </div>
+          )}
+          {itemPredictiveCandidates.length > 0 && (
+            <datalist id={`${entity}-item-predictive-list`}>
+              {itemPredictiveCandidates.map((candidate, candidateIndex) => (
+                <option
+                  key={`${candidate.item.code ?? candidate.item.name}-${candidateIndex}`}
+                  value={candidate.label}
+                >
+                  {candidate.item.category ?? ''}
+                </option>
+              ))}
+            </datalist>
+          )}
           {form.items.map((item, index) => (
             <div
               key={(item as OrderBundleItemWithRowId).rowId ?? `${entity}-item-${index}`}
@@ -3526,6 +3727,11 @@ export function OrderBundleEditPanel({
                 id={`${entity}-item-name-${index}`}
                 name={`${entity}-item-name-${index}`}
                 value={item.name}
+                list={
+                  (item as OrderBundleItemWithRowId).rowId === selectedItemRowId && itemPredictiveCandidates.length > 0
+                    ? `${entity}-item-predictive-list`
+                    : undefined
+                }
                 onChange={(event) => {
                   const value = event.target.value;
                   setForm((prev) => {
@@ -3534,6 +3740,9 @@ export function OrderBundleEditPanel({
                     return { ...prev, items: next };
                   });
                 }}
+                onBlur={(event) =>
+                  applyPredictiveItemSelection((item as OrderBundleItemWithRowId).rowId, event.target.value)
+                }
                 onFocus={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
                 placeholder="項目名"
                 disabled={isBlocked}
@@ -3787,23 +3996,44 @@ export function OrderBundleEditPanel({
               )}
             </div>
             <p className="charts-side-panel__message">
-              コメントコードは指示/コメントをコード行として登録します。自由記述は上部のメモ欄を使用してください。
+              コメントコードは候補から選択して登録します。自由記述は上部のメモ欄を使用してください。
             </p>
+            <div className="charts-side-panel__field">
+              <label htmlFor={`${entity}-comment-select`}>コメント候補</label>
+              <select
+                id={`${entity}-comment-select`}
+                value={commentSelectValue}
+                onChange={(event) => applyCommentDraftSelection(event.target.value)}
+                disabled={isBlocked}
+              >
+                <option value="">コメントコードを選択</option>
+                {commentMasterOptions.map((item) => {
+                  const code = item.code?.trim();
+                  const name = item.name.trim();
+                  if (!code || !name) return null;
+                  return (
+                    <option key={`${code}-${name}`} value={`${code}|${name}`}>
+                      {code} {name}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
             <div className="charts-side-panel__item-row charts-side-panel__item-row--comment">
               <input
                 id={`${entity}-comment-draft-code`}
                 name={`${entity}-comment-draft-code`}
                 value={commentDraft.code ?? ''}
-                onChange={(event) => setCommentDraft((prev) => ({ ...prev, code: event.target.value }))}
                 placeholder="コード"
+                readOnly
                 disabled={isBlocked}
               />
               <input
                 id={`${entity}-comment-draft-name`}
                 name={`${entity}-comment-draft-name`}
                 value={commentDraft.name}
-                onChange={(event) => setCommentDraft((prev) => ({ ...prev, name: event.target.value }))}
                 placeholder="コメント内容"
+                readOnly
                 disabled={isBlocked}
               />
               <input
@@ -3840,6 +4070,7 @@ export function OrderBundleEditPanel({
                       },
                     ],
                   }));
+                  setCommentSelectValue('');
                   setCommentDraft({ code: '', name: '', quantity: '', unit: '', memo: '' });
                 }}
                 disabled={isBlocked || !commentDraft.code?.trim() || !commentDraft.name.trim()}
@@ -3853,30 +4084,16 @@ export function OrderBundleEditPanel({
                   id={`${entity}-comment-code-${index}`}
                   name={`${entity}-comment-code-${index}`}
                   value={item.code ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setForm((prev) => {
-                      const next = [...prev.commentItems];
-                      next[index] = { ...next[index], code: value };
-                      return { ...prev, commentItems: next };
-                    });
-                  }}
                   placeholder="コード"
+                  readOnly
                   disabled={isBlocked}
                 />
                 <input
                   id={`${entity}-comment-name-${index}`}
                   name={`${entity}-comment-name-${index}`}
                   value={item.name}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setForm((prev) => {
-                      const next = [...prev.commentItems];
-                      next[index] = { ...next[index], name: value };
-                      return { ...prev, commentItems: next };
-                    });
-                  }}
                   placeholder="コメント内容"
+                  readOnly
                   disabled={isBlocked}
                 />
                 <input
