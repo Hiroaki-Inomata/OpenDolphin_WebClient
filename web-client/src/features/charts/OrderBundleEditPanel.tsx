@@ -21,6 +21,12 @@ import {
   type LocalStampEntry,
   type StampClipboardEntry,
 } from './stampStorage';
+import {
+  listOrderRecommendations,
+  recordOrderRecommendationUsage,
+  type OrderRecommendationCandidate,
+  type OrderRecommendationTemplate,
+} from './orderRecommendationStorage';
 import type { DataSourceTransition } from './authService';
 import type { DocumentOpenRequest } from './DocumentCreatePanel';
 
@@ -543,6 +549,43 @@ const toFormStateFromHistoryCopy = (bundle: OrderBundle, today: string): BundleF
   };
 };
 
+const toOrderRecommendationTemplate = (form: BundleFormState): OrderRecommendationTemplate => ({
+  bundleName: form.bundleName,
+  admin: form.admin,
+  bundleNumber: form.bundleNumber,
+  adminMemo: form.adminMemo,
+  memo: form.memo,
+  prescriptionLocation: form.prescriptionLocation,
+  prescriptionTiming: form.prescriptionTiming,
+  items: form.items.map(stripRowMeta),
+  materialItems: form.materialItems.map(stripRowMeta),
+  commentItems: form.commentItems.map(stripRowMeta),
+  bodyPart: form.bodyPart ? stripRowMeta(form.bodyPart) : null,
+});
+
+const toFormStateFromRecommendation = (template: OrderRecommendationTemplate, today: string): BundleFormState => ({
+  bundleName: template.bundleName,
+  admin: template.admin,
+  bundleNumber: template.bundleNumber || '1',
+  adminMemo: template.adminMemo,
+  memo: template.memo,
+  startDate: today,
+  prescriptionLocation: template.prescriptionLocation ?? DEFAULT_PRESCRIPTION_LOCATION,
+  prescriptionTiming: template.prescriptionTiming ?? DEFAULT_PRESCRIPTION_TIMING,
+  items: template.items.length > 0 ? template.items.map((item) => ensureRowId({ ...item })) : [buildEmptyItem()],
+  materialItems: template.materialItems.map((item) => ensureRowId({ ...item })),
+  commentItems: template.commentItems.map((item) => ({ ...item })),
+  bodyPart: template.bodyPart ? { ...template.bodyPart } : null,
+});
+
+const resolveRecommendationLabel = (candidate: OrderRecommendationCandidate) => {
+  const bundle = candidate.template.bundleName.trim();
+  const firstItem = candidate.template.items.find((item) => item.name.trim())?.name.trim() ?? '';
+  const base = bundle || firstItem || '名称未設定';
+  const usage = candidate.template.admin.trim();
+  return usage ? `${base} / ${usage}` : base;
+};
+
 const toClipboardEntryFromLocalStamp = (stamp: LocalStampEntry): StampClipboardEntry => ({
   savedAt: new Date().toISOString(),
   source: 'local',
@@ -745,6 +788,7 @@ export function OrderBundleEditPanel({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [selectedItemRowId, setSelectedItemRowId] = useState<string | null>(null);
   const [optimisticBundles, setOptimisticBundles] = useState<OrderBundle[]>([]);
+  const [recommendationCandidates, setRecommendationCandidates] = useState<OrderRecommendationCandidate[]>([]);
   const [commentDraft, setCommentDraft] = useState<OrderBundleItem>({
     code: '',
     name: '',
@@ -802,6 +846,7 @@ export function OrderBundleEditPanel({
   );
 
   const storedAuth = useMemo(() => readStoredAuth(), []);
+  const facilityId = storedAuth?.facilityId;
   const userName = storedAuth ? `${storedAuth.facilityId}:${storedAuth.userId}` : null;
   const profileFetchStartedAt = useRef<number | null>(null);
   const profileDurationMs = useRef<number | null>(null);
@@ -835,6 +880,17 @@ export function OrderBundleEditPanel({
   useEffect(() => {
     setOptimisticBundles([]);
   }, [entity, patientId]);
+
+  useEffect(() => {
+    setRecommendationCandidates(
+      listOrderRecommendations({
+        facilityId,
+        patientId,
+        entity,
+        limit: 8,
+      }),
+    );
+  }, [entity, facilityId, patientId]);
 
   const queryKey = ['charts-order-bundles', patientId, entity];
   const bundleQuery = useQuery({
@@ -1182,6 +1238,17 @@ export function OrderBundleEditPanel({
         nextItems.push(ensureRowId(item));
       }
       return { ...prev, items: nextItems };
+    });
+  };
+
+  const applyRecommendation = (candidate: OrderRecommendationCandidate) => {
+    if (isBlocked) return;
+    const nextForm = toFormStateFromRecommendation(candidate.template, today);
+    setForm(nextForm);
+    setCommentDraft(candidate.template.commentItems[0] ?? { code: '', name: '', quantity: '', unit: '', memo: '' });
+    setNotice({
+      tone: 'info',
+      message: `頻用オーダーを反映しました（${candidate.source === 'patient' ? '患者傾向' : '施設傾向'} / ${candidate.count}回）。`,
     });
   };
 
@@ -1564,6 +1631,21 @@ export function OrderBundleEditPanel({
         },
       });
       if (result.ok) {
+        recordOrderRecommendationUsage({
+          facilityId,
+          patientId,
+          entity,
+          template: toOrderRecommendationTemplate(payload.form),
+          usedAt: new Date().toISOString(),
+        });
+        setRecommendationCandidates(
+          listOrderRecommendations({
+            facilityId,
+            patientId,
+            entity,
+            limit: 8,
+          }),
+        );
         if (operation === 'create' && result.createdDocumentIds && result.createdDocumentIds.length > 0) {
           const createdDocumentId = result.createdDocumentIds[0];
           const classMeta = resolveBundleClassMeta(payload.form);
@@ -2646,6 +2728,34 @@ export function OrderBundleEditPanel({
           ) : null}
         </div>
       )}
+
+      <div className="charts-side-panel__subsection">
+        <div className="charts-side-panel__subheader">
+          <strong>頻用オーダー（患者優先）</strong>
+          <span className="charts-side-panel__search-count">{recommendationCandidates.length}件</span>
+        </div>
+        {recommendationCandidates.length === 0 ? (
+          <p className="charts-side-panel__empty">
+            まだ学習データがありません。保存済みオーダーから候補ボタンを自動生成します。
+          </p>
+        ) : (
+          <div className="charts-side-panel__template-actions" aria-label="頻用オーダー候補">
+            {recommendationCandidates.map((candidate) => (
+              <button
+                key={candidate.key}
+                type="button"
+                onClick={() => applyRecommendation(candidate)}
+                disabled={isBlocked}
+                title={`${resolveRecommendationLabel(candidate)} / ${candidate.source === 'patient' ? '患者傾向' : '施設傾向'} / ${candidate.count}回`}
+              >
+                {resolveRecommendationLabel(candidate)}
+                {` (${candidate.source === 'patient' ? '患者' : '施設'}:${candidate.count})`}
+              </button>
+            ))}
+          </div>
+        )}
+        <p className="charts-side-panel__help">患者傾向を優先し、不足分を施設全体傾向から補います。</p>
+      </div>
 
       <div className="charts-side-panel__subsection">
         <div className="charts-side-panel__subheader">

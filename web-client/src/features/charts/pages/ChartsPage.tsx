@@ -1,6 +1,6 @@
 import { Global } from '@emotion/react';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { AuthServiceControls } from '../AuthServiceControls';
@@ -27,7 +27,7 @@ import { SOAP_SECTION_LABELS, SOAP_SECTIONS } from '../soapNote';
 import { chartsStyles } from '../styles';
 import { FocusTrapDialog } from '../../../components/modals/FocusTrapDialog';
 import { ImageDockedPanel } from '../../images/components';
-import type { KarteImageListItem } from '../../images/api';
+import { fetchKarteImageList, type KarteImageListItem } from '../../images/api';
 import type { ChartImageAttachment } from '../documentImageAttach';
 import { receptionStyles } from '../../reception/styles';
 import { fetchAppointmentOutpatients, fetchClaimFlags, type AppointmentPayload, type ReceptionEntry } from '../../reception/api';
@@ -35,7 +35,8 @@ import { fetchPatients, type PatientRecord } from '../../patients/api';
 import { getAuditEventLog, logAuditEvent, logUiState, type AuditEventRecord } from '../../../libs/audit/auditLogger';
 import { fetchOrcaOutpatientSummary } from '../api';
 import { fetchKarteIdByPatientId, type LetterModulePayload } from '../letterApi';
-import { fetchOrderBundles, type OrderBundle } from '../orderBundleApi';
+import { fetchOrderBundles, mutateOrderBundles, type OrderBundle } from '../orderBundleApi';
+import { fetchDiseases, mutateDiseases } from '../diseaseApi';
 import { useAdminBroadcast } from '../../../libs/admin/useAdminBroadcast';
 import { AdminBroadcastBanner } from '../../shared/AdminBroadcastBanner';
 import { RunIdBadge } from '../../shared/RunIdBadge';
@@ -78,6 +79,12 @@ import { getAppointmentDataBanner } from '../../outpatient/appointmentDataBanner
 import { resolveOutpatientFlags } from '../../outpatient/flags';
 import { buildScopedStorageKey } from '../../../libs/session/storageScope';
 import type { DraftDirtySource } from '../draftSources';
+import {
+  listChartOrderSets,
+  saveChartOrderSet,
+  type ChartOrderSetEntry,
+  type ChartOrderSetSnapshot,
+} from '../chartOrderSetStorage';
 
 const parseDate = (value?: string): Date | null => {
   if (!value) return null;
@@ -173,6 +180,7 @@ type DockedUtilityAction =
   | 'order-treatment'
   | 'order-test'
   | 'order-charge'
+  | 'order-set'
   | 'document'
   | 'imaging'
   | 'stamps';
@@ -324,6 +332,36 @@ const sanitizeSoapHistory = (entries: Record<string, SoapEntry[]>) => {
     delete normalized[oldest];
   }
   return { encounters: normalized, removed };
+};
+
+const toDateOnly = (value?: string) => {
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+};
+
+const filterSameDaySoapHistory = (entries: SoapEntry[], visitDate?: string) => {
+  const day = toDateOnly(visitDate);
+  if (!day) return entries;
+  return entries.filter((entry) => {
+    const authoredDay = toDateOnly(entry.authoredAt);
+    const visitDay = toDateOnly(entry.visitDate);
+    if (authoredDay && authoredDay === day) return true;
+    if (visitDay && visitDay === day) return true;
+    return false;
+  });
+};
+
+const filterSameDayOrderBundles = (bundles: OrderBundle[], visitDate?: string) => {
+  const day = toDateOnly(visitDate);
+  if (!day) return bundles;
+  return bundles.filter((bundle) => {
+    const startedDay = toDateOnly(bundle.started);
+    if (!startedDay) return true;
+    return startedDay === day;
+  });
 };
 export function ChartsPage() {
   return (
@@ -574,6 +612,19 @@ function ChartsContent() {
   const [documentHistoryCopyRequest, setDocumentHistoryCopyRequest] = useState<{
     requestId: string;
     letterId: number;
+  } | null>(null);
+  const [orderSetEntries, setOrderSetEntries] = useState<ChartOrderSetEntry[]>(() =>
+    listChartOrderSets(session.facilityId),
+  );
+  const [selectedOrderSetId, setSelectedOrderSetId] = useState<string>(() =>
+    listChartOrderSets(session.facilityId)[0]?.id ?? '',
+  );
+  const [orderSetName, setOrderSetName] = useState('');
+  const [orderSetNotice, setOrderSetNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
+  const [replaceSoapDraftRequest, setReplaceSoapDraftRequest] = useState<{
+    token: string;
+    draft: SoapDraft;
+    note?: string;
   } | null>(null);
   const [deliveryAppliedMeta, setDeliveryAppliedMeta] = useState<{
     appliedAt: string;
@@ -1971,6 +2022,30 @@ function ChartsContent() {
     orderBundleSummaryQuery.data && !orderBundleSummaryQuery.data.ok
       ? orderBundleSummaryQuery.data.message ?? 'オーダー情報の取得に失敗しました。'
       : undefined;
+  const todaySoapHistoryForSet = useMemo(
+    () => filterSameDaySoapHistory(soapHistory, actionVisitDate),
+    [actionVisitDate, soapHistory],
+  );
+  const todayOrderBundlesForSet = useMemo(
+    () => filterSameDayOrderBundles(orderBundles, actionVisitDate),
+    [actionVisitDate, orderBundles],
+  );
+
+  const refreshOrderSetEntries = useCallback(() => {
+    const next = listChartOrderSets(session.facilityId);
+    setOrderSetEntries(next);
+    if (next.length === 0) {
+      setSelectedOrderSetId('');
+      return next;
+    }
+    setSelectedOrderSetId((prev) => (next.some((item) => item.id === prev) ? prev : next[0].id));
+    return next;
+  }, [session.facilityId]);
+
+  const selectedOrderSet = useMemo(
+    () => orderSetEntries.find((item) => item.id === selectedOrderSetId) ?? null,
+    [orderSetEntries, selectedOrderSetId],
+  );
 
   const patientDisplay = useMemo(() => {
     const baseDate = parseDate(actionVisitDate) ?? new Date();
@@ -2022,6 +2097,25 @@ function ChartsContent() {
     selectedEntry?.status,
     selectedEntry?.visitDate,
   ]);
+
+  useEffect(() => {
+    refreshOrderSetEntries();
+  }, [refreshOrderSetEntries]);
+
+  useEffect(() => {
+    const patientName = (patientDisplay.name ?? '').trim();
+    if (!patientId) {
+      setOrderSetName('');
+      return;
+    }
+    const suffix = patientName ? ` ${patientName}` : '';
+    setOrderSetName(`${actionVisitDate} セット${suffix}`);
+  }, [actionVisitDate, patientDisplay.name, patientId]);
+
+  useEffect(() => {
+    setOrderSetNotice(null);
+    setReplaceSoapDraftRequest(null);
+  }, [encounterContext.patientId]);
 
   const patientTabKeyForContext = useMemo(() => {
     const pid = (patientId ?? '').trim();
@@ -2570,6 +2664,170 @@ function ChartsContent() {
     forceClosePatientTab(activeKey);
   }, [activePatientTabKey, draftState.dirty, forceClosePatientTab, handleRefreshSummary]);
 
+  const saveOrderSetMutation = useMutation({
+    mutationFn: async () => {
+      if (!patientId) {
+        throw new Error('患者未選択のためオーダーセットを保存できません。');
+      }
+      const resolvedName = orderSetName.trim() || `${actionVisitDate} セット`;
+      const diseaseResult = await fetchDiseases({
+        patientId,
+        from: actionVisitDate,
+        to: actionVisitDate,
+      });
+      const imageResult = await fetchKarteImageList({
+        chartId: patientId,
+        allowTypoFallback: true,
+      });
+      const todayImages: ChartImageAttachment[] = imageResult.ok
+        ? (imageResult.list ?? [])
+            .filter((item) => {
+              const recordedAt = toDateOnly(item.recordedAt);
+              if (!recordedAt) return true;
+              return recordedAt === actionVisitDate;
+            })
+            .map((item) => normalizeAttachment(item))
+        : [];
+
+      const snapshot: ChartOrderSetSnapshot = {
+        sourcePatientId: patientId,
+        sourceVisitDate: actionVisitDate,
+        capturedAt: new Date().toISOString(),
+        diagnoses: diseaseResult.diseases ?? [],
+        soapDraft: soapDraftSnapshot,
+        soapHistory: todaySoapHistoryForSet,
+        orderBundles: todayOrderBundlesForSet,
+        imageAttachments: todayImages,
+      };
+      const hasSoap = SOAP_SECTIONS.some((section) => (snapshot.soapDraft[section] ?? '').trim().length > 0);
+      const hasPayload =
+        snapshot.diagnoses.length > 0 ||
+        snapshot.soapHistory.length > 0 ||
+        hasSoap ||
+        snapshot.orderBundles.length > 0 ||
+        snapshot.imageAttachments.length > 0;
+      if (!hasPayload) {
+        throw new Error('本日の病名・SOAP・オーダー・画像に保存対象がありません。');
+      }
+
+      const saved = saveChartOrderSet({
+        facilityId: session.facilityId,
+        userId: session.userId,
+        name: resolvedName,
+        snapshot,
+      });
+
+      return {
+        saved,
+        diseaseOk: diseaseResult.apiResult ? /^0+$/.test(diseaseResult.apiResult) : true,
+        imageOk: imageResult.ok,
+      };
+    },
+    onSuccess: (result) => {
+      refreshOrderSetEntries();
+      setSelectedOrderSetId(result.saved.id);
+      const snapshot = result.saved.snapshot;
+      const warning =
+        !result.diseaseOk || !result.imageOk
+          ? '（一部データ取得失敗あり）'
+          : '';
+      setOrderSetNotice({
+        tone: 'success',
+        message: `オーダーセットを保存しました${warning}。病名${snapshot.diagnoses.length}件 / SOAP履歴${snapshot.soapHistory.length}件 / オーダー${snapshot.orderBundles.length}件 / 画像${snapshot.imageAttachments.length}件`,
+      });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setOrderSetNotice({ tone: 'error', message: `オーダーセットの保存に失敗しました: ${message}` });
+    },
+  });
+
+  const applyOrderSetMutation = useMutation({
+    mutationFn: async (entry: ChartOrderSetEntry) => {
+      if (!patientId) {
+        throw new Error('患者未選択のためオーダーセットを登録できません。');
+      }
+      if (sidePanelMeta.readOnly) {
+        throw new Error(sidePanelMeta.readOnlyReason ?? '読み取り専用のためオーダーセットを登録できません。');
+      }
+
+      const snapshot = entry.snapshot;
+      const orderOperations = snapshot.orderBundles
+        .filter((bundle) => bundle.entity && (bundle.items ?? []).some((item) => item.name?.trim()))
+        .map((bundle) => ({
+          operation: 'create' as const,
+          entity: bundle.entity,
+          bundleName: bundle.bundleName,
+          bundleNumber: bundle.bundleNumber,
+          classCode: bundle.classCode,
+          classCodeSystem: bundle.classCodeSystem,
+          className: bundle.className,
+          admin: bundle.admin,
+          adminMemo: bundle.adminMemo,
+          memo: bundle.memo,
+          startDate: bundle.started ?? actionVisitDate,
+          items: (bundle.items ?? []).filter((item) => item.name?.trim()),
+        }));
+
+      if (orderOperations.length > 0) {
+        const orderResult = await mutateOrderBundles({
+          patientId,
+          operations: orderOperations,
+        });
+        if (!orderResult.ok) {
+          throw new Error(orderResult.message ?? 'オーダー登録に失敗しました。');
+        }
+      }
+
+      const diseaseOperations = snapshot.diagnoses
+        .filter((disease) => disease.diagnosisName?.trim())
+        .map((disease) => ({
+          operation: 'create' as const,
+          diagnosisName: disease.diagnosisName,
+          diagnosisCode: disease.diagnosisCode,
+          startDate: disease.startDate,
+          endDate: disease.endDate,
+          outcome: disease.outcome,
+          category: disease.category,
+          suspectedFlag: disease.suspectedFlag,
+        }));
+
+      if (diseaseOperations.length > 0) {
+        const diseaseResult = await mutateDiseases({
+          patientId,
+          operations: diseaseOperations,
+        });
+        if (!diseaseResult.ok) {
+          throw new Error(diseaseResult.message ?? '病名登録に失敗しました。');
+        }
+      }
+
+      return {
+        entry,
+        orderCount: orderOperations.length,
+        diseaseCount: diseaseOperations.length,
+      };
+    },
+    onSuccess: ({ entry, orderCount, diseaseCount }) => {
+      setReplaceSoapDraftRequest({
+        token: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        draft: entry.snapshot.soapDraft,
+        note: `オーダーセット「${entry.name}」のSOAPドラフトを反映しました。`,
+      });
+      setDocumentImageAttachments(entry.snapshot.imageAttachments);
+      queryClient.invalidateQueries({ queryKey: ['charts-order-bundles'] });
+      queryClient.invalidateQueries({ queryKey: ['charts-diagnosis'] });
+      setOrderSetNotice({
+        tone: 'success',
+        message: `オーダーセットを登録しました。病名${diseaseCount}件 / オーダー${orderCount}件 / SOAPドラフト反映 / 画像添付${entry.snapshot.imageAttachments.length}件`,
+      });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setOrderSetNotice({ tone: 'error', message: `オーダーセットの登録に失敗しました: ${message}` });
+    },
+  });
+
   const utilityPanelTitles: Record<DockedUtilityAction, string> = {
     'clinical-actions': '診療操作',
     'prescription-edit': '処方',
@@ -2577,6 +2835,7 @@ function ChartsContent() {
     'order-treatment': '処置',
     'order-test': '検査',
     'order-charge': '算定',
+    'order-set': 'オーダーセット',
     document: '文書',
     imaging: '画像',
     stamps: 'スタンプ',
@@ -2592,6 +2851,7 @@ function ChartsContent() {
         { id: 'order-treatment', label: '処置', shortLabel: '処置', requiresEdit: true },
         { id: 'order-test', label: '検査', shortLabel: '検査', requiresEdit: true },
         { id: 'order-charge', label: '算定', shortLabel: '算定', requiresEdit: true },
+        { id: 'order-set', label: 'セット', shortLabel: 'セット', requiresEdit: false },
         { id: 'document', label: '文書', shortLabel: '文書', requiresEdit: true },
       ];
       if (isPatientImagesMvpEnabled) {
@@ -3536,6 +3796,7 @@ function ChartsContent() {
 		                      onOpenPrescriptionEditor={() => openUtilityPanel('prescription-edit')}
 		                      onOpenOrderEditor={handleOpenOrderEditorFromEntity}
 		                      onDraftSnapshot={setSoapDraftSnapshot}
+		                      replaceDraftRequest={replaceSoapDraftRequest}
 		                      applyDraftPatch={applySoapDraftPatch}
 		                      attachmentInsert={pendingSoapAttachment}
 		                      onAttachmentInserted={() => setPendingSoapAttachment(null)}
@@ -3909,6 +4170,83 @@ function ChartsContent() {
                             />
                           </>
                         ) : null}
+                      </div>
+                    )}
+                    {utilityPanelAction === 'order-set' && (
+                      <div className="charts-side-panel__content">
+                        {orderSetNotice ? (
+                          <div className={`charts-side-panel__notice charts-side-panel__notice--${orderSetNotice.tone}`}>
+                            {orderSetNotice.message}
+                          </div>
+                        ) : null}
+                        <div className="charts-side-panel__subsection">
+                          <div className="charts-side-panel__subheader">
+                            <strong>当日データをセット保存</strong>
+                          </div>
+                          <div className="charts-side-panel__field">
+                            <label htmlFor="charts-order-set-name">セット名称</label>
+                            <input
+                              id="charts-order-set-name"
+                              value={orderSetName}
+                              onChange={(event) => setOrderSetName(event.target.value)}
+                              placeholder="例: 定期フォローセット"
+                            />
+                          </div>
+                          <p className="charts-side-panel__help">
+                            対象: 病名 / SOAP / オーダー / 画像（{actionVisitDate}）
+                          </p>
+                          <div className="charts-side-panel__actions">
+                            <button
+                              type="button"
+                              onClick={() => saveOrderSetMutation.mutate()}
+                              disabled={!patientId || saveOrderSetMutation.isPending || sidePanelMeta.readOnly}
+                            >
+                              {saveOrderSetMutation.isPending ? '保存中...' : '本日データをセット保存'}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="charts-side-panel__subsection">
+                          <div className="charts-side-panel__subheader">
+                            <strong>登録済みセット</strong>
+                            <span className="charts-side-panel__search-count">{orderSetEntries.length}件</span>
+                          </div>
+                          <div className="charts-side-panel__field">
+                            <label htmlFor="charts-order-set-select">セット選択</label>
+                            <select
+                              id="charts-order-set-select"
+                              value={selectedOrderSetId}
+                              onChange={(event) => setSelectedOrderSetId(event.target.value)}
+                            >
+                              <option value="">選択してください</option>
+                              {orderSetEntries.map((entry) => (
+                                <option key={entry.id} value={entry.id}>
+                                  {entry.name} / {entry.snapshot.sourceVisitDate || '日付未設定'} / 患者ID {entry.snapshot.sourcePatientId || '未設定'}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          {selectedOrderSet ? (
+                            <p className="charts-side-panel__help">
+                              内容: 病名{selectedOrderSet.snapshot.diagnoses.length}件 / SOAP履歴{selectedOrderSet.snapshot.soapHistory.length}件 / オーダー{selectedOrderSet.snapshot.orderBundles.length}件 / 画像{selectedOrderSet.snapshot.imageAttachments.length}件
+                            </p>
+                          ) : null}
+                          <div className="charts-side-panel__actions">
+                            <button
+                              type="button"
+                              onClick={() => selectedOrderSet && applyOrderSetMutation.mutate(selectedOrderSet)}
+                              disabled={!selectedOrderSet || applyOrderSetMutation.isPending || !patientId || sidePanelMeta.readOnly}
+                            >
+                              {applyOrderSetMutation.isPending ? '登録中...' : 'セット登録（現在患者へ適用）'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => navigate(buildFacilityPath(session.facilityId, '/charts/order-sets'))}
+                            >
+                              セット編集画面を開く
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
                     {utilityPanelAction === 'document' && (

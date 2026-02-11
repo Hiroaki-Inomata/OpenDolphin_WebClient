@@ -55,6 +55,7 @@ type SoapNotePanelProps = {
   onOpenPrescriptionEditor?: () => void;
   onOpenOrderEditor?: (entity: string) => void;
   onDraftSnapshot?: (draft: SoapDraft) => void;
+  replaceDraftRequest?: { token: string; draft: SoapDraft; note?: string } | null;
   applyDraftPatch?: { token: string; section: SoapSectionKey; body: string; note?: string } | null;
   attachmentInsert?: { attachment: ChartImageAttachment; section: SoapSectionKey; token: string } | null;
   onAttachmentInserted?: () => void;
@@ -110,6 +111,7 @@ export function SoapNotePanel({
   onOpenPrescriptionEditor,
   onOpenOrderEditor,
   onDraftSnapshot,
+  replaceDraftRequest,
   applyDraftPatch,
   attachmentInsert,
   onAttachmentInserted,
@@ -283,6 +285,33 @@ export function SoapNotePanel({
   useEffect(() => {
     onDraftSnapshot?.(draft);
   }, [draft, onDraftSnapshot]);
+
+  useEffect(() => {
+    if (!replaceDraftRequest) return;
+    if (readOnly) {
+      setFeedback(readOnlyReason ?? '読み取り専用のためセット反映できません。');
+      return;
+    }
+    setDraft(replaceDraftRequest.draft);
+    setFeedback(replaceDraftRequest.note ?? 'SOAPドラフトをオーダーセットから反映しました。');
+    onDraftDirtyChange?.({
+      dirty: true,
+      patientId: meta.patientId,
+      appointmentId: meta.appointmentId,
+      receptionId: meta.receptionId,
+      visitDate: meta.visitDate,
+      dirtySources: ['soap'],
+    });
+  }, [
+    meta.appointmentId,
+    meta.patientId,
+    meta.receptionId,
+    meta.visitDate,
+    onDraftDirtyChange,
+    readOnly,
+    readOnlyReason,
+    replaceDraftRequest?.token,
+  ]);
 
   useEffect(() => {
     if (!applyDraftPatch) return;

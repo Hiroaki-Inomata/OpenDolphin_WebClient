@@ -28,6 +28,7 @@ import { LoginScreen, type LoginResult } from './LoginScreen';
 import { ChartsPage } from './features/charts/pages/ChartsPage';
 import { ChartsOutpatientPrintPage } from './features/charts/pages/ChartsOutpatientPrintPage';
 import { ChartsDocumentPrintPage } from './features/charts/pages/ChartsDocumentPrintPage';
+import { OrderSetEditorPage } from './features/charts/pages/OrderSetEditorPage';
 import { ReceptionPage } from './features/reception/pages/ReceptionPage';
 import { DebugHubPage } from './features/debug/DebugHubPage';
 import { OrcaApiConsolePage } from './features/debug/OrcaApiConsolePage';
@@ -525,6 +526,7 @@ function FacilityShell({ session }: { session: Session | null }) {
       <Route index element={<Navigate to={buildFacilityPath(session.facilityId, '/reception')} replace />} />
       <Route path="reception" element={<ConnectedReception />} />
       <Route path="charts" element={<ConnectedCharts />} />
+      <Route path="charts/order-sets" element={<OrderSetEditorPage />} />
       <Route path="charts/print/outpatient" element={<ChartsOutpatientPrintPage />} />
       <Route path="charts/print/document" element={<ChartsDocumentPrintPage />} />
       {MOBILE_IMAGES_UI_ENABLED ? <Route path="m/images" element={<MobileImagesUploadPage />} /> : null}
