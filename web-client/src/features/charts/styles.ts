@@ -182,10 +182,9 @@ export const chartsStyles = css`
     --charts-column-center: minmax(620px, 2.3fr);
     --charts-column-right: minmax(300px, 1.05fr);
     --charts-column-gap: var(--charts-space-sm);
-    --charts-utility-compact-width: 66px;
-    --charts-utility-expanded-width: var(--charts-utility-compact-width);
-    --charts-utility-expanded-width-wide: var(--charts-utility-compact-width);
-    --charts-utility-expanded-width-narrow: var(--charts-utility-compact-width);
+    --charts-utility-compact-width: 72px;
+    --charts-utility-expanded-width: clamp(420px, 33vw, 620px);
+    --charts-utility-expanded-height: clamp(560px, 84vh, 900px);
     --charts-utility-width: var(--charts-utility-compact-width);
     --charts-utility-height: clamp(520px, 82vh, 860px);
     --charts-side-width: var(--charts-utility-width);
@@ -194,7 +193,15 @@ export const chartsStyles = css`
   }
 
   .charts-workbench[data-utility-state='expanded'] {
-    --charts-utility-width: var(--charts-utility-compact-width);
+    --charts-utility-width: min(var(--charts-utility-expanded-width), 44vw);
+    --charts-column-left: minmax(220px, 0.72fr);
+    --charts-column-center: minmax(420px, 1.22fr);
+    --charts-column-gap: var(--charts-space-xs);
+  }
+
+  .charts-workbench[data-utility-state='expanded'][data-charts-compact-ui='1'] {
+    --charts-column-left: minmax(200px, 0.66fr);
+    --charts-column-center: minmax(380px, 1.1fr);
   }
 
   .charts-workbench[data-charts-compact-ui='1'] {
@@ -215,6 +222,12 @@ export const chartsStyles = css`
     --charts-column-left: minmax(240px, 0.72fr);
     --charts-column-center: minmax(700px, 2.65fr);
     --charts-column-right: minmax(240px, 0.85fr);
+    --charts-column-gap: var(--charts-space-xs);
+  }
+
+  .charts-page[data-charts-ui-opt-b='1'] .charts-workbench[data-utility-state='expanded'] {
+    --charts-column-left: minmax(210px, 0.7fr);
+    --charts-column-center: minmax(400px, 1.18fr);
     --charts-column-gap: var(--charts-space-xs);
   }
 
@@ -1329,6 +1342,7 @@ export const chartsStyles = css`
     top: 1.25rem;
     align-self: start;
     width: 100%;
+    min-width: 0;
     z-index: 3;
     background: #ffffff;
     border-radius: var(--charts-radius-lg);
@@ -1338,32 +1352,27 @@ export const chartsStyles = css`
   }
 
   .charts-workbench::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 23, 42, 0.42);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 140ms ease;
-    z-index: 1040;
+    content: none;
   }
 
   .charts-workbench[data-utility-state='expanded']::before {
-    opacity: 1;
-    pointer-events: auto;
+    opacity: 0;
+    pointer-events: none;
   }
 
   .charts-workbench[data-utility-state='expanded'] .charts-workbench__side {
-    position: fixed;
-    top: clamp(44px, 5vh, 72px);
-    left: 50%;
-    transform: translateX(-50%);
-    width: min(1160px, calc(100vw - 2rem));
-    max-height: calc(100vh - clamp(76px, 8vh, 112px));
-    z-index: 1050;
+    position: sticky;
+    top: 1.25rem;
+    max-height: min(var(--charts-utility-expanded-height), calc(100vh - 1.75rem));
+    height: min(var(--charts-utility-expanded-height), calc(100vh - 1.75rem));
+    z-index: 4;
     overflow: hidden;
     box-shadow: 0 28px 64px rgba(15, 23, 42, 0.28);
     border-color: rgba(37, 99, 235, 0.28);
+    display: flex;
+    flex-direction: column;
   }
 
   .charts-shortcuts {
@@ -1530,12 +1539,6 @@ export const chartsStyles = css`
     outline-offset: 2px;
   }
 
-  .charts-docked-panel__quick {
-    display: flex;
-    flex-direction: column;
-    gap: var(--charts-space-xs);
-  }
-
   .charts-docked-panel__eyebrow {
     margin: 0;
     font-size: 0.7rem;
@@ -1666,6 +1669,10 @@ export const chartsStyles = css`
     background: linear-gradient(180deg, rgba(239, 246, 255, 0.76), #ffffff 42%);
   }
 
+  .charts-docked-panel__drawer--order {
+    overflow: hidden;
+  }
+
   .charts-docked-panel__drawer[data-open='false'] {
     opacity: 0.7;
   }
@@ -1711,6 +1718,28 @@ export const chartsStyles = css`
 
   .charts-workbench[data-utility-state='compact'] .charts-docked-panel__mini-label {
     display: none;
+  }
+
+  .charts-docked-panel__resize-handle {
+    margin-left: auto;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 8px;
+    background:
+      linear-gradient(135deg, transparent 45%, rgba(100, 116, 139, 0.55) 45%, rgba(100, 116, 139, 0.55) 55%, transparent 55%),
+      transparent;
+    cursor: nwse-resize;
+    opacity: 0.72;
+  }
+
+  .charts-docked-panel__resize-handle:hover {
+    opacity: 1;
+  }
+
+  .charts-side-panel__content--order {
+    min-height: 0;
+    flex: 1;
   }
 
   .charts-side-panel__message {
@@ -2411,6 +2440,48 @@ export const chartsStyles = css`
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-md);
+  }
+
+  .charts-side-panel__workspace {
+    display: grid;
+    grid-template-columns: minmax(300px, 0.92fr) minmax(0, 1.58fr);
+    gap: var(--charts-space-md);
+    min-height: 0;
+    align-items: start;
+  }
+
+  .charts-side-panel__workspace-left,
+  .charts-side-panel__workspace-right {
+    min-height: 0;
+    max-height: min(72vh, 880px);
+    overflow: auto;
+    padding-right: var(--charts-space-xs);
+    scrollbar-gutter: stable both-edges;
+  }
+
+  .charts-side-panel__workspace-left {
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-sm);
+  }
+
+  .charts-side-panel__workspace-right {
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-sm);
+  }
+
+  @media (max-width: 1360px) {
+    .charts-side-panel__workspace {
+      grid-template-columns: 1fr;
+    }
+
+    .charts-side-panel__workspace-left,
+    .charts-side-panel__workspace-right {
+      max-height: none;
+      overflow: visible;
+      padding-right: 0;
+    }
   }
 
   .charts-side-panel__section-header {
@@ -6746,13 +6817,14 @@ export const chartsStyles = css`
     }
 
     .charts-workbench[data-utility-state='expanded'] .charts-workbench__side {
-      left: 50%;
-      right: auto;
-      bottom: auto;
-      top: max(12px, env(safe-area-inset-top));
-      transform: translateX(-50%);
-      width: min(98vw, 980px);
-      max-height: calc(100vh - max(24px, env(safe-area-inset-top)) - 12px);
+      left: 8px !important;
+      right: auto !important;
+      bottom: auto !important;
+      top: max(8px, env(safe-area-inset-top)) !important;
+      width: calc(100vw - 16px) !important;
+      height: calc(100vh - max(12px, env(safe-area-inset-top)) - 8px) !important;
+      max-height: calc(100vh - max(12px, env(safe-area-inset-top)) - 8px);
+      transform: none !important;
     }
 
     .charts-docked-panel__tabs {

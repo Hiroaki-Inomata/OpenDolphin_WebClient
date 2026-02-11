@@ -2718,164 +2718,167 @@ export function OrderBundleEditPanel({
           ) : null}
         </div>
       )}
+      <div className="charts-side-panel__workspace">
+        <aside className="charts-side-panel__workspace-left" aria-label="頻用オーダーとスタンプ">
+          <div className="charts-side-panel__subsection">
+            <div className="charts-side-panel__subheader">
+              <strong>頻用オーダー（患者優先）</strong>
+              <span className="charts-side-panel__search-count">{recommendationCandidates.length}件</span>
+            </div>
+            {recommendationCandidates.length === 0 ? (
+              <p className="charts-side-panel__empty">
+                まだ学習データがありません。保存済みオーダーから候補ボタンを自動生成します。
+              </p>
+            ) : (
+              <div className="charts-side-panel__template-actions" aria-label="頻用オーダー候補">
+                {recommendationCandidates.map((candidate) => (
+                  <button
+                    key={candidate.key}
+                    type="button"
+                    onClick={() => applyRecommendation(candidate)}
+                    disabled={isBlocked}
+                    title={`${resolveRecommendationLabel(candidate)} / ${candidate.source === 'patient' ? '患者傾向' : '施設傾向'} / ${candidate.count}回`}
+                  >
+                    {resolveRecommendationLabel(candidate)}
+                    {` (${candidate.source === 'patient' ? '患者' : '施設'}:${candidate.count})`}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="charts-side-panel__help">患者個別候補を優先し、不足分のみ施設候補で補完します。</p>
+          </div>
 
-      <div className="charts-side-panel__subsection">
-        <div className="charts-side-panel__subheader">
-          <strong>頻用オーダー（患者優先）</strong>
-          <span className="charts-side-panel__search-count">{recommendationCandidates.length}件</span>
-        </div>
-        {recommendationCandidates.length === 0 ? (
-          <p className="charts-side-panel__empty">
-            まだ学習データがありません。保存済みオーダーから候補ボタンを自動生成します。
-          </p>
-        ) : (
-          <div className="charts-side-panel__template-actions" aria-label="頻用オーダー候補">
-            {recommendationCandidates.map((candidate) => (
-              <button
-                key={candidate.key}
-                type="button"
-                onClick={() => applyRecommendation(candidate)}
+          <div className="charts-side-panel__subsection">
+            <div className="charts-side-panel__subheader">
+              <strong>スタンプ保存/取り込み</strong>
+            </div>
+            {stampServerNotice && (
+              <div className={`charts-side-panel__notice charts-side-panel__notice--${stampServerNotice.tone}`}>
+                {stampServerNotice.message}
+              </div>
+            )}
+            {stampNotice && (
+              <div className={`charts-side-panel__notice charts-side-panel__notice--${stampNotice.tone}`}>{stampNotice.message}</div>
+            )}
+            <div className="charts-side-panel__field">
+              <label htmlFor={`${entity}-stamp-name`}>スタンプ名称</label>
+              <input
+                id={`${entity}-stamp-name`}
+                value={stampForm.name}
+                onChange={(event) => setStampForm((prev) => ({ ...prev, name: event.target.value }))}
+                placeholder="例: 降圧薬セット"
                 disabled={isBlocked}
-                title={`${resolveRecommendationLabel(candidate)} / ${candidate.source === 'patient' ? '患者傾向' : '施設傾向'} / ${candidate.count}回`}
+              />
+            </div>
+            <div className="charts-side-panel__field-row">
+              <div className="charts-side-panel__field">
+                <label htmlFor={`${entity}-stamp-category`}>分類</label>
+                <input
+                  id={`${entity}-stamp-category`}
+                  list={`${entity}-stamp-category-list`}
+                  value={stampForm.category}
+                  onChange={(event) => setStampForm((prev) => ({ ...prev, category: event.target.value }))}
+                  placeholder="例: 院内セット"
+                  disabled={isBlocked}
+                />
+                <datalist id={`${entity}-stamp-category-list`}>
+                  {stampCategories.map((category) => (
+                    <option key={category} value={category} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="charts-side-panel__field">
+                <label htmlFor={`${entity}-stamp-target`}>対象</label>
+                <select
+                  id={`${entity}-stamp-target`}
+                  value={stampForm.target}
+                  onChange={(event) => setStampForm((prev) => ({ ...prev, target: event.target.value }))}
+                  disabled={isBlocked}
+                >
+                  {resolvedStampTargets.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="charts-side-panel__field">
+              <label htmlFor={`${entity}-stamp-select`}>既存スタンプ</label>
+              <select
+                id={`${entity}-stamp-select`}
+                value={selectedStamp}
+                onChange={(event) => setSelectedStamp(event.target.value)}
+                disabled={isBlocked}
               >
-                {resolveRecommendationLabel(candidate)}
-                {` (${candidate.source === 'patient' ? '患者' : '施設'}:${candidate.count})`}
+                <option value="">選択してください</option>
+                {localStampOptions.length > 0 && (
+                  <optgroup label={`ローカル (${localStampOptions.length}件)`}>
+                    {localStampOptions.map((stamp) => (
+                      <option key={stamp.id} value={`local::${stamp.id}`}>
+                        {stamp.name || '名称未設定'}
+                        {stamp.category ? ` / ${stamp.category}` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {stampTreeEntries.length > 0 && (
+                  <optgroup label={`サーバー (${stampTreeEntries.length}件)`}>
+                    {stampTreeEntries.map((stamp: StampTreeEntry & { treeName?: string }) => (
+                      <option key={stamp.stampId} value={`server::${stamp.stampId}`}>
+                        {stamp.name}
+                        {stamp.treeName ? ` / ${stamp.treeName}` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+            <div className="charts-side-panel__actions">
+              <button type="button" onClick={saveStamp} disabled={isBlocked}>
+                スタンプ保存
               </button>
-            ))}
-          </div>
-        )}
-        <p className="charts-side-panel__help">患者個別候補を優先し、不足分のみ施設候補で補完します。</p>
-      </div>
-
-      <div className="charts-side-panel__subsection">
-        <div className="charts-side-panel__subheader">
-          <strong>スタンプ保存/取り込み</strong>
-        </div>
-        {stampServerNotice && (
-          <div className={`charts-side-panel__notice charts-side-panel__notice--${stampServerNotice.tone}`}>
-            {stampServerNotice.message}
-          </div>
-        )}
-        {stampNotice && (
-          <div className={`charts-side-panel__notice charts-side-panel__notice--${stampNotice.tone}`}>{stampNotice.message}</div>
-        )}
-        <div className="charts-side-panel__field">
-          <label htmlFor={`${entity}-stamp-name`}>スタンプ名称</label>
-          <input
-            id={`${entity}-stamp-name`}
-            value={stampForm.name}
-            onChange={(event) => setStampForm((prev) => ({ ...prev, name: event.target.value }))}
-            placeholder="例: 降圧薬セット"
-            disabled={isBlocked}
-          />
-        </div>
-        <div className="charts-side-panel__field-row">
-          <div className="charts-side-panel__field">
-            <label htmlFor={`${entity}-stamp-category`}>分類</label>
-            <input
-              id={`${entity}-stamp-category`}
-              list={`${entity}-stamp-category-list`}
-              value={stampForm.category}
-              onChange={(event) => setStampForm((prev) => ({ ...prev, category: event.target.value }))}
-              placeholder="例: 院内セット"
-              disabled={isBlocked}
-            />
-            <datalist id={`${entity}-stamp-category-list`}>
-              {stampCategories.map((category) => (
-                <option key={category} value={category} />
-              ))}
-            </datalist>
-          </div>
-          <div className="charts-side-panel__field">
-            <label htmlFor={`${entity}-stamp-target`}>対象</label>
-            <select
-              id={`${entity}-stamp-target`}
-              value={stampForm.target}
-              onChange={(event) => setStampForm((prev) => ({ ...prev, target: event.target.value }))}
-              disabled={isBlocked}
-            >
-              {resolvedStampTargets.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-        <div className="charts-side-panel__field">
-          <label htmlFor={`${entity}-stamp-select`}>既存スタンプ</label>
-          <select
-            id={`${entity}-stamp-select`}
-            value={selectedStamp}
-            onChange={(event) => setSelectedStamp(event.target.value)}
-            disabled={isBlocked}
-          >
-            <option value="">選択してください</option>
-            {localStampOptions.length > 0 && (
-              <optgroup label={`ローカル (${localStampOptions.length}件)`}>
-                {localStampOptions.map((stamp) => (
-                  <option key={stamp.id} value={`local::${stamp.id}`}>
-                    {stamp.name || '名称未設定'}
-                    {stamp.category ? ` / ${stamp.category}` : ''}
-                  </option>
-                ))}
-              </optgroup>
+              <button
+                type="button"
+                onClick={importStamp}
+                disabled={stampImportMutation.isPending || isBlocked}
+              >
+                スタンプ取り込み
+              </button>
+            </div>
+            <div className="charts-side-panel__actions">
+              <button
+                type="button"
+                onClick={copyStamp}
+                disabled={stampCopyMutation.isPending || isBlocked}
+              >
+                スタンプコピー
+              </button>
+              <button type="button" onClick={pasteStamp} disabled={isBlocked}>
+                スタンプペースト
+              </button>
+            </div>
+            {stampClipboard && (
+              <p className="charts-side-panel__help">
+                コピー済み: {stampClipboard.name || '名称未設定'}
+                {stampClipboard.category ? ` / ${stampClipboard.category}` : ''}
+                {stampClipboard.source === 'server' ? '（サーバー）' : '（ローカル）'}
+              </p>
             )}
-            {stampTreeEntries.length > 0 && (
-              <optgroup label={`サーバー (${stampTreeEntries.length}件)`}>
-                {stampTreeEntries.map((stamp: StampTreeEntry & { treeName?: string }) => (
-                  <option key={stamp.stampId} value={`server::${stamp.stampId}`}>
-                    {stamp.name}
-                    {stamp.treeName ? ` / ${stamp.treeName}` : ''}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-        </div>
-        <div className="charts-side-panel__actions">
-          <button type="button" onClick={saveStamp} disabled={isBlocked}>
-            スタンプ保存
-          </button>
-          <button
-            type="button"
-            onClick={importStamp}
-            disabled={stampImportMutation.isPending || isBlocked}
-          >
-            スタンプ取り込み
-          </button>
-        </div>
-        <div className="charts-side-panel__actions">
-          <button
-            type="button"
-            onClick={copyStamp}
-            disabled={stampCopyMutation.isPending || isBlocked}
-          >
-            スタンプコピー
-          </button>
-          <button type="button" onClick={pasteStamp} disabled={isBlocked}>
-            スタンプペースト
-          </button>
-        </div>
-        {stampClipboard && (
-          <p className="charts-side-panel__help">
-            コピー済み: {stampClipboard.name || '名称未設定'}
-            {stampClipboard.category ? ` / ${stampClipboard.category}` : ''}
-            {stampClipboard.source === 'server' ? '（サーバー）' : '（ローカル）'}
-          </p>
-        )}
-        <p className="charts-side-panel__message">
-          取り込み後は内容を確認し、必要に応じて編集してから「展開する」「展開継続する」または「保存して追加」で反映してください。
-        </p>
-      </div>
+            <p className="charts-side-panel__message">
+              取り込み後は内容を確認し、必要に応じて編集してから「展開する」「展開継続する」または「保存して追加」で反映してください。
+            </p>
+          </div>
+        </aside>
 
-      <form
-        className="charts-side-panel__form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          submitAction('save');
-        }}
-      >
+        <div className="charts-side-panel__workspace-right">
+          <form
+            className="charts-side-panel__form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitAction('save');
+            }}
+          >
         <div className="charts-side-panel__field">
           <label htmlFor={`${entity}-bundle-name`}>{bundleLabel}</label>
           <input
@@ -3948,76 +3951,78 @@ export function OrderBundleEditPanel({
         </div>
       </form>
 
-      <div className="charts-side-panel__list" aria-live={resolveAriaLive('info')}>
-        <div className="charts-side-panel__list-header">
-          <span>登録済み{title}</span>
-          <span>{bundleQuery.isFetching ? '更新中' : `${bundles.length}件`}</span>
+          <div className="charts-side-panel__list" aria-live={resolveAriaLive('info')}>
+            <div className="charts-side-panel__list-header">
+              <span>登録済み{title}</span>
+              <span>{bundleQuery.isFetching ? '更新中' : `${bundles.length}件`}</span>
+            </div>
+            {bundleQuery.isError && <p className="charts-side-panel__empty">オーダーの取得に失敗しました。</p>}
+            {bundles.length === 0 && !bundleQuery.isFetching && <p className="charts-side-panel__empty">登録はまだありません。</p>}
+            {bundles.length > 0 && (
+              <ul className="charts-side-panel__items">
+                {bundles.map((bundle) => (
+                  <li key={bundle.documentId ?? `${bundle.bundleName}-${bundle.started}`}>
+                    <div>
+                      <strong>{formatBundleName(bundle)}</strong>
+                      <span>{bundle.admin ? ` / ${bundle.admin}` : ''}</span>
+                      <span>{bundle.started ? ` / ${bundle.started}` : ''}</span>
+                    </div>
+                    <div className="charts-side-panel__bundle-items">
+                      {bundle.items.map((item, idx) => {
+                        const itemLabel = `${item.name}${item.quantity ? ` ${item.quantity}` : ''}${item.unit ?? ''}`;
+                        const openRequest = onOpenDocument ? resolveDocumentOpenRequest(bundle, item) : null;
+                        if (openRequest && onOpenDocument) {
+                          return (
+                            <button
+                              key={`${bundle.documentId}-${idx}`}
+                              type="button"
+                              className="charts-side-panel__bundle-item charts-side-panel__bundle-item--document"
+                              onClick={() => onOpenDocument(openRequest)}
+                              aria-label={`文書を開く: ${item.name}`}
+                            >
+                              {itemLabel}
+                            </button>
+                          );
+                        }
+                        return (
+                          <span key={`${bundle.documentId}-${idx}`} className="charts-side-panel__bundle-item">
+                            {itemLabel}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <div className="charts-side-panel__item-actions">
+                      <button
+                        type="button"
+                        onClick={() => copyFromHistory(bundle)}
+                        disabled={isBlocked}
+                      >
+                        コピー
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setForm(toFormState(bundle, today));
+                          setNotice(null);
+                        }}
+                        disabled={isBlocked}
+                      >
+                        編集
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteMutation.mutate(bundle)}
+                        disabled={deleteMutation.isPending || isBlocked}
+                      >
+                        削除
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
-        {bundleQuery.isError && <p className="charts-side-panel__empty">オーダーの取得に失敗しました。</p>}
-        {bundles.length === 0 && !bundleQuery.isFetching && <p className="charts-side-panel__empty">登録はまだありません。</p>}
-        {bundles.length > 0 && (
-          <ul className="charts-side-panel__items">
-            {bundles.map((bundle) => (
-              <li key={bundle.documentId ?? `${bundle.bundleName}-${bundle.started}`}>
-                <div>
-                  <strong>{formatBundleName(bundle)}</strong>
-                  <span>{bundle.admin ? ` / ${bundle.admin}` : ''}</span>
-                  <span>{bundle.started ? ` / ${bundle.started}` : ''}</span>
-                </div>
-                <div className="charts-side-panel__bundle-items">
-                  {bundle.items.map((item, idx) => {
-                    const itemLabel = `${item.name}${item.quantity ? ` ${item.quantity}` : ''}${item.unit ?? ''}`;
-                    const openRequest = onOpenDocument ? resolveDocumentOpenRequest(bundle, item) : null;
-                    if (openRequest && onOpenDocument) {
-                      return (
-                        <button
-                          key={`${bundle.documentId}-${idx}`}
-                          type="button"
-                          className="charts-side-panel__bundle-item charts-side-panel__bundle-item--document"
-                          onClick={() => onOpenDocument(openRequest)}
-                          aria-label={`文書を開く: ${item.name}`}
-                        >
-                          {itemLabel}
-                        </button>
-                      );
-                    }
-                    return (
-                      <span key={`${bundle.documentId}-${idx}`} className="charts-side-panel__bundle-item">
-                        {itemLabel}
-                      </span>
-                    );
-                  })}
-                </div>
-                <div className="charts-side-panel__item-actions">
-                  <button
-                    type="button"
-                    onClick={() => copyFromHistory(bundle)}
-                    disabled={isBlocked}
-                  >
-                    コピー
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setForm(toFormState(bundle, today));
-                      setNotice(null);
-                    }}
-                    disabled={isBlocked}
-                  >
-                    編集
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => deleteMutation.mutate(bundle)}
-                    disabled={deleteMutation.isPending || isBlocked}
-                  >
-                    削除
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
       </div>
     </section>
   );

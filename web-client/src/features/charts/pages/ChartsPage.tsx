@@ -1,5 +1,5 @@
 import { Global } from '@emotion/react';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -164,8 +164,10 @@ const UTILITY_PANEL_LAYOUT_STORAGE_BASE = 'opendolphin:web-client:charts:utility
 const UTILITY_PANEL_LAYOUT_STORAGE_VERSION = 'v1';
 const UTILITY_PANEL_DEFAULT_OFFSET_X = 24;
 const UTILITY_PANEL_DEFAULT_OFFSET_Y = 52;
-const UTILITY_PANEL_MIN_WIDTH = 860;
+const UTILITY_PANEL_MIN_WIDTH = 360;
+const UTILITY_PANEL_MAX_WIDTH = 720;
 const UTILITY_PANEL_MIN_HEIGHT = 520;
+const UTILITY_PANEL_MAX_HEIGHT = 980;
 
 type UtilityPanelLayout = {
   width: number;
@@ -184,10 +186,14 @@ const resolveUtilityPanelFallbackStorageKey = () =>
   `${UTILITY_PANEL_LAYOUT_STORAGE_BASE}:${UTILITY_PANEL_LAYOUT_STORAGE_VERSION}`;
 
 const clampUtilityPanelLayout = (layout: UtilityPanelLayout, viewportWidth: number, viewportHeight: number): UtilityPanelLayout => {
-  const minWidth = Math.min(UTILITY_PANEL_MIN_WIDTH, Math.max(640, viewportWidth - 24));
+  const minWidth = Math.min(UTILITY_PANEL_MIN_WIDTH, Math.max(320, viewportWidth - 24));
   const minHeight = Math.min(UTILITY_PANEL_MIN_HEIGHT, Math.max(420, viewportHeight - 24));
-  const maxWidth = Math.max(minWidth, viewportWidth - 16);
-  const maxHeight = Math.max(minHeight, viewportHeight - 16);
+  const dockedMaxWidth = Math.min(
+    UTILITY_PANEL_MAX_WIDTH,
+    Math.max(minWidth, Math.floor(viewportWidth * 0.46)),
+  );
+  const maxWidth = Math.max(minWidth, Math.min(viewportWidth - 16, dockedMaxWidth));
+  const maxHeight = Math.max(minHeight, Math.min(viewportHeight - 16, UTILITY_PANEL_MAX_HEIGHT));
   const width = Math.min(maxWidth, Math.max(minWidth, Number.isFinite(layout.width) ? layout.width : minWidth));
   const height = Math.min(maxHeight, Math.max(minHeight, Number.isFinite(layout.height) ? layout.height : minHeight));
   const maxLeft = Math.max(8, viewportWidth - width - 8);
@@ -198,7 +204,7 @@ const clampUtilityPanelLayout = (layout: UtilityPanelLayout, viewportWidth: numb
 };
 
 const buildDefaultUtilityPanelLayout = (viewportWidth: number, viewportHeight: number): UtilityPanelLayout => {
-  const preferredWidth = Math.min(1260, Math.max(UTILITY_PANEL_MIN_WIDTH, viewportWidth * 0.78));
+  const preferredWidth = Math.min(620, Math.max(440, viewportWidth * 0.33));
   const preferredHeight = Math.min(900, Math.max(UTILITY_PANEL_MIN_HEIGHT, viewportHeight * 0.84));
   return clampUtilityPanelLayout(
     {
@@ -710,7 +716,6 @@ function ChartsContent() {
   const utilityPanelDragRef = useRef<
     | null
     | {
-        mode: 'move' | 'resize';
         pointerId: number;
         startX: number;
         startY: number;
@@ -3042,29 +3047,12 @@ function ChartsContent() {
     },
     [persistUtilityPanelLayout],
   );
-  const beginUtilityPanelDrag = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (event.button !== 0 || !utilityPanelAction) return;
-      const target = event.target as HTMLElement | null;
-      if (!target || target.closest('button, input, select, textarea, [data-no-drag="true"]')) return;
-      event.preventDefault();
-      utilityPanelDragRef.current = {
-        mode: 'move',
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        startLayout: utilityPanelLayoutRef.current,
-      };
-    },
-    [utilityPanelAction],
-  );
   const beginUtilityPanelResize = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
       if (event.button !== 0 || !utilityPanelAction) return;
       event.preventDefault();
       event.stopPropagation();
       utilityPanelDragRef.current = {
-        mode: 'resize',
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
@@ -3260,18 +3248,11 @@ function ChartsContent() {
       if (!dragState || event.pointerId !== dragState.pointerId) return;
       const deltaX = event.clientX - dragState.startX;
       const deltaY = event.clientY - dragState.startY;
-      const nextLayout =
-        dragState.mode === 'move'
-          ? {
-              ...dragState.startLayout,
-              left: dragState.startLayout.left + deltaX,
-              top: dragState.startLayout.top + deltaY,
-            }
-          : {
-              ...dragState.startLayout,
-              width: dragState.startLayout.width + deltaX,
-              height: dragState.startLayout.height + deltaY,
-            };
+      const nextLayout = {
+        ...dragState.startLayout,
+        width: dragState.startLayout.width + deltaX,
+        height: dragState.startLayout.height + deltaY,
+      };
       updateUtilityPanelLayout(nextLayout, { persist: false });
     };
     const handlePointerEnd = (event: PointerEvent) => {
@@ -3457,14 +3438,11 @@ function ChartsContent() {
     [utilityPanelAction],
   );
   const utilityPanelInlineStyle = useMemo(() => {
-    if (!utilityPanelAction) return undefined;
     return {
-      left: `${utilityPanelLayout.left}px`,
-      top: `${utilityPanelLayout.top}px`,
-      width: `${utilityPanelLayout.width}px`,
-      height: `${utilityPanelLayout.height}px`,
-    };
-  }, [utilityPanelAction, utilityPanelLayout]);
+      '--charts-utility-expanded-width': `${utilityPanelLayout.width}px`,
+      '--charts-utility-expanded-height': `${utilityPanelLayout.height}px`,
+    } as CSSProperties;
+  }, [utilityPanelLayout.height, utilityPanelLayout.width]);
 
   return (
     <>
@@ -3773,6 +3751,7 @@ function ChartsContent() {
             data-run-id={resolvedRunId ?? flags.runId}
             data-utility-state={utilityPanelAction ? 'expanded' : 'compact'}
             data-charts-compact-ui={isChartsCompactUi ? '1' : '0'}
+            style={utilityPanelInlineStyle}
           >
             <div className="charts-workbench__sticky">
               <div className="charts-workbench__sticky-grid">
@@ -4161,7 +4140,6 @@ function ChartsContent() {
                 aria-label="オーダー入力（ユーティリティ）"
                 data-panel-open={utilityPanelAction ? 'true' : 'false'}
                 data-order-mode={isOrderUtilityAction ? 'true' : 'false'}
-                style={utilityPanelInlineStyle}
               >
 	                <div className="charts-docked-panel">
 	                  <div className="charts-docked-panel__mini" role="group" aria-label="補助メニュー">
@@ -4177,7 +4155,7 @@ function ChartsContent() {
 	                      <span className="charts-docked-panel__mini-label">ショートカット</span>
 	                    </button>
 	                  </div>
-	                  <div className="charts-docked-panel__header" onPointerDown={beginUtilityPanelDrag}>
+	                  <div className="charts-docked-panel__header">
 	                    <div>
 	                      <p className="charts-docked-panel__eyebrow">ユーティリティ</p>
                       <h2 id="charts-docked-panel-title" ref={utilityHeadingRef} tabIndex={-1}>
@@ -4190,9 +4168,6 @@ function ChartsContent() {
                         Ctrl+Shift+U: 開閉 / Ctrl+Shift+1〜{utilityItems.length}: タブ切替 / Esc: 閉じる
                       </p>
                     </div>
-                    <span className="charts-docked-panel__drag-hint" aria-hidden="true" data-no-drag="true">
-                      ドラッグで移動
-                    </span>
                     <button type="button" className="charts-docked-panel__close" onClick={() => closeUtilityPanel(true)}>
                       閉じる
                     </button>
@@ -4247,7 +4222,7 @@ function ChartsContent() {
                       utilityPanelAction === 'order-treatment' ||
                       utilityPanelAction === 'order-test' ||
                       utilityPanelAction === 'order-charge') && (
-                      <div className="charts-side-panel__content">
+                      <div className="charts-side-panel__content charts-side-panel__content--order">
                         {utilityPanelAction === 'prescription-edit' && (
                           <OrderBundleEditPanel
                             patientId={encounterContext.patientId}
