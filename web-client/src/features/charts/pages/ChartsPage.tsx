@@ -3447,6 +3447,25 @@ function ChartsContent() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [closeUtilityPanel, openUtilityPanel, utilityItems]);
 
+  const isOrderUtilityAction = useMemo(
+    () =>
+      utilityPanelAction === 'prescription-edit' ||
+      utilityPanelAction === 'order-injection' ||
+      utilityPanelAction === 'order-treatment' ||
+      utilityPanelAction === 'order-test' ||
+      utilityPanelAction === 'order-charge',
+    [utilityPanelAction],
+  );
+  const utilityPanelInlineStyle = useMemo(() => {
+    if (!utilityPanelAction) return undefined;
+    return {
+      left: `${utilityPanelLayout.left}px`,
+      top: `${utilityPanelLayout.top}px`,
+      width: `${utilityPanelLayout.width}px`,
+      height: `${utilityPanelLayout.height}px`,
+    };
+  }, [utilityPanelAction, utilityPanelLayout]);
+
   return (
     <>
       <a className="skip-link" href="#charts-main" data-test-id="charts-skip-main">
@@ -4134,16 +4153,16 @@ function ChartsContent() {
                 </div>
 
               </div>
-	              <aside
-	                className="charts-workbench__side"
-	                id="charts-order-pane"
-	                tabIndex={-1}
-	                data-focus-anchor="true"
-	                aria-label="オーダー入力（ユーティリティ）"
-                  role={utilityPanelAction ? 'dialog' : undefined}
-                  aria-modal={utilityPanelAction ? 'true' : undefined}
-                  aria-labelledby={utilityPanelAction ? 'charts-docked-panel-title' : undefined}
-	              >
+              <aside
+                className="charts-workbench__side"
+                id="charts-order-pane"
+                tabIndex={-1}
+                data-focus-anchor="true"
+                aria-label="オーダー入力（ユーティリティ）"
+                data-panel-open={utilityPanelAction ? 'true' : 'false'}
+                data-order-mode={isOrderUtilityAction ? 'true' : 'false'}
+                style={utilityPanelInlineStyle}
+              >
 	                <div className="charts-docked-panel">
 	                  <div className="charts-docked-panel__mini" role="group" aria-label="補助メニュー">
 	                    <button
@@ -4158,36 +4177,24 @@ function ChartsContent() {
 	                      <span className="charts-docked-panel__mini-label">ショートカット</span>
 	                    </button>
 	                  </div>
-	                  <div className="charts-docked-panel__header">
+	                  <div className="charts-docked-panel__header" onPointerDown={beginUtilityPanelDrag}>
 	                    <div>
 	                      <p className="charts-docked-panel__eyebrow">ユーティリティ</p>
                       <h2 id="charts-docked-panel-title" ref={utilityHeadingRef} tabIndex={-1}>
                         {utilityPanelAction ? utilityPanelTitles[utilityPanelAction] : 'ユーティリティ'}
                       </h2>
                       <p id="charts-docked-panel-desc" className="charts-docked-panel__desc">
-                        診療操作と入力パネルをまとめて呼び出します。
+                        オーダー・文書・画像入力をまとめて呼び出します。
                       </p>
                       <p className="charts-docked-panel__shortcut">
                         Ctrl+Shift+U: 開閉 / Ctrl+Shift+1〜{utilityItems.length}: タブ切替 / Esc: 閉じる
                       </p>
                     </div>
+                    <span className="charts-docked-panel__drag-hint" aria-hidden="true" data-no-drag="true">
+                      ドラッグで移動
+                    </span>
                     <button type="button" className="charts-docked-panel__close" onClick={() => closeUtilityPanel(true)}>
                       閉じる
-                    </button>
-                  </div>
-                  <div className="charts-docked-panel__quick" role="group" aria-label="左カラム導線">
-                    <button
-                      type="button"
-                      className="charts-docked-panel__tab"
-                      aria-controls="charts-diagnosis"
-                      aria-expanded={true}
-                      aria-label="病名編集セクションへ移動"
-                      onClick={() => focusSectionById('charts-diagnosis')}
-                    >
-                      <span className="charts-docked-panel__tab-icon" aria-hidden="true">
-                        病名
-                      </span>
-                      <span className="charts-docked-panel__tab-label">病名へ移動</span>
                     </button>
                   </div>
                   <div className="charts-docked-panel__tabs" role="tablist" aria-label="ユーティリティ">
@@ -4227,7 +4234,7 @@ function ChartsContent() {
                   </div>
                   <div
                     id="charts-docked-panel"
-                    className="charts-docked-panel__drawer"
+                    className={`charts-docked-panel__drawer${isOrderUtilityAction ? ' charts-docked-panel__drawer--order' : ''}`}
                     role="tabpanel"
                     aria-live={infoLive}
                     aria-hidden={!utilityPanelAction}
