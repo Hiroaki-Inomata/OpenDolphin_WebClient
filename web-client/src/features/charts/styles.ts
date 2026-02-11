@@ -230,6 +230,51 @@ export const chartsStyles = css`
     box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.08);
   }
 
+  @media (min-width: 1280px) and (min-height: 760px) {
+    .charts-page {
+      --charts-space-2xs: 5px;
+      --charts-space-xs: 8px;
+      --charts-space-sm: 12px;
+      --charts-space-md: 16px;
+      --charts-space-lg: 22px;
+      --charts-space-xl: 28px;
+      --charts-space-2xl: 36px;
+    }
+
+    .charts-page__pill {
+      font-size: 0.92rem;
+    }
+
+    .charts-column-header__label {
+      font-size: 0.98rem;
+    }
+
+    .charts-column-header__meta {
+      font-size: 0.8rem;
+    }
+
+    .charts-patient-tabs__select {
+      font-size: 0.93rem;
+      padding: 0.4rem 0.82rem;
+      min-height: 2rem;
+    }
+
+    .charts-docked-panel__tab-label {
+      font-size: 0.98rem;
+    }
+
+    .charts-docked-panel__tab-shortcut {
+      font-size: 0.78rem;
+    }
+
+    .charts-page button,
+    .charts-page input,
+    .charts-page select,
+    .charts-page textarea {
+      font-size: 0.95rem;
+    }
+  }
+
   @media (min-width: 1440px) {
     .charts-workbench {
       --charts-side-width: var(--charts-utility-width);

@@ -1,5 +1,6 @@
 :root {
   font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+  --ui-base-font-size: 16px;
   color: #1e293b;
   background-color: #ffffff;
   --ui-surface: #ffffff;
@@ -23,6 +24,23 @@
   --ui-error-text: #991b1b;
   --ui-focus-ring: rgba(37, 99, 235, 0.55);
   --ui-focus-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35);
+}
+
+html {
+  font-size: var(--ui-base-font-size);
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (min-width: 1280px) and (min-height: 760px) {
+  :root {
+    --ui-base-font-size: 16.8px;
+  }
+}
+
+@media (min-width: 1600px) and (min-height: 900px) {
+  :root {
+    --ui-base-font-size: 17.2px;
+  }
 }
 
 * {
