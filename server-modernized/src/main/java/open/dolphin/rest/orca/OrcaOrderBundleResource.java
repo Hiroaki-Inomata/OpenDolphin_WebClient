@@ -17,11 +17,14 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Blob;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -42,6 +45,7 @@ import open.dolphin.infomodel.UserModel;
 import open.dolphin.rest.dto.orca.OrderBundleFetchResponse;
 import open.dolphin.rest.dto.orca.OrderBundleMutationRequest;
 import open.dolphin.rest.dto.orca.OrderBundleMutationResponse;
+import open.dolphin.rest.dto.orca.OrderBundleRecommendationResponse;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PatientServiceBean;
 import open.dolphin.session.UserServiceBean;
@@ -59,6 +63,14 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
     private static final String ORDER_BUNDLE_UNAVAILABLE = "order_bundle_unavailable";
     private static final String ORDER_BUNDLE_ERROR_MESSAGE = "Failed to mutate order bundle";
     public static final String ORDER_BUNDLE_CONTEXT_KEY = "orcaOrderBundleContext";
+    private static final String MATERIAL_CODE_PREFIX = "7";
+    private static final String BODY_PART_CODE_PREFIX = "002";
+    private static final String COMMENT_CODE_REGEX = "^(008[1-6]|8[1-6]|098|099|98|99).*";
+    private static final int DEFAULT_PATIENT_LIMIT = 8;
+    private static final int DEFAULT_FACILITY_LIMIT = 8;
+    private static final int DEFAULT_SCAN_LIMIT = 800;
+    private static final int MAX_LIMIT = 64;
+    private static final int MAX_SCAN_LIMIT = 5000;
     private static final Set<String> ORDER_BUNDLE_ENTITIES = Set.of(
             IInfoModel.ENTITY_GENERAL_ORDER,
             IInfoModel.ENTITY_MED_ORDER,
@@ -197,6 +209,133 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         audit.put("runId", runId);
         audit.put("recordsReturned", bundles.size());
         recordAudit(request, "ORCA_ORDER_BUNDLE_FETCH", audit, AuditEventEnvelope.Outcome.SUCCESS);
+        return response;
+    }
+
+    @GET
+    @Path("/recommendations")
+    @Produces(MediaType.APPLICATION_JSON)
+    public OrderBundleRecommendationResponse getRecommendations(
+            @Context HttpServletRequest request,
+            @QueryParam("patientId") String patientId,
+            @QueryParam("entity") String entity,
+            @QueryParam("from") String from,
+            @QueryParam("includeFacility") Boolean includeFacility,
+            @QueryParam("patientLimit") Integer patientLimit,
+            @QueryParam("facilityLimit") Integer facilityLimit,
+            @QueryParam("scanLimit") Integer scanLimit) {
+
+        String runId = resolveRunId(request);
+        requireRemoteUser(request);
+        String facilityId = requireFacilityId(request);
+        if (patientId == null || patientId.isBlank()) {
+            Map<String, Object> audit = new HashMap<>();
+            audit.put("facilityId", facilityId);
+            audit.put("runId", runId);
+            audit.put("validationError", Boolean.TRUE);
+            audit.put("field", "patientId");
+            markFailureDetails(audit, Response.Status.BAD_REQUEST.getStatusCode(), "invalid_request", "patientId is required");
+            recordAudit(request, "ORCA_ORDER_RECOMMENDATION_FETCH", audit, AuditEventEnvelope.Outcome.FAILURE);
+            throw validationError(request, "patientId", "patientId is required");
+        }
+        if (entity != null && !entity.isBlank() && !isValidEntity(entity)) {
+            Map<String, Object> audit = new HashMap<>();
+            audit.put("facilityId", facilityId);
+            audit.put("patientId", patientId);
+            audit.put("runId", runId);
+            audit.put("validationError", Boolean.TRUE);
+            audit.put("field", "entity");
+            audit.put("entity", entity);
+            markFailureDetails(audit, Response.Status.BAD_REQUEST.getStatusCode(), "invalid_request", "entity is invalid");
+            recordAudit(request, "ORCA_ORDER_RECOMMENDATION_FETCH", audit, AuditEventEnvelope.Outcome.FAILURE);
+            throw validationError(request, "entity", "entity is invalid");
+        }
+
+        PatientModel patient = patientServiceBean.getPatientById(facilityId, patientId);
+        if (patient == null) {
+            Map<String, Object> audit = new HashMap<>();
+            audit.put("facilityId", facilityId);
+            audit.put("patientId", patientId);
+            audit.put("runId", runId);
+            markFailureDetails(audit, Response.Status.NOT_FOUND.getStatusCode(), "patient_not_found", "Patient not found");
+            recordAudit(request, "ORCA_ORDER_RECOMMENDATION_FETCH", audit, AuditEventEnvelope.Outcome.FAILURE);
+            throw restError(request, Response.Status.NOT_FOUND, "patient_not_found", "Patient not found");
+        }
+
+        KarteBean karte = karteServiceBean.getKarte(facilityId, patientId, null);
+        if (karte == null) {
+            Map<String, Object> audit = new HashMap<>();
+            audit.put("facilityId", facilityId);
+            audit.put("patientId", patientId);
+            audit.put("runId", runId);
+            markFailureDetails(audit, Response.Status.NOT_FOUND.getStatusCode(), "karte_not_found", "Karte not found");
+            recordAudit(request, "ORCA_ORDER_RECOMMENDATION_FETCH", audit, AuditEventEnvelope.Outcome.FAILURE);
+            throw restError(request, Response.Status.NOT_FOUND, "karte_not_found", "Karte not found");
+        }
+
+        boolean includeFacilityRows = includeFacility == null || includeFacility;
+        int resolvedPatientLimit = clampLimit(patientLimit, DEFAULT_PATIENT_LIMIT);
+        int resolvedFacilityLimit = clampLimit(facilityLimit, DEFAULT_FACILITY_LIMIT);
+        int resolvedScanLimit = clampScanLimit(scanLimit);
+        String resolvedEntity = hasText(entity) ? entity.trim() : null;
+        Date since = parseDate(from, Date.from(Instant.now().minusSeconds(60L * 60L * 24L * 180L)));
+
+        Map<String, RecommendationAggregate> patientAggregates = new LinkedHashMap<>();
+        List<DocumentModel> documents = resolveDocuments(karte, since);
+        int scanned = collectAggregatesFromDocuments(documents, resolvedEntity, patientAggregates);
+
+        Map<String, RecommendationAggregate> facilityAggregates = new LinkedHashMap<>();
+        if (includeFacilityRows && resolvedFacilityLimit > 0) {
+            scanned += collectAggregatesFromFacility(facilityId, patientId, resolvedEntity, since, resolvedScanLimit,
+                    facilityAggregates);
+        }
+
+        List<OrderBundleRecommendationResponse.OrderRecommendationEntry> recommendations = new ArrayList<>();
+        Map<String, Boolean> usedKeys = new HashMap<>();
+        for (RecommendationAggregate aggregate : sortAggregates(patientAggregates)) {
+            if (recommendations.size() >= resolvedPatientLimit) {
+                break;
+            }
+            recommendations.add(toRecommendationEntry(aggregate, "patient"));
+            usedKeys.put(aggregate.key(), Boolean.TRUE);
+        }
+        if (includeFacilityRows && resolvedFacilityLimit > 0) {
+            int facilityAdded = 0;
+            for (RecommendationAggregate aggregate : sortAggregates(facilityAggregates)) {
+                if (facilityAdded >= resolvedFacilityLimit) {
+                    break;
+                }
+                if (usedKeys.containsKey(aggregate.key())) {
+                    continue;
+                }
+                recommendations.add(toRecommendationEntry(aggregate, "facility"));
+                usedKeys.put(aggregate.key(), Boolean.TRUE);
+                facilityAdded++;
+            }
+        }
+
+        OrderBundleRecommendationResponse response = new OrderBundleRecommendationResponse();
+        response.setApiResult("00");
+        response.setApiResultMessage("処理終了");
+        response.setRunId(runId);
+        response.setPatientId(patientId);
+        response.setEntity(resolvedEntity);
+        response.setRecordsScanned(scanned);
+        response.setRecordsReturned(recommendations.size());
+        response.setRecommendations(recommendations);
+
+        Map<String, Object> audit = new HashMap<>();
+        audit.put("facilityId", facilityId);
+        audit.put("patientId", patientId);
+        audit.put("entity", resolvedEntity);
+        audit.put("runId", runId);
+        audit.put("includeFacility", includeFacilityRows);
+        audit.put("patientLimit", resolvedPatientLimit);
+        audit.put("facilityLimit", resolvedFacilityLimit);
+        audit.put("scanLimit", resolvedScanLimit);
+        audit.put("recordsScanned", scanned);
+        audit.put("recordsReturned", recommendations.size());
+        recordAudit(request, "ORCA_ORDER_RECOMMENDATION_FETCH", audit, AuditEventEnvelope.Outcome.SUCCESS);
         return response;
     }
 
@@ -560,6 +699,276 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         return list;
     }
 
+    private int collectAggregatesFromDocuments(List<DocumentModel> documents,
+            String entity,
+            Map<String, RecommendationAggregate> aggregates) {
+        if (documents == null || documents.isEmpty()) {
+            return 0;
+        }
+        int scanned = 0;
+        for (DocumentModel document : documents) {
+            if (document.getModules() == null || document.getModules().isEmpty()) {
+                continue;
+            }
+            for (ModuleModel module : document.getModules()) {
+                String moduleEntity = module.getModuleInfoBean() != null ? module.getModuleInfoBean().getEntity() : null;
+                if (entity != null && !entity.equals(moduleEntity)) {
+                    continue;
+                }
+                if (!hasText(moduleEntity) || !isValidEntity(moduleEntity)) {
+                    continue;
+                }
+                BundleDolphin bundle = decodeBundle(module);
+                if (bundle == null) {
+                    continue;
+                }
+                OrderBundleRecommendationResponse.OrderRecommendationTemplate template =
+                        toRecommendationTemplate(bundle, module.getModuleInfoBean(), moduleEntity);
+                String key = buildRecommendationKey(moduleEntity, template);
+                Date usedAt = module.getStarted() != null
+                        ? module.getStarted()
+                        : document.getStarted();
+                upsertAggregate(aggregates, key, moduleEntity, template, usedAt);
+                scanned++;
+            }
+        }
+        return scanned;
+    }
+
+    private int collectAggregatesFromFacility(String facilityId,
+            String patientId,
+            String entity,
+            Date fromDate,
+            int scanLimit,
+            Map<String, RecommendationAggregate> aggregates) {
+        if (entityManager == null || scanLimit <= 0) {
+            return 0;
+        }
+        StringBuilder jpql = new StringBuilder(
+                "SELECT m FROM ModuleModel m JOIN m.karteBean k JOIN k.patientModel p "
+                        + "WHERE p.facilityId = :facilityId AND p.patientId <> :patientId");
+        if (entity != null) {
+            jpql.append(" AND m.moduleInfo.entity = :entity");
+        }
+        if (fromDate != null) {
+            jpql.append(" AND m.started >= :fromDate");
+        }
+        jpql.append(" ORDER BY m.started DESC");
+        List<ModuleModel> modules;
+        try {
+            var query = entityManager.createQuery(jpql.toString(), ModuleModel.class)
+                    .setParameter("facilityId", facilityId)
+                    .setParameter("patientId", patientId)
+                    .setMaxResults(scanLimit);
+            if (entity != null) {
+                query.setParameter("entity", entity);
+            }
+            if (fromDate != null) {
+                query.setParameter("fromDate", fromDate);
+            }
+            modules = query.getResultList();
+        } catch (RuntimeException ex) {
+            LOGGER.warn("Failed to load facility order recommendation rows (facilityId={}, patientId={}, entity={})",
+                    facilityId, patientId, entity, ex);
+            return 0;
+        }
+        int scanned = 0;
+        for (ModuleModel module : modules) {
+            String moduleEntity = module.getModuleInfoBean() != null ? module.getModuleInfoBean().getEntity() : null;
+            if (!hasText(moduleEntity) || !isValidEntity(moduleEntity)) {
+                continue;
+            }
+            BundleDolphin bundle = decodeBundle(module);
+            if (bundle == null) {
+                continue;
+            }
+            OrderBundleRecommendationResponse.OrderRecommendationTemplate template =
+                    toRecommendationTemplate(bundle, module.getModuleInfoBean(), moduleEntity);
+            String key = buildRecommendationKey(moduleEntity, template);
+            upsertAggregate(aggregates, key, moduleEntity, template, module.getStarted());
+            scanned++;
+        }
+        return scanned;
+    }
+
+    private void upsertAggregate(Map<String, RecommendationAggregate> aggregates,
+            String key,
+            String entity,
+            OrderBundleRecommendationResponse.OrderRecommendationTemplate template,
+            Date usedAt) {
+        RecommendationAggregate current = aggregates.get(key);
+        if (current == null) {
+            aggregates.put(key, new RecommendationAggregate(key, entity, template, 1, usedAt));
+            return;
+        }
+        Date nextUsedAt = current.lastUsedAt();
+        if (usedAt != null && (nextUsedAt == null || usedAt.after(nextUsedAt))) {
+            nextUsedAt = usedAt;
+        }
+        aggregates.put(key, new RecommendationAggregate(
+                current.key(),
+                current.entity(),
+                current.template(),
+                current.count() + 1,
+                nextUsedAt));
+    }
+
+    private List<RecommendationAggregate> sortAggregates(Map<String, RecommendationAggregate> aggregates) {
+        Comparator<Date> dateComparator = Comparator.nullsLast(Comparator.naturalOrder());
+        return aggregates.values().stream()
+                .sorted((left, right) -> {
+                    if (left.count() != right.count()) {
+                        return Integer.compare(right.count(), left.count());
+                    }
+                    return dateComparator.compare(right.lastUsedAt(), left.lastUsedAt());
+                })
+                .collect(Collectors.toList());
+    }
+
+    private OrderBundleRecommendationResponse.OrderRecommendationEntry toRecommendationEntry(
+            RecommendationAggregate aggregate,
+            String source) {
+        OrderBundleRecommendationResponse.OrderRecommendationEntry entry =
+                new OrderBundleRecommendationResponse.OrderRecommendationEntry();
+        entry.setKey(aggregate.key());
+        entry.setSource(source);
+        entry.setCount(aggregate.count());
+        entry.setLastUsedAt(formatDate(aggregate.lastUsedAt()));
+        entry.setTemplate(aggregate.template());
+        return entry;
+    }
+
+    private OrderBundleRecommendationResponse.OrderRecommendationTemplate toRecommendationTemplate(
+            BundleDolphin bundle,
+            ModuleInfoBean info,
+            String entity) {
+        List<OrderBundleFetchResponse.OrderBundleItem> normalItems = new ArrayList<>();
+        List<OrderBundleFetchResponse.OrderBundleItem> materialItems = new ArrayList<>();
+        List<OrderBundleFetchResponse.OrderBundleItem> commentItems = new ArrayList<>();
+        OrderBundleFetchResponse.OrderBundleItem bodyPart = null;
+        for (OrderBundleFetchResponse.OrderBundleItem item : toItems(bundle.getClaimItem())) {
+            if (item == null) {
+                continue;
+            }
+            String code = normalize(item.getCode());
+            if (code.startsWith(BODY_PART_CODE_PREFIX)) {
+                if (bodyPart == null) {
+                    bodyPart = item;
+                } else {
+                    normalItems.add(item);
+                }
+                continue;
+            }
+            if (code.startsWith(MATERIAL_CODE_PREFIX)) {
+                materialItems.add(item);
+                continue;
+            }
+            if (code.matches(COMMENT_CODE_REGEX)) {
+                commentItems.add(item);
+                continue;
+            }
+            normalItems.add(item);
+        }
+        PrescriptionMeta prescriptionMeta = resolvePrescriptionMeta(bundle.getClassCode());
+
+        OrderBundleRecommendationResponse.OrderRecommendationTemplate template =
+                new OrderBundleRecommendationResponse.OrderRecommendationTemplate();
+        template.setBundleName(resolveBundleName(bundle, info));
+        template.setAdmin(normalize(bundle.getAdmin()));
+        template.setBundleNumber(hasText(bundle.getBundleNumber()) ? bundle.getBundleNumber().trim() : "1");
+        template.setAdminMemo(normalize(bundle.getAdminMemo()));
+        template.setMemo(normalize(bundle.getMemo()));
+        if (IInfoModel.ENTITY_MED_ORDER.equals(entity)) {
+            template.setPrescriptionLocation(prescriptionMeta.location());
+            template.setPrescriptionTiming(prescriptionMeta.timing());
+        }
+        template.setItems(normalItems);
+        template.setMaterialItems(materialItems);
+        template.setCommentItems(commentItems);
+        template.setBodyPart(bodyPart);
+        return template;
+    }
+
+    private String buildRecommendationKey(String entity,
+            OrderBundleRecommendationResponse.OrderRecommendationTemplate template) {
+        StringBuilder builder = new StringBuilder();
+        appendNormalized(builder, entity);
+        appendNormalized(builder, template.getBundleName());
+        appendNormalized(builder, template.getAdmin());
+        appendNormalized(builder, template.getBundleNumber());
+        appendNormalized(builder, template.getAdminMemo());
+        appendNormalized(builder, template.getMemo());
+        appendNormalized(builder, template.getPrescriptionLocation());
+        appendNormalized(builder, template.getPrescriptionTiming());
+        appendItems(builder, template.getItems());
+        appendItems(builder, template.getMaterialItems());
+        appendItems(builder, template.getCommentItems());
+        appendItem(builder, template.getBodyPart());
+        String raw = builder.toString();
+        return Integer.toHexString(Objects.hash(raw)) + ":" + Integer.toString(raw.length(), 36);
+    }
+
+    private void appendItems(StringBuilder builder, List<OrderBundleFetchResponse.OrderBundleItem> items) {
+        builder.append("|[");
+        if (items != null) {
+            for (OrderBundleFetchResponse.OrderBundleItem item : items) {
+                appendItem(builder, item);
+            }
+        }
+        builder.append("]");
+    }
+
+    private void appendItem(StringBuilder builder, OrderBundleFetchResponse.OrderBundleItem item) {
+        if (item == null) {
+            builder.append("{}");
+            return;
+        }
+        builder.append("{");
+        appendNormalized(builder, item.getCode());
+        appendNormalized(builder, item.getName());
+        appendNormalized(builder, item.getQuantity());
+        appendNormalized(builder, item.getUnit());
+        appendNormalized(builder, item.getMemo());
+        builder.append("}");
+    }
+
+    private void appendNormalized(StringBuilder builder, String value) {
+        builder.append(normalize(value)).append("|");
+    }
+
+    private PrescriptionMeta resolvePrescriptionMeta(String classCode) {
+        String normalized = normalize(classCode);
+        if (normalized.isEmpty()) {
+            return new PrescriptionMeta("out", "regular");
+        }
+        String location = normalized.endsWith("2") ? "out" : "in";
+        String timing = "regular";
+        if (normalized.startsWith("22")) {
+            timing = "tonyo";
+        } else if (normalized.startsWith("29")) {
+            timing = "temporal";
+        }
+        return new PrescriptionMeta(location, timing);
+    }
+
+    private int clampLimit(Integer value, int fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        return Math.max(1, Math.min(MAX_LIMIT, value));
+    }
+
+    private int clampScanLimit(Integer value) {
+        if (value == null) {
+            return DEFAULT_SCAN_LIMIT;
+        }
+        return Math.max(1, Math.min(MAX_SCAN_LIMIT, value));
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim();
+    }
+
     private BundleDolphin decodeBundle(ModuleModel module) {
         if (module == null) {
             return null;
@@ -736,6 +1145,17 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
             return info.getStampName();
         }
         return "—";
+    }
+
+    private record RecommendationAggregate(
+            String key,
+            String entity,
+            OrderBundleRecommendationResponse.OrderRecommendationTemplate template,
+            int count,
+            Date lastUsedAt) {
+    }
+
+    private record PrescriptionMeta(String location, String timing) {
     }
 
     private Date parseDate(String input, Date fallback) {

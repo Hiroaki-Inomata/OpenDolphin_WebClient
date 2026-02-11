@@ -22,11 +22,10 @@ import {
   type StampClipboardEntry,
 } from './stampStorage';
 import {
-  listOrderRecommendations,
-  recordOrderRecommendationUsage,
+  fetchOrderRecommendations,
   type OrderRecommendationCandidate,
   type OrderRecommendationTemplate,
-} from './orderRecommendationStorage';
+} from './orderRecommendationApi';
 import type { DataSourceTransition } from './authService';
 import type { DocumentOpenRequest } from './DocumentCreatePanel';
 
@@ -549,20 +548,6 @@ const toFormStateFromHistoryCopy = (bundle: OrderBundle, today: string): BundleF
   };
 };
 
-const toOrderRecommendationTemplate = (form: BundleFormState): OrderRecommendationTemplate => ({
-  bundleName: form.bundleName,
-  admin: form.admin,
-  bundleNumber: form.bundleNumber,
-  adminMemo: form.adminMemo,
-  memo: form.memo,
-  prescriptionLocation: form.prescriptionLocation,
-  prescriptionTiming: form.prescriptionTiming,
-  items: form.items.map(stripRowMeta),
-  materialItems: form.materialItems.map(stripRowMeta),
-  commentItems: form.commentItems.map(stripRowMeta),
-  bodyPart: form.bodyPart ? stripRowMeta(form.bodyPart) : null,
-});
-
 const toFormStateFromRecommendation = (template: OrderRecommendationTemplate, today: string): BundleFormState => ({
   bundleName: template.bundleName,
   admin: template.admin,
@@ -788,7 +773,6 @@ export function OrderBundleEditPanel({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [selectedItemRowId, setSelectedItemRowId] = useState<string | null>(null);
   const [optimisticBundles, setOptimisticBundles] = useState<OrderBundle[]>([]);
-  const [recommendationCandidates, setRecommendationCandidates] = useState<OrderRecommendationCandidate[]>([]);
   const [commentDraft, setCommentDraft] = useState<OrderBundleItem>({
     code: '',
     name: '',
@@ -846,7 +830,6 @@ export function OrderBundleEditPanel({
   );
 
   const storedAuth = useMemo(() => readStoredAuth(), []);
-  const facilityId = storedAuth?.facilityId;
   const userName = storedAuth ? `${storedAuth.facilityId}:${storedAuth.userId}` : null;
   const profileFetchStartedAt = useRef<number | null>(null);
   const profileDurationMs = useRef<number | null>(null);
@@ -881,16 +864,38 @@ export function OrderBundleEditPanel({
     setOptimisticBundles([]);
   }, [entity, patientId]);
 
-  useEffect(() => {
-    setRecommendationCandidates(
-      listOrderRecommendations({
-        facilityId,
+  const recommendationFrom = useMemo(() => {
+    const base = new Date();
+    base.setMonth(base.getMonth() - 6);
+    return base.toISOString().slice(0, 10);
+  }, []);
+
+  const recommendationQueryKey = useMemo(
+    () => ['charts-order-recommendations', patientId, entity, recommendationFrom],
+    [entity, patientId, recommendationFrom],
+  );
+  const recommendationQuery = useQuery({
+    queryKey: recommendationQueryKey,
+    queryFn: () => {
+      if (!patientId) throw new Error('patientId is required');
+      const includeFacility = entity !== 'medOrder';
+      return fetchOrderRecommendations({
         patientId,
         entity,
-        limit: 8,
-      }),
-    );
-  }, [entity, facilityId, patientId]);
+        from: recommendationFrom,
+        includeFacility,
+        patientLimit: 8,
+        facilityLimit: includeFacility ? 8 : 0,
+        scanLimit: 800,
+      });
+    },
+    enabled: Boolean(patientId),
+    staleTime: 60 * 1000,
+  });
+  const recommendationCandidates = useMemo<OrderRecommendationCandidate[]>(
+    () => recommendationQuery.data?.recommendations ?? [],
+    [recommendationQuery.data],
+  );
 
   const queryKey = ['charts-order-bundles', patientId, entity];
   const bundleQuery = useQuery({
@@ -1631,21 +1636,7 @@ export function OrderBundleEditPanel({
         },
       });
       if (result.ok) {
-        recordOrderRecommendationUsage({
-          facilityId,
-          patientId,
-          entity,
-          template: toOrderRecommendationTemplate(payload.form),
-          usedAt: new Date().toISOString(),
-        });
-        setRecommendationCandidates(
-          listOrderRecommendations({
-            facilityId,
-            patientId,
-            entity,
-            limit: 8,
-          }),
-        );
+        queryClient.invalidateQueries({ queryKey: recommendationQueryKey });
         if (operation === 'create' && result.createdDocumentIds && result.createdDocumentIds.length > 0) {
           const createdDocumentId = result.createdDocumentIds[0];
           const classMeta = resolveBundleClassMeta(payload.form);
