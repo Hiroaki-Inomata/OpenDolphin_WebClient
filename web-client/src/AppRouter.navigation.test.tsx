@@ -56,6 +56,7 @@ describe('AppRouter navigation guard', () => {
 
     expect(window.location.pathname).toBe('/f/0001/reception');
     expect(await screen.findByText('アクセス権限がありません')).toBeInTheDocument();
+    expect(screen.queryByText(/^ORCA:/)).not.toBeInTheDocument();
   });
 
   it('system_admin は管理リンクが有効で遷移できる', async () => {
@@ -72,6 +73,7 @@ describe('AppRouter navigation guard', () => {
     const adminLink = await screen.findByRole('link', { name: 'Administration' });
     expect(adminLink).toHaveAttribute('aria-disabled', 'false');
     expect(adminLink.className).not.toContain('is-disabled');
+    expect(screen.getByText(/^ORCA:/)).toBeInTheDocument();
 
     await user.click(adminLink);
 

@@ -538,6 +538,13 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     staleTime: 60_000,
     enabled: isSystemAdmin && activeTab === 'delivery',
   });
+  const orcaConnectionAuthStatus = orcaConnectionQuery.data?.status;
+  const orcaConnectionAccessVerified =
+    isSystemAdmin && activeTab === 'delivery' && orcaConnectionAuthStatus === 200;
+  const orcaConnectionAuthBlocked =
+    isSystemAdmin &&
+    activeTab === 'delivery' &&
+    (orcaConnectionAuthStatus === 401 || orcaConnectionAuthStatus === 403);
 
   const queueQuery = useQuery({
     queryKey: ['orca-queue'],
@@ -1410,15 +1417,31 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     return queueEntries.filter((entry) => isOrcaQueueWarningEntry(entry, nowMs).isWarning);
   }, [queueEntries]);
 
+  const requireOrcaConnectionAdminAuth = useCallback(() => {
+    if (!isSystemAdmin) {
+      reportGuardedAction('orca-connection');
+      return false;
+    }
+    if (!orcaConnectionAccessVerified) {
+      setOrcaConnectionFeedback({
+        tone: 'warning',
+        message:
+          'WebORCA 接続設定は、管理者アカウントで認証済みのセッションでのみ表示・編集できます。再ログイン後に再取得してください。',
+      });
+      reportGuardedAction('orca-connection', 'admin authentication required');
+      return false;
+    }
+    return true;
+  }, [isSystemAdmin, orcaConnectionAccessVerified, reportGuardedAction]);
+
   const patchOrcaConnectionForm = useCallback(
     (patch: Partial<OrcaConnectionFormState>) => {
-      if (!isSystemAdmin) {
-        reportGuardedAction('orca-connection');
+      if (!requireOrcaConnectionAdminAuth()) {
         return;
       }
       setOrcaConnectionForm((prev) => ({ ...prev, ...patch }));
     },
-    [isSystemAdmin, reportGuardedAction],
+    [requireOrcaConnectionAdminAuth],
   );
 
   const handleOrcaConnectionWeborcaToggle = (next: boolean) => {
@@ -1431,8 +1454,7 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   };
 
   const handleOrcaConnectionSave = () => {
-    if (!isSystemAdmin) {
-      reportGuardedAction('orca-connection');
+    if (!requireOrcaConnectionAdminAuth()) {
       return;
     }
     const serverUrl = orcaConnectionForm.serverUrl.trim();
@@ -1484,8 +1506,7 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   };
 
   const handleOrcaConnectionTest = () => {
-    if (!isSystemAdmin) {
-      reportGuardedAction('orca-connection');
+    if (!requireOrcaConnectionAdminAuth()) {
       return;
     }
     orcaConnectionTestMutation.mutate();
@@ -1837,7 +1858,8 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
       <div className="administration-grid">
         <section className="administration-card" aria-label="WebORCA 接続設定">
           <h2 className="administration-card__title">WebORCA 接続設定</h2>
-          <form className="admin-form" onSubmit={(e) => e.preventDefault()}>
+          {orcaConnectionAccessVerified ? (
+            <form className="admin-form" onSubmit={(e) => e.preventDefault()}>
             <div className="admin-form__toggles">
               <div className="admin-toggle">
                 <div className="admin-toggle__label">
@@ -2061,7 +2083,34 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
                 <div>testedAt: {formatTimestamp(orcaConnectionTestResult.testedAt)}</div>
               </div>
             ) : null}
-          </form>
+            </form>
+          ) : (
+            <div className="admin-form">
+              <p className="admin-note">
+                WebORCA 接続設定は、管理者アカウントで認証済みのセッションでのみ表示・編集できます。
+              </p>
+              <ul className="placeholder-page__list">
+                <li>認証状態: {orcaConnectionAuthBlocked ? '未認証 / 権限不足' : '確認中または未取得'}</li>
+                <li>必要条件: `/api/admin/orca/connection` が HTTP 200 で取得できること</li>
+                <li>対処: 管理者で再ログイン → 再取得</li>
+              </ul>
+              <div className="admin-actions">
+                <button
+                  type="button"
+                  className="admin-button admin-button--secondary"
+                  onClick={() => orcaConnectionQuery.refetch()}
+                  disabled={orcaConnectionQuery.isFetching}
+                >
+                  認証状態を再確認
+                </button>
+              </div>
+              {orcaConnectionQuery.data?.error ? (
+                <p className="status-message" role="status" aria-live={resolveAriaLive('warning')}>
+                  {`接続設定の取得に失敗しました: ${orcaConnectionQuery.data.error}`}
+                </p>
+              ) : null}
+            </div>
+          )}
         </section>
 
         <section className="administration-card" aria-label="配信設定フォーム">

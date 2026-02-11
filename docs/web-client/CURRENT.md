@@ -43,6 +43,7 @@
 - `docs/web-client/ux/charts-stamp-set-consolidation-20260211.md`
 - `docs/web-client/ux/charts-order-panel-floating-layout-20260211.md`
 - `docs/web-client/ux/charts-order-orca-master-realtime-dropdown-20260211.md`
+- `docs/web-client/ux/reception-status-tab-daily-state-20260211.md`
 
 ### ORCA 追加API / 接続計画
 - `docs/web-client-orca-additional-api-plan.md`

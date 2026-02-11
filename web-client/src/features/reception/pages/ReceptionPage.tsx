@@ -49,7 +49,11 @@ import {
   useAutoRefreshNotice,
 } from '../../shared/autoRefreshNotice';
 import { MISSING_MASTER_RECOVERY_NEXT_ACTION } from '../../shared/missingMasterRecovery';
-import { buildChartsUrl, type ReceptionCarryoverParams } from '../../charts/encounterContext';
+import {
+  buildChartsUrl,
+  normalizeVisitDate,
+  type ReceptionCarryoverParams,
+} from '../../charts/encounterContext';
 import { useSession } from '../../../AppRouter';
 import { buildFacilityPath } from '../../../routes/facilityRoutes';
 import type { ClaimBundle, ClaimQueueEntry, ClaimQueuePhase } from '../../outpatient/types';
@@ -73,15 +77,47 @@ import {
   type PaymentMode,
   upsertOutpatientSavedView,
 } from '../../outpatient/savedViews';
+import type { StorageScope } from '../../../libs/session/storageScope';
+import {
+  listReceptionSnapshotDates,
+  resolveReceptionEntriesForDate,
+  saveReceptionEntriesForDate,
+} from '../receptionDailyState';
 import { useAppToast } from '../../../libs/ui/appToast';
 
 type SortKey = 'time' | 'acceptance' | 'reservation' | 'name' | 'department';
+type StatusTab = 'all' | '予約' | '受付中' | '診療中' | '診察後' | '会計済み';
+
+const STATUS_TAB_ORDER: StatusTab[] = ['all', '予約', '受付中', '診療中', '診察後', '会計済み'];
+const STATUS_TAB_LABEL: Record<StatusTab, string> = {
+  all: 'すべて',
+  予約: '予約',
+  受付中: '受付',
+  診療中: '診療中',
+  診察後: '診察後',
+  会計済み: '会計済み',
+};
+const STATUS_TAB_TO_STATUSES: Record<Exclude<StatusTab, 'all'>, ReceptionStatus[]> = {
+  予約: ['予約'],
+  受付中: ['受付中'],
+  診療中: ['診療中'],
+  診察後: ['会計待ち'],
+  会計済み: ['会計済み'],
+};
+
+const isStatusTab = (value?: string | null): value is StatusTab =>
+  value === 'all' ||
+  value === '予約' ||
+  value === '受付中' ||
+  value === '診療中' ||
+  value === '診察後' ||
+  value === '会計済み';
 
 const SECTION_ORDER: ReceptionStatus[] = ['予約', '受付中', '診療中', '会計待ち', '会計済み'];
 const SECTION_LABEL: Record<ReceptionStatus, string> = {
   受付中: '受付中',
   診療中: '診療中',
-  会計待ち: '会計待ち',
+  会計待ち: '診察後（会計待ち）',
   会計済み: '会計済み',
   予約: '予約カート',
 };
@@ -90,6 +126,7 @@ const COLLAPSE_STORAGE_KEY = 'reception-section-collapses';
 const FILTER_STORAGE_KEY = 'reception-filter-state';
 const FILTER_PANEL_COLLAPSE_KEY = 'reception-filter-panel-collapsed';
 const ACCEPT_DETAILS_COLLAPSE_KEY = 'reception-accept-details-collapsed';
+const STATUS_TAB_STORAGE_KEY = 'reception-active-status-tab';
 const ORCA_QUEUE_REFRESH_INTERVAL_MS = 60_000;
 const ORCA_QUEUE_QUERY_KEY = ['orca-queue'] as const;
 
@@ -308,6 +345,15 @@ const toBundleTimeMs = (value?: string): number => {
   return -1;
 };
 
+const shiftDate = (value: string, dayDelta: number): string => {
+  const normalized = normalizeVisitDate(value);
+  if (!normalized) return value;
+  const parsed = new Date(`${normalized}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  parsed.setDate(parsed.getDate() + dayDelta);
+  return parsed.toISOString().slice(0, 10);
+};
+
 const baseCollapseState: Record<ReceptionStatus, boolean> = {
   受付中: false,
   診療中: false,
@@ -425,6 +471,36 @@ const groupByStatus = (entries: ReceptionEntry[]) =>
     items: entries.filter((entry) => entry.status === status),
   }));
 
+const filterGroupedByStatusTab = (
+  grouped: ReturnType<typeof groupByStatus>,
+  tab: StatusTab,
+) => {
+  if (tab === 'all') return grouped;
+  const targets = STATUS_TAB_TO_STATUSES[tab];
+  return grouped.filter((group) => targets.includes(group.status));
+};
+
+const buildStatusTabCounts = (grouped: ReturnType<typeof groupByStatus>): Record<StatusTab, number> => {
+  const counts: Record<StatusTab, number> = {
+    all: 0,
+    予約: 0,
+    受付中: 0,
+    診療中: 0,
+    診察後: 0,
+    会計済み: 0,
+  };
+  grouped.forEach(({ status, items }) => {
+    const count = items.length;
+    counts.all += count;
+    if (status === '予約') counts.予約 += count;
+    if (status === '受付中') counts.受付中 += count;
+    if (status === '診療中') counts.診療中 += count;
+    if (status === '会計待ち') counts.診察後 += count;
+    if (status === '会計済み') counts.会計済み += count;
+  });
+  return counts;
+};
+
 type ReceptionPageProps = {
   runId?: string;
   patientId?: string;
@@ -449,8 +525,21 @@ export function ReceptionPage({
   const { enqueue } = useAppToast();
   const { broadcast } = useAdminBroadcast({ facilityId: session.facilityId, userId: session.userId });
   const { flags, setCacheHit, setMissingMaster, setDataSourceTransition, setFallbackUsed, bumpRunId } = useAuthService();
+  const storageScope = useMemo<StorageScope>(
+    () => ({ facilityId: session.facilityId, userId: session.userId }),
+    [session.facilityId, session.userId],
+  );
   const claimOutpatientEnabled = isClaimOutpatientEnabled();
-  const [selectedDate, setSelectedDate] = useState(() => searchParams.get('date') ?? todayString());
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const fromDate = searchParams.get('date');
+    if (fromDate) return fromDate;
+    const fromVisitDate = normalizeVisitDate(searchParams.get('visitDate') ?? undefined);
+    return fromVisitDate ?? todayString();
+  });
+  const chartVisitDate = useMemo(
+    () => normalizeVisitDate(searchParams.get('visitDate') ?? undefined),
+    [searchParams],
+  );
   const [keyword, setKeyword] = useState(() => searchParams.get('kw') ?? '');
   const [submittedKeyword, setSubmittedKeyword] = useState(() => searchParams.get('kw') ?? '');
   const [quickOpenPatientId, setQuickOpenPatientId] = useState('');
@@ -461,6 +550,19 @@ export function ReceptionPage({
   const [sortKey, setSortKey] = useState<SortKey>(() => {
     const fromUrl = searchParams.get('sort');
     return isSortKey(fromUrl) ? fromUrl : 'time';
+  });
+  const [activeStatusTab, setActiveStatusTab] = useState<StatusTab>(() => {
+    const fromUrl = searchParams.get('statusTab');
+    if (isStatusTab(fromUrl)) return fromUrl;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(STATUS_TAB_STORAGE_KEY);
+        if (isStatusTab(stored)) return stored;
+      } catch {
+        // ignore
+      }
+    }
+    return 'all';
   });
   const [collapsed, setCollapsed] = useState<Record<ReceptionStatus, boolean>>(loadCollapseState);
   const [filtersCollapsed, setFiltersCollapsed] = useState(() =>
@@ -550,6 +652,7 @@ export function ReceptionPage({
     error?: string | null;
   }>({});
   const [retryingPatientId, setRetryingPatientId] = useState<string | null>(null);
+  const [openCardActionMenuKey, setOpenCardActionMenuKey] = useState<string | null>(null);
 
   const debugUiEnabled =
     (import.meta.env.DEV && searchParams.get('debug') === '1') || session.role === 'system_admin';
@@ -769,12 +872,43 @@ export function ReceptionPage({
   }, [acceptDetailsCollapsed]);
 
   useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(STATUS_TAB_STORAGE_KEY, activeStatusTab);
+    } catch {
+      // ignore
+    }
+  }, [activeStatusTab]);
+
+  useEffect(() => {
+    if (!openCardActionMenuKey) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('[data-card-actions-menu-root="true"]')) {
+        return;
+      }
+      setOpenCardActionMenuKey(null);
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenCardActionMenuKey(null);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [openCardActionMenuKey]);
+
+  useEffect(() => {
     const stored = (() => {
       if (typeof localStorage === 'undefined') return null;
       try {
         const raw = localStorage.getItem(FILTER_STORAGE_KEY);
         return raw
-          ? (JSON.parse(raw) as Partial<Record<'kw' | 'dept' | 'phys' | 'sort' | 'date' | 'pay', string>>)
+          ? (JSON.parse(raw) as Partial<Record<'kw' | 'dept' | 'phys' | 'sort' | 'date' | 'pay' | 'statusTab', string>>)
           : null;
       } catch {
         return null;
@@ -787,6 +921,8 @@ export function ReceptionPage({
       pay: searchParams.get('pay') ?? undefined,
       sort: searchParams.get('sort') ?? undefined,
       date: searchParams.get('date') ?? undefined,
+      statusTab: searchParams.get('statusTab') ?? undefined,
+      visitDate: normalizeVisitDate(searchParams.get('visitDate') ?? undefined),
     };
     const merged = { ...(stored ?? {}), ...Object.fromEntries(Object.entries(fromUrl).filter(([, v]) => v !== undefined)) };
     if (merged.kw !== undefined) {
@@ -797,7 +933,12 @@ export function ReceptionPage({
     if (merged.phys !== undefined) setPhysicianFilter(merged.phys);
     if (merged.pay !== undefined) setPaymentMode(normalizePaymentMode(merged.pay));
     if (merged.sort !== undefined && isSortKey(merged.sort)) setSortKey(merged.sort);
-    if (merged.date !== undefined) setSelectedDate(merged.date);
+    if (merged.date !== undefined) {
+      setSelectedDate(merged.date);
+    } else if (typeof merged.visitDate === 'string' && merged.visitDate) {
+      setSelectedDate(merged.visitDate);
+    }
+    if (isStatusTab(merged.statusTab)) setActiveStatusTab(merged.statusTab);
   }, [searchParams]);
 
   const visitMutation = useMutation<VisitMutationPayload, Error, VisitMutationParams>({
@@ -966,6 +1107,11 @@ export function ReceptionPage({
     }
     setOrDelete('sort', sortKey);
     setOrDelete('date', selectedDate);
+    if (activeStatusTab !== 'all') {
+      params.set('statusTab', activeStatusTab);
+    } else {
+      params.delete('statusTab');
+    }
     setOrDelete('intent', intentParam);
     const nextQuery = params.toString();
     const currentQuery = searchParams.toString();
@@ -980,10 +1126,22 @@ export function ReceptionPage({
         pay: paymentMode,
         sort: sortKey,
         date: selectedDate,
+        statusTab: activeStatusTab,
       };
       localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(snapshot));
     }
-  }, [departmentFilter, intentParam, keyword, physicianFilter, paymentMode, searchParams, selectedDate, setSearchParams, sortKey]);
+  }, [
+    activeStatusTab,
+    departmentFilter,
+    intentParam,
+    keyword,
+    physicianFilter,
+    paymentMode,
+    searchParams,
+    selectedDate,
+    setSearchParams,
+    sortKey,
+  ]);
 
   const mergedMeta = useMemo(() => {
     const claim = claimOutpatientEnabled ? claimQuery.data : undefined;
@@ -1059,7 +1217,7 @@ export function ReceptionPage({
     mergedMeta.runId,
   ]);
 
-  const appointmentEntries = appointmentQuery.data?.entries ?? [];
+  const liveAppointmentEntries = appointmentQuery.data?.entries ?? [];
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 60_000);
@@ -1068,7 +1226,7 @@ export function ReceptionPage({
   const isSelectedDateToday = useMemo(() => selectedDate === todayString(), [selectedDate]);
   const reservationTimeByPatientId = useMemo(() => {
     const map = new Map<string, string>();
-    for (const entry of appointmentEntries) {
+    for (const entry of liveAppointmentEntries) {
       const patientIdKey = entry.patientId?.trim();
       if (!patientIdKey) continue;
       const reservationTime = normalizeTimeLabel(entry.reservationTime ?? (entry.status === '予約' ? entry.appointmentTime : undefined));
@@ -1079,9 +1237,9 @@ export function ReceptionPage({
       }
     }
     return map;
-  }, [appointmentEntries]);
-  const normalizedAppointmentEntries = useMemo(() => {
-    return appointmentEntries.map((entry) => {
+  }, [liveAppointmentEntries]);
+  const normalizedLiveEntries = useMemo(() => {
+    return liveAppointmentEntries.map((entry) => {
       const patientIdKey = entry.patientId?.trim() ?? '';
       const normalizedReservationTime =
         entry.reservationTime ??
@@ -1100,7 +1258,28 @@ export function ReceptionPage({
         acceptanceTime: normalizedAcceptanceTime,
       };
     });
-  }, [appointmentEntries, reservationTimeByPatientId]);
+  }, [liveAppointmentEntries, reservationTimeByPatientId]);
+  const dailyEntriesState = useMemo(
+    () =>
+      resolveReceptionEntriesForDate({
+        date: selectedDate,
+        incomingEntries: normalizedLiveEntries,
+        scope: storageScope,
+      }),
+    [normalizedLiveEntries, selectedDate, storageScope],
+  );
+  const appointmentEntries = dailyEntriesState.entries;
+  const snapshotDateOptions = useMemo(() => {
+    const fromState = dailyEntriesState.availableDates ?? [];
+    if (fromState.length > 0) return fromState.slice(0, 30);
+    return listReceptionSnapshotDates(storageScope, 30);
+  }, [dailyEntriesState.availableDates, storageScope]);
+  const appointmentEntriesSourceLabel = useMemo(() => {
+    if (dailyEntriesState.source === 'snapshot') return '保存済み履歴';
+    if (dailyEntriesState.source === 'merged') return 'API+保存履歴';
+    if (dailyEntriesState.source === 'live') return 'API';
+    return '未取得';
+  }, [dailyEntriesState.source]);
   const departmentCodeMap = useMemo(() => {
     const raw = appointmentQuery.data?.raw as Record<string, unknown> | undefined;
     const map = new Map<string, string>();
@@ -1232,11 +1411,24 @@ export function ReceptionPage({
     }
   }, [acceptDepartmentSelection, departmentOptions]);
   const filteredEntries = useMemo(
-    () => filterEntries(normalizedAppointmentEntries, keyword, departmentFilter, physicianFilter, paymentMode),
-    [departmentFilter, keyword, normalizedAppointmentEntries, paymentMode, physicianFilter],
+    () => filterEntries(appointmentEntries, keyword, departmentFilter, physicianFilter, paymentMode),
+    [appointmentEntries, departmentFilter, keyword, paymentMode, physicianFilter],
   );
   const sortedEntries = useMemo(() => sortEntries(filteredEntries, sortKey), [filteredEntries, sortKey]);
   const grouped = useMemo(() => groupByStatus(sortedEntries), [sortedEntries]);
+  const statusTabCounts = useMemo(() => buildStatusTabCounts(grouped), [grouped]);
+  const groupedForRender = useMemo(
+    () => filterGroupedByStatusTab(grouped, activeStatusTab),
+    [activeStatusTab, grouped],
+  );
+  useEffect(() => {
+    if (!selectedDate || appointmentEntries.length === 0) return;
+    saveReceptionEntriesForDate({
+      date: selectedDate,
+      entries: appointmentEntries,
+      scope: storageScope,
+    });
+  }, [appointmentEntries, selectedDate, storageScope]);
   const tableColCount = claimOutpatientEnabled ? 10 : 9;
 
   const claimBundles = claimOutpatientEnabled ? claimQuery.data?.bundles ?? [] : [];
@@ -1631,7 +1823,7 @@ export function ReceptionPage({
   }, [claimSendCache, selectedEntry?.patientId]);
 
   const summaryText = useMemo(() => {
-    const counts = grouped.map(({ status, items }) => `${status}: ${items.length}件`).join(' / ');
+    const counts = grouped.map(({ status, items }) => `${SECTION_LABEL[status]}: ${items.length}件`).join(' / ');
     return `検索結果 ${sortedEntries.length}件（${counts}）`;
   }, [grouped, sortedEntries.length]);
 
@@ -2517,6 +2709,7 @@ export function ReceptionPage({
     setPhysicianFilter('');
     setPaymentMode('all');
     setSortKey('time');
+    setActiveStatusTab('all');
   }, []);
 
   const applySavedView = useCallback(
@@ -2954,6 +3147,7 @@ export function ReceptionPage({
 
   const handleSelectRow = useCallback(
     (entry: ReceptionEntry) => {
+      setOpenCardActionMenuKey(null);
       setSelectedEntryKey(entryKey(entry));
       setPatientSearchSelected(null);
       setSelectionNotice(null);
@@ -3098,6 +3292,7 @@ export function ReceptionPage({
 	                  <span>
 	                    支払: {paymentMode === 'all' ? 'すべて' : paymentMode === 'insurance' ? '保険' : '自費'}
 	                  </span>
+                    <span>src: {appointmentEntriesSourceLabel}</span>
 	                  <span>sort: {sortKey}</span>
 	                </div>
 	                <span className="reception-search__header-summary" aria-live={infoLive}>
@@ -3128,6 +3323,44 @@ export function ReceptionPage({
 	                        onChange={(event) => setSelectedDate(event.target.value)}
 	                        required
 	                      />
+                        <div className="reception-search__date-nav" role="group" aria-label="日付操作">
+                          <button
+                            type="button"
+                            className="reception-search__button ghost"
+                            onClick={() => setSelectedDate((prev) => shiftDate(prev, -1))}
+                            title="前日に移動"
+                          >
+                            前日
+                          </button>
+                          <button
+                            type="button"
+                            className="reception-search__button ghost"
+                            onClick={() => setSelectedDate(todayString())}
+                            disabled={selectedDate === todayString()}
+                            title="今日に移動"
+                          >
+                            今日
+                          </button>
+                          <button
+                            type="button"
+                            className="reception-search__button ghost"
+                            onClick={() => setSelectedDate((prev) => shiftDate(prev, 1))}
+                            title="翌日に移動"
+                          >
+                            翌日
+                          </button>
+                          {chartVisitDate ? (
+                            <button
+                              type="button"
+                              className="reception-search__button ghost"
+                              onClick={() => setSelectedDate(chartVisitDate)}
+                              disabled={selectedDate === chartVisitDate}
+                              title="現在のカルテ日へ移動"
+                            >
+                              カルテ日
+                            </button>
+                          ) : null}
+                        </div>
 	                    </label>
 	                    <label className="reception-search__field">
 	                      <span>検索（患者ID/氏名/カナ）</span>
@@ -3226,6 +3459,7 @@ export function ReceptionPage({
 	                        if (paymentMode !== 'all') params.set('pay', paymentMode);
 	                        if (sortKey) params.set('sort', sortKey);
 	                        if (selectedDate) params.set('date', selectedDate);
+                          if (activeStatusTab !== 'all') params.set('statusTab', activeStatusTab);
 	                        params.set('from', 'reception');
 	                        navigate(`${buildFacilityPath(session.facilityId, '/patients')}?${params.toString()}`);
 	                      }}
@@ -3233,6 +3467,25 @@ export function ReceptionPage({
 	                      Patients へ
 	                    </button>
 	                  </div>
+                    <div className="reception-search__date-history" role="group" aria-label="保存済み日付">
+                      <span className="reception-search__date-history-label">
+                        日次状態: {appointmentEntriesSourceLabel}
+                      </span>
+                      <div className="reception-search__date-history-list">
+                        {snapshotDateOptions.slice(0, 12).map((date) => (
+                          <button
+                            key={date}
+                            type="button"
+                            className={`reception-search__date-chip${date === selectedDate ? ' is-active' : ''}`}
+                            onClick={() => setSelectedDate(date)}
+                            aria-pressed={date === selectedDate}
+                            title={`${date} の受付状況へ移動`}
+                          >
+                            {date}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 	                </form>
 	                <div className="reception-search__saved" aria-label="保存ビュー">
 	                  <div className="reception-search__saved-meta" role="status" aria-live={infoLive}>
@@ -3653,8 +3906,26 @@ export function ReceptionPage({
               </div>
             </section>
 
+            <section className="reception-status-tabs" aria-label="受付状態タブ">
+              <div className="reception-status-tabs__list" role="tablist" aria-label="受付状態">
+                {STATUS_TAB_ORDER.map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    className={`reception-status-tabs__tab${activeStatusTab === tab ? ' is-active' : ''}`}
+                    aria-selected={activeStatusTab === tab}
+                    onClick={() => setActiveStatusTab(tab)}
+                  >
+                    <span>{STATUS_TAB_LABEL[tab]}</span>
+                    <strong>{statusTabCounts[tab]}件</strong>
+                  </button>
+                ))}
+              </div>
+            </section>
+
             <div className="reception-board" role="region" aria-label="ステータス別患者一覧">
-              {grouped.map(({ status, items }) => (
+              {groupedForRender.map(({ status, items }) => (
                 <section
                   key={status}
                   className="reception-board__column"
@@ -3701,6 +3972,8 @@ export function ReceptionPage({
                           const rowKey =
                             entryKey(entry) ??
                             `${entry.patientId ?? 'unknown'}-${entry.appointmentTime ?? entry.department ?? 'card'}`;
+                          const cardActionMenuKey = `${status}:${rowKey}`;
+                          const cardActionMenuOpen = openCardActionMenuKey === cardActionMenuKey;
                           const activeQueue = orcaQueueStatus;
                           const acceptanceTime = normalizeTimeLabel(
                             entry.acceptanceTime ?? (entry.source === 'visits' ? entry.appointmentTime : undefined),
@@ -3851,66 +4124,13 @@ export function ReceptionPage({
                                 </div>
                               ) : null}
                               <div className="reception-card__actions">
-                                {isReceptionStatusMvpPhase2 && mvpDecision?.canRetry ? (
-                                  <button
-                                    type="button"
-                                    className="reception-card__action warning"
-                                    data-test-id="reception-status-mvp-retry"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      void handleRetryQueue(entry);
-                                    }}
-                                    title={mvpDecision.retryTitle ?? 'ORCA再送を要求します'}
-                                  >
-                                    再送
-                                  </button>
-                                ) : null}
                                 <button
                                   type="button"
-                                  className="reception-card__action"
-                                  aria-label="過去カルテ（カード）"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    openMedicalRecordsModal({ patientId: entry.patientId, name: entry.name }, 'selection');
-                                  }}
-                                  disabled={!entry.patientId}
-                                  title={
-                                    entry.patientId
-                                      ? '過去カルテをモーダルで確認'
-                                      : '患者IDが未登録のため過去カルテを表示できません'
-                                  }
-                                >
-                                  過去カルテ
-                                </button>
-                                <button
-                                  type="button"
-                                  className="reception-card__action danger"
-                                  aria-label="受付取消（カード）"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    void cancelEntry(entry, 'card');
-                                  }}
-                                  disabled={isAcceptSubmitting || !entry.patientId || !entry.receptionId || status === '予約'}
-                                  title={
-                                    isAcceptSubmitting
-                                      ? '送信中です'
-                                      : !entry.patientId
-                                        ? '患者IDが未登録のため取消できません'
-                                        : status === '予約'
-                                          ? '予約は受付取消できません'
-                                          : entry.receptionId
-                                            ? '受付取消'
-                                            : '受付IDが未登録のため取消できません'
-                                  }
-                                >
-                                  受付取消
-                                </button>
-                                <button
-                                  type="button"
-                                  className="reception-card__action"
+                                  className="reception-card__action reception-card__action--primary"
                                   aria-label="カルテを開く（カード）"
                                   onClick={(event) => {
                                     event.stopPropagation();
+                                    setOpenCardActionMenuKey(null);
                                     handleOpenCharts(entry);
                                   }}
                                   disabled={!canOpenCharts}
@@ -3918,6 +4138,96 @@ export function ReceptionPage({
                                 >
                                   カルテを開く
                                 </button>
+                                <div
+                                  className={`reception-card__menu${cardActionMenuOpen ? ' is-open' : ''}`}
+                                  data-card-actions-menu-root="true"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                  }}
+                                  onKeyDown={(event) => {
+                                    event.stopPropagation();
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    className="reception-card__action reception-card__action--menu-trigger"
+                                    aria-label="カード操作を開く"
+                                    aria-haspopup="menu"
+                                    aria-expanded={cardActionMenuOpen}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setOpenCardActionMenuKey((prev) =>
+                                        prev === cardActionMenuKey ? null : cardActionMenuKey,
+                                      );
+                                    }}
+                                  >
+                                    その他
+                                  </button>
+                                  {cardActionMenuOpen ? (
+                                    <div className="reception-card__submenu" role="menu" aria-label="カード追加操作">
+                                      {isReceptionStatusMvpPhase2 && mvpDecision?.canRetry ? (
+                                        <button
+                                          type="button"
+                                          className="reception-card__submenu-item warning"
+                                          role="menuitem"
+                                          data-test-id="reception-status-mvp-retry"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setOpenCardActionMenuKey(null);
+                                            void handleRetryQueue(entry);
+                                          }}
+                                          title={mvpDecision.retryTitle ?? 'ORCA再送を要求します'}
+                                        >
+                                          再送
+                                        </button>
+                                      ) : null}
+                                      <button
+                                        type="button"
+                                        className="reception-card__submenu-item"
+                                        role="menuitem"
+                                        aria-label="過去カルテ（カード）"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setOpenCardActionMenuKey(null);
+                                          openMedicalRecordsModal({ patientId: entry.patientId, name: entry.name }, 'selection');
+                                        }}
+                                        disabled={!entry.patientId}
+                                        title={
+                                          entry.patientId
+                                            ? '過去カルテをモーダルで確認'
+                                            : '患者IDが未登録のため過去カルテを表示できません'
+                                        }
+                                      >
+                                        過去カルテ
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="reception-card__submenu-item danger"
+                                        role="menuitem"
+                                        aria-label="受付取消（カード）"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setOpenCardActionMenuKey(null);
+                                          void cancelEntry(entry, 'card');
+                                        }}
+                                        disabled={isAcceptSubmitting || !entry.patientId || !entry.receptionId || status === '予約'}
+                                        title={
+                                          isAcceptSubmitting
+                                            ? '送信中です'
+                                            : !entry.patientId
+                                              ? '患者IDが未登録のため取消できません'
+                                              : status === '予約'
+                                                ? '予約は受付取消できません'
+                                                : entry.receptionId
+                                                  ? '受付取消'
+                                                  : '受付IDが未登録のため取消できません'
+                                        }
+                                      >
+                                        受付取消
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
                               </div>
                             </div>
                           );
@@ -3931,7 +4241,7 @@ export function ReceptionPage({
 
             {debugUiEnabled ? (
               <>
-                {grouped.map(({ status, items }, index) => {
+                {groupedForRender.map(({ status, items }, index) => {
               const sectionId = `reception-section-${index}`;
               const tableHelpId = `${sectionId}-help`;
               const tableStatusId = `${sectionId}-status`;

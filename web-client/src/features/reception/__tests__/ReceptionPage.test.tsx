@@ -33,6 +33,7 @@ let mockMutationResult: any = null;
 let mockMutationPending = false;
 let mockClaimSendCache: Record<string, { invoiceNumber?: string; dataId?: string; sendStatus?: 'success' | 'error' }> =
   {};
+let mockSearchParams = new URLSearchParams();
 
 const mockAuthFlags = {
   runId: 'RUN-AUTH',
@@ -213,7 +214,7 @@ vi.mock('@tanstack/react-query', () => ({
 vi.mock('react-router-dom', () => ({
   MemoryRouter: ({ children }: { children: React.ReactNode }) => children,
   useNavigate: () => vi.fn(),
-  useSearchParams: () => [new URLSearchParams(), vi.fn()],
+  useSearchParams: () => [mockSearchParams, vi.fn()],
 }));
 
 const renderReceptionPage = () => {
@@ -231,6 +232,7 @@ beforeEach(() => {
   mockMutationResult = null;
   mockMutationPending = false;
   mockClaimSendCache = {};
+  mockSearchParams = new URLSearchParams();
   localStorage.clear();
 });
 
@@ -513,5 +515,83 @@ describe('ReceptionPage list and side pane guidance', () => {
     // Debug panels should not be visible by default.
     expect(screen.queryByTestId('order-console')).toBeNull();
     expect(screen.queryByTestId('reception-audit')).toBeNull();
+  });
+});
+
+describe('ReceptionPage status/date/card action UX', () => {
+  it('defaults date filter to visitDate from URL', () => {
+    mockSearchParams = new URLSearchParams('visitDate=2026-02-03');
+    renderReceptionPage();
+    expect(screen.getByText('日付: 2026-02-03')).toBeInTheDocument();
+  });
+
+  it('shows open charts button always and exposes other card actions via submenu', async () => {
+    mockAppointmentData.entries = [
+      {
+        id: 'row-card-1',
+        patientId: 'P-301',
+        receptionId: 'R-301',
+        name: 'カード患者',
+        appointmentTime: '09:30',
+        department: '内科',
+        status: '受付中',
+        insurance: '保険',
+        source: 'visits',
+      },
+    ];
+
+    const user = userEvent.setup();
+    renderReceptionPage();
+
+    expect(screen.getByRole('button', { name: 'カルテを開く（カード）' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: '受付取消（カード）' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: '過去カルテ（カード）' })).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'カード操作を開く' }));
+
+    expect(screen.getByRole('menuitem', { name: '受付取消（カード）' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: '過去カルテ（カード）' })).toBeInTheDocument();
+
+    await user.click(document.body);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('menuitem', { name: '受付取消（カード）' })).toBeNull();
+    });
+  });
+
+  it('moves 会計待ち entries under 診察後 tab filtering', async () => {
+    mockAppointmentData.entries = [
+      {
+        id: 'row-tab-1',
+        patientId: 'P-401',
+        receptionId: 'R-401',
+        name: '受付患者',
+        appointmentTime: '08:30',
+        department: '内科',
+        status: '受付中',
+        insurance: '保険',
+        source: 'visits',
+      },
+      {
+        id: 'row-tab-2',
+        patientId: 'P-402',
+        receptionId: 'R-402',
+        name: '診察後患者',
+        appointmentTime: '10:15',
+        department: '外科',
+        status: '会計待ち',
+        insurance: '保険',
+        source: 'visits',
+      },
+    ];
+
+    const user = userEvent.setup();
+    renderReceptionPage();
+    const board = screen.getByRole('region', { name: 'ステータス別患者一覧' });
+
+    await user.click(screen.getByRole('tab', { name: /診察後/ }));
+
+    expect(within(board).getByText('診察後患者')).toBeInTheDocument();
+    expect(within(board).queryByText('受付患者')).toBeNull();
   });
 });

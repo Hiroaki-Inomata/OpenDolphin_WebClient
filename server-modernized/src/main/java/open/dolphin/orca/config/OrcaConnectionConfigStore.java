@@ -63,11 +63,11 @@ public class OrcaConnectionConfigStore {
         this.current = load();
         if (this.current == null) {
             this.current = defaultFromEnvironment();
-            persist(this.current);
+            persistBestEffort(this.current);
         }
         // Ensure defaults are materialized, but never overwrite user-provided values.
         this.current = applyDefaults(this.current);
-        persist(this.current);
+        persistBestEffort(this.current);
     }
 
     public OrcaConnectionConfigRecord getSnapshot() {
@@ -199,8 +199,9 @@ public class OrcaConnectionConfigStore {
                 open.dolphin.orca.transport.OrcaTlsSupport.validateCaCertificateBundle(caBytes);
             }
 
-            current = merged;
-            persist(current);
+            OrcaConnectionConfigRecord next = copy(merged);
+            persistStrict(next);
+            current = next;
             LOGGER.info("ORCA connection config updated. runId={} actor={} weborca={} clientAuthEnabled={} caProvided={}",
                     safe(runId),
                     maskActor(actor),
@@ -255,14 +256,25 @@ public class OrcaConnectionConfigStore {
         }
     }
 
-    private void persist(OrcaConnectionConfigRecord record) {
-        if (record == null || storagePath == null) {
-            return;
+    private void persistBestEffort(OrcaConnectionConfigRecord record) {
+        try {
+            persistStrict(record);
+        } catch (RuntimeException ex) {
+            LOGGER.warn("Failed to persist ORCA connection config in init phase: {}", ex.getMessage());
+        }
+    }
+
+    private void persistStrict(OrcaConnectionConfigRecord record) {
+        if (record == null) {
+            throw new IllegalStateException("ORCA connection config record is null");
+        }
+        if (storagePath == null) {
+            throw new IllegalStateException("ORCA connection config storage path is not available");
         }
         try {
             mapper.writeValue(storagePath.toFile(), record);
         } catch (IOException ex) {
-            LOGGER.warn("Failed to persist ORCA connection config to {}: {}", storagePath, ex.getMessage());
+            throw new IllegalStateException("Failed to persist ORCA connection config", ex);
         }
     }
 
