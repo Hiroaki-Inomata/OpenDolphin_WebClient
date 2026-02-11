@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import jakarta.inject.Inject;
@@ -23,6 +24,7 @@ import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.session.UserServiceBean;
 import open.dolphin.session.framework.SessionTraceAttributes;
+import open.dolphin.rest.orca.AbstractOrcaRestResource;
 import org.jboss.logmanager.MDC;
 
 /**
@@ -37,8 +39,14 @@ public class LogFilter implements Filter {
     private static final String PASSWORD = "password";
     private static final String UNAUTHORIZED_USER = "Unauthorized user: ";
     private static final String TRACE_ID_HEADER = "X-Trace-Id";
+    private static final String REQUEST_ID_HEADER = "X-Request-Id";
+    private static final String RUN_ID_HEADER = "X-Run-Id";
     public static final String TRACE_ID_ATTRIBUTE = LogFilter.class.getName() + ".TRACE_ID";
+    public static final String REQUEST_ID_ATTRIBUTE = LogFilter.class.getName() + ".REQUEST_ID";
+    public static final String RUN_ID_ATTRIBUTE = LogFilter.class.getName() + ".RUN_ID";
     private static final String MDC_TRACE_ID_KEY = "traceId";
+    private static final String MDC_REQUEST_ID_KEY = "requestId";
+    private static final String MDC_RUN_ID_KEY = "runId";
     private static final String ANONYMOUS_PRINCIPAL = "anonymous";
     private static final String FACILITY_HEADER = "X-Facility-Id";
     private static final String LEGACY_FACILITY_HEADER = "facilityId";
@@ -73,11 +81,24 @@ public class LogFilter implements Filter {
 
         HttpServletRequest req = (HttpServletRequest)request;
         HttpServletResponse res = (HttpServletResponse) response;
+        long startedNanos = System.nanoTime();
 
         String traceId = resolveTraceId(req);
+        String requestId = resolveRequestId(req, traceId);
+        String runId = isOrcaRequest(req) ? AbstractOrcaRestResource.resolveRunIdValue(req) : null;
         req.setAttribute(TRACE_ID_ATTRIBUTE, traceId);
+        req.setAttribute(REQUEST_ID_ATTRIBUTE, requestId);
+        if (runId != null && !runId.isBlank()) {
+            req.setAttribute(RUN_ID_ATTRIBUTE, runId);
+        }
         res.setHeader(TRACE_ID_HEADER, traceId);
+        res.setHeader(REQUEST_ID_HEADER, requestId);
+        if (runId != null && !runId.isBlank()) {
+            res.setHeader(RUN_ID_HEADER, runId);
+        }
         MdcSnapshot traceIdSnapshot = applyMdcValue(MDC_TRACE_ID_KEY, traceId);
+        MdcSnapshot requestIdSnapshot = applyMdcValue(MDC_REQUEST_ID_KEY, requestId);
+        MdcSnapshot runIdSnapshot = applyMdcValue(MDC_RUN_ID_KEY, runId);
         MdcSnapshot remoteUserSnapshot = null;
         BlockWrapper wrapper = null;
 
@@ -134,6 +155,9 @@ public class LogFilter implements Filter {
 
             wrapper = new BlockWrapper(req);
             wrapper.setRemoteUser(resolvedUser);
+            wrapper.setHeader(TRACE_ID_HEADER, traceId);
+            wrapper.setHeader(REQUEST_ID_HEADER, requestId);
+            wrapper.setHeader(RUN_ID_HEADER, runId);
             remoteUserSnapshot = applyMdcValue(SessionTraceAttributes.ACTOR_ID_MDC_KEY, resolvedUser);
 
             StringBuilder sb = new StringBuilder();
@@ -144,6 +168,10 @@ public class LogFilter implements Filter {
             String uri = wrapper.getRequestURIForLog();
             sb.append(uri);
             sb.append(" traceId=").append(traceId);
+            sb.append(" requestId=").append(requestId);
+            if (runId != null && !runId.isBlank()) {
+                sb.append(" runId=").append(runId);
+            }
             if (uri.startsWith("/jtouch")) {
                 Logger.getLogger("visit.touch").info(sb.toString());
             } else {
@@ -152,6 +180,7 @@ public class LogFilter implements Filter {
 //minagawa 
 
             chain.doFilter(wrapper, response);
+            maybeLogFailedResponse(res, wrapper, traceId, requestId, runId, startedNanos);
             maybeRecordErrorAudit(wrapper, res, null);
         } catch (IOException | ServletException ex) {
             maybeRecordErrorAudit(wrapper != null ? wrapper : req, res, ex);
@@ -161,6 +190,8 @@ public class LogFilter implements Filter {
             throw ex;
         } finally {
             restoreMdcValue(traceIdSnapshot);
+            restoreMdcValue(requestIdSnapshot);
+            restoreMdcValue(runIdSnapshot);
             restoreMdcValue(remoteUserSnapshot);
         }
     }
@@ -206,7 +237,54 @@ public class LogFilter implements Filter {
         if (fromHeader != null && !fromHeader.isBlank()) {
             return fromHeader;
         }
+        String requestId = safeHeader(req, REQUEST_ID_HEADER);
+        if (requestId != null && !requestId.isBlank()) {
+            return requestId;
+        }
         return UUID.randomUUID().toString();
+    }
+
+    private String resolveRequestId(HttpServletRequest req, String traceId) {
+        String requestId = safeHeader(req, REQUEST_ID_HEADER);
+        if (requestId != null && !requestId.isBlank()) {
+            return requestId;
+        }
+        return traceId;
+    }
+
+    private boolean isOrcaRequest(HttpServletRequest request) {
+        if (request == null) {
+            return false;
+        }
+        String uri = request.getRequestURI();
+        if (uri == null || uri.isBlank()) {
+            return false;
+        }
+        return uri.contains("/orca/") || uri.endsWith("/orca");
+    }
+
+    private void maybeLogFailedResponse(HttpServletResponse response, BlockWrapper request, String traceId,
+            String requestId, String runId, long startedNanos) {
+        if (response == null || request == null) {
+            return;
+        }
+        int status = response.getStatus();
+        if (status < 400) {
+            return;
+        }
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(Math.max(0L, System.nanoTime() - startedNanos));
+        String uri = request.getRequestURIForLog();
+        Logger logger = uri != null && uri.startsWith("/jtouch") ? Logger.getLogger("visit.touch") : Logger.getLogger("open.dolphin");
+        logger.warning(() -> String.format("REST %s %s status=%d elapsedMs=%d traceId=%s requestId=%s runId=%s",
+                request.getMethod(), uri, status, elapsedMs,
+                safe(traceId), safe(requestId), safe(runId)));
+    }
+
+    private static String safe(String value) {
+        if (value == null || value.isBlank()) {
+            return "-";
+        }
+        return value.trim();
     }
 
     private MdcSnapshot applyMdcValue(String key, String value) {

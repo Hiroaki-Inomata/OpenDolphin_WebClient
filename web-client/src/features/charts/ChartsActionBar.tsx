@@ -340,8 +340,60 @@ export function ChartsActionBar({
 
   const resolveDepartmentCode = (department?: string) => {
     if (!department) return undefined;
-    const match = department.match(/\b(\d{2})\b/);
+    const trimmed = department.trim();
+    if (!trimmed) return undefined;
+    const leading = trimmed.match(/^(\d{2})(?:\D|$)/)?.[1];
+    if (leading) return leading;
+    const match = trimmed.match(/\b(\d{2})\b/);
     return match?.[1];
+  };
+
+  const resolvePhysicianCode = (physician?: string) => {
+    if (!physician) return undefined;
+    const trimmed = physician.trim();
+    if (!trimmed) return undefined;
+    const leading = trimmed.match(/^(\d{4,5})(?:\D|$)/)?.[1];
+    if (!leading) return undefined;
+    return leading.length === 4 ? `1${leading}` : leading;
+  };
+
+  const fetchVisitContextCodes = async (
+    patientId: string,
+    visitDate: string,
+    signal?: AbortSignal,
+  ): Promise<{ departmentCode?: string; physicianCode?: string }> => {
+    try {
+      const response = await httpFetch('/orca/visits/list', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visitDate, requestNumber: '01' }),
+        signal,
+      });
+      if (!response.ok) return {};
+      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      const visits = Array.isArray(payload.visits) ? payload.visits : [];
+      const matched = visits.find((entry) => {
+        if (!entry || typeof entry !== 'object') return false;
+        const candidate =
+          (entry as { patientId?: string }).patientId ??
+          ((entry as { patient?: { patientId?: string } }).patient?.patientId ?? undefined);
+        return typeof candidate === 'string' && candidate.trim() === patientId;
+      });
+      if (!matched || typeof matched !== 'object') return {};
+      const rawDepartment =
+        (matched as { departmentCode?: unknown }).departmentCode ??
+        (matched as { Department_Code?: unknown }).Department_Code ??
+        (matched as { department?: unknown }).department;
+      const rawPhysician =
+        (matched as { physicianCode?: unknown }).physicianCode ??
+        (matched as { Physician_Code?: unknown }).Physician_Code ??
+        (matched as { physician?: unknown }).physician;
+      const departmentCode = resolveDepartmentCode(typeof rawDepartment === 'string' ? rawDepartment : undefined);
+      const physicianCode = resolvePhysicianCode(typeof rawPhysician === 'string' ? rawPhysician : undefined);
+      return { departmentCode, physicianCode };
+    } catch {
+      return {};
+    }
   };
 
   const normalizeVisitDate = (value?: string) => {
@@ -350,6 +402,8 @@ export function ChartsActionBar({
   };
 
   const isApiResultOk = (apiResult?: string) => Boolean(apiResult && /^0+$/.test(apiResult));
+  const isIdempotentDuplicate = (apiResult?: string, apiResultMessage?: string) =>
+    apiResult === '80' && Boolean(apiResultMessage && /既に同日の診療データが登録されています/.test(apiResultMessage));
 
   const sendQueueLabel = useMemo(() => {
     const phase = queueEntry?.phase;
@@ -1159,8 +1213,14 @@ export function ChartsActionBar({
 
       if (action === 'send' || action === 'finish') {
         if (action === 'send') {
-          const departmentCode = resolveDepartmentCode(selectedEntry?.department);
           const calculationDate = normalizeVisitDate(resolvedVisitDate);
+          let departmentCode = resolveDepartmentCode(selectedEntry?.department);
+          let physicianCode = resolvePhysicianCode(selectedEntry?.physician);
+          if ((!departmentCode || !physicianCode) && resolvedPatientId && calculationDate) {
+            const resolvedCodes = await fetchVisitContextCodes(resolvedPatientId, calculationDate, signal);
+            departmentCode = departmentCode ?? resolvedCodes.departmentCode;
+            physicianCode = physicianCode ?? resolvedCodes.physicianCode;
+          }
           const missingFields = [
             !resolvedPatientId ? 'Patient_ID' : undefined,
             !calculationDate ? 'Perform_Date' : undefined,
@@ -1196,12 +1256,15 @@ export function ChartsActionBar({
             patientId: resolvedPatientId,
             performDate: calculationDate,
             departmentCode,
+            physicianCode,
             medicalInformation,
           });
           const result = await postOrcaMedicalModV2Xml(requestXml, { classCode: '01', signal });
-          const apiResultOk = isApiResultOk(result.apiResult);
+          const idempotentDuplicate = isIdempotentDuplicate(result.apiResult, result.apiResultMessage);
+          const apiResultOk = isApiResultOk(result.apiResult) || idempotentDuplicate;
           const hasMissingTags = Boolean(result.missingTags?.length);
-          const outcome = result.ok && apiResultOk && !hasMissingTags ? 'success' : result.ok ? 'warning' : 'error';
+          const allowMissingTags = idempotentDuplicate;
+          const outcome = result.ok && apiResultOk && (!hasMissingTags || allowMissingTags) ? 'success' : result.ok ? 'warning' : 'error';
           const durationMs = Math.round(performance.now() - startedAt);
           const nextRunId = result.runId ?? getObservabilityMeta().runId ?? runId;
           const nextTraceId = result.traceId ?? getObservabilityMeta().traceId ?? resolvedTraceId;
@@ -1209,6 +1272,7 @@ export function ChartsActionBar({
             `runId=${nextRunId}`,
             `traceId=${nextTraceId ?? 'unknown'}`,
             result.apiResult ? `Api_Result=${result.apiResult}` : undefined,
+            result.apiResultMessage ? `Api_Result_Message=${result.apiResultMessage}` : undefined,
             result.invoiceNumber ? `Invoice_Number=${result.invoiceNumber}` : undefined,
             result.dataId ? `Data_Id=${result.dataId}` : undefined,
           ].filter((part): part is string => Boolean(part));
@@ -1268,6 +1332,8 @@ export function ChartsActionBar({
               httpStatus: result.status,
               apiResult: result.apiResult,
               apiResultMessage: result.apiResultMessage,
+              departmentCode,
+              physicianCode,
               invoiceNumber: result.invoiceNumber,
               dataId: result.dataId,
               missingTags: result.missingTags,

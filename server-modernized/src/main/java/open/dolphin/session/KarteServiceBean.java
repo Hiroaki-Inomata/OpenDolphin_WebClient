@@ -22,6 +22,7 @@ import open.dolphin.infomodel.*;
 import open.dolphin.rest.dto.RoutineMedicationResponse;
 import open.dolphin.rest.dto.RpHistoryDrugResponse;
 import open.dolphin.rest.dto.RpHistoryEntryResponse;
+import open.dolphin.rest.dto.DiagnosisSummaryResponse;
 import open.dolphin.rest.dto.SafetySummaryResponse;
 import open.dolphin.rest.dto.UserPropertyResponse;
 import open.dolphin.session.audit.DiagnosisAuditRecorder;
@@ -68,7 +69,9 @@ public class KarteServiceBean {
     private static final String QUERY_DOCUMENT = "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and (d.status='F' or d.status='T')";
     private static final String QUERY_DOCUMENT_BY_LINK_ID = "from DocumentModel d where d.linkId=:id";
     private static final String QUERY_DOCUMENT_IDS_WITH_MED_ENTITY =
-            "select distinct d.id from DocumentModel d join d.modules m where d.karte.id=:karteId and d.status in ('F','T') and m.moduleInfo.entity=:entity order by d.started desc";
+            "select d.id from DocumentModel d where d.karte.id=:karteId and d.status in ('F','T') " +
+                    "and exists (select 1 from ModuleModel m where m.document.id=d.id and m.moduleInfo.entity=:entity) " +
+                    "order by d.started desc";
 
 //s.oh^ 2014/07/29 スタンプ／シェーマ／添付のソート
     //private static final String QUERY_MODULE_BY_DOC_ID = "from ModuleModel m where m.document.id=:id";
@@ -654,8 +657,9 @@ public class KarteServiceBean {
             return Collections.emptyList();
         }
 
-        StringBuilder jpql = new StringBuilder("select distinct d.id from DocumentModel d join d.modules m ")
-                .append("where d.karte.id=:karteId and d.status in ('F','T') and m.moduleInfo.entity=:entity");
+        StringBuilder jpql = new StringBuilder("select d.id from DocumentModel d ")
+                .append("where d.karte.id=:karteId and d.status in ('F','T') ")
+                .append("and exists (select 1 from ModuleModel m where m.document.id=d.id and m.moduleInfo.entity=:entity)");
         if (fromDate != null) {
             jpql.append(" and d.started >= :fromDate");
         }
@@ -751,11 +755,24 @@ public class KarteServiceBean {
         List<RegisteredDiagnosisModel> diagnoses = em.createQuery(QUERY_DIAGNOSIS_BY_KARTE_ACTIVEONLY, RegisteredDiagnosisModel.class)
                 .setParameter(KARTE_ID, karteId)
                 .getResultList();
+        List<DiagnosisSummaryResponse> diagnosisSummaries = new ArrayList<>();
+        if (diagnoses != null) {
+            for (RegisteredDiagnosisModel diagnosis : diagnoses) {
+                DiagnosisSummaryResponse summary = new DiagnosisSummaryResponse();
+                summary.setId(diagnosis.getId());
+                summary.setDiagnosis(diagnosis.getDiagnosis());
+                summary.setDiagnosisCode(diagnosis.getDiagnosisCode());
+                summary.setStartDate(diagnosis.getStartDate());
+                summary.setOutcome(diagnosis.getOutcome());
+                summary.setOutcomeDesc(diagnosis.getOutcomeDesc());
+                diagnosisSummaries.add(summary);
+            }
+        }
 
         // 3. Routine Meds
         List<RoutineMedicationResponse> routineMeds = getRoutineMedications(karteId, 0, 50);
 
-        return new SafetySummaryResponse(allergies, diagnoses, routineMeds);
+        return new SafetySummaryResponse(allergies, diagnosisSummaries, routineMeds);
     }
 
     public long addDocumentAndUpdatePVTState(DocumentModel document, long pvtPK, int state) {

@@ -152,7 +152,6 @@ const SOAP_HISTORY_STORAGE_VERSION = 'v2';
 const SOAP_HISTORY_MAX_ENTRIES = 50;
 const SOAP_HISTORY_MAX_ENCOUNTERS = 20;
 const SOAP_HISTORY_MAX_BYTES = 200_000;
-const CHARTS_RIGHT_COLUMN_MIN_WIDTH = 300;
 const UTILITY_PATIENT_UNSELECTED_MESSAGE = '患者が未選択のため利用できません';
 
 type SoapHistoryStorage = {
@@ -566,7 +565,6 @@ function ChartsContent() {
   const utilityFocusRestoreRef = useRef(false);
   const utilityLastActionRef = useRef<DockedUtilityAction>('clinical-actions');
   const utilityHeadingRef = useRef<HTMLHeadingElement | null>(null);
-  const rightColumnRef = useRef<HTMLDivElement | null>(null);
   const [isPatientPanelOpen, setIsPatientPanelOpen] = useState(false);
   const [orderHistoryCopyRequest, setOrderHistoryCopyRequest] = useState<{
     requestId: string;
@@ -2835,42 +2833,6 @@ function ChartsContent() {
     utilityFocusRestoreRef.current = false;
   }, [utilityPanelAction]);
 
-  useEffect(() => {
-    if (!utilityPanelAction) return;
-    const target = rightColumnRef.current;
-    if (!target || typeof window === 'undefined') return;
-    let rafId = 0;
-    const checkWidth = () => {
-      const width = target.getBoundingClientRect().width;
-      if (width > 0 && width < CHARTS_RIGHT_COLUMN_MIN_WIDTH) {
-        utilityFocusRestoreRef.current = true;
-        setUtilityPanelAction(null);
-      }
-    };
-    const scheduleCheck = () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(checkWidth);
-    };
-
-    if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(scheduleCheck);
-      observer.observe(target);
-      scheduleCheck();
-      return () => {
-        observer.disconnect();
-        if (rafId) cancelAnimationFrame(rafId);
-      };
-    }
-
-    const handleResize = () => scheduleCheck();
-    window.addEventListener('resize', handleResize);
-    scheduleCheck();
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (rafId) cancelAnimationFrame(rafId);
-    };
-  }, [utilityPanelAction]);
-
   const prevPatientIdRef = useRef<string | undefined>(encounterContext.patientId);
   useEffect(() => {
     if (prevPatientIdRef.current === encounterContext.patientId) return;
@@ -3699,7 +3661,9 @@ function ChartsContent() {
 	                tabIndex={-1}
 	                data-focus-anchor="true"
 	                aria-label="オーダー入力（ユーティリティ）"
-	                ref={rightColumnRef}
+                  role={utilityPanelAction ? 'dialog' : undefined}
+                  aria-modal={utilityPanelAction ? 'true' : undefined}
+                  aria-labelledby={utilityPanelAction ? 'charts-docked-panel-title' : undefined}
 	              >
 	                <div className="charts-docked-panel">
 	                  <div className="charts-docked-panel__mini" role="group" aria-label="補助メニュー">

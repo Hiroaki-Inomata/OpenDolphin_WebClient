@@ -1614,6 +1614,16 @@ export function DocumentCreatePanel({
     upsertSavedDocument,
   ]);
 
+  const activeForm = forms[activeType];
+  const previewFallback = '（未入力）';
+  const previewValue = (value?: string) => {
+    const trimmed = value?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : previewFallback;
+  };
+  const previewIssuedAt = activeForm.issuedAt || today;
+  const previewTemplateLabel = activeTemplate?.label ?? 'テンプレート未選択';
+  const previewPatientLabel = patientId || '未選択';
+
   if (!patientId) {
     return <p className="charts-side-panel__empty">患者IDが未選択のため文書作成を開始できません。</p>;
   }
@@ -1695,7 +1705,8 @@ export function DocumentCreatePanel({
           </button>
         ))}
       </div>
-      <form className="charts-side-panel__form" onSubmit={(event) => event.preventDefault()}>
+      <div className="charts-document-editor">
+        <form className="charts-side-panel__form charts-side-panel__form--document" onSubmit={(event) => event.preventDefault()}>
         <div className="charts-side-panel__field">
           <label htmlFor="document-template">テンプレート *</label>
           <select
@@ -1960,7 +1971,81 @@ export function DocumentCreatePanel({
           </button>
         </div>
         {canRetrySave ? <p className="charts-side-panel__message">添付付き保存が失敗した場合のみ再送できます。</p> : null}
-      </form>
+        </form>
+        <section className="charts-document-paper" aria-label="文書ドラフトの紙面プレビュー">
+          <header className="charts-document-paper__header">
+            <p className="charts-document-paper__eyebrow">Paper Preview</p>
+            <h5 className="charts-document-paper__title">{`${DOCUMENT_TYPE_LABELS[activeType] ?? '文書'}（下書きプレビュー）`}</h5>
+            <p className="charts-document-paper__meta">
+              発行日: {previewIssuedAt} / 患者ID: {previewPatientLabel}
+            </p>
+            <p className="charts-document-paper__meta">
+              テンプレート: {previewTemplateLabel} / 添付予定: {attachmentsForDocument.length}件
+            </p>
+          </header>
+          <div className="charts-document-paper__sheet" data-type={activeType}>
+            {activeType === 'referral' ? (
+              <>
+                <p className="charts-document-paper__doc-title">診療情報提供書</p>
+                <p className="charts-document-paper__line charts-document-paper__line--right">作成日: {previewIssuedAt}</p>
+                <p className="charts-document-paper__line">
+                  宛先: {previewValue(forms.referral.hospital)} {forms.referral.department?.trim() ? `（${forms.referral.department.trim()}）` : ''}
+                </p>
+                <p className="charts-document-paper__line">宛先医師: {previewValue(forms.referral.doctor)} 先生</p>
+                <dl className="charts-document-paper__table">
+                  <div>
+                    <dt>紹介目的</dt>
+                    <dd>{previewValue(forms.referral.purpose)}</dd>
+                  </div>
+                  <div>
+                    <dt>主病名</dt>
+                    <dd>{previewValue(forms.referral.diagnosis)}</dd>
+                  </div>
+                </dl>
+                <section className="charts-document-paper__section">
+                  <h6>紹介内容</h6>
+                  <p>{previewValue(forms.referral.body)}</p>
+                </section>
+              </>
+            ) : null}
+            {activeType === 'certificate' ? (
+              <>
+                <p className="charts-document-paper__doc-title">診断書</p>
+                <p className="charts-document-paper__line charts-document-paper__line--right">作成日: {previewIssuedAt}</p>
+                <p className="charts-document-paper__line">提出先: {previewValue(forms.certificate.submitTo)}</p>
+                <dl className="charts-document-paper__table">
+                  <div>
+                    <dt>診断名</dt>
+                    <dd>{previewValue(forms.certificate.diagnosis)}</dd>
+                  </div>
+                  <div>
+                    <dt>用途</dt>
+                    <dd>{previewValue(forms.certificate.purpose)}</dd>
+                  </div>
+                </dl>
+                <section className="charts-document-paper__section">
+                  <h6>所見</h6>
+                  <p>{previewValue(forms.certificate.body)}</p>
+                </section>
+              </>
+            ) : null}
+            {activeType === 'reply' ? (
+              <>
+                <p className="charts-document-paper__doc-title">紹介患者経過報告書（返書）</p>
+                <p className="charts-document-paper__line charts-document-paper__line--right">作成日: {previewIssuedAt}</p>
+                <p className="charts-document-paper__line">
+                  返信先: {previewValue(forms.reply.hospital)} {forms.reply.department?.trim() ? `（${forms.reply.department.trim()}）` : ''}
+                </p>
+                <p className="charts-document-paper__line">返信先医師: {previewValue(forms.reply.doctor)} 先生</p>
+                <section className="charts-document-paper__section">
+                  <h6>返信内容</h6>
+                  <p>{previewValue(forms.reply.summary)}</p>
+                </section>
+              </>
+            ) : null}
+          </div>
+        </section>
+      </div>
       <div className="charts-document-list" aria-live={resolveAriaLive('info')}>
         <div className="charts-document-list__header">
           <strong>保存済み文書</strong>

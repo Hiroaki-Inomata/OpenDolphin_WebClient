@@ -46,6 +46,7 @@ export const buildMedicalModV2RequestXml = (params: {
   patientId: string;
   performDate: string;
   departmentCode: string;
+  physicianCode?: string;
   requestNumber?: string;
   medicalUid?: string;
   medicalInformation?: MedicalModV2Information[];
@@ -96,6 +97,7 @@ export const buildMedicalModV2RequestXml = (params: {
     params.medicalUid ? `    <Medical_Uid type="string">${escapeXml(params.medicalUid)}</Medical_Uid>` : undefined,
     '    <Diagnosis_Information type="record">',
     `      <Department_Code type="string">${escapeXml(params.departmentCode)}</Department_Code>`,
+    params.physicianCode ? `      <Physician_Code type="string">${escapeXml(params.physicianCode)}</Physician_Code>` : undefined,
     '      <Medical_Information type="array">',
     ...medicalInformation.flatMap((info) => [
       '        <Medical_Information_child type="record">',

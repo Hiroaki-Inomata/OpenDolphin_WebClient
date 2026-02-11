@@ -65,6 +65,56 @@ describe('acceptmodv2 mutateVisit', () => {
     );
   });
 
+  it('保険モードでは insurances を送らず、職員コードは physician Code(100xx)へ正規化する', async () => {
+    mockFetch.mockResolvedValue({
+      raw: { apiResult: '00', apiResultMessage: 'OK', patient: { patientId: '000001' } },
+      meta: { httpStatus: 200, dataSourceTransition: 'mock' },
+      ok: true,
+    });
+
+    await mutateVisit({
+      patientId: '000001',
+      requestNumber: '01',
+      acceptanceDate: '2026-01-20',
+      acceptancePush: '1',
+      paymentMode: 'insurance',
+      physicianCode: '0001',
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          physicianCode: '10001',
+          insurances: undefined,
+        }),
+      }),
+    );
+  });
+
+  it('自費モードでは InsuranceProvider_Class=9 を送る', async () => {
+    mockFetch.mockResolvedValue({
+      raw: { apiResult: '00', apiResultMessage: 'OK', patient: { patientId: '000001' } },
+      meta: { httpStatus: 200, dataSourceTransition: 'mock' },
+      ok: true,
+    });
+
+    await mutateVisit({
+      patientId: '000001',
+      requestNumber: '01',
+      acceptanceDate: '2026-01-20',
+      acceptancePush: '1',
+      paymentMode: 'self',
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          insurances: [{ insuranceProviderClass: '9' }],
+        }),
+      }),
+    );
+  });
+
   it('Api_Result=21 の場合は警告トーン扱いで acceptanceId を持たない', async () => {
     mockFetch.mockResolvedValue({
       raw: { apiResult: '21', apiResultMessage: '受付なし' },

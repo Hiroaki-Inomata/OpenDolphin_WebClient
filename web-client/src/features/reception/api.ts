@@ -129,6 +129,21 @@ const normalizeOptionalString = (value: unknown): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
+const normalizePhysicianCode = (value: string | undefined): string | undefined => {
+  const trimmed = normalizeOptionalString(value);
+  if (!trimmed) return undefined;
+
+  const leadingNumeric = trimmed.match(/^(\d{4,5})(?:\s|$)/)?.[1];
+  if (!leadingNumeric) {
+    return trimmed;
+  }
+  if (leadingNumeric.length === 4) {
+    // ORCA Trial: 職員コード(0001等)を physician Code(10001等)へ補正して送信する。
+    return `1${leadingNumeric}`;
+  }
+  return leadingNumeric;
+};
+
 export async function fetchAppointmentOutpatients(
   params: AppointmentQueryParams,
   context?: QueryFunctionContext,
@@ -383,6 +398,15 @@ export async function mutateVisit(
   options: { preferredSourceOverride?: ResolveMasterSource } = {},
 ): Promise<VisitMutationPayload> {
   const acceptancePush = resolveAcceptancePush(params.acceptancePush);
+  const normalizedPhysicianCode = normalizePhysicianCode(params.physicianCode);
+  const insurances =
+    params.paymentMode === 'self'
+      ? [
+          {
+            insuranceProviderClass: '9',
+          },
+        ]
+      : undefined;
   const body = {
     requestNumber: params.requestNumber,
     patientId: params.patientId,
@@ -391,16 +415,9 @@ export async function mutateVisit(
     acceptancePush,
     acceptanceId: params.acceptanceId,
     departmentCode: params.departmentCode,
-    physicianCode: params.physicianCode,
+    physicianCode: normalizedPhysicianCode,
     medicalInformation: params.medicalInformation,
-    insurances: params.paymentMode
-      ? [
-          {
-            insuranceProviderClass: params.paymentMode === 'insurance' ? '1' : '9',
-            insuranceCombinationNumber: params.paymentMode === 'insurance' ? '0001' : undefined,
-          },
-        ]
-      : undefined,
+    insurances,
   };
 
   const result = await fetchWithResolver({
@@ -432,7 +449,7 @@ export async function mutateVisit(
   const fallbackAcceptanceDate = normalizeOptionalString(params.acceptanceDate);
   const fallbackAcceptanceTime = normalizeOptionalString(params.acceptanceTime);
   const fallbackDepartmentCode = normalizeOptionalString(params.departmentCode);
-  const fallbackPhysicianCode = normalizeOptionalString(params.physicianCode);
+  const fallbackPhysicianCode = normalizedPhysicianCode;
   const fallbackMedicalInformation =
     typeof params.medicalInformation === 'string' ? params.medicalInformation : undefined;
 

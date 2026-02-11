@@ -51,17 +51,17 @@ public class OrcaXmlMapper {
         JsonNode body = read(xml).path("appointlstres");
         OrcaAppointmentListResponse response = new OrcaAppointmentListResponse();
         populateCommon(body, response);
-        response.setAppointmentDate(body.path("Appointment_Date").asText(null));
+        response.setAppointmentDate(textValue(body, "Appointment_Date"));
         for (JsonNode slotNode : iterable(body.path("Appointlst_Information"))) {
             AppointmentSlot slot = new AppointmentSlot();
-            slot.setAppointmentTime(slotNode.path("Appointment_Time").asText(null));
-            slot.setMedicalInformation(slotNode.path("Medical_Information").asText(null));
-            slot.setDepartmentCode(slotNode.path("Department_Code").asText(null));
-            slot.setDepartmentName(slotNode.path("Department_WholeName").asText(null));
-            slot.setPhysicianCode(slotNode.path("Physician_Code").asText(null));
-            slot.setPhysicianName(slotNode.path("Physician_WholeName").asText(null));
-            slot.setVisitInformation(slotNode.path("Visit_Information").asText(null));
-            slot.setAppointmentId(slotNode.path("Appointment_Id").asText(null));
+            slot.setAppointmentTime(textValue(slotNode, "Appointment_Time"));
+            slot.setMedicalInformation(textValue(slotNode, "Medical_Information"));
+            slot.setDepartmentCode(textValue(slotNode, "Department_Code"));
+            slot.setDepartmentName(textValue(slotNode, "Department_WholeName"));
+            slot.setPhysicianCode(textValue(slotNode, "Physician_Code"));
+            slot.setPhysicianName(textValue(slotNode, "Physician_WholeName"));
+            slot.setVisitInformation(textValue(slotNode, "Visit_Information"));
+            slot.setAppointmentId(textValue(slotNode, "Appointment_Id"));
             slot.setPatient(toPatientSummary(slotNode.path("Patient_Information")));
             response.getSlots().add(slot);
         }
@@ -72,20 +72,20 @@ public class OrcaXmlMapper {
         JsonNode body = read(xml).path("appointlst2res");
         PatientAppointmentListResponse response = new PatientAppointmentListResponse();
         populateCommon(body, response);
-        response.setBaseDate(body.path("Base_Date").asText(null));
+        response.setBaseDate(textValue(body, "Base_Date"));
         response.setPatient(toPatientSummary(body.path("Patient_Information")));
         for (JsonNode node : iterable(body.path("Appointlst_Information"))) {
             PatientAppointment appointment = new PatientAppointment();
-            appointment.setAppointmentDate(node.path("Appointment_Date").asText(null));
-            appointment.setAppointmentTime(node.path("Appointment_Time").asText(null));
-            appointment.setMedicalInformation(node.path("Medical_Information").asText(null));
-            appointment.setDepartmentCode(node.path("Department_Code").asText(null));
-            appointment.setDepartmentName(node.path("Department_WholeName").asText(null));
-            appointment.setPhysicianCode(node.path("Physician_Code").asText(null));
-            appointment.setPhysicianName(node.path("Physician_WholeName").asText(null));
-            appointment.setVisitInformation(node.path("Visit_Information").asText(null));
-            appointment.setAppointmentId(node.path("Appointment_Id").asText(null));
-            appointment.setAppointmentNote(node.path("Appointment_Note").asText(null));
+            appointment.setAppointmentDate(textValue(node, "Appointment_Date"));
+            appointment.setAppointmentTime(textValue(node, "Appointment_Time"));
+            appointment.setMedicalInformation(textValue(node, "Medical_Information"));
+            appointment.setDepartmentCode(textValue(node, "Department_Code"));
+            appointment.setDepartmentName(textValue(node, "Department_WholeName"));
+            appointment.setPhysicianCode(textValue(node, "Physician_Code"));
+            appointment.setPhysicianName(textValue(node, "Physician_WholeName"));
+            appointment.setVisitInformation(textValue(node, "Visit_Information"));
+            appointment.setAppointmentId(textValue(node, "Appointment_Id"));
+            appointment.setAppointmentNote(textValue(node, "Appointment_Note"));
             response.getReservations().add(appointment);
         }
         return response;
@@ -95,21 +95,21 @@ public class OrcaXmlMapper {
         JsonNode body = read(xml).path("appointres");
         AppointmentMutationResponse response = new AppointmentMutationResponse();
         populateCommon(body, response);
-        response.setResKey(body.path("Reskey").asText(null));
-        response.setAppointmentDate(body.path("Appointment_Date").asText(null));
-        response.setAppointmentTime(body.path("Appointment_Time").asText(null));
-        response.setAppointmentId(body.path("Appointment_Id").asText(null));
-        response.setDepartmentCode(body.path("Department_Code").asText(null));
-        response.setDepartmentName(body.path("Department_WholeName").asText(null));
-        response.setPhysicianCode(body.path("Physician_Code").asText(null));
-        response.setPhysicianName(body.path("Physician_WholeName").asText(null));
-        response.setMedicalInformation(body.path("Medical_Information").asText(null));
-        response.setAppointmentInformation(body.path("Appointment_Information").asText(null));
-        response.setAppointmentNote(body.path("Appointment_Note").asText(null));
-        response.setVisitInformation(body.path("Visit_Information").asText(null));
+        response.setResKey(textValue(body, "Reskey"));
+        response.setAppointmentDate(textValue(body, "Appointment_Date"));
+        response.setAppointmentTime(textValue(body, "Appointment_Time"));
+        response.setAppointmentId(textValue(body, "Appointment_Id"));
+        response.setDepartmentCode(textValue(body, "Department_Code"));
+        response.setDepartmentName(textValue(body, "Department_WholeName"));
+        response.setPhysicianCode(textValue(body, "Physician_Code"));
+        response.setPhysicianName(textValue(body, "Physician_WholeName"));
+        response.setMedicalInformation(textValue(body, "Medical_Information"));
+        response.setAppointmentInformation(textValue(body, "Appointment_Information"));
+        response.setAppointmentNote(textValue(body, "Appointment_Note"));
+        response.setVisitInformation(textValue(body, "Visit_Information"));
         response.setPatient(toPatientSummary(body.path("Patient_Information")));
         for (JsonNode warning : iterable(body.path("Api_Warning_Message_Information"))) {
-            String message = warning.path("Api_Warning_Message").asText(null);
+            String message = textValue(warning, "Api_Warning_Message");
             if (message != null && !message.isBlank()) {
                 response.getWarnings().add(message);
             }
@@ -121,16 +121,16 @@ public class OrcaXmlMapper {
         JsonNode body = read(xml).path("acsimulateres");
         BillingSimulationResponse response = new BillingSimulationResponse();
         populateCommon(body, response);
-        response.setPerformDate(body.path("Perform_Date").asText(null));
-        response.setDepartmentCode(body.path("Department_Code").asText(null));
-        response.setDepartmentName(body.path("Department_Name").asText(null));
+        response.setPerformDate(textValue(body, "Perform_Date"));
+        response.setDepartmentCode(textValue(body, "Department_Code"));
+        response.setDepartmentName(textValue(body, "Department_Name"));
         JsonNode patientNode = body.path("Patient_Information");
         response.setPatient(toPatientSummary(patientNode));
         JsonNode pointInfo = patientNode.path("Ac_Point_Information");
         response.setTotalPoint(pointInfo.path("Ac_Ttl_Point").asInt(0));
         for (JsonNode detail : iterable(pointInfo.path("Ac_Point_Detail"))) {
             BillingPointBreakdown breakdown = new BillingPointBreakdown();
-            breakdown.setName(detail.path("AC_Point_Name").asText(null));
+            breakdown.setName(textValue(detail, "AC_Point_Name"));
             breakdown.setPoint(detail.path("AC_Point").asInt(0));
             response.getBreakdown().add(breakdown);
         }
@@ -141,18 +141,18 @@ public class OrcaXmlMapper {
         JsonNode body = read(xml).path("visitptlst01res");
         VisitPatientListResponse response = new VisitPatientListResponse();
         populateCommon(body, response);
-        response.setVisitDate(body.path("Visit_Date").asText(null));
+        response.setVisitDate(textValue(body, "Visit_Date"));
         for (JsonNode node : iterable(body.path("Visit_List_Information"))) {
             VisitEntry entry = new VisitEntry();
-            entry.setDepartmentCode(node.path("Department_Code").asText(null));
-            entry.setDepartmentName(node.path("Department_Name").asText(null));
-            entry.setPhysicianCode(node.path("Physician_Code").asText(null));
-            entry.setPhysicianName(node.path("Physician_WholeName").asText(null));
-            entry.setVoucherNumber(node.path("Voucher_Number").asText(null));
-            entry.setSequentialNumber(node.path("Sequential_Number").asText(null));
-            entry.setInsuranceCombinationNumber(node.path("Insurance_Combination_Number").asText(null));
-            entry.setUpdateDate(node.path("Update_Date").asText(null));
-            entry.setUpdateTime(node.path("Update_Time").asText(null));
+            entry.setDepartmentCode(textValue(node, "Department_Code"));
+            entry.setDepartmentName(textValue(node, "Department_Name"));
+            entry.setPhysicianCode(textValue(node, "Physician_Code"));
+            entry.setPhysicianName(textValue(node, "Physician_WholeName"));
+            entry.setVoucherNumber(textValue(node, "Voucher_Number"));
+            entry.setSequentialNumber(textValue(node, "Sequential_Number"));
+            entry.setInsuranceCombinationNumber(textValue(node, "Insurance_Combination_Number"));
+            entry.setUpdateDate(textValue(node, "Update_Date"));
+            entry.setUpdateTime(textValue(node, "Update_Time"));
             entry.setPatient(toPatientSummary(node.path("Patient_Information")));
             response.getVisits().add(entry);
         }
@@ -167,10 +167,10 @@ public class OrcaXmlMapper {
         for (JsonNode node : iterable(body.path("Patient_Information"))) {
             PatientSyncEntry entry = new PatientSyncEntry();
             entry.setSummary(toPatientSummary(node));
-            entry.setCreateDate(node.path("CreateDate").asText(null));
-            entry.setUpdateDate(node.path("UpdateDate").asText(null));
-            entry.setUpdateTime(node.path("UpdateTime").asText(null));
-            entry.setTestPatientFlag(node.path("TestPatient_Flag").asText(null));
+            entry.setCreateDate(textValue(node, "CreateDate"));
+            entry.setUpdateDate(textValue(node, "UpdateDate"));
+            entry.setUpdateTime(textValue(node, "UpdateTime"));
+            entry.setTestPatientFlag(textValue(node, "TestPatient_Flag"));
             response.getPatients().add(entry);
         }
         return response;
@@ -211,10 +211,10 @@ public class OrcaXmlMapper {
         response.setPatient(toPatientSummary(body.path("Patient_Information")));
         for (JsonNode node : iterable(body.path("Former_Name_Information"))) {
             FormerNameRecord record = new FormerNameRecord();
-            record.setChangeDate(node.path("ChangeDate").asText(null));
-            record.setWholeName(node.path("WholeName").asText(null));
-            record.setWholeNameKana(node.path("WholeName_inKana").asText(null));
-            record.setNickName(node.path("NickName").asText(null));
+            record.setChangeDate(textValue(node, "ChangeDate"));
+            record.setWholeName(textValue(node, "WholeName"));
+            record.setWholeNameKana(textValue(node, "WholeName_inKana"));
+            record.setNickName(textValue(node, "NickName"));
             response.getFormerNames().add(record);
         }
         return response;
@@ -224,21 +224,21 @@ public class OrcaXmlMapper {
         JsonNode body = read(xml).path("acceptres");
         VisitMutationResponse response = new VisitMutationResponse();
         populateCommon(body, response);
-        response.setResKey(body.path("Reskey").asText(null));
-        response.setAcceptanceId(body.path("Acceptance_Id").asText(null));
-        response.setAcceptanceDate(body.path("Acceptance_Date").asText(null));
-        response.setAcceptanceTime(body.path("Acceptance_Time").asText(null));
-        response.setDepartmentCode(body.path("Department_Code").asText(null));
-        response.setDepartmentName(body.path("Department_WholeName").asText(null));
-        response.setPhysicianCode(body.path("Physician_Code").asText(null));
-        response.setPhysicianName(body.path("Physician_WholeName").asText(null));
-        response.setMedicalInformation(body.path("Medical_Information").asText(null));
+        response.setResKey(textValue(body, "Reskey"));
+        response.setAcceptanceId(textValue(body, "Acceptance_Id"));
+        response.setAcceptanceDate(textValue(body, "Acceptance_Date"));
+        response.setAcceptanceTime(textValue(body, "Acceptance_Time"));
+        response.setDepartmentCode(textValue(body, "Department_Code"));
+        response.setDepartmentName(textValue(body, "Department_WholeName"));
+        response.setPhysicianCode(textValue(body, "Physician_Code"));
+        response.setPhysicianName(textValue(body, "Physician_WholeName"));
+        response.setMedicalInformation(textValue(body, "Medical_Information"));
         JsonNode medicalInfo = body.path("Medical_Info");
-        response.setAppointmentDate(medicalInfo.path("Appointment_Date").asText(null));
-        response.setVisitNumber(medicalInfo.path("Visit_Number").asText(null));
+        response.setAppointmentDate(textValue(medicalInfo, "Appointment_Date"));
+        response.setVisitNumber(textValue(medicalInfo, "Visit_Number"));
         response.setPatient(toPatientSummary(body.path("Patient_Information")));
         for (JsonNode warning : iterable(body.path("Api_Warning_Message_Information"))) {
-            String message = warning.path("Api_Warning_Message").asText(null);
+            String message = textValue(warning, "Api_Warning_Message");
             if (message != null && !message.isBlank()) {
                 response.getWarnings().add(message);
             }
@@ -253,14 +253,14 @@ public class OrcaXmlMapper {
             PatientDetail detail = new PatientDetail();
             detail.setSummary(toPatientSummary(node));
             JsonNode address = node.path("Home_Address_Information");
-            detail.setZipCode(address.path("Address_ZipCode").asText(null));
-            String wholeAddress1 = address.path("WholeAddress1").asText(null);
-            String wholeAddress2 = address.path("WholeAddress2").asText(null);
+            detail.setZipCode(textValue(address, "Address_ZipCode"));
+            String wholeAddress1 = textValue(address, "WholeAddress1");
+            String wholeAddress2 = textValue(address, "WholeAddress2");
             detail.setAddress(concat(wholeAddress1, wholeAddress2));
             JsonNode phone = node.path("PhoneNumber_Information");
-            detail.setPhoneNumber1(phone.path("PhoneNumber1").asText(null));
-            detail.setPhoneNumber2(phone.path("PhoneNumber2").asText(null));
-            detail.setOutpatientClass(node.path("Outpatient_Class").asText(null));
+            detail.setPhoneNumber1(textValue(phone, "PhoneNumber1"));
+            detail.setPhoneNumber2(textValue(phone, "PhoneNumber2"));
+            detail.setOutpatientClass(textValue(node, "Outpatient_Class"));
             for (JsonNode insurance : iterable(node.path("HealthInsurance_Information"))) {
                 detail.getInsurances().add(toInsuranceCombination(insurance));
             }
@@ -291,30 +291,34 @@ public class OrcaXmlMapper {
             return null;
         }
         PatientSummary summary = new PatientSummary();
-        summary.setPatientId(node.path("Patient_ID").asText(null));
-        summary.setWholeName(node.path("WholeName").asText(null));
-        summary.setWholeNameKana(node.path("WholeName_inKana").asText(null));
-        summary.setBirthDate(node.path("BirthDate").asText(null));
-        summary.setSex(node.path("Sex").asText(null));
+        summary.setPatientId(textValue(node, "Patient_ID"));
+        summary.setWholeName(textValue(node, "WholeName"));
+        summary.setWholeNameKana(textValue(node, "WholeName_inKana"));
+        summary.setBirthDate(textValue(node, "BirthDate"));
+        summary.setSex(textValue(node, "Sex"));
         return summary;
     }
 
     private InsuranceCombination toInsuranceCombination(JsonNode node) {
         InsuranceCombination combination = new InsuranceCombination();
-        combination.setCombinationNumber(node.path("Insurance_Combination_Number").asText(null));
-        combination.setInsuranceProviderClass(node.path("InsuranceProvider_Class").asText(null));
-        combination.setInsuranceProviderNumber(node.path("InsuranceProvider_Number").asText(null));
-        combination.setInsuranceProviderName(node.path("InsuranceProvider_WholeName").asText(null));
-        combination.setInsuredPersonSymbol(node.path("HealthInsuredPerson_Symbol").asText(null));
-        combination.setInsuredPersonNumber(node.path("HealthInsuredPerson_Number").asText(null));
-        combination.setInsuredPersonBranchNumber(node.path("HealthInsuredPerson_Branch_Number").asText(null));
-        combination.setInsuredPersonAssistance(node.path("HealthInsuredPerson_Assistance").asText(null));
-        combination.setRelationToInsuredPerson(node.path("RelationToInsuredPerson").asText(null));
-        combination.setInsuredPersonWholeName(node.path("HealthInsuredPerson_WholeName").asText(null));
-        combination.setRateAdmission(node.path("InsuranceCombination_Rate_Admission").asText(node.path("Rate_Admission").asText(null)));
-        combination.setRateOutpatient(node.path("InsuranceCombination_Rate_Outpatient").asText(node.path("Rate_Outpatient").asText(null)));
-        combination.setCertificateStartDate(node.path("Certificate_StartDate").asText(null));
-        combination.setCertificateExpiredDate(node.path("Certificate_ExpiredDate").asText(null));
+        combination.setCombinationNumber(textValue(node, "Insurance_Combination_Number"));
+        combination.setInsuranceProviderClass(textValue(node, "InsuranceProvider_Class"));
+        combination.setInsuranceProviderNumber(textValue(node, "InsuranceProvider_Number"));
+        combination.setInsuranceProviderName(textValue(node, "InsuranceProvider_WholeName"));
+        combination.setInsuredPersonSymbol(textValue(node, "HealthInsuredPerson_Symbol"));
+        combination.setInsuredPersonNumber(textValue(node, "HealthInsuredPerson_Number"));
+        combination.setInsuredPersonBranchNumber(textValue(node, "HealthInsuredPerson_Branch_Number"));
+        combination.setInsuredPersonAssistance(textValue(node, "HealthInsuredPerson_Assistance"));
+        combination.setRelationToInsuredPerson(textValue(node, "RelationToInsuredPerson"));
+        combination.setInsuredPersonWholeName(textValue(node, "HealthInsuredPerson_WholeName"));
+        combination.setRateAdmission(firstNonBlankText(
+                textValue(node, "InsuranceCombination_Rate_Admission"),
+                textValue(node, "Rate_Admission")));
+        combination.setRateOutpatient(firstNonBlankText(
+                textValue(node, "InsuranceCombination_Rate_Outpatient"),
+                textValue(node, "Rate_Outpatient")));
+        combination.setCertificateStartDate(textValue(node, "Certificate_StartDate"));
+        combination.setCertificateExpiredDate(textValue(node, "Certificate_ExpiredDate"));
         populatePublicInsurances(node.path("PublicInsurance_Information"), combination.getPublicInsurances());
         return combination;
     }
@@ -325,14 +329,14 @@ public class OrcaXmlMapper {
         }
         for (JsonNode entryNode : iterable(node)) {
             PublicInsuranceInfo info = new PublicInsuranceInfo();
-            info.setPublicInsuranceClass(entryNode.path("PublicInsurance_Class").asText(null));
-            info.setPublicInsuranceName(entryNode.path("PublicInsurance_Name").asText(null));
-            info.setPublicInsurerNumber(entryNode.path("PublicInsurer_Number").asText(null));
-            info.setPublicInsuredPersonNumber(entryNode.path("PublicInsuredPerson_Number").asText(null));
-            info.setRateAdmission(entryNode.path("Rate_Admission").asText(null));
-            info.setRateOutpatient(entryNode.path("Rate_Outpatient").asText(null));
-            info.setCertificateIssuedDate(entryNode.path("Certificate_IssuedDate").asText(null));
-            info.setCertificateExpiredDate(entryNode.path("Certificate_ExpiredDate").asText(null));
+            info.setPublicInsuranceClass(textValue(entryNode, "PublicInsurance_Class"));
+            info.setPublicInsuranceName(textValue(entryNode, "PublicInsurance_Name"));
+            info.setPublicInsurerNumber(textValue(entryNode, "PublicInsurer_Number"));
+            info.setPublicInsuredPersonNumber(textValue(entryNode, "PublicInsuredPerson_Number"));
+            info.setRateAdmission(textValue(entryNode, "Rate_Admission"));
+            info.setRateOutpatient(textValue(entryNode, "Rate_Outpatient"));
+            info.setCertificateIssuedDate(textValue(entryNode, "Certificate_IssuedDate"));
+            info.setCertificateExpiredDate(textValue(entryNode, "Certificate_ExpiredDate"));
             target.add(info);
         }
     }
@@ -373,6 +377,18 @@ public class OrcaXmlMapper {
             return textNode.asText(null);
         }
         return node.asText(null);
+    }
+
+    private String firstNonBlankText(String... values) {
+        if (values == null || values.length == 0) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private Iterable<JsonNode> iterable(JsonNode node) {

@@ -30,6 +30,7 @@
         <class>open.dolphin.infomodel.SchemaModel</class>
         <class>open.dolphin.infomodel.ObservationModel</class>
         <class>open.dolphin.infomodel.PatientMemoModel</class>
+        <class>open.dolphin.infomodel.PatientFreeDocumentModel</class>
         <class>open.dolphin.infomodel.AttachmentModel</class>
         <class>open.dolphin.infomodel.PHRKey</class>
         <class>open.dolphin.infomodel.PHRAsyncJob</class>

@@ -160,6 +160,21 @@ const paymentModeLabel = (insurance?: string | null) => {
   return '不明';
 };
 
+const ACCEPT_SUCCESS_RESULTS = new Set(['00', '0000', 'K3']);
+const ACCEPT_WARNING_RESULTS = new Set(['16', '21']);
+const DEFAULT_PHYSICIAN_CODES = ['10001', '10003', '10005', '10006', '10010'] as const;
+
+const normalizeApiResult = (value?: string) => (value ?? '').trim().toUpperCase();
+
+const normalizePhysicianCode = (value?: string) => {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  const code = trimmed.match(/^(\d{4,5})(?:\s|$)/)?.[1];
+  if (!code) return undefined;
+  if (code.length === 4) return `1${code}`;
+  return code;
+};
+
 const truncateText = (value: string, maxLength = 60) => {
   if (value.length <= maxLength) return value;
   const limit = Math.max(0, maxLength - 3);
@@ -1463,25 +1478,26 @@ export function ReceptionPage({
   ]);
 
   const physicianOptions = useMemo(() => {
-    const normalized = uniquePhysicians
-      .map((physician) => physician?.trim())
-      .filter((value): value is string => Boolean(value));
-    const merged = new Set<string>(normalized);
+    const merged = new Set<string>();
     const selected =
       selectedEntryKey && sortedEntries.length > 0
         ? sortedEntries.find((entry) => entryKey(entry) === selectedEntryKey)
         : undefined;
-    if (selected?.physician?.trim()) {
-      merged.add(selected.physician.trim());
-    }
-    if (physicianFilter?.trim()) {
-      merged.add(physicianFilter.trim());
-    }
+    uniquePhysicians.forEach((physician) => {
+      const normalized = normalizePhysicianCode(physician);
+      if (normalized) merged.add(normalized);
+    });
+    const selectedCode = normalizePhysicianCode(selected?.physician);
+    if (selectedCode) merged.add(selectedCode);
+    const filterCode = normalizePhysicianCode(physicianFilter);
+    if (filterCode) merged.add(filterCode);
+    const selectedValueCode = normalizePhysicianCode(acceptPhysicianSelection);
+    if (selectedValueCode) merged.add(selectedValueCode);
     if (merged.size === 0) {
-      merged.add('0001');
+      DEFAULT_PHYSICIAN_CODES.forEach((code) => merged.add(code));
     }
     return Array.from(merged).sort((a, b) => a.localeCompare(b, 'ja')).slice(0, 200);
-  }, [uniquePhysicians, physicianFilter, selectedEntryKey, sortedEntries]);
+  }, [uniquePhysicians, physicianFilter, selectedEntryKey, sortedEntries, acceptPhysicianSelection]);
 
   const selectedEntry = useMemo(() => {
     if (!selectedEntryKey) return undefined;
@@ -1860,7 +1876,11 @@ export function ReceptionPage({
   }, []);
   const buildAuthJsonHeaders = useCallback(() => buildHttpHeaders({ headers: { 'Content-Type': 'application/json' } }), []);
   const resolvedDepartmentCode = acceptDepartmentSelection || departmentFilter || '';
-  const resolvedPhysicianCode = acceptPhysicianSelection || physicianFilter || selectedEntry?.physician || '';
+  const resolvedPhysicianCode =
+    normalizePhysicianCode(acceptPhysicianSelection) ??
+    normalizePhysicianCode(physicianFilter) ??
+    normalizePhysicianCode(selectedEntry?.physician) ??
+    '';
   useEffect(() => {
     if (!acceptPhysicianSelection && resolvedPhysicianCode) {
       setAcceptPhysicianSelection(resolvedPhysicianCode);
@@ -1899,12 +1919,14 @@ export function ReceptionPage({
       medicalInformation: resolvedMedicalInformation,
       departmentCode: resolvedDepartmentCode || undefined,
       physicianCode: resolvedPhysicianCode || undefined,
-      insurances: [
-        {
-          insuranceProviderClass: acceptPaymentMode === 'self' ? '9' : '1',
-          insuranceCombinationNumber: acceptPaymentMode === 'self' ? undefined : '0001',
-        },
-      ],
+      insurances:
+        acceptPaymentMode === 'self'
+          ? [
+              {
+                insuranceProviderClass: '9',
+              },
+            ]
+          : undefined,
     };
     // TEMP: XHRで送信可否/ステータスを可視化（撤去前提）
     setXhrDebugState({ lastAttemptAt: now.toISOString(), status: null, error: null });
@@ -1995,27 +2017,30 @@ export function ReceptionPage({
         const payload = await (visitMutation.mutateAsync ? visitMutation.mutateAsync(params) : mutateVisit(params));
         const durationMs = Math.round(performance.now() - started);
         setAcceptDurationMs(durationMs);
-        const apiResult = payload.apiResult ?? '';
-        const isSuccess = apiResult === '00' || apiResult === '0000';
+        const apiResult = normalizeApiResult(payload.apiResult);
+        const isSuccess = ACCEPT_SUCCESS_RESULTS.has(apiResult);
         const isNoAcceptance = apiResult === '21';
+        const isAlreadyAccepted = apiResult === '16';
 
         if (isSuccess) {
           applyMutationResultToList(payload, params);
-          if (payload.acceptanceId) {
-            void refetchAppointment();
-          }
+          void refetchAppointment();
           if (claimOutpatientEnabled) {
             void refetchClaim();
           }
+        } else if (isAlreadyAccepted) {
+          void refetchAppointment();
         }
 
         const toneResult: 'info' | 'warning' | 'error' = isSuccess
           ? 'info'
-          : isNoAcceptance
+          : ACCEPT_WARNING_RESULTS.has(apiResult)
             ? 'warning'
             : 'error';
         const message = isSuccess
           ? '受付登録が完了しました'
+          : isAlreadyAccepted
+            ? '診療科・保険組合せで既に受付済みです'
           : isNoAcceptance
             ? 'ORCA から「受付なし」が返却されました'
             : '受付処理でエラーが返却されました';
@@ -2123,8 +2148,8 @@ export function ReceptionPage({
       const payload = await (visitMutation.mutateAsync ? visitMutation.mutateAsync(params) : mutateVisit(params));
       const durationMs = Math.round(performance.now() - started);
       setAcceptDurationMs(durationMs);
-      const apiResult = payload.apiResult ?? '';
-      const isSuccess = apiResult === '00' || apiResult === '0000';
+      const apiResult = normalizeApiResult(payload.apiResult);
+      const isSuccess = ACCEPT_SUCCESS_RESULTS.has(apiResult);
       const isNoAcceptance = apiResult === '21';
       if (isSuccess) {
         applyMutationResultToList(payload, params);
@@ -2133,7 +2158,8 @@ export function ReceptionPage({
           void refetchClaim();
         }
       }
-      const toneResult: 'info' | 'warning' | 'error' = isSuccess ? 'info' : isNoAcceptance ? 'warning' : 'error';
+      const toneResult: 'info' | 'warning' | 'error' =
+        isSuccess ? 'info' : ACCEPT_WARNING_RESULTS.has(apiResult) ? 'warning' : 'error';
       const message = isSuccess
         ? '受付取消が完了しました'
         : isNoAcceptance
@@ -4507,8 +4533,8 @@ export function ReceptionPage({
                           担当医が取得できません。フィルタ/受付一覧の読み込みを確認してください。
                         </small>
                       )}
-                      {acceptPhysicianSelection === '0001' && (
-                        <small className="reception-accept__optional">暫定: 担当医コードのデフォルト(0001)を適用中</small>
+                      {acceptPhysicianSelection === '10001' && (
+                        <small className="reception-accept__optional">暫定: 担当医コードのデフォルト(10001)を適用中</small>
                       )}
                       {physicianOptions.length >= 200 && (
                         <small className="reception-accept__optional">候補が多いため上位200件に制限しています。</small>
@@ -4555,7 +4581,7 @@ export function ReceptionPage({
 
                   <div className="reception-accept__actions">
                     <div className="reception-accept__hints" aria-live={infoLive}>
-                      <span>Api_Result=00: 左の一覧へ即時反映 / Api_Result=21: 「受付なし」警告</span>
+                      <span>Api_Result=00/K3: 左の一覧へ即時反映 / Api_Result=16/21: 警告表示</span>
                       <span>runId/traceId は監査ログ（action=reception_accept）とコンソールに残します</span>
                     </div>
                     <div className="reception-accept__buttons">

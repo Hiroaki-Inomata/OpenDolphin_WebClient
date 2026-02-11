@@ -2,7 +2,6 @@ package open.dolphin.rest.dto;
 
 import java.util.List;
 import open.dolphin.infomodel.AllergyModel;
-import open.dolphin.infomodel.RegisteredDiagnosisModel;
 
 /**
  * Safety Summary Response DTO.
@@ -11,14 +10,14 @@ import open.dolphin.infomodel.RegisteredDiagnosisModel;
 public class SafetySummaryResponse {
 
     private List<AllergyModel> allergies;
-    private List<RegisteredDiagnosisModel> diagnoses;
+    private List<DiagnosisSummaryResponse> diagnoses;
     private List<RoutineMedicationResponse> routineMeds;
 
     public SafetySummaryResponse() {
     }
 
-    public SafetySummaryResponse(List<AllergyModel> allergies, 
-                                 List<RegisteredDiagnosisModel> diagnoses, 
+    public SafetySummaryResponse(List<AllergyModel> allergies,
+                                 List<DiagnosisSummaryResponse> diagnoses,
                                  List<RoutineMedicationResponse> routineMeds) {
         this.allergies = allergies;
         this.diagnoses = diagnoses;
@@ -33,11 +32,11 @@ public class SafetySummaryResponse {
         this.allergies = allergies;
     }
 
-    public List<RegisteredDiagnosisModel> getDiagnoses() {
+    public List<DiagnosisSummaryResponse> getDiagnoses() {
         return diagnoses;
     }
 
-    public void setDiagnoses(List<RegisteredDiagnosisModel> diagnoses) {
+    public void setDiagnoses(List<DiagnosisSummaryResponse> diagnoses) {
         this.diagnoses = diagnoses;
     }
 

@@ -4,12 +4,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Proxy;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.Map;
 import open.dolphin.orca.converter.OrcaXmlMapper;
 import open.dolphin.orca.service.OrcaWrapperService;
@@ -47,6 +52,30 @@ class OrcaVisitResourceTest {
     }
 
     @Test
+    void visitListRejectsMissingDates() {
+        OrcaVisitResource resource = new OrcaVisitResource();
+        resource.setWrapperService(createService());
+
+        VisitPatientListRequest request = new VisitPatientListRequest();
+        request.setRequestNumber("01");
+
+        WebApplicationException ex = assertThrows(WebApplicationException.class, () -> resource.visitList(null, request));
+        assertRestError(ex, Response.Status.BAD_REQUEST.getStatusCode(), "orca.visit.invalid");
+    }
+
+    @Test
+    void visitListRejectsMissingRequestNumber() {
+        OrcaVisitResource resource = new OrcaVisitResource();
+        resource.setWrapperService(createService());
+
+        VisitPatientListRequest request = new VisitPatientListRequest();
+        request.setVisitDate(LocalDate.of(2025, 11, 12));
+
+        WebApplicationException ex = assertThrows(WebApplicationException.class, () -> resource.visitList(null, request));
+        assertRestError(ex, Response.Status.BAD_REQUEST.getStatusCode(), "orca.visit.invalid");
+    }
+
+    @Test
     void visitListRejectsWideRange() {
         OrcaVisitResource resource = new OrcaVisitResource();
         resource.setWrapperService(createService());
@@ -56,7 +85,8 @@ class OrcaVisitResourceTest {
         request.setFromDate(LocalDate.of(2025, 1, 1));
         request.setToDate(LocalDate.of(2025, 2, 2));
 
-        assertThrows(WebApplicationException.class, () -> resource.visitList(null, request));
+        WebApplicationException ex = assertThrows(WebApplicationException.class, () -> resource.visitList(null, request));
+        assertRestError(ex, Response.Status.BAD_REQUEST.getStatusCode(), "orca.visit.range.tooWide");
     }
 
     @Test
@@ -79,7 +109,69 @@ class OrcaVisitResourceTest {
         assertEquals("RUN-VISIT-001", response.getRunId());
     }
 
+    @Test
+    void visitMutationRejectsMissingRemoteUser() {
+        OrcaVisitResource resource = new OrcaVisitResource();
+        resource.setWrapperService(createService());
+
+        VisitMutationRequest request = new VisitMutationRequest();
+        request.setRequestNumber("01");
+        request.setPatientId("000001");
+        request.setAcceptanceDate("2025-11-16");
+        request.setAcceptanceTime("09:00:00");
+
+        WebApplicationException ex = assertThrows(WebApplicationException.class, () -> resource.mutateVisit(null, request));
+        assertRestError(ex, Response.Status.UNAUTHORIZED.getStatusCode(), "remote_user_missing");
+    }
+
+    @Test
+    void visitMutationRejectsNullBody() {
+        OrcaVisitResource resource = new OrcaVisitResource();
+        resource.setWrapperService(createService());
+
+        WebApplicationException ex = assertThrows(WebApplicationException.class,
+                () -> resource.mutateVisit(createRequest("F001:doctor01", Map.of()), null));
+        assertRestError(ex, Response.Status.BAD_REQUEST.getStatusCode(), "orca.visit.mutation.invalid");
+    }
+
+    @Test
+    void visitMutationRejectsMissingAcceptanceTimestampForNonQueryRequests() {
+        OrcaVisitResource resource = new OrcaVisitResource();
+        resource.setWrapperService(createService());
+
+        VisitMutationRequest request = new VisitMutationRequest();
+        request.setRequestNumber("01");
+        request.setPatientId("000001");
+
+        WebApplicationException ex = assertThrows(WebApplicationException.class,
+                () -> resource.mutateVisit(createRequest("F001:doctor01", Map.of()), request));
+        assertRestError(ex, Response.Status.BAD_REQUEST.getStatusCode(), "orca.visit.mutation.invalid");
+    }
+
+    @Test
+    void visitMutationAllowsQueryRequestWithoutAcceptanceTimestamp() {
+        OrcaWrapperService wrapperService = mock(OrcaWrapperService.class);
+        VisitMutationResponse stub = new VisitMutationResponse();
+        stub.setApiResult("0000");
+        stub.setApiResultMessage("OK");
+        when(wrapperService.mutateVisit(any(VisitMutationRequest.class))).thenReturn(stub);
+
+        OrcaVisitResource resource = new OrcaVisitResource();
+        resource.setWrapperService(wrapperService);
+
+        VisitMutationRequest request = new VisitMutationRequest();
+        request.setRequestNumber("class=00");
+        request.setPatientId("000001");
+
+        VisitMutationResponse response = resource.mutateVisit(createRequest("F001:doctor01", Map.of()), request);
+        assertEquals("0000", response.getApiResult());
+        assertGeneratedRunId(response.getRunId());
+        assertEquals("server", response.getDataSourceTransition());
+        verify(wrapperService).mutateVisit(request);
+    }
+
     private HttpServletRequest createRequest(String remoteUser, Map<String, String> headers) {
+        Map<String, Object> attributes = new HashMap<>();
         return (HttpServletRequest) Proxy.newProxyInstance(
                 getClass().getClassLoader(),
                 new Class[]{HttpServletRequest.class},
@@ -96,10 +188,34 @@ class OrcaVisitResourceTest {
                                 return headers.get(String.valueOf(args[0]));
                             }
                             return null;
+                        case "getAttribute":
+                            if (args != null && args.length == 1) {
+                                return attributes.get(String.valueOf(args[0]));
+                            }
+                            return null;
+                        case "setAttribute":
+                            if (args != null && args.length == 2) {
+                                attributes.put(String.valueOf(args[0]), args[1]);
+                            }
+                            return null;
                         default:
                             return null;
                     }
                 });
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertRestError(WebApplicationException ex, int status, String errorCode) {
+        assertNotNull(ex);
+        Response response = ex.getResponse();
+        assertNotNull(response);
+        assertEquals(status, response.getStatus());
+        Object entity = response.getEntity();
+        assertNotNull(entity);
+        assertTrue(entity instanceof Map, "Expected error entity to be a Map, got: " + entity.getClass());
+        Map<String, Object> body = (Map<String, Object>) entity;
+        assertEquals(errorCode, body.get("errorCode"));
+        assertEquals(status, body.get("status"));
     }
 
     private void assertGeneratedRunId(String runId) {
