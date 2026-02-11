@@ -163,8 +163,7 @@ describe('OrderBundleEditPanel master search UI', () => {
       selector: 'input[id$="-master-keyword"]',
     });
     expect(keywordInput).toBeDisabled();
-    const typeSelect = screen.getByLabelText('検索種別');
-    expect(typeSelect).toBeDisabled();
+    expect(screen.getByRole('button', { name: '処方薬剤' })).toBeDisabled();
     expect(fetchOrderBundles).toHaveBeenCalled();
   });
 
@@ -267,6 +266,52 @@ describe('OrderBundleEditPanel master search UI', () => {
     expect(screen.getByLabelText('部位')).toBeEnabled();
     expect(screen.getByLabelText('部位検索')).toBeEnabled();
     expect(screen.getByRole('button', { name: '部位検索' })).toBeEnabled();
+  });
+
+  it('注射オーダーでは注射専用フォームが表示される', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="injectionOrder"
+        title="注射"
+        bundleLabel="注射名"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    expect(screen.getByText('注射マスタ検索')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '注射薬剤' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '注射手技' })).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('キーワード', {
+        selector: 'input[id$="-usage-keyword"]',
+      }),
+    ).toBeNull();
+    expect(screen.getByLabelText('投与指示')).toBeInTheDocument();
+  });
+
+  it('放射線オーダーでは画像専用フォームの検索プリセットが表示される', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="radiologyOrder"
+        title="放射線"
+        bundleLabel="放射線オーダー名"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    expect(screen.getByText('画像検査マスタ検索')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '画像検査' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '画像器材' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '造影薬剤' })).toBeInTheDocument();
+    expect(screen.getByLabelText('検査指示')).toBeInTheDocument();
   });
 
   it('コメントマスタ検索の行選択でコメントコードが追加される', async () => {

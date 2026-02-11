@@ -170,19 +170,161 @@ const MASTER_KEYWORD_PLACEHOLDER: Record<OrderMasterSearchType, string> = {
   bodypart: '例: 胸部',
 };
 
-const resolveDefaultMasterSearchType = (entity: string): OrderMasterSearchType => {
-  if (entity === 'medOrder' || entity === 'injectionOrder') return 'generic-class';
-  if (
-    entity === 'testOrder' ||
-    entity === 'physiologyOrder' ||
-    entity === 'bacteriaOrder' ||
-    entity === 'radiologyOrder' ||
-    entity === 'baseChargeOrder' ||
-    entity === 'instractionChargeOrder'
-  ) {
-    return 'etensu';
+type OrderEntityUiProfile = {
+  formDescription: string;
+  bundleNamePlaceholder: string;
+  instructionLabel: string;
+  instructionPlaceholder: string;
+  memoLabel: string;
+  memoPlaceholder: string;
+  masterSectionTitle: string;
+  mainItemLabel: string;
+  mainItemPlaceholder: string;
+  supportsUsageSearch: boolean;
+  supportsBodyPartSearch: boolean;
+  supportsMaterials: boolean;
+  supportsCommentCodes: boolean;
+  supportsInjectionNoProcedure: boolean;
+  masterSearchPresets: Array<{ type: OrderMasterSearchType; label: string }>;
+  defaultMasterSearchType: OrderMasterSearchType;
+};
+
+const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
+  if (entity === 'medOrder') {
+    return {
+      formDescription: '処方専用フォームです。処方薬剤マスタと用法マスタを中心に入力します。',
+      bundleNamePlaceholder: '例: 降圧薬RP',
+      instructionLabel: '用法',
+      instructionPlaceholder: '例: 1日1回 朝',
+      memoLabel: '処方メモ',
+      memoPlaceholder: '服薬上の補足を入力',
+      masterSectionTitle: '処方薬剤マスタ検索',
+      mainItemLabel: '処方薬剤',
+      mainItemPlaceholder: '薬剤名',
+      supportsUsageSearch: true,
+      supportsBodyPartSearch: false,
+      supportsMaterials: false,
+      supportsCommentCodes: true,
+      supportsInjectionNoProcedure: false,
+      masterSearchPresets: [{ type: 'generic-class', label: '処方薬剤' }],
+      defaultMasterSearchType: 'generic-class',
+    };
   }
-  return 'etensu';
+  if (entity === 'injectionOrder') {
+    return {
+      formDescription: '注射専用フォームです。注射薬剤と注射手技を分けて検索できます。',
+      bundleNamePlaceholder: '例: 点滴セット',
+      instructionLabel: '投与指示',
+      instructionPlaceholder: '例: 静注 / 点滴 / 1日1回',
+      memoLabel: '注射メモ',
+      memoPlaceholder: '投与速度・ルートなどを入力',
+      masterSectionTitle: '注射マスタ検索',
+      mainItemLabel: '注射薬剤/手技',
+      mainItemPlaceholder: '注射薬剤または手技名',
+      supportsUsageSearch: false,
+      supportsBodyPartSearch: false,
+      supportsMaterials: false,
+      supportsCommentCodes: true,
+      supportsInjectionNoProcedure: true,
+      masterSearchPresets: [
+        { type: 'generic-class', label: '注射薬剤' },
+        { type: 'etensu', label: '注射手技' },
+      ],
+      defaultMasterSearchType: 'generic-class',
+    };
+  }
+  if (entity === 'radiologyOrder') {
+    return {
+      formDescription: '画像検査専用フォームです。画像検査点数・器材・造影薬剤を個別に検索できます。',
+      bundleNamePlaceholder: '例: 胸部CT（造影）',
+      instructionLabel: '検査指示',
+      instructionPlaceholder: '例: 造影あり / 単純',
+      memoLabel: '画像検査メモ',
+      memoPlaceholder: '撮影条件・依頼目的を入力',
+      masterSectionTitle: '画像検査マスタ検索',
+      mainItemLabel: '画像検査項目',
+      mainItemPlaceholder: '画像検査名',
+      supportsUsageSearch: false,
+      supportsBodyPartSearch: true,
+      supportsMaterials: true,
+      supportsCommentCodes: true,
+      supportsInjectionNoProcedure: false,
+      masterSearchPresets: [
+        { type: 'etensu', label: '画像検査' },
+        { type: 'material', label: '画像器材' },
+        { type: 'generic-class', label: '造影薬剤' },
+      ],
+      defaultMasterSearchType: 'etensu',
+    };
+  }
+  if (entity === 'testOrder' || entity === 'physiologyOrder' || entity === 'bacteriaOrder' || entity === 'laboTest') {
+    return {
+      formDescription: '検査専用フォームです。検査マスタと検査区分を中心に入力します。',
+      bundleNamePlaceholder: '例: 生化学検査',
+      instructionLabel: '検査指示',
+      instructionPlaceholder: '例: 至急 / 空腹時',
+      memoLabel: '検査メモ',
+      memoPlaceholder: '採取条件・備考を入力',
+      masterSectionTitle: '検査マスタ検索',
+      mainItemLabel: '検査項目',
+      mainItemPlaceholder: '検査項目名',
+      supportsUsageSearch: false,
+      supportsBodyPartSearch: false,
+      supportsMaterials: entity === 'testOrder',
+      supportsCommentCodes: true,
+      supportsInjectionNoProcedure: false,
+      masterSearchPresets: [
+        { type: 'etensu', label: '検査項目' },
+        { type: 'kensa-sort', label: '検査区分' },
+      ],
+      defaultMasterSearchType: 'etensu',
+    };
+  }
+  if (entity === 'baseChargeOrder' || entity === 'instractionChargeOrder') {
+    return {
+      formDescription: '算定専用フォームです。算定点数マスタを検索して登録します。',
+      bundleNamePlaceholder: '例: 初診料算定',
+      instructionLabel: '算定指示',
+      instructionPlaceholder: '例: 初再診 / 指導料',
+      memoLabel: '算定メモ',
+      memoPlaceholder: '算定条件・補足を入力',
+      masterSectionTitle: '算定マスタ検索',
+      mainItemLabel: '算定項目',
+      mainItemPlaceholder: '算定項目名',
+      supportsUsageSearch: false,
+      supportsBodyPartSearch: false,
+      supportsMaterials: false,
+      supportsCommentCodes: true,
+      supportsInjectionNoProcedure: false,
+      masterSearchPresets: [{ type: 'etensu', label: '算定項目' }],
+      defaultMasterSearchType: 'etensu',
+    };
+  }
+  return {
+    formDescription: '処置専用フォームです。処置マスタと材料マスタを中心に入力します。',
+    bundleNamePlaceholder: '例: 創傷処置',
+    instructionLabel: '処置指示',
+    instructionPlaceholder: '例: 1日1回 実施',
+    memoLabel: '処置メモ',
+    memoPlaceholder: '実施手順・注意点を入力',
+    masterSectionTitle: '処置マスタ検索',
+    mainItemLabel: '処置項目',
+    mainItemPlaceholder: '処置項目名',
+    supportsUsageSearch: false,
+    supportsBodyPartSearch: entity === 'generalOrder',
+    supportsMaterials: ['generalOrder', 'treatmentOrder', 'surgeryOrder', 'otherOrder'].includes(entity),
+    supportsCommentCodes: true,
+    supportsInjectionNoProcedure: false,
+    masterSearchPresets: [
+      { type: 'etensu', label: '処置項目' },
+      { type: 'material', label: '処置材料' },
+    ],
+    defaultMasterSearchType: 'etensu',
+  };
+};
+
+const resolveDefaultMasterSearchType = (entity: string): OrderMasterSearchType => {
+  return resolveOrderEntityUiProfile(entity).defaultMasterSearchType;
 };
 
 const parseDocumentIds = (value?: string) => {
@@ -610,33 +752,19 @@ export function OrderBundleEditPanel({
     unit: '',
     memo: '',
   });
+  const orderUiProfile = useMemo(() => resolveOrderEntityUiProfile(entity), [entity]);
   const isMedOrder = entity === 'medOrder';
   const isInjectionOrder = entity === 'injectionOrder';
   const isRadiologyOrder = entity === 'radiologyOrder';
   const isRehabOrder = entity === 'generalOrder';
-  const supportsBodyPartSearch = isRadiologyOrder || isRehabOrder;
-  const supportsCommentCodes = BASE_EDITOR_ENTITIES.includes(entity) || isMedOrder || isInjectionOrder;
-  const supportsMaterials = ['generalOrder', 'treatmentOrder', 'testOrder', 'instractionChargeOrder'].includes(entity);
+  const supportsUsageSearch = orderUiProfile.supportsUsageSearch;
+  const supportsBodyPartSearch = orderUiProfile.supportsBodyPartSearch;
+  const supportsCommentCodes = orderUiProfile.supportsCommentCodes;
+  const supportsMaterials = orderUiProfile.supportsMaterials;
   const masterKeywordPlaceholder = MASTER_KEYWORD_PLACEHOLDER[masterSearchType];
-  const masterSearchPresets = useMemo<Array<{ type: OrderMasterSearchType; label: string }>>(() => {
-    if (isMedOrder || isInjectionOrder) {
-      return [
-        { type: 'generic-class', label: '薬剤' },
-        { type: 'youhou', label: '用法' },
-      ];
-    }
-    if (supportsMaterials) {
-      return [
-        { type: 'etensu', label: '点数' },
-        { type: 'material', label: '材料' },
-        { type: 'kensa-sort', label: '検査区分' },
-      ];
-    }
-    return [
-      { type: 'etensu', label: '点数' },
-      { type: 'kensa-sort', label: '検査区分' },
-    ];
-  }, [isInjectionOrder, isMedOrder, supportsMaterials]);
+  const masterSearchPresets = orderUiProfile.masterSearchPresets;
+  const selectedMasterPresetLabel =
+    masterSearchPresets.find((preset) => preset.type === masterSearchType)?.label ?? masterSearchType;
   const blockReasons = useMemo(() => {
     const reasons: string[] = [];
     if (meta.readOnly) {
@@ -983,7 +1111,7 @@ export function OrderBundleEditPanel({
         keyword: usageKeyword,
         allowEmpty: Boolean(usagePattern),
       }),
-    enabled: usageKeyword.trim().length > 0 || Boolean(usagePattern),
+    enabled: supportsUsageSearch && (usageKeyword.trim().length > 0 || Boolean(usagePattern)),
     staleTime: 30 * 1000,
   });
 
@@ -2410,7 +2538,7 @@ export function OrderBundleEditPanel({
   };
 
   const clearItemRows = () => {
-    if (!window.confirm('薬剤/項目・材料・コメントの入力をすべてクリアしますか？')) return;
+    if (!window.confirm(`${orderUiProfile.mainItemLabel}・材料・コメントの入力をすべてクリアしますか？`)) return;
     setForm((prev) => ({
       ...prev,
       items: [buildEmptyItem()],
@@ -2456,7 +2584,7 @@ export function OrderBundleEditPanel({
       <header className="charts-side-panel__section-header">
         <div>
           <strong>{title}</strong>
-          <p>RP単位/オーダー束を編集し、カルテ展開/保存の導線で反映します。</p>
+          <p>{orderUiProfile.formDescription}</p>
         </div>
         <button
           type="button"
@@ -2654,7 +2782,7 @@ export function OrderBundleEditPanel({
             id={`${entity}-bundle-name`}
             value={form.bundleName}
             onChange={(event) => setForm((prev) => ({ ...prev, bundleName: event.target.value }))}
-            placeholder="例: 降圧薬RP"
+            placeholder={orderUiProfile.bundleNamePlaceholder}
             disabled={isBlocked}
           />
         </div>
@@ -2741,14 +2869,14 @@ export function OrderBundleEditPanel({
         )}
         <div className="charts-side-panel__field-row">
           <div className="charts-side-panel__field">
-            <label htmlFor={`${entity}-admin`}>用法</label>
+            <label htmlFor={`${entity}-admin`}>{orderUiProfile.instructionLabel}</label>
             <input
               id={`${entity}-admin`}
               value={form.admin}
               onChange={(event) =>
                 setForm((prev) => ({ ...prev, admin: event.target.value, adminMemo: '' }))
               }
-              placeholder="例: 1日1回 朝"
+              placeholder={orderUiProfile.instructionPlaceholder}
               disabled={isBlocked}
             />
           </div>
@@ -2766,111 +2894,113 @@ export function OrderBundleEditPanel({
             )}
           </div>
         </div>
-        <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
-          <div className="charts-side-panel__subheader">
-            <strong>用法検索</strong>
-            <span className="charts-side-panel__search-count">
-              {usageSearchQuery.isFetching
-                ? '検索中...'
-                : usageSearchQuery.data?.ok
-                  ? usageItems.length > usageItemsLimited.length
-                    ? `${usageItems.length}件 (表示: ${usageItemsLimited.length}件)`
-                    : `${usageItems.length}件`
-                  : ''}
-            </span>
-          </div>
-          <div className="charts-side-panel__field-row">
-            <div className="charts-side-panel__field">
-              <label htmlFor={`${entity}-usage-keyword`}>キーワード</label>
-              <input
-                id={`${entity}-usage-keyword`}
-                value={usageKeyword}
-                onChange={(event) => setUsageKeyword(event.target.value)}
-                placeholder="例: 1日1回"
-                disabled={isBlocked}
-              />
+        {supportsUsageSearch && (
+          <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
+            <div className="charts-side-panel__subheader">
+              <strong>用法検索</strong>
+              <span className="charts-side-panel__search-count">
+                {usageSearchQuery.isFetching
+                  ? '検索中...'
+                  : usageSearchQuery.data?.ok
+                    ? usageItems.length > usageItemsLimited.length
+                      ? `${usageItems.length}件 (表示: ${usageItemsLimited.length}件)`
+                      : `${usageItems.length}件`
+                    : ''}
+              </span>
             </div>
-            <div className="charts-side-panel__field">
-              <label htmlFor={`${entity}-usage-filter`}>用法フィルタ</label>
-              <select
-                id={`${entity}-usage-filter`}
-                value={usageFilter}
-                onChange={(event) => setUsageFilter(event.target.value)}
-                disabled={isBlocked}
-              >
-                {USAGE_FILTER_OPTIONS.map((option) => (
-                  <option key={option.value || option.label} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="charts-side-panel__field-row">
-            <div className="charts-side-panel__field">
-              <label className="charts-side-panel__toggle">
+            <div className="charts-side-panel__field-row">
+              <div className="charts-side-panel__field">
+                <label htmlFor={`${entity}-usage-keyword`}>キーワード</label>
                 <input
-                  id={`${entity}-usage-partial-match`}
-                  name={`${entity}-usage-partial-match`}
-                  type="checkbox"
-                  checked={usagePartialMatch}
-                  onChange={(event) => setUsagePartialMatch(event.target.checked)}
+                  id={`${entity}-usage-keyword`}
+                  value={usageKeyword}
+                  onChange={(event) => setUsageKeyword(event.target.value)}
+                  placeholder="例: 1日1回"
                   disabled={isBlocked}
                 />
-                部分一致
-              </label>
-            </div>
-            <div className="charts-side-panel__field">
-              <label htmlFor={`${entity}-usage-limit`}>件数上限</label>
-              <select
-                id={`${entity}-usage-limit`}
-                value={usageLimit}
-                onChange={(event) => setUsageLimit(Number(event.target.value))}
-                disabled={isBlocked}
-              >
-                {[20, 50, 100].map((value) => (
-                  <option key={value} value={value}>
-                    {value}件
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {usageSearchQuery.data && !usageSearchQuery.data.ok && (
-            <div className="charts-side-panel__notice charts-side-panel__notice--error">
-              {usageSearchQuery.data.message ?? '用法マスタの検索に失敗しました。'}
-            </div>
-          )}
-          {usageSearchQuery.data?.ok && usageItemsLimited.length > 0 && (
-            <div className="charts-side-panel__search-table">
-              <div className="charts-side-panel__search-header">
-                <span>コード</span>
-                <span>名称</span>
-                <span>単位</span>
-                <span>分類</span>
-                <span>備考</span>
               </div>
-              {usageItemsLimited.map((item) => (
-                <button
-                  key={`usage-${item.code ?? item.name}`}
-                  type="button"
-                  className="charts-side-panel__search-row"
-                  onClick={() => applyUsage(item)}
+              <div className="charts-side-panel__field">
+                <label htmlFor={`${entity}-usage-filter`}>用法フィルタ</label>
+                <select
+                  id={`${entity}-usage-filter`}
+                  value={usageFilter}
+                  onChange={(event) => setUsageFilter(event.target.value)}
                   disabled={isBlocked}
                 >
-                  <span>{item.code ?? '-'}</span>
-                  <span>{item.name}</span>
-                  <span>{item.unit ?? '-'}</span>
-                  <span>{item.category ?? '-'}</span>
-                  <span>{item.note ?? '-'}</span>
-                </button>
-              ))}
+                  {USAGE_FILTER_OPTIONS.map((option) => (
+                    <option key={option.value || option.label} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-          )}
-          {usageSearchQuery.data?.ok && usageItemsLimited.length === 0 && (usageKeyword.trim() || usagePattern) && (
-            <p className="charts-side-panel__empty">該当する用法が見つかりません。</p>
-          )}
-        </div>
+            <div className="charts-side-panel__field-row">
+              <div className="charts-side-panel__field">
+                <label className="charts-side-panel__toggle">
+                  <input
+                    id={`${entity}-usage-partial-match`}
+                    name={`${entity}-usage-partial-match`}
+                    type="checkbox"
+                    checked={usagePartialMatch}
+                    onChange={(event) => setUsagePartialMatch(event.target.checked)}
+                    disabled={isBlocked}
+                  />
+                  部分一致
+                </label>
+              </div>
+              <div className="charts-side-panel__field">
+                <label htmlFor={`${entity}-usage-limit`}>件数上限</label>
+                <select
+                  id={`${entity}-usage-limit`}
+                  value={usageLimit}
+                  onChange={(event) => setUsageLimit(Number(event.target.value))}
+                  disabled={isBlocked}
+                >
+                  {[20, 50, 100].map((value) => (
+                    <option key={value} value={value}>
+                      {value}件
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {usageSearchQuery.data && !usageSearchQuery.data.ok && (
+              <div className="charts-side-panel__notice charts-side-panel__notice--error">
+                {usageSearchQuery.data.message ?? '用法マスタの検索に失敗しました。'}
+              </div>
+            )}
+            {usageSearchQuery.data?.ok && usageItemsLimited.length > 0 && (
+              <div className="charts-side-panel__search-table">
+                <div className="charts-side-panel__search-header">
+                  <span>コード</span>
+                  <span>名称</span>
+                  <span>単位</span>
+                  <span>分類</span>
+                  <span>備考</span>
+                </div>
+                {usageItemsLimited.map((item) => (
+                  <button
+                    key={`usage-${item.code ?? item.name}`}
+                    type="button"
+                    className="charts-side-panel__search-row"
+                    onClick={() => applyUsage(item)}
+                    disabled={isBlocked}
+                  >
+                    <span>{item.code ?? '-'}</span>
+                    <span>{item.name}</span>
+                    <span>{item.unit ?? '-'}</span>
+                    <span>{item.category ?? '-'}</span>
+                    <span>{item.note ?? '-'}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {usageSearchQuery.data?.ok && usageItemsLimited.length === 0 && (usageKeyword.trim() || usagePattern) && (
+              <p className="charts-side-panel__empty">該当する用法が見つかりません。</p>
+            )}
+          </div>
+        )}
         <div className="charts-side-panel__field">
           <label htmlFor={`${entity}-start`}>開始日</label>
           <input
@@ -2881,7 +3011,7 @@ export function OrderBundleEditPanel({
             disabled={isBlocked}
           />
         </div>
-        {isInjectionOrder ? (
+        {orderUiProfile.supportsInjectionNoProcedure ? (
           <div className="charts-side-panel__field">
             <label className="charts-side-panel__toggle">
               <input
@@ -2903,12 +3033,12 @@ export function OrderBundleEditPanel({
           </div>
         ) : (
           <div className="charts-side-panel__field">
-            <label htmlFor={`${entity}-memo`}>メモ</label>
+            <label htmlFor={`${entity}-memo`}>{orderUiProfile.memoLabel}</label>
             <textarea
               id={`${entity}-memo`}
               value={form.memo}
               onChange={(event) => setForm((prev) => ({ ...prev, memo: event.target.value }))}
-              placeholder="コメントを入力"
+              placeholder={orderUiProfile.memoPlaceholder}
               disabled={isBlocked}
             />
             {isRehabOrder && (
@@ -3032,7 +3162,7 @@ export function OrderBundleEditPanel({
 
         <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
           <div className="charts-side-panel__subheader">
-            <strong>マスタ検索</strong>
+            <strong>{orderUiProfile.masterSectionTitle}</strong>
             <span className="charts-side-panel__search-count">
               {masterSearchQuery.isFetching
                 ? '検索中...'
@@ -3054,33 +3184,17 @@ export function OrderBundleEditPanel({
               </button>
             ))}
           </div>
-          <div className="charts-side-panel__field-row">
-            <div className="charts-side-panel__field">
-              <label htmlFor={`${entity}-master-keyword`}>キーワード</label>
-              <input
-                id={`${entity}-master-keyword`}
-                value={masterKeyword}
-                onChange={(event) => setMasterKeyword(event.target.value)}
-                placeholder={masterKeywordPlaceholder}
-                disabled={isBlocked}
-              />
-            </div>
-            <div className="charts-side-panel__field">
-              <label htmlFor={`${entity}-master-type`}>検索種別</label>
-              <select
-                id={`${entity}-master-type`}
-                value={masterSearchType}
-                onChange={(event) => setMasterSearchType(event.target.value as OrderMasterSearchType)}
-                disabled={isBlocked}
-              >
-                <option value="generic-class">医薬品（一般）</option>
-                <option value="youhou">用法</option>
-                <option value="material">材料</option>
-                <option value="kensa-sort">検査区分</option>
-                <option value="etensu">点数</option>
-              </select>
-            </div>
+          <div className="charts-side-panel__field">
+            <label htmlFor={`${entity}-master-keyword`}>キーワード</label>
+            <input
+              id={`${entity}-master-keyword`}
+              value={masterKeyword}
+              onChange={(event) => setMasterKeyword(event.target.value)}
+              placeholder={masterKeywordPlaceholder}
+              disabled={isBlocked}
+            />
           </div>
+          <p className="charts-side-panel__help">現在の検索対象: {selectedMasterPresetLabel}</p>
           {masterSearchQuery.data && !masterSearchQuery.data.ok && (
             <div className="charts-side-panel__notice charts-side-panel__notice--error">
               {masterSearchQuery.data.message ?? 'マスタ検索に失敗しました。'}
@@ -3218,7 +3332,7 @@ export function OrderBundleEditPanel({
 
         <div className="charts-side-panel__subsection">
           <div className="charts-side-panel__subheader">
-            <strong>薬剤/項目</strong>
+            <strong>{orderUiProfile.mainItemLabel}</strong>
             <div className="charts-side-panel__subheader-actions">
               <button
                 type="button"
@@ -3378,7 +3492,7 @@ export function OrderBundleEditPanel({
                 }
                 disabled={isBlocked}
               >
-                コメント追加
+                材料追加
               </button>
             </div>
             <div className="charts-side-panel__field">

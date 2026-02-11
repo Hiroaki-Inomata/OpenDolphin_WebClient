@@ -58,8 +58,11 @@ describe('OrderBundleEditPanel item actions', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const itemSection = screen.getByText('薬剤/項目').closest('.charts-side-panel__subsection') as HTMLElement | null;
-    if (!itemSection) throw new Error('薬剤/項目セクションが見つかりません');
+    const itemSectionLabel = screen
+      .getAllByText('処方薬剤')
+      .find((node) => node.tagName.toLowerCase() === 'strong');
+    const itemSection = itemSectionLabel?.closest('.charts-side-panel__subsection') as HTMLElement | null;
+    if (!itemSection) throw new Error('処方薬剤セクションが見つかりません');
     await user.click(within(itemSection).getByRole('button', { name: '追加' }));
 
     const nameInputs = screen.getAllByPlaceholderText('項目名') as HTMLInputElement[];
