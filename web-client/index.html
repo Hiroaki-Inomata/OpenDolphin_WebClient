@@ -15,157 +15,204 @@
     <style id="critical-app-shell">
       :root {
         color-scheme: light;
-        --shell-bg: #f6f7fb;
-        --shell-card: #ffffff;
-        --shell-accent: #2563eb;
-        --shell-muted: #d9e2ec;
+        --boot-bg-1: #f2f4ff;
+        --boot-bg-2: #f8fafc;
+        --boot-card: rgba(255, 255, 255, 0.96);
+        --boot-border: rgba(148, 163, 184, 0.33);
+        --boot-muted: rgba(148, 163, 184, 0.34);
+        --boot-muted-strong: rgba(148, 163, 184, 0.45);
       }
       body {
         margin: 0;
-        background: radial-gradient(circle at 20% 20%, #f0f4ff, #f9fbff 45%, #f4f6fb 80%);
         color: #0f172a;
-        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-family: 'Outfit', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: linear-gradient(180deg, var(--boot-bg-1) 0%, var(--boot-bg-2) 72%);
       }
-      .app-shell-splash {
+      .boot-login-shell {
         min-height: 100vh;
         display: flex;
-        flex-direction: column;
-        background: var(--shell-bg);
-      }
-      .app-shell-splash__header {
-        display: flex;
         align-items: center;
-        gap: 10px;
-        padding: 14px 18px;
-        border-bottom: 1px solid var(--shell-muted);
-        background: linear-gradient(90deg, rgba(255,255,255,0.9), rgba(255,255,255,0.6));
-        backdrop-filter: blur(6px);
+        justify-content: center;
+        padding: clamp(12px, 3vw, 28px);
       }
-      .app-shell-splash__brand {
-        width: 32px;
-        height: 32px;
-        border-radius: 10px;
-        background: linear-gradient(135deg, #2563eb, #60a5fa);
-        box-shadow: 0 6px 16px rgba(37, 99, 235, 0.25);
-      }
-      .app-shell-splash__title {
-        height: 14px;
-        width: 140px;
-        border-radius: 999px;
-        background: var(--shell-muted);
-      }
-      .app-shell-splash__pill {
-        margin-left: auto;
-        height: 12px;
-        width: 80px;
-        border-radius: 999px;
-        background: linear-gradient(90deg, var(--shell-muted), #eef2ff, var(--shell-muted));
-        animation: pulse 1.8s ease-in-out infinite;
-      }
-      .app-shell-splash__main {
-        flex: 1;
+      .boot-login-card {
+        width: min(960px, 100%);
         display: grid;
-        gap: 14px;
-        padding: 18px;
-        grid-template-columns: 1.1fr 2fr;
-        align-items: start;
-      }
-      .app-shell-splash__card,
-      .app-shell-splash__panel {
-        border-radius: 14px;
-        background: var(--shell-card);
-        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
-        position: relative;
+        grid-template-columns: 1.08fr 0.92fr;
+        border-radius: 24px;
+        border: 1px solid var(--boot-border);
+        background: var(--boot-card);
+        box-shadow: 0 22px 48px rgba(15, 23, 42, 0.12);
         overflow: hidden;
       }
-      .app-shell-splash__card {
-        min-height: 220px;
+      .boot-login-visual {
+        padding: clamp(18px, 2.8vw, 30px);
+        border-right: 1px solid var(--boot-border);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        background: linear-gradient(170deg, rgba(248, 250, 252, 0.96), rgba(238, 242, 255, 0.92));
       }
-      .app-shell-splash__panel {
-        min-height: 320px;
-      }
-      .app-shell-splash__shimmer::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(120deg, transparent 25%, rgba(96, 165, 250, 0.12) 45%, transparent 65%);
-        transform: translateX(-100%);
-        animation: shimmer 1.9s ease-in-out infinite;
-      }
-      .app-shell-splash__row {
+      .boot-login-brand {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 12px 14px;
+        gap: 12px;
       }
-      .app-shell-splash__dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
-        background: var(--shell-muted);
+      .boot-login-brand__logo {
+        width: 54px;
+        height: 54px;
+        border-radius: 15px;
+        background: linear-gradient(135deg, #1d4ed8, #38bdf8);
+        box-shadow: 0 10px 22px rgba(37, 99, 235, 0.24);
       }
-      .app-shell-splash__line {
+      .boot-login-brand__copy {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
         flex: 1;
+      }
+      .boot-login-line {
+        display: block;
         height: 10px;
         border-radius: 999px;
-        background: var(--shell-muted);
+        background: var(--boot-muted);
       }
-      @keyframes pulse {
-        0% { opacity: 0.6; transform: translateY(0); }
-        50% { opacity: 1; transform: translateY(-2px); }
-        100% { opacity: 0.6; transform: translateY(0); }
+      .boot-login-line--brand-title {
+        width: 62%;
+        height: 12px;
+        background: var(--boot-muted-strong);
       }
-      @keyframes shimmer {
-        0% { transform: translateX(-100%); }
-        100% { transform: translateX(100%); }
+      .boot-login-line--brand-sub {
+        width: 88%;
       }
-      @media (max-width: 960px) {
-        .app-shell-splash__main { grid-template-columns: 1fr; }
+      .boot-login-line--brand-sub2 {
+        width: 72%;
+      }
+      .boot-login-visual__preview {
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        background: rgba(255, 255, 255, 0.8);
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+      }
+      .boot-login-pill-row {
+        display: flex;
+        gap: 8px;
+      }
+      .boot-login-pill {
+        width: 84px;
+        height: 20px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.2);
+      }
+      .boot-login-pane {
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: #ffffff;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .boot-login-line--pane-lg {
+        width: 90%;
+      }
+      .boot-login-line--pane-md {
+        width: 74%;
+      }
+      .boot-login-line--pane-sm {
+        width: 58%;
+      }
+      .boot-login-form {
+        padding: clamp(18px, 2.8vw, 30px);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        justify-content: center;
+      }
+      .boot-login-label {
+        width: 72px;
+        height: 9px;
+        border-radius: 999px;
+        background: var(--boot-muted-strong);
+      }
+      .boot-login-input {
+        height: 48px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.48);
+        background: rgba(248, 250, 252, 0.9);
+      }
+      .boot-login-button {
+        margin-top: 8px;
+        height: 50px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #1d4ed8, #2563eb);
+      }
+      .boot-login-status {
+        margin-top: 2px;
+        font-size: 0.86rem;
+        font-weight: 700;
+        color: #1e40af;
+        animation: bootFade 1.4s ease-in-out infinite;
+      }
+      .boot-light {
+        animation: bootFade 1.4s ease-in-out infinite;
+      }
+      @keyframes bootFade {
+        0% { opacity: 0.52; }
+        50% { opacity: 1; }
+        100% { opacity: 0.52; }
+      }
+      @media (max-width: 1040px) {
+        .boot-login-card {
+          grid-template-columns: 1fr;
+        }
+        .boot-login-visual {
+          border-right: none;
+          border-bottom: 1px solid var(--boot-border);
+        }
       }
     </style>
   </head>
   <body>
     <div id="root">
-      <div class="app-shell-splash" aria-hidden="true">
-        <header class="app-shell-splash__header">
-          <div class="app-shell-splash__brand"></div>
-          <div class="app-shell-splash__title"></div>
-          <div class="app-shell-splash__pill"></div>
-        </header>
-        <main class="app-shell-splash__main">
-          <section class="app-shell-splash__card app-shell-splash__shimmer">
-            <div class="app-shell-splash__row">
-              <span class="app-shell-splash__dot"></span>
-              <span class="app-shell-splash__line" style="max-width: 50%"></span>
+      <div class="boot-login-shell" aria-hidden="true">
+        <section class="boot-login-card">
+          <div class="boot-login-visual">
+            <div class="boot-login-brand">
+              <span class="boot-login-brand__logo"></span>
+              <div class="boot-login-brand__copy">
+                <span class="boot-login-line boot-login-line--brand-title"></span>
+                <span class="boot-login-line boot-login-line--brand-sub"></span>
+                <span class="boot-login-line boot-login-line--brand-sub2"></span>
+              </div>
             </div>
-            <div class="app-shell-splash__row">
-              <span class="app-shell-splash__dot"></span>
-              <span class="app-shell-splash__line" style="max-width: 70%"></span>
+            <div class="boot-login-visual__preview">
+              <div class="boot-login-pill-row">
+                <span class="boot-login-pill"></span>
+                <span class="boot-login-pill"></span>
+                <span class="boot-login-pill"></span>
+              </div>
+              <div class="boot-login-pane">
+                <span class="boot-login-line boot-login-line--pane-lg"></span>
+                <span class="boot-login-line boot-login-line--pane-md"></span>
+                <span class="boot-login-line boot-login-line--pane-sm"></span>
+              </div>
             </div>
-            <div class="app-shell-splash__row">
-              <span class="app-shell-splash__dot"></span>
-              <span class="app-shell-splash__line" style="max-width: 60%"></span>
-            </div>
-          </section>
-          <section class="app-shell-splash__panel app-shell-splash__shimmer">
-            <div class="app-shell-splash__row">
-              <span class="app-shell-splash__line" style="max-width: 45%"></span>
-              <span class="app-shell-splash__line" style="max-width: 30%"></span>
-            </div>
-            <div class="app-shell-splash__row">
-              <span class="app-shell-splash__dot"></span>
-              <span class="app-shell-splash__line"></span>
-            </div>
-            <div class="app-shell-splash__row">
-              <span class="app-shell-splash__dot"></span>
-              <span class="app-shell-splash__line"></span>
-            </div>
-            <div class="app-shell-splash__row">
-              <span class="app-shell-splash__dot"></span>
-              <span class="app-shell-splash__line" style="max-width: 80%"></span>
-            </div>
-          </section>
-        </main>
+          </div>
+          <div class="boot-login-form">
+            <span class="boot-login-label"></span>
+            <div class="boot-login-input boot-light"></div>
+            <span class="boot-login-label"></span>
+            <div class="boot-login-input boot-light"></div>
+            <span class="boot-login-label"></span>
+            <div class="boot-login-input boot-light"></div>
+            <div class="boot-login-button boot-light"></div>
+            <div class="boot-login-status">ログイン画面を読み込み中...</div>
+          </div>
+        </section>
       </div>
     </div>
     <script>

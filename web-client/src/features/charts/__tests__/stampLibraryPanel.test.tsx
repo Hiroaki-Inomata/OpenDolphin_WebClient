@@ -146,4 +146,17 @@ describe('StampLibraryPanel (STAMP-001 MVP)', () => {
     expect(saved?.source).toBe('server');
     expect(saved?.bundle?.items?.[0]?.name).toBe('アムロジピン');
   });
+
+  it('Phase2 では選択スタンプの対象オーダーへ直接遷移できる', async () => {
+    const user = userEvent.setup();
+    const onOpenOrderEdit = vi.fn();
+    renderWithClient(<StampLibraryPanel phase={2} onOpenOrderEdit={onOpenOrderEdit} />);
+
+    await waitFor(() => expect(vi.mocked(fetchStampTree)).toHaveBeenCalled());
+    const stampButton = await screen.findByRole('button', { name: /降圧セット/ });
+    await user.click(stampButton);
+    await user.click(screen.getByRole('button', { name: 'オーダー編集を開く' }));
+
+    expect(onOpenOrderEdit).toHaveBeenCalledWith('medOrder');
+  });
 });

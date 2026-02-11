@@ -1,5 +1,5 @@
 import { Global } from '@emotion/react';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -77,7 +77,7 @@ import { useChartsTabLock } from '../useChartsTabLock';
 import { isNetworkError } from '../../shared/apiError';
 import { getAppointmentDataBanner } from '../../outpatient/appointmentDataBanner';
 import { resolveOutpatientFlags } from '../../outpatient/flags';
-import { buildScopedStorageKey } from '../../../libs/session/storageScope';
+import { buildScopedStorageKey, type StorageScope } from '../../../libs/session/storageScope';
 import type { DraftDirtySource } from '../draftSources';
 import {
   listChartOrderSets,
@@ -160,6 +160,100 @@ const SOAP_HISTORY_MAX_ENTRIES = 50;
 const SOAP_HISTORY_MAX_ENCOUNTERS = 20;
 const SOAP_HISTORY_MAX_BYTES = 200_000;
 const UTILITY_PATIENT_UNSELECTED_MESSAGE = '患者が未選択のため利用できません';
+const UTILITY_PANEL_LAYOUT_STORAGE_BASE = 'opendolphin:web-client:charts:utility-panel-layout';
+const UTILITY_PANEL_LAYOUT_STORAGE_VERSION = 'v1';
+const UTILITY_PANEL_DEFAULT_OFFSET_X = 24;
+const UTILITY_PANEL_DEFAULT_OFFSET_Y = 52;
+const UTILITY_PANEL_MIN_WIDTH = 860;
+const UTILITY_PANEL_MIN_HEIGHT = 520;
+
+type UtilityPanelLayout = {
+  width: number;
+  height: number;
+  left: number;
+  top: number;
+};
+
+type UtilityPanelLayoutStorage = {
+  version: 1;
+  updatedAt: string;
+  layout: UtilityPanelLayout;
+};
+
+const resolveUtilityPanelFallbackStorageKey = () =>
+  `${UTILITY_PANEL_LAYOUT_STORAGE_BASE}:${UTILITY_PANEL_LAYOUT_STORAGE_VERSION}`;
+
+const clampUtilityPanelLayout = (layout: UtilityPanelLayout, viewportWidth: number, viewportHeight: number): UtilityPanelLayout => {
+  const minWidth = Math.min(UTILITY_PANEL_MIN_WIDTH, Math.max(640, viewportWidth - 24));
+  const minHeight = Math.min(UTILITY_PANEL_MIN_HEIGHT, Math.max(420, viewportHeight - 24));
+  const maxWidth = Math.max(minWidth, viewportWidth - 16);
+  const maxHeight = Math.max(minHeight, viewportHeight - 16);
+  const width = Math.min(maxWidth, Math.max(minWidth, Number.isFinite(layout.width) ? layout.width : minWidth));
+  const height = Math.min(maxHeight, Math.max(minHeight, Number.isFinite(layout.height) ? layout.height : minHeight));
+  const maxLeft = Math.max(8, viewportWidth - width - 8);
+  const maxTop = Math.max(8, viewportHeight - height - 8);
+  const left = Math.min(maxLeft, Math.max(8, Number.isFinite(layout.left) ? layout.left : UTILITY_PANEL_DEFAULT_OFFSET_X));
+  const top = Math.min(maxTop, Math.max(8, Number.isFinite(layout.top) ? layout.top : UTILITY_PANEL_DEFAULT_OFFSET_Y));
+  return { width, height, left, top };
+};
+
+const buildDefaultUtilityPanelLayout = (viewportWidth: number, viewportHeight: number): UtilityPanelLayout => {
+  const preferredWidth = Math.min(1260, Math.max(UTILITY_PANEL_MIN_WIDTH, viewportWidth * 0.78));
+  const preferredHeight = Math.min(900, Math.max(UTILITY_PANEL_MIN_HEIGHT, viewportHeight * 0.84));
+  return clampUtilityPanelLayout(
+    {
+      width: preferredWidth,
+      height: preferredHeight,
+      left: viewportWidth - preferredWidth - UTILITY_PANEL_DEFAULT_OFFSET_X,
+      top: UTILITY_PANEL_DEFAULT_OFFSET_Y,
+    },
+    viewportWidth,
+    viewportHeight,
+  );
+};
+
+const readUtilityPanelLayoutStorage = (scope?: StorageScope | null): UtilityPanelLayout | null => {
+  if (typeof localStorage === 'undefined' || typeof window === 'undefined') return null;
+  const scopedKey = buildScopedStorageKey(
+    UTILITY_PANEL_LAYOUT_STORAGE_BASE,
+    UTILITY_PANEL_LAYOUT_STORAGE_VERSION,
+    scope,
+  );
+  const fallbackKey = resolveUtilityPanelFallbackStorageKey();
+  try {
+    const raw = scopedKey ? localStorage.getItem(scopedKey) ?? localStorage.getItem(fallbackKey) : localStorage.getItem(fallbackKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<UtilityPanelLayoutStorage> | null;
+    if (!parsed || parsed.version !== 1 || !parsed.layout) return null;
+    return clampUtilityPanelLayout(parsed.layout, window.innerWidth, window.innerHeight);
+  } catch {
+    return null;
+  }
+};
+
+const writeUtilityPanelLayoutStorage = (layout: UtilityPanelLayout, scope?: StorageScope | null) => {
+  if (typeof localStorage === 'undefined') return;
+  const payload: UtilityPanelLayoutStorage = {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    layout,
+  };
+  const scopedKey = buildScopedStorageKey(
+    UTILITY_PANEL_LAYOUT_STORAGE_BASE,
+    UTILITY_PANEL_LAYOUT_STORAGE_VERSION,
+    scope,
+  );
+  const fallbackKey = resolveUtilityPanelFallbackStorageKey();
+  try {
+    if (scopedKey) {
+      localStorage.setItem(scopedKey, JSON.stringify(payload));
+      return;
+    }
+    localStorage.setItem(fallbackKey, JSON.stringify(payload));
+  } catch {
+    // ignore quota errors
+  }
+};
 
 type SoapHistoryStorage = {
   version: 1;
@@ -174,7 +268,6 @@ type SoapHistoryStorage = {
 };
 
 type DockedUtilityAction =
-  | 'clinical-actions'
   | 'prescription-edit'
   | 'order-injection'
   | 'order-treatment'
@@ -182,8 +275,7 @@ type DockedUtilityAction =
   | 'order-charge'
   | 'order-set'
   | 'document'
-  | 'imaging'
-  | 'stamps';
+  | 'imaging';
 
 type ChartsPatientTab = {
   key: string;
@@ -601,8 +693,30 @@ function ChartsContent() {
   const utilityPanelActionRef = useRef<DockedUtilityAction | null>(null);
   const utilityTriggerRef = useRef<HTMLButtonElement | null>(null);
   const utilityFocusRestoreRef = useRef(false);
-  const utilityLastActionRef = useRef<DockedUtilityAction>('clinical-actions');
+  const utilityLastActionRef = useRef<DockedUtilityAction>('order-set');
   const utilityHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const [utilityPanelLayout, setUtilityPanelLayout] = useState<UtilityPanelLayout>(() => {
+    if (typeof window === 'undefined') {
+      return {
+        width: 980,
+        height: 760,
+        left: UTILITY_PANEL_DEFAULT_OFFSET_X,
+        top: UTILITY_PANEL_DEFAULT_OFFSET_Y,
+      };
+    }
+    return readUtilityPanelLayoutStorage(storageScope) ?? buildDefaultUtilityPanelLayout(window.innerWidth, window.innerHeight);
+  });
+  const utilityPanelLayoutRef = useRef<UtilityPanelLayout>(utilityPanelLayout);
+  const utilityPanelDragRef = useRef<
+    | null
+    | {
+        mode: 'move' | 'resize';
+        pointerId: number;
+        startX: number;
+        startY: number;
+        startLayout: UtilityPanelLayout;
+      }
+  >(null);
   const [isPatientPanelOpen, setIsPatientPanelOpen] = useState(false);
   const [orderHistoryCopyRequest, setOrderHistoryCopyRequest] = useState<{
     requestId: string;
@@ -2829,43 +2943,37 @@ function ChartsContent() {
   });
 
   const utilityPanelTitles: Record<DockedUtilityAction, string> = {
-    'clinical-actions': '診療操作',
     'prescription-edit': '処方',
     'order-injection': '注射',
     'order-treatment': '処置',
     'order-test': '検査',
     'order-charge': '算定',
-    'order-set': 'オーダーセット',
+    'order-set': 'スタンプ',
     document: '文書',
     imaging: '画像',
-    stamps: 'スタンプ',
   };
   const utilityItems = useMemo<
     Array<{ id: DockedUtilityAction; label: string; shortLabel: string; requiresEdit: boolean; shortcut: string }>
   >(
     () => {
       const base: Array<{ id: DockedUtilityAction; label: string; shortLabel: string; requiresEdit: boolean }> = [
-        { id: 'clinical-actions', label: '診療操作', shortLabel: '診療', requiresEdit: false },
         { id: 'prescription-edit', label: '処方', shortLabel: '処方', requiresEdit: true },
         { id: 'order-injection', label: '注射', shortLabel: '注射', requiresEdit: true },
         { id: 'order-treatment', label: '処置', shortLabel: '処置', requiresEdit: true },
         { id: 'order-test', label: '検査', shortLabel: '検査', requiresEdit: true },
         { id: 'order-charge', label: '算定', shortLabel: '算定', requiresEdit: true },
-        { id: 'order-set', label: 'セット', shortLabel: 'セット', requiresEdit: false },
+        { id: 'order-set', label: 'スタンプ', shortLabel: 'スタ', requiresEdit: false },
         { id: 'document', label: '文書', shortLabel: '文書', requiresEdit: true },
       ];
       if (isPatientImagesMvpEnabled) {
         base.push({ id: 'imaging', label: '画像', shortLabel: '画像', requiresEdit: false });
-      }
-      if (stampboxMvpEnabled) {
-        base.push({ id: 'stamps', label: 'スタンプ', shortLabel: 'スタ', requiresEdit: false });
       }
       return base.map((item, index) => ({
         ...item,
         shortcut: `Ctrl+Shift+${index + 1}`,
       }));
     },
-    [isPatientImagesMvpEnabled, stampboxMvpEnabled],
+    [isPatientImagesMvpEnabled],
   );
   const utilityShortcutItems = useMemo(
     () => utilityItems.map((item) => ({ keys: item.shortcut, label: item.label })),
@@ -2909,14 +3017,62 @@ function ChartsContent() {
   );
   const utilityEditActions = useMemo(() => new Set(utilityItems.filter((item) => item.requiresEdit).map((item) => item.id)), [utilityItems]);
   const patientSelected = Boolean(encounterContext.patientId);
-
-  const focusSectionById = useCallback((sectionId: string) => {
-    if (typeof document === 'undefined') return;
-    const target = document.getElementById(sectionId) as HTMLElement | null;
-    if (!target) return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    target.focus();
-  }, []);
+  const persistUtilityPanelLayout = useCallback(
+    (layout: UtilityPanelLayout) => {
+      writeUtilityPanelLayoutStorage(layout, storageScope);
+    },
+    [storageScope],
+  );
+  const updateUtilityPanelLayout = useCallback(
+    (
+      updater: UtilityPanelLayout | ((prev: UtilityPanelLayout) => UtilityPanelLayout),
+      options?: { persist?: boolean },
+    ) => {
+      if (typeof window === 'undefined') return;
+      const nextLayout = clampUtilityPanelLayout(
+        typeof updater === 'function' ? updater(utilityPanelLayoutRef.current) : updater,
+        window.innerWidth,
+        window.innerHeight,
+      );
+      utilityPanelLayoutRef.current = nextLayout;
+      setUtilityPanelLayout(nextLayout);
+      if (options?.persist ?? true) {
+        persistUtilityPanelLayout(nextLayout);
+      }
+    },
+    [persistUtilityPanelLayout],
+  );
+  const beginUtilityPanelDrag = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (event.button !== 0 || !utilityPanelAction) return;
+      const target = event.target as HTMLElement | null;
+      if (!target || target.closest('button, input, select, textarea, [data-no-drag="true"]')) return;
+      event.preventDefault();
+      utilityPanelDragRef.current = {
+        mode: 'move',
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startLayout: utilityPanelLayoutRef.current,
+      };
+    },
+    [utilityPanelAction],
+  );
+  const beginUtilityPanelResize = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0 || !utilityPanelAction) return;
+      event.preventDefault();
+      event.stopPropagation();
+      utilityPanelDragRef.current = {
+        mode: 'resize',
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startLayout: utilityPanelLayoutRef.current,
+      };
+    },
+    [utilityPanelAction],
+  );
 
   const resolveUtilityTrigger = useCallback((action: DockedUtilityAction) => {
     if (typeof document === 'undefined') return null;
@@ -3073,6 +3229,68 @@ function ChartsContent() {
   }, [utilityPanelAction]);
 
   useEffect(() => {
+    utilityPanelLayoutRef.current = utilityPanelLayout;
+  }, [utilityPanelLayout]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedLayout = readUtilityPanelLayoutStorage(storageScope);
+    if (storedLayout) {
+      updateUtilityPanelLayout(storedLayout, { persist: false });
+      return;
+    }
+    updateUtilityPanelLayout(buildDefaultUtilityPanelLayout(window.innerWidth, window.innerHeight), { persist: false });
+  }, [storageScope, updateUtilityPanelLayout]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => {
+      updateUtilityPanelLayout((prev) => clampUtilityPanelLayout(prev, window.innerWidth, window.innerHeight));
+    };
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [updateUtilityPanelLayout]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handlePointerMove = (event: PointerEvent) => {
+      const dragState = utilityPanelDragRef.current;
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      const deltaX = event.clientX - dragState.startX;
+      const deltaY = event.clientY - dragState.startY;
+      const nextLayout =
+        dragState.mode === 'move'
+          ? {
+              ...dragState.startLayout,
+              left: dragState.startLayout.left + deltaX,
+              top: dragState.startLayout.top + deltaY,
+            }
+          : {
+              ...dragState.startLayout,
+              width: dragState.startLayout.width + deltaX,
+              height: dragState.startLayout.height + deltaY,
+            };
+      updateUtilityPanelLayout(nextLayout, { persist: false });
+    };
+    const handlePointerEnd = (event: PointerEvent) => {
+      const dragState = utilityPanelDragRef.current;
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      utilityPanelDragRef.current = null;
+      persistUtilityPanelLayout(utilityPanelLayoutRef.current);
+    };
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+    };
+  }, [persistUtilityPanelLayout, updateUtilityPanelLayout]);
+
+  useEffect(() => {
     if (typeof document === 'undefined') return;
     if (utilityPanelAction) {
       requestAnimationFrame(() => {
@@ -3101,9 +3319,9 @@ function ChartsContent() {
     setOrderHistoryCopyRequest(null);
     setDocumentHistoryCopyRequest(null);
     utilityFocusRestoreRef.current = false;
-    utilityLastActionRef.current = 'clinical-actions';
+    utilityLastActionRef.current = 'order-set';
     requestAnimationFrame(() => {
-      resolveUtilityTrigger('clinical-actions')?.focus();
+      resolveUtilityTrigger('order-set')?.focus();
     });
   }, [encounterContext.patientId, resolveUtilityTrigger]);
 
@@ -3188,7 +3406,7 @@ function ChartsContent() {
           closeUtilityPanel(true);
           return;
         }
-        openUtilityPanel(utilityLastActionRef.current ?? 'clinical-actions');
+        openUtilityPanel(utilityLastActionRef.current ?? 'order-set');
         return;
       }
 
@@ -3228,6 +3446,25 @@ function ChartsContent() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [closeUtilityPanel, openUtilityPanel, utilityItems]);
+
+  const isOrderUtilityAction = useMemo(
+    () =>
+      utilityPanelAction === 'prescription-edit' ||
+      utilityPanelAction === 'order-injection' ||
+      utilityPanelAction === 'order-treatment' ||
+      utilityPanelAction === 'order-test' ||
+      utilityPanelAction === 'order-charge',
+    [utilityPanelAction],
+  );
+  const utilityPanelInlineStyle = useMemo(() => {
+    if (!utilityPanelAction) return undefined;
+    return {
+      left: `${utilityPanelLayout.left}px`,
+      top: `${utilityPanelLayout.top}px`,
+      width: `${utilityPanelLayout.width}px`,
+      height: `${utilityPanelLayout.height}px`,
+    };
+  }, [utilityPanelAction, utilityPanelLayout]);
 
   return (
     <>
@@ -3916,16 +4153,16 @@ function ChartsContent() {
                 </div>
 
               </div>
-	              <aside
-	                className="charts-workbench__side"
-	                id="charts-order-pane"
-	                tabIndex={-1}
-	                data-focus-anchor="true"
-	                aria-label="オーダー入力（ユーティリティ）"
-                  role={utilityPanelAction ? 'dialog' : undefined}
-                  aria-modal={utilityPanelAction ? 'true' : undefined}
-                  aria-labelledby={utilityPanelAction ? 'charts-docked-panel-title' : undefined}
-	              >
+              <aside
+                className="charts-workbench__side"
+                id="charts-order-pane"
+                tabIndex={-1}
+                data-focus-anchor="true"
+                aria-label="オーダー入力（ユーティリティ）"
+                data-panel-open={utilityPanelAction ? 'true' : 'false'}
+                data-order-mode={isOrderUtilityAction ? 'true' : 'false'}
+                style={utilityPanelInlineStyle}
+              >
 	                <div className="charts-docked-panel">
 	                  <div className="charts-docked-panel__mini" role="group" aria-label="補助メニュー">
 	                    <button
@@ -3940,36 +4177,24 @@ function ChartsContent() {
 	                      <span className="charts-docked-panel__mini-label">ショートカット</span>
 	                    </button>
 	                  </div>
-	                  <div className="charts-docked-panel__header">
+	                  <div className="charts-docked-panel__header" onPointerDown={beginUtilityPanelDrag}>
 	                    <div>
 	                      <p className="charts-docked-panel__eyebrow">ユーティリティ</p>
                       <h2 id="charts-docked-panel-title" ref={utilityHeadingRef} tabIndex={-1}>
                         {utilityPanelAction ? utilityPanelTitles[utilityPanelAction] : 'ユーティリティ'}
                       </h2>
                       <p id="charts-docked-panel-desc" className="charts-docked-panel__desc">
-                        診療操作と入力パネルをまとめて呼び出します。
+                        オーダー・文書・画像入力をまとめて呼び出します。
                       </p>
                       <p className="charts-docked-panel__shortcut">
                         Ctrl+Shift+U: 開閉 / Ctrl+Shift+1〜{utilityItems.length}: タブ切替 / Esc: 閉じる
                       </p>
                     </div>
+                    <span className="charts-docked-panel__drag-hint" aria-hidden="true" data-no-drag="true">
+                      ドラッグで移動
+                    </span>
                     <button type="button" className="charts-docked-panel__close" onClick={() => closeUtilityPanel(true)}>
                       閉じる
-                    </button>
-                  </div>
-                  <div className="charts-docked-panel__quick" role="group" aria-label="左カラム導線">
-                    <button
-                      type="button"
-                      className="charts-docked-panel__tab"
-                      aria-controls="charts-diagnosis"
-                      aria-expanded={true}
-                      aria-label="病名編集セクションへ移動"
-                      onClick={() => focusSectionById('charts-diagnosis')}
-                    >
-                      <span className="charts-docked-panel__tab-icon" aria-hidden="true">
-                        病名
-                      </span>
-                      <span className="charts-docked-panel__tab-label">病名へ移動</span>
                     </button>
                   </div>
                   <div className="charts-docked-panel__tabs" role="tablist" aria-label="ユーティリティ">
@@ -4009,7 +4234,7 @@ function ChartsContent() {
                   </div>
                   <div
                     id="charts-docked-panel"
-                    className="charts-docked-panel__drawer"
+                    className={`charts-docked-panel__drawer${isOrderUtilityAction ? ' charts-docked-panel__drawer--order' : ''}`}
                     role="tabpanel"
                     aria-live={infoLive}
                     aria-hidden={!utilityPanelAction}
@@ -4247,6 +4472,21 @@ function ChartsContent() {
                             </button>
                           </div>
                         </div>
+
+                        {stampboxMvpEnabled ? (
+                          <div className="charts-side-panel__subsection">
+                            <div className="charts-side-panel__subheader">
+                              <strong>スタンプ</strong>
+                            </div>
+                            <p className="charts-side-panel__help">
+                              スタンプはオーダー専用の定型入力です。選択後に「オーダー編集を開く」で対象タブへ直接移動できます。
+                            </p>
+                            <StampLibraryPanel
+                              phase={stampboxMvpPhase === 2 ? 2 : 1}
+                              onOpenOrderEdit={stampboxMvpPhase >= 2 ? handleOpenOrderEditorFromEntity : undefined}
+                            />
+                          </div>
+                        ) : null}
                       </div>
                     )}
                     {utilityPanelAction === 'document' && (
@@ -4263,24 +4503,6 @@ function ChartsContent() {
                         />
                       </div>
                     )}
-                    {utilityPanelAction === 'clinical-actions' && (
-                      <>
-                        <p className="charts-side-panel__message">
-                          診療操作バーと主要セクションへの移動を補助します。
-                        </p>
-                        <div className="charts-side-panel__actions">
-                          <button type="button" onClick={() => focusSectionById('charts-actionbar')}>
-                            診療操作へ移動
-                          </button>
-                          <button type="button" onClick={() => focusSectionById('charts-soap-note')}>
-                            SOAPへ移動
-                          </button>
-                          <button type="button" onClick={() => focusSectionById('charts-orca-summary')}>
-                            ORCAサマリへ移動
-                          </button>
-                        </div>
-                      </>
-                    )}
                     {utilityPanelAction === 'imaging' && (
                       <div className="charts-side-panel__content">
                         <ImageDockedPanel
@@ -4296,14 +4518,16 @@ function ChartsContent() {
                         />
                       </div>
                     )}
-                    {utilityPanelAction === 'stamps' && stampboxMvpEnabled && (
-                      <StampLibraryPanel
-                        phase={stampboxMvpPhase === 2 ? 2 : 1}
-                        onOpenOrderEdit={stampboxMvpPhase >= 2 ? () => openUtilityPanel('order-treatment') : undefined}
-                      />
-                    )}
                     {!utilityPanelAction && <p className="charts-docked-panel__empty">ユーティリティを選択してください。</p>}
                   </div>
+                  {utilityPanelAction ? (
+                    <button
+                      type="button"
+                      className="charts-docked-panel__resize-handle"
+                      onPointerDown={beginUtilityPanelResize}
+                      aria-label="ユーティリティパネルのサイズを変更"
+                    />
+                  ) : null}
                 </div>
               </aside>
             </div>
