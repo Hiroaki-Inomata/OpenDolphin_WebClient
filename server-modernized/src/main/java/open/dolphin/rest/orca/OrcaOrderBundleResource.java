@@ -289,10 +289,15 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
                 since,
                 resolvedScanLimit,
                 patientAggregates);
+        List<RecommendationAggregate> sortedPatientAggregates = sortAggregates(patientAggregates);
+        int facilityFallbackNeeded = includeFacilityRows
+                ? Math.max(0, resolvedPatientLimit - Math.min(resolvedPatientLimit, sortedPatientAggregates.size()))
+                : 0;
+        int effectiveFacilityLimit = Math.min(resolvedFacilityLimit, facilityFallbackNeeded);
 
         Map<String, RecommendationAggregate> facilityAggregates = new LinkedHashMap<>();
         int facilityScanned = 0;
-        if (includeFacilityRows && resolvedFacilityLimit > 0) {
+        if (includeFacilityRows && effectiveFacilityLimit > 0) {
             facilityScanned = collectAggregatesFromFacility(facilityId, patientId, resolvedEntity, since, resolvedScanLimit,
                     facilityAggregates);
         }
@@ -300,17 +305,18 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
 
         List<OrderBundleRecommendationResponse.OrderRecommendationEntry> recommendations = new ArrayList<>();
         Map<String, Boolean> usedKeys = new HashMap<>();
-        for (RecommendationAggregate aggregate : sortAggregates(patientAggregates)) {
+        for (RecommendationAggregate aggregate : sortedPatientAggregates) {
             if (recommendations.size() >= resolvedPatientLimit) {
                 break;
             }
             recommendations.add(toRecommendationEntry(aggregate, "patient"));
             usedKeys.put(aggregate.key(), Boolean.TRUE);
         }
-        if (includeFacilityRows && resolvedFacilityLimit > 0) {
+        int facilityFallbackApplied = 0;
+        if (includeFacilityRows && effectiveFacilityLimit > 0) {
             int facilityAdded = 0;
             for (RecommendationAggregate aggregate : sortAggregates(facilityAggregates)) {
-                if (facilityAdded >= resolvedFacilityLimit) {
+                if (facilityAdded >= effectiveFacilityLimit) {
                     break;
                 }
                 if (usedKeys.containsKey(aggregate.key())) {
@@ -320,6 +326,7 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
                 usedKeys.put(aggregate.key(), Boolean.TRUE);
                 facilityAdded++;
             }
+            facilityFallbackApplied = facilityAdded;
         }
 
         OrderBundleRecommendationResponse response = new OrderBundleRecommendationResponse();
@@ -340,6 +347,9 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         audit.put("includeFacility", includeFacilityRows);
         audit.put("patientLimit", resolvedPatientLimit);
         audit.put("facilityLimit", resolvedFacilityLimit);
+        audit.put("effectiveFacilityLimit", effectiveFacilityLimit);
+        audit.put("facilityFallbackNeeded", facilityFallbackNeeded);
+        audit.put("facilityFallbackApplied", facilityFallbackApplied);
         audit.put("scanLimit", resolvedScanLimit);
         audit.put("patientScanned", patientScanned);
         audit.put("facilityScanned", facilityScanned);

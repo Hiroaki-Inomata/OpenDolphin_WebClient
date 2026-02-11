@@ -882,9 +882,9 @@ export function OrderBundleEditPanel({
         patientId,
         entity,
         from: recommendationFrom,
-        includeFacility: false,
+        includeFacility: true,
         patientLimit: 8,
-        facilityLimit: 0,
+        facilityLimit: 8,
         scanLimit: 800,
       });
     },
@@ -2721,7 +2721,7 @@ export function OrderBundleEditPanel({
 
       <div className="charts-side-panel__subsection">
         <div className="charts-side-panel__subheader">
-          <strong>頻用オーダー（患者個別）</strong>
+          <strong>頻用オーダー（患者優先）</strong>
           <span className="charts-side-panel__search-count">{recommendationCandidates.length}件</span>
         </div>
         {recommendationCandidates.length === 0 ? (
@@ -2744,7 +2744,7 @@ export function OrderBundleEditPanel({
             ))}
           </div>
         )}
-        <p className="charts-side-panel__help">同一患者の過去オーダー傾向から候補を生成します。</p>
+        <p className="charts-side-panel__help">患者個別候補を優先し、不足分のみ施設候補で補完します。</p>
       </div>
 
       <div className="charts-side-panel__subsection">
