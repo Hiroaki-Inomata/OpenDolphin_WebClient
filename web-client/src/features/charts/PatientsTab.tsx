@@ -15,7 +15,12 @@ import { draftSourceLabels, type DraftDirtySource } from './draftSources';
 import { getChartToneDetails, type ChartTonePayload } from '../../ux/charts/tones';
 import type { ReceptionEntry } from '../reception/api';
 import type { AppointmentDataBanner } from '../outpatient/appointmentDataBanner';
-import { buildChartsUrl, type OutpatientEncounterContext, type ReceptionCarryoverParams } from './encounterContext';
+import {
+  buildChartsUrl,
+  normalizeVisitDate,
+  type OutpatientEncounterContext,
+  type ReceptionCarryoverParams,
+} from './encounterContext';
 import { buildFacilityPath } from '../../routes/facilityRoutes';
 import { useSession } from '../../AppRouter';
 import { fetchPatients, type PatientRecord } from '../patients/api';
@@ -672,8 +677,14 @@ export function PatientsTab({
 
   const navigateToReception = (intent: 'appointment_change' | 'appointment_cancel') => {
     const keywordValue = selected?.appointmentId ?? selected?.patientId ?? selected?.receptionId ?? '';
+    const receptionDate =
+      normalizeVisitDate(selected?.visitDate) ?? normalizeVisitDate(selectedContext?.visitDate) ?? undefined;
     const params = new URLSearchParams();
     if (keywordValue) params.set('kw', keywordValue);
+    if (receptionDate) {
+      params.set('date', receptionDate);
+      params.set('visitDate', receptionDate);
+    }
     params.set('intent', intent);
     navigate(`${buildFacilityPath(session.facilityId, '/reception')}?${params.toString()}`);
     recordChartsAuditEvent({

@@ -44,6 +44,7 @@ import { StatusPill } from '../../shared/StatusPill';
 import { AuditSummaryInline } from '../../shared/AuditSummaryInline';
 import { resolveCacheHitTone, resolveMetaFlagTone, resolveTransitionTone } from '../../shared/metaPillRules';
 import { ToneBanner } from '../../reception/components/ToneBanner';
+import { upsertReceptionStatusOverride } from '../../reception/receptionDailyState';
 import { useSession } from '../../../AppRouter';
 import { ensureObservabilityMeta, getObservabilityMeta, resolveAriaLive, resolveRunId } from '../../../libs/observability/observability';
 import { buildFacilityPath } from '../../../routes/facilityRoutes';
@@ -767,6 +768,7 @@ function ChartsContent() {
   }>({});
   const lastEditLockAnnouncement = useRef<string | null>(null);
   const lastOrcaQueueSnapshot = useRef<string | null>(null);
+  const lastReceptionStatusSyncRef = useRef<string | null>(null);
 
   const openEncounterInTabs = useCallback(
     (next: OutpatientEncounterContext, options?: { name?: string }) => {
@@ -954,10 +956,15 @@ function ChartsContent() {
     if (receptionCarryover.phys) params.set('phys', receptionCarryover.phys);
     if (receptionCarryover.pay) params.set('pay', receptionCarryover.pay);
     if (receptionCarryover.sort) params.set('sort', receptionCarryover.sort);
-    if (receptionCarryover.date) params.set('date', receptionCarryover.date);
+    if (receptionCarryover.date) {
+      params.set('date', receptionCarryover.date);
+    } else if (encounterContext.visitDate) {
+      params.set('date', encounterContext.visitDate);
+      params.set('visitDate', encounterContext.visitDate);
+    }
     const query = params.toString();
     return `${buildFacilityPath(session.facilityId, '/reception')}${query ? `?${query}` : ''}`;
-  }, [receptionCarryover, session.facilityId]);
+  }, [encounterContext.visitDate, receptionCarryover, session.facilityId]);
   const handleOpenReception = useCallback(() => {
     navigate(receptionUrl);
   }, [navigate, receptionUrl]);
@@ -2065,6 +2072,29 @@ function ChartsContent() {
     [encounterContext.visitDate, selectedEntry?.visitDate, today],
   );
 
+  useEffect(() => {
+    if (!patientId || !actionVisitDate) return;
+    if (!selectedEntry || selectedEntry.status === '予約' || selectedEntry.status === '会計待ち' || selectedEntry.status === '会計済み') {
+      return;
+    }
+    const signature = `${patientId}:${actionVisitDate}:診療中`;
+    if (lastReceptionStatusSyncRef.current === signature) return;
+    lastReceptionStatusSyncRef.current = signature;
+    upsertReceptionStatusOverride({
+      date: actionVisitDate,
+      patientId,
+      status: '診療中',
+      source: 'charts_open',
+      runId: resolvedRunId ?? flags.runId,
+      scope: storageScope,
+      fallbackEntry: {
+        ...selectedEntry,
+        patientId,
+        visitDate: actionVisitDate,
+      },
+    });
+  }, [actionVisitDate, flags.runId, patientId, resolvedRunId, selectedEntry, storageScope]);
+
   const patientFallbackQuery = useQuery({
     queryKey: ['charts-patient-fallback', patientId],
     queryFn: async () => {
@@ -2772,6 +2802,23 @@ function ChartsContent() {
   }, [appointmentQuery, claimQuery, orcaSummaryQuery]);
 
   const handleAfterFinish = useCallback(async () => {
+    if (patientId && actionVisitDate) {
+      upsertReceptionStatusOverride({
+        date: actionVisitDate,
+        patientId,
+        status: '会計待ち',
+        source: 'charts_finish',
+        runId: resolvedRunId ?? flags.runId,
+        scope: storageScope,
+        fallbackEntry: selectedEntry
+          ? {
+              ...selectedEntry,
+              patientId,
+              visitDate: actionVisitDate,
+            }
+          : undefined,
+      });
+    }
     await handleRefreshSummary();
     const activeKey = activePatientTabKey;
     if (!activeKey) return;
@@ -2781,7 +2828,18 @@ function ChartsContent() {
       return;
     }
     forceClosePatientTab(activeKey);
-  }, [activePatientTabKey, draftState.dirty, forceClosePatientTab, handleRefreshSummary]);
+  }, [
+    actionVisitDate,
+    activePatientTabKey,
+    draftState.dirty,
+    flags.runId,
+    forceClosePatientTab,
+    handleRefreshSummary,
+    patientId,
+    resolvedRunId,
+    selectedEntry,
+    storageScope,
+  ]);
 
   const saveOrderSetMutation = useMutation({
     mutationFn: async () => {

@@ -1363,6 +1363,61 @@ export const receptionStyles = css`
     flex-wrap: wrap;
   }
 
+  .reception-search__date-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+  }
+
+  .reception-search__date-nav .reception-search__button {
+    padding: 0.4rem 0.72rem;
+    font-size: 0.8rem;
+  }
+
+  .reception-search__date-history {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    padding: 0.65rem 0.75rem;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    background: #f8fafc;
+  }
+
+  .reception-search__date-history-label {
+    color: #334155;
+    font-size: 0.82rem;
+    font-weight: 700;
+  }
+
+  .reception-search__date-history-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.42rem;
+  }
+
+  .reception-search__date-chip {
+    border: 1px solid rgba(148, 163, 184, 0.58);
+    background: #ffffff;
+    color: #0f172a;
+    border-radius: 999px;
+    padding: 0.32rem 0.62rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .reception-search__date-chip:hover {
+    border-color: rgba(37, 99, 235, 0.45);
+    background: #eff6ff;
+  }
+
+  .reception-search__date-chip.is-active {
+    border-color: rgba(30, 64, 175, 0.68);
+    background: #dbeafe;
+    color: #1e3a8a;
+  }
+
   .reception-search__saved {
     display: flex;
     flex-direction: column;
@@ -1892,6 +1947,49 @@ export const receptionStyles = css`
     font-weight: 700;
   }
 
+  .reception-status-tabs {
+    background: #ffffff;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    padding: 0.65rem 0.75rem;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  }
+
+  .reception-status-tabs__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .reception-status-tabs__tab {
+    border: 1px solid rgba(148, 163, 184, 0.48);
+    background: #ffffff;
+    color: #1f2937;
+    border-radius: 12px;
+    padding: 0.42rem 0.68rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .reception-status-tabs__tab strong {
+    font-size: 0.78rem;
+    color: #475569;
+  }
+
+  .reception-status-tabs__tab.is-active {
+    border-color: rgba(30, 64, 175, 0.62);
+    background: #dbeafe;
+    color: #1e3a8a;
+  }
+
+  .reception-status-tabs__tab.is-active strong {
+    color: #1d4ed8;
+  }
+
   .reception-board {
     display: flex;
     gap: 1rem;
@@ -2201,24 +2299,21 @@ export const receptionStyles = css`
   }
 
   .reception-card__actions {
-    display: none;
+    display: flex;
     gap: 0.45rem;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: flex-end;
     align-items: center;
     margin-top: 0.15rem;
   }
 
-  .reception-card:hover .reception-card__actions,
-  .reception-card:focus-within .reception-card__actions,
-  .reception-card.is-selected .reception-card__actions {
-    display: flex;
+  .reception-card__menu {
+    position: relative;
+    display: inline-flex;
   }
 
-  @media (hover: none) {
-    .reception-card__actions {
-      display: flex;
-    }
+  .reception-card__menu.is-open .reception-card__action--menu-trigger {
+    background: #e0e7ff;
   }
 
   .reception-card__action {
@@ -2235,6 +2330,77 @@ export const receptionStyles = css`
 
   .reception-card__action:hover {
     background: #eef2ff;
+  }
+
+  .reception-card__action--primary {
+    background: #1d4ed8;
+    color: #ffffff;
+  }
+
+  .reception-card__action--primary:hover {
+    background: #1e40af;
+  }
+
+  .reception-card__action--menu-trigger {
+    border-color: #94a3b8;
+    color: #334155;
+  }
+
+  .reception-card__submenu {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    right: 0;
+    width: max-content;
+    min-width: 8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.4rem;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    background: #ffffff;
+    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.16);
+    z-index: 4;
+  }
+
+  .reception-card__submenu-item {
+    border-radius: 10px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #1e293b;
+    font-weight: 700;
+    padding: 0.32rem 0.55rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+    text-align: left;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .reception-card__submenu-item:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+  }
+
+  .reception-card__submenu-item.warning {
+    border-color: #f59e0b;
+    color: #b45309;
+    background: #fffbeb;
+  }
+
+  .reception-card__submenu-item.danger {
+    border-color: #ef4444;
+    color: #b91c1c;
+    background: #fef2f2;
+  }
+
+  .reception-card__submenu-item.danger:hover {
+    background: #fee2e2;
+  }
+
+  .reception-card__submenu-item:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: #f8fafc;
   }
 
   .reception-card__action.warning {
@@ -2255,6 +2421,12 @@ export const receptionStyles = css`
     opacity: 0.5;
     cursor: not-allowed;
     background: #ffffff;
+  }
+
+  .reception-card__action--primary:disabled {
+    border-color: #93c5fd;
+    background: #bfdbfe;
+    color: #1e3a8a;
   }
 
   .reception-patient-search {
