@@ -160,6 +160,31 @@ const USAGE_FILTER_OPTIONS = [
 ];
 const DEFAULT_USAGE_LIMIT = 50;
 
+const MASTER_KEYWORD_PLACEHOLDER: Record<OrderMasterSearchType, string> = {
+  'generic-class': '例: アムロジピン',
+  youhou: '例: 1日2回 朝夕食後',
+  material: '例: ガーゼ',
+  'kensa-sort': '例: 採血',
+  etensu: '例: 胸部単純X線',
+  comment: '例: 服薬指示',
+  bodypart: '例: 胸部',
+};
+
+const resolveDefaultMasterSearchType = (entity: string): OrderMasterSearchType => {
+  if (entity === 'medOrder' || entity === 'injectionOrder') return 'generic-class';
+  if (
+    entity === 'testOrder' ||
+    entity === 'physiologyOrder' ||
+    entity === 'bacteriaOrder' ||
+    entity === 'radiologyOrder' ||
+    entity === 'baseChargeOrder' ||
+    entity === 'instractionChargeOrder'
+  ) {
+    return 'etensu';
+  }
+  return 'etensu';
+};
+
 const parseDocumentIds = (value?: string) => {
   if (!value) return { documentId: undefined, letterId: undefined };
   const trimmed = value.trim();
@@ -566,13 +591,14 @@ export function OrderBundleEditPanel({
   const [localStamps, setLocalStamps] = useState<LocalStampEntry[]>([]);
   const [stampClipboard, setStampClipboard] = useState<StampClipboardEntry | null>(null);
   const [masterKeyword, setMasterKeyword] = useState('');
-  const [masterSearchType, setMasterSearchType] = useState<OrderMasterSearchType>('generic-class');
+  const [masterSearchType, setMasterSearchType] = useState<OrderMasterSearchType>(() => resolveDefaultMasterSearchType(entity));
   const [usageKeyword, setUsageKeyword] = useState('');
   const [usageFilter, setUsageFilter] = useState(USAGE_FILTER_OPTIONS[0].value);
   const [usagePartialMatch, setUsagePartialMatch] = useState(false);
   const [usageLimit, setUsageLimit] = useState(DEFAULT_USAGE_LIMIT);
   const [materialKeyword, setMaterialKeyword] = useState('');
   const [bodyPartKeyword, setBodyPartKeyword] = useState('');
+  const [commentKeyword, setCommentKeyword] = useState('');
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [selectedItemRowId, setSelectedItemRowId] = useState<string | null>(null);
@@ -589,8 +615,28 @@ export function OrderBundleEditPanel({
   const isRadiologyOrder = entity === 'radiologyOrder';
   const isRehabOrder = entity === 'generalOrder';
   const supportsBodyPartSearch = isRadiologyOrder || isRehabOrder;
-  const supportsCommentCodes = BASE_EDITOR_ENTITIES.includes(entity);
+  const supportsCommentCodes = BASE_EDITOR_ENTITIES.includes(entity) || isMedOrder || isInjectionOrder;
   const supportsMaterials = ['generalOrder', 'treatmentOrder', 'testOrder', 'instractionChargeOrder'].includes(entity);
+  const masterKeywordPlaceholder = MASTER_KEYWORD_PLACEHOLDER[masterSearchType];
+  const masterSearchPresets = useMemo<Array<{ type: OrderMasterSearchType; label: string }>>(() => {
+    if (isMedOrder || isInjectionOrder) {
+      return [
+        { type: 'generic-class', label: '薬剤' },
+        { type: 'youhou', label: '用法' },
+      ];
+    }
+    if (supportsMaterials) {
+      return [
+        { type: 'etensu', label: '点数' },
+        { type: 'material', label: '材料' },
+        { type: 'kensa-sort', label: '検査区分' },
+      ];
+    }
+    return [
+      { type: 'etensu', label: '点数' },
+      { type: 'kensa-sort', label: '検査区分' },
+    ];
+  }, [isInjectionOrder, isMedOrder, supportsMaterials]);
   const blockReasons = useMemo(() => {
     const reasons: string[] = [];
     if (meta.readOnly) {
@@ -650,6 +696,12 @@ export function OrderBundleEditPanel({
 
   useEffect(() => {
     setStampForm((prev) => ({ ...prev, target: entity }));
+  }, [entity]);
+
+  useEffect(() => {
+    setMasterSearchType(resolveDefaultMasterSearchType(entity));
+    setMasterKeyword('');
+    setCommentKeyword('');
   }, [entity]);
 
   useEffect(() => {
@@ -920,6 +972,7 @@ export function OrderBundleEditPanel({
   const isCodeSearch = /^\d{4,}$/.test(masterKeyword.trim());
   const correctionCandidates = masterSearchQuery.data?.correctionCandidates ?? [];
   const correctionMeta = masterSearchQuery.data?.correctionMeta;
+  const selectionCommentCandidates = masterSearchQuery.data?.selectionComments ?? [];
 
   const usagePattern = useMemo(() => resolveUsagePattern(usageFilter), [usageFilter]);
   const usageSearchQuery = useQuery({
@@ -945,6 +998,13 @@ export function OrderBundleEditPanel({
     queryKey: ['charts-order-bodypart-search', bodyPartKeyword],
     queryFn: () => fetchOrderMasterSearch({ type: 'bodypart', keyword: bodyPartKeyword }),
     enabled: supportsBodyPartSearch && bodyPartKeyword.trim().length > 0,
+    staleTime: 30 * 1000,
+  });
+
+  const commentSearchQuery = useQuery({
+    queryKey: ['charts-order-comment-search', commentKeyword],
+    queryFn: () => fetchOrderMasterSearch({ type: 'comment', keyword: commentKeyword }),
+    enabled: supportsCommentCodes && commentKeyword.trim().length > 0,
     staleTime: 30 * 1000,
   });
 
@@ -1021,6 +1081,35 @@ export function OrderBundleEditPanel({
         memo: item.note ?? '',
       },
     }));
+  };
+
+  const appendCommentItem = (item: { code?: string; name?: string; unit?: string; note?: string }) => {
+    const code = item.code?.trim() ?? '';
+    const name = item.name?.trim() ?? '';
+    if (!code || !name) return;
+    setForm((prev) => {
+      if (prev.commentItems.some((entry) => entry.code?.trim() === code && entry.name.trim() === name)) {
+        return prev;
+      }
+      const nextComment = {
+        code,
+        name,
+        quantity: '',
+        unit: item.unit ?? '',
+        memo: item.note ?? '',
+      };
+      return {
+        ...prev,
+        commentItems: [...prev.commentItems, nextComment],
+      };
+    });
+    setCommentDraft({
+      code,
+      name,
+      quantity: '',
+      unit: item.unit ?? '',
+      memo: item.note ?? '',
+    });
   };
 
   const resolveBundleClassMeta = (bundleForm: BundleFormState) => {
@@ -2385,6 +2474,7 @@ export function OrderBundleEditPanel({
             setUsageLimit(DEFAULT_USAGE_LIMIT);
             setMaterialKeyword('');
             setBodyPartKeyword('');
+            setCommentKeyword('');
             setCommentDraft({
               code: '',
               name: '',
@@ -2951,6 +3041,19 @@ export function OrderBundleEditPanel({
                   : ''}
             </span>
           </div>
+          <div className="charts-side-panel__template-actions" aria-label="おすすめ検索">
+            {masterSearchPresets.map((preset) => (
+              <button
+                key={`master-preset-${preset.type}`}
+                type="button"
+                onClick={() => setMasterSearchType(preset.type)}
+                disabled={isBlocked}
+                aria-pressed={masterSearchType === preset.type}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
           <div className="charts-side-panel__field-row">
             <div className="charts-side-panel__field">
               <label htmlFor={`${entity}-master-keyword`}>キーワード</label>
@@ -2958,7 +3061,7 @@ export function OrderBundleEditPanel({
                 id={`${entity}-master-keyword`}
                 value={masterKeyword}
                 onChange={(event) => setMasterKeyword(event.target.value)}
-                placeholder="例: アムロジピン"
+                placeholder={masterKeywordPlaceholder}
                 disabled={isBlocked}
               />
             </div>
@@ -3030,6 +3133,44 @@ export function OrderBundleEditPanel({
                   ))}
                 </div>
               )}
+            </div>
+          )}
+          {masterSearchQuery.data?.ok && isCodeSearch && supportsCommentCodes && selectionCommentCandidates.length > 0 && (
+            <div className="charts-side-panel__correction">
+              <div className="charts-side-panel__correction-header">
+                <strong>選択式コメント候補（medicationgetv2）</strong>
+                <span>{selectionCommentCandidates.length}件</span>
+              </div>
+              <div className="charts-side-panel__search-table">
+                <div className="charts-side-panel__search-header">
+                  <span>コード</span>
+                  <span>名称</span>
+                  <span>分類</span>
+                  <span>項番</span>
+                  <span>枝番</span>
+                </div>
+                {selectionCommentCandidates.map((item) => (
+                  <button
+                    key={`selection-comment-${item.code}-${item.name}`}
+                    type="button"
+                    className="charts-side-panel__search-row charts-side-panel__search-row--correction"
+                    onClick={() =>
+                      appendCommentItem({
+                        code: item.code,
+                        name: item.name,
+                        note: item.category,
+                      })
+                    }
+                    disabled={isBlocked}
+                  >
+                    <span>{item.code}</span>
+                    <span>{item.name}</span>
+                    <span>{item.category ?? '-'}</span>
+                    <span>{item.itemNumber ?? '-'}</span>
+                    <span>{item.itemNumberBranch ?? '-'}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {masterSearchQuery.data?.ok && masterSearchQuery.data.items.length > 0 && (
@@ -3237,7 +3378,7 @@ export function OrderBundleEditPanel({
                 }
                 disabled={isBlocked}
               >
-                追加
+                コメント追加
               </button>
             </div>
             <div className="charts-side-panel__field">
@@ -3365,6 +3506,69 @@ export function OrderBundleEditPanel({
             <div className="charts-side-panel__subheader">
               <strong>コメントコード</strong>
             </div>
+            <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
+              <div className="charts-side-panel__subheader">
+                <strong>コメントマスタ検索</strong>
+                <span className="charts-side-panel__search-count">
+                  {commentSearchQuery.isFetching
+                    ? '検索中...'
+                    : commentSearchQuery.data?.ok
+                      ? `${commentSearchQuery.data.totalCount ?? 0}件`
+                      : ''}
+                </span>
+              </div>
+              <div className="charts-side-panel__field">
+                <label htmlFor={`${entity}-comment-keyword`}>キーワード</label>
+                <input
+                  id={`${entity}-comment-keyword`}
+                  value={commentKeyword}
+                  onChange={(event) => setCommentKeyword(event.target.value)}
+                  placeholder="例: 服薬指示 / 食後 / 疼痛"
+                  disabled={isBlocked}
+                />
+              </div>
+              {commentSearchQuery.data && !commentSearchQuery.data.ok && (
+                <div className="charts-side-panel__notice charts-side-panel__notice--error">
+                  {commentSearchQuery.data.message ?? 'コメントマスタの検索に失敗しました。'}
+                </div>
+              )}
+              {commentSearchQuery.data?.ok && commentSearchQuery.data.items.length > 0 && (
+                <div className="charts-side-panel__search-table">
+                  <div className="charts-side-panel__search-header">
+                    <span>コード</span>
+                    <span>名称</span>
+                    <span>単位</span>
+                    <span>分類</span>
+                    <span>備考</span>
+                  </div>
+                  {commentSearchQuery.data.items.map((item) => (
+                    <button
+                      key={`comment-${item.code ?? item.name}`}
+                      type="button"
+                      className="charts-side-panel__search-row"
+                      onClick={() =>
+                        appendCommentItem({
+                          code: item.code,
+                          name: item.name,
+                          unit: item.unit,
+                          note: item.note,
+                        })
+                      }
+                      disabled={isBlocked}
+                    >
+                      <span>{item.code ?? '-'}</span>
+                      <span>{item.name}</span>
+                      <span>{item.unit ?? '-'}</span>
+                      <span>{item.category ?? '-'}</span>
+                      <span>{item.note ?? '-'}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {commentSearchQuery.data?.ok && commentSearchQuery.data.items.length === 0 && commentKeyword.trim() && (
+                <p className="charts-side-panel__empty">該当するコメントコードが見つかりません。</p>
+              )}
+            </div>
             <p className="charts-side-panel__message">
               コメントコードは指示/コメントをコード行として登録します。自由記述は上部のメモ欄を使用してください。
             </p>
@@ -3423,7 +3627,7 @@ export function OrderBundleEditPanel({
                 }}
                 disabled={isBlocked || !commentDraft.code?.trim() || !commentDraft.name.trim()}
               >
-                追加
+                コメント追加
               </button>
             </div>
             {form.commentItems.map((item, index) => (

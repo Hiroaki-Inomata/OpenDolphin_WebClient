@@ -9,6 +9,7 @@ export type OrderMasterSearchType =
   | 'material'
   | 'kensa-sort'
   | 'etensu'
+  | 'comment'
   | 'bodypart';
 
 export type OrderMasterSearchItem = {
@@ -40,6 +41,13 @@ export type OrderMasterSearchResult = {
     apiResultMessage?: string;
     validTo?: string;
   };
+  selectionComments?: Array<{
+    code: string;
+    name: string;
+    category?: string;
+    itemNumber?: string;
+    itemNumberBranch?: string;
+  }>;
 };
 
 type OrcaMasterListResponse<T> = {
@@ -83,8 +91,11 @@ const MASTER_ENDPOINT_MAP: Record<OrderMasterSearchType, string> = {
   material: '/orca/master/material',
   'kensa-sort': '/orca/master/kensa-sort',
   etensu: '/orca/master/etensu',
+  comment: '/orca/master/etensu',
   bodypart: '/orca/master/etensu',
 };
+
+const COMMENT_CODE_PATTERN = /^(008[1-6]|8[1-6]|098|099|98|99)/;
 
 const ORCA_MASTER_USER =
   import.meta.env.VITE_ORCA_MASTER_USER ?? '1.3.6.1.4.1.9414.70.1:admin';
@@ -169,9 +180,16 @@ export async function fetchOrderMasterSearch(params: {
   if (params.type === 'bodypart' && !params.category) {
     query.set('category', '2');
   }
+  if (params.type === 'comment' && !params.category) {
+    query.set('category', '8');
+  }
   if (params.type === 'generic-class') {
     query.set('page', String(params.page ?? 1));
     query.set('size', String(params.size ?? 50));
+  }
+  if (params.type === 'comment') {
+    query.set('page', String(params.page ?? 1));
+    query.set('size', String(params.size ?? 100));
   }
   const endpoint = MASTER_ENDPOINT_MAP[params.type];
   const meta = ensureObservabilityMeta();
@@ -199,15 +217,24 @@ export async function fetchOrderMasterSearch(params: {
     };
   }
 
-  if (params.type === 'etensu' || params.type === 'bodypart') {
+  if (params.type === 'etensu' || params.type === 'bodypart' || params.type === 'comment') {
     const { items, totalCount } = extractList<OrcaTensuEntry>(json);
-    const normalized = items
+    const normalizedAll = items
       .map((entry) => normalizeTensuEntry(entry, params.type))
       .filter((item): item is OrderMasterSearchItem => Boolean(item));
+    const normalized =
+      params.type === 'comment'
+        ? normalizedAll.filter((item) => {
+            const code = item.code?.trim() ?? '';
+            if (COMMENT_CODE_PATTERN.test(code)) return true;
+            const category = item.category?.toLowerCase() ?? '';
+            return category.includes('comment') || category.includes('コメント');
+          })
+        : normalizedAll;
     return {
       ok: true,
       items: normalized,
-      totalCount: totalCount ?? normalized.length,
+      totalCount: params.type === 'comment' ? normalized.length : totalCount ?? normalized.length,
       runId: latestMeta.runId ?? meta.runId,
       cacheHit: latestMeta.cacheHit,
       missingMaster: latestMeta.missingMaster,
@@ -224,6 +251,7 @@ export async function fetchOrderMasterSearch(params: {
 
   let correctionCandidates: OrderMasterSearchItem[] | undefined;
   let correctionMeta: OrderMasterSearchResult['correctionMeta'] | undefined;
+  let selectionComments: OrderMasterSearchResult['selectionComments'];
   if ((params.type === 'generic-class' || params.type === 'kensa-sort') && isLikelyCodeSearch(keyword)) {
     const baseDate = params.effective ?? new Date().toISOString().slice(0, 10);
     const requestXml = buildMedicationGetRequestXml({ requestCode: keyword, baseDate });
@@ -250,6 +278,15 @@ export async function fetchOrderMasterSearch(params: {
     } else {
       correctionCandidates = [];
     }
+    selectionComments = medicationResult.selections
+      .map((selection) => ({
+        code: selection.commentCode?.trim() ?? '',
+        name: selection.commentName?.trim() ?? '',
+        category: selection.category,
+        itemNumber: selection.itemNumber,
+        itemNumberBranch: selection.itemNumberBranch,
+      }))
+      .filter((selection) => selection.code.length > 0 && selection.name.length > 0);
   }
 
   return {
@@ -264,5 +301,6 @@ export async function fetchOrderMasterSearch(params: {
     raw: json,
     correctionCandidates,
     correctionMeta,
+    selectionComments,
   };
 }

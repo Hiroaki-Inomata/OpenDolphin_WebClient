@@ -268,4 +268,93 @@ describe('OrderBundleEditPanel master search UI', () => {
     expect(screen.getByLabelText('部位検索')).toBeEnabled();
     expect(screen.getByRole('button', { name: '部位検索' })).toBeEnabled();
   });
+
+  it('コメントマスタ検索の行選択でコメントコードが追加される', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type, keyword }) => {
+      if (type === 'comment' && keyword.includes('服薬')) {
+        return {
+          ok: true,
+          items: [
+            {
+              type: 'comment',
+              code: '0082',
+              name: '服薬指示',
+              category: 'comment',
+              note: 'RP',
+            },
+          ],
+          totalCount: 1,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+
+    const user = userEvent.setup();
+    const { container } = renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    const commentKeywordInput = container.querySelector<HTMLInputElement>('input[id$="-comment-keyword"]');
+    expect(commentKeywordInput).not.toBeNull();
+    await user.type(commentKeywordInput!, '服薬');
+
+    await waitFor(() =>
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'comment', keyword: '服薬' })),
+    );
+    await waitFor(() => expect(screen.getByText('服薬指示')).toBeInTheDocument());
+
+    await user.click(screen.getByText('服薬指示').closest('button')!);
+
+    const commentCodeInput = container.querySelector<HTMLInputElement>('input[id$="-comment-code-0"]');
+    const commentNameInput = container.querySelector<HTMLInputElement>('input[id$="-comment-name-0"]');
+    expect(commentCodeInput?.value).toBe('0082');
+    expect(commentNameInput?.value).toBe('服薬指示');
+  });
+
+  it('コード検索で返る選択式コメント候補をコメントコードへ追加できる', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type, keyword }) => {
+      if (type === 'generic-class' && keyword === '1234') {
+        return {
+          ok: true,
+          items: [],
+          totalCount: 0,
+          correctionMeta: {
+            apiResult: '00',
+            apiResultMessage: '処理終了',
+            validTo: '9999-12-31',
+          },
+          correctionCandidates: [],
+          selectionComments: [
+            {
+              code: '0082',
+              name: '食後',
+              category: '1',
+              itemNumber: '01',
+              itemNumberBranch: '00',
+            },
+          ],
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+
+    const user = userEvent.setup();
+    const { container } = renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    const keywordInput = container.querySelector<HTMLInputElement>('input[id$="-master-keyword"]');
+    expect(keywordInput).not.toBeNull();
+    await user.type(keywordInput!, '1234');
+
+    await waitFor(() => expect(screen.getByText('選択式コメント候補（medicationgetv2）')).toBeInTheDocument());
+    await user.click(screen.getByText('食後').closest('button')!);
+
+    const commentCodeInput = container.querySelector<HTMLInputElement>('input[id$="-comment-code-0"]');
+    const commentNameInput = container.querySelector<HTMLInputElement>('input[id$="-comment-name-0"]');
+    expect(commentCodeInput?.value).toBe('0082');
+    expect(commentNameInput?.value).toBe('食後');
+  });
 });
