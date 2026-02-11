@@ -1,5 +1,5 @@
 import { Global } from '@emotion/react';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -2943,7 +2943,6 @@ function ChartsContent() {
   });
 
   const utilityPanelTitles: Record<DockedUtilityAction, string> = {
-    'clinical-actions': '診療操作',
     'prescription-edit': '処方',
     'order-injection': '注射',
     'order-treatment': '処置',
@@ -2958,7 +2957,6 @@ function ChartsContent() {
   >(
     () => {
       const base: Array<{ id: DockedUtilityAction; label: string; shortLabel: string; requiresEdit: boolean }> = [
-        { id: 'clinical-actions', label: '診療操作', shortLabel: '診療', requiresEdit: false },
         { id: 'prescription-edit', label: '処方', shortLabel: '処方', requiresEdit: true },
         { id: 'order-injection', label: '注射', shortLabel: '注射', requiresEdit: true },
         { id: 'order-treatment', label: '処置', shortLabel: '処置', requiresEdit: true },
@@ -3019,14 +3017,62 @@ function ChartsContent() {
   );
   const utilityEditActions = useMemo(() => new Set(utilityItems.filter((item) => item.requiresEdit).map((item) => item.id)), [utilityItems]);
   const patientSelected = Boolean(encounterContext.patientId);
-
-  const focusSectionById = useCallback((sectionId: string) => {
-    if (typeof document === 'undefined') return;
-    const target = document.getElementById(sectionId) as HTMLElement | null;
-    if (!target) return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    target.focus();
-  }, []);
+  const persistUtilityPanelLayout = useCallback(
+    (layout: UtilityPanelLayout) => {
+      writeUtilityPanelLayoutStorage(layout, storageScope);
+    },
+    [storageScope],
+  );
+  const updateUtilityPanelLayout = useCallback(
+    (
+      updater: UtilityPanelLayout | ((prev: UtilityPanelLayout) => UtilityPanelLayout),
+      options?: { persist?: boolean },
+    ) => {
+      if (typeof window === 'undefined') return;
+      const nextLayout = clampUtilityPanelLayout(
+        typeof updater === 'function' ? updater(utilityPanelLayoutRef.current) : updater,
+        window.innerWidth,
+        window.innerHeight,
+      );
+      utilityPanelLayoutRef.current = nextLayout;
+      setUtilityPanelLayout(nextLayout);
+      if (options?.persist ?? true) {
+        persistUtilityPanelLayout(nextLayout);
+      }
+    },
+    [persistUtilityPanelLayout],
+  );
+  const beginUtilityPanelDrag = useCallback(
+    (event: React.PointerEvent<HTMLElement>) => {
+      if (event.button !== 0 || !utilityPanelAction) return;
+      const target = event.target as HTMLElement | null;
+      if (!target || target.closest('button, input, select, textarea, [data-no-drag="true"]')) return;
+      event.preventDefault();
+      utilityPanelDragRef.current = {
+        mode: 'move',
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startLayout: utilityPanelLayoutRef.current,
+      };
+    },
+    [utilityPanelAction],
+  );
+  const beginUtilityPanelResize = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0 || !utilityPanelAction) return;
+      event.preventDefault();
+      event.stopPropagation();
+      utilityPanelDragRef.current = {
+        mode: 'resize',
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startLayout: utilityPanelLayoutRef.current,
+      };
+    },
+    [utilityPanelAction],
+  );
 
   const resolveUtilityTrigger = useCallback((action: DockedUtilityAction) => {
     if (typeof document === 'undefined') return null;
@@ -3211,9 +3257,9 @@ function ChartsContent() {
     setOrderHistoryCopyRequest(null);
     setDocumentHistoryCopyRequest(null);
     utilityFocusRestoreRef.current = false;
-    utilityLastActionRef.current = 'clinical-actions';
+    utilityLastActionRef.current = 'order-set';
     requestAnimationFrame(() => {
-      resolveUtilityTrigger('clinical-actions')?.focus();
+      resolveUtilityTrigger('order-set')?.focus();
     });
   }, [encounterContext.patientId, resolveUtilityTrigger]);
 
@@ -3298,7 +3344,7 @@ function ChartsContent() {
           closeUtilityPanel(true);
           return;
         }
-        openUtilityPanel(utilityLastActionRef.current ?? 'clinical-actions');
+        openUtilityPanel(utilityLastActionRef.current ?? 'order-set');
         return;
       }
 
