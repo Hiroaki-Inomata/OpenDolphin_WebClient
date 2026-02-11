@@ -4503,24 +4503,6 @@ function ChartsContent() {
                         />
                       </div>
                     )}
-                    {utilityPanelAction === 'clinical-actions' && (
-                      <>
-                        <p className="charts-side-panel__message">
-                          診療操作バーと主要セクションへの移動を補助します。
-                        </p>
-                        <div className="charts-side-panel__actions">
-                          <button type="button" onClick={() => focusSectionById('charts-actionbar')}>
-                            診療操作へ移動
-                          </button>
-                          <button type="button" onClick={() => focusSectionById('charts-soap-note')}>
-                            SOAPへ移動
-                          </button>
-                          <button type="button" onClick={() => focusSectionById('charts-orca-summary')}>
-                            ORCAサマリへ移動
-                          </button>
-                        </div>
-                      </>
-                    )}
                     {utilityPanelAction === 'imaging' && (
                       <div className="charts-side-panel__content">
                         <ImageDockedPanel
@@ -4538,6 +4520,14 @@ function ChartsContent() {
                     )}
                     {!utilityPanelAction && <p className="charts-docked-panel__empty">ユーティリティを選択してください。</p>}
                   </div>
+                  {utilityPanelAction ? (
+                    <button
+                      type="button"
+                      className="charts-docked-panel__resize-handle"
+                      onPointerDown={beginUtilityPanelResize}
+                      aria-label="ユーティリティパネルのサイズを変更"
+                    />
+                  ) : null}
                 </div>
               </aside>
             </div>
