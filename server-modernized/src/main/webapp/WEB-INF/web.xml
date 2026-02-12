@@ -58,6 +58,7 @@
                 open.dolphin.rest.AdminConfigResource,
                 open.dolphin.rest.AdminMasterUpdateResource,
                 open.dolphin.rest.AdminOrcaConnectionResource,
+                open.dolphin.rest.AdminOrcaUserResource,
                 open.dolphin.rest.AdminSecurityResource,
                 open.dolphin.rest.OrcaQueueResource,
                 open.dolphin.rest.orca.OrcaMedicalResource,

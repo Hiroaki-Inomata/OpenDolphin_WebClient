@@ -855,6 +855,21 @@ export function ChartsActionBar({
     printPrecheckReasons,
   ]);
 
+  const statusTone = useMemo<'ready' | 'busy' | 'guarded' | 'locked'>(() => {
+    if (isRunning) return 'busy';
+    if (approvalLocked || readOnly || Boolean(resolvedLockReason)) return 'locked';
+    if (sendPrecheckReasons.length > 0 || printPrecheckReasons.length > 0 || finishPrecheckReasons.length > 0) return 'guarded';
+    return 'ready';
+  }, [
+    approvalLocked,
+    finishPrecheckReasons.length,
+    isRunning,
+    printPrecheckReasons.length,
+    readOnly,
+    resolvedLockReason,
+    sendPrecheckReasons.length,
+  ]);
+
   const logTelemetry = (
     action: ChartAction,
     outcome: 'success' | 'error' | 'blocked' | 'started',
@@ -2235,7 +2250,9 @@ export function ChartsActionBar({
     <button
       type="button"
       id="charts-action-draft"
-      className={`charts-actions__button${compactHeader && isHeaderCollapsed ? ' charts-actions__button--compact' : ''}`}
+      className={`charts-actions__button charts-actions__button--draft${
+        compactHeader && isHeaderCollapsed ? ' charts-actions__button--compact' : ''
+      }`}
       disabled={otherBlocked}
       data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
       onClick={() => handleAction('draft')}
@@ -2256,6 +2273,7 @@ export function ChartsActionBar({
       data-test-id="charts-actionbar"
       data-compact-collapsed={compactHeader && isHeaderCollapsed ? '1' : '0'}
       data-embedded={embedded ? '1' : '0'}
+      data-status-tone={statusTone}
     >
       <header className="charts-actions__header">
         <div>
@@ -2263,7 +2281,7 @@ export function ChartsActionBar({
             {embedded ? '診療操作' : compactHeader ? '診察状況・送信パネル' : '診察状況更新と送信制御'}
           </p>
           <h2>{embedded ? '診察状況・送信' : compactHeader ? '診察状況・送信' : '診察状況更新・送信・ドラフト'}</h2>
-          <p className="charts-actions__status" role="status">
+          <p className={`charts-actions__status charts-actions__status--${statusTone}`} role="status">
             {statusLine}
           </p>
           {compactHeader ? (
@@ -2477,7 +2495,7 @@ export function ChartsActionBar({
           </div>
           <p className="charts-actions__conflict-message">{approvalReason}</p>
           <div className="charts-actions__conflict-actions">
-            <button type="button" className="charts-actions__button charts-actions__button--unlock" onClick={openPrintDialog}>
+            <button type="button" className="charts-actions__button charts-actions__button--print" onClick={openPrintDialog}>
               印刷/エクスポートへ
             </button>
             <button
@@ -2502,18 +2520,18 @@ export function ChartsActionBar({
           </div>
           <p className="charts-actions__conflict-message">{readOnlyReason}</p>
           <div className="charts-actions__conflict-actions">
-            <button type="button" className="charts-actions__button charts-actions__button--unlock" onClick={handleReloadLatest}>
+            <button type="button" className="charts-actions__button charts-actions__button--reload" onClick={handleReloadLatest}>
               最新を再読込
             </button>
             <button
               type="button"
-              className="charts-actions__button charts-actions__button--ghost"
+              className="charts-actions__button charts-actions__button--cancel"
               onClick={handleDiscard}
               disabled={!hasUnsavedDraft}
             >
               自分の変更を破棄
             </button>
-            <button type="button" className="charts-actions__button" onClick={handleForceTakeover}>
+            <button type="button" className="charts-actions__button charts-actions__button--takeover" onClick={handleForceTakeover}>
               強制引き継ぎ
             </button>
           </div>
@@ -2521,11 +2539,11 @@ export function ChartsActionBar({
       ) : null}
 
       <div className="charts-actions__controls">
-        <div className="charts-actions__group" role="group" aria-label="診察状況更新">
+        <div className="charts-actions__group" data-group="encounter" role="group" aria-label="診察状況更新">
           <button
             type="button"
             id="charts-action-start"
-            className="charts-actions__button charts-actions__button--unlock"
+            className="charts-actions__button charts-actions__button--encounter-start"
             disabled={otherBlocked || !resolvedPatientId}
             data-disabled-reason={
               otherBlocked
@@ -2541,7 +2559,7 @@ export function ChartsActionBar({
           <button
             type="button"
             id="charts-action-pause"
-            className="charts-actions__button charts-actions__button--ghost"
+            className="charts-actions__button charts-actions__button--encounter-pause"
             disabled={otherBlocked || !resolvedPatientId}
             data-disabled-reason={
               otherBlocked
@@ -2557,7 +2575,7 @@ export function ChartsActionBar({
           <button
             type="button"
             id="charts-action-finish"
-            className="charts-actions__button"
+            className="charts-actions__button charts-actions__button--encounter-finish"
             disabled={otherBlocked}
             data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
             onClick={() => handleAction('finish')}
@@ -2566,11 +2584,11 @@ export function ChartsActionBar({
             診察終了
           </button>
         </div>
-        <div className="charts-actions__group" role="group" aria-label="送信と保存">
+        <div className="charts-actions__group" data-group="send" role="group" aria-label="送信と保存">
           <button
             type="button"
             id="charts-action-send"
-            className="charts-actions__button charts-actions__button--primary"
+            className="charts-actions__button charts-actions__button--send"
             disabled={sendDisabled}
             onClick={() => {
               setConfirmAction('send');
@@ -2592,7 +2610,7 @@ export function ChartsActionBar({
           <button
             type="button"
             id="charts-action-print"
-            className="charts-actions__button"
+            className="charts-actions__button charts-actions__button--print"
             disabled={printDisabled}
             aria-disabled={printDisabled}
             onClick={openPrintDialog}
@@ -2603,10 +2621,10 @@ export function ChartsActionBar({
             印刷/エクスポート
           </button>
         </div>
-        <div className="charts-actions__group" role="group" aria-label="補助操作">
+        <div className="charts-actions__group" data-group="support" role="group" aria-label="補助操作">
           <button
             type="button"
-            className="charts-actions__button charts-actions__button--ghost"
+            className="charts-actions__button charts-actions__button--cancel"
             disabled={otherBlocked}
             data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
             onClick={() => handleAction('cancel')}
