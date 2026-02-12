@@ -1,20 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { readStoredAuth } from '../../libs/auth/storedAuth';
 import type { OrderBundleItem } from './orderBundleApi';
 import { fetchStampDetail, fetchStampTree, fetchUserProfile, type StampBundleJson, type StampTree } from './stampApi';
 import {
+  deleteLocalStamp,
   loadLocalStamps,
   loadStampClipboard,
+  saveLocalStamp,
   saveStampClipboard,
+  updateLocalStamp,
   type LocalStampEntry,
   type StampClipboardEntry,
 } from './stampStorage';
 
 type StampLibraryPanelProps = {
   phase: 1 | 2;
-  onOpenOrderEdit?: (targetEntity: string) => void;
 };
 
 type EntityFilter = 'all' | string;
@@ -40,6 +42,76 @@ type LocalStampListItem = {
 
 type StampListItem = ServerStampListItem | LocalStampListItem;
 
+type StampNotice = { tone: 'info' | 'success' | 'error'; message: string };
+
+type StampEditorState = {
+  localStampId?: string;
+  name: string;
+  category: string;
+  target: string;
+  bundle: LocalStampEntry['bundle'];
+};
+
+const DEFAULT_STAMP_TARGET = 'medOrder';
+
+const STAMP_TARGET_OPTIONS = [
+  { value: 'medOrder', label: '処方' },
+  { value: 'generalOrder', label: '処置/検査/指示' },
+  { value: 'injectionOrder', label: '注射' },
+  { value: 'treatmentOrder', label: '処置' },
+  { value: 'surgeryOrder', label: '手術' },
+  { value: 'testOrder', label: '検査' },
+  { value: 'physiologyOrder', label: '生理検査' },
+  { value: 'bacteriaOrder', label: '細菌検査' },
+  { value: 'radiologyOrder', label: '放射線' },
+  { value: 'otherOrder', label: 'その他' },
+] as const;
+
+const buildEmptyItem = (): OrderBundleItem => ({ name: '', quantity: '', unit: '', memo: '' });
+
+const buildEmptyBundle = (today: string): LocalStampEntry['bundle'] => ({
+  bundleName: '',
+  admin: '',
+  bundleNumber: '1',
+  adminMemo: '',
+  memo: '',
+  startDate: today,
+  items: [buildEmptyItem()],
+});
+
+const buildInitialEditor = (today: string): StampEditorState => ({
+  name: '',
+  category: '',
+  target: DEFAULT_STAMP_TARGET,
+  bundle: buildEmptyBundle(today),
+});
+
+const cloneBundle = (bundle: LocalStampEntry['bundle']): LocalStampEntry['bundle'] => ({
+  ...bundle,
+  items: (bundle.items ?? []).map((item) => ({ ...item })),
+});
+
+const toLocalBundleFromStamp = (stamp: StampBundleJson, today: string): LocalStampEntry['bundle'] => ({
+  bundleName: stamp.orderName ?? stamp.className ?? '',
+  admin: stamp.admin ?? '',
+  bundleNumber: stamp.bundleNumber ?? '1',
+  classCode: stamp.classCode,
+  classCodeSystem: stamp.classCodeSystem,
+  className: stamp.className,
+  adminMemo: stamp.adminMemo ?? '',
+  memo: stamp.memo ?? '',
+  startDate: today,
+  items:
+    stamp.claimItem && stamp.claimItem.length > 0
+      ? stamp.claimItem.map((item): OrderBundleItem => ({
+          name: item.name ?? '',
+          quantity: item.number ?? '',
+          unit: item.unit ?? '',
+          memo: item.memo ?? '',
+        }))
+      : [buildEmptyItem()],
+});
+
 const toClipboardEntryFromLocalStamp = (stamp: LocalStampEntry): StampClipboardEntry => ({
   savedAt: new Date().toISOString(),
   source: 'local',
@@ -63,28 +135,7 @@ const toClipboardEntryFromStamp = (
   category: meta.category ?? '',
   target: meta.target,
   entity: meta.entity,
-  bundle: {
-    bundleName: stamp.orderName ?? stamp.className ?? '',
-    admin: stamp.admin ?? '',
-    bundleNumber: stamp.bundleNumber ?? '1',
-    classCode: stamp.classCode,
-    classCodeSystem: stamp.classCodeSystem,
-    className: stamp.className,
-    adminMemo: stamp.adminMemo ?? '',
-    memo: stamp.memo ?? '',
-    startDate: today,
-    items:
-      stamp.claimItem && stamp.claimItem.length > 0
-        ? stamp.claimItem.map(
-            (item): OrderBundleItem => ({
-              name: item.name ?? '',
-              quantity: item.number ?? '',
-              unit: item.unit ?? '',
-              memo: item.memo ?? '',
-            }),
-          )
-        : [],
-  },
+  bundle: toLocalBundleFromStamp(stamp, today),
 });
 
 const matchesQuery = (candidate: string, query: string) => {
@@ -112,21 +163,37 @@ const groupByKey = <T,>(items: T[], keyOf: (item: T) => string) => {
   return map;
 };
 
-const resolveOrderTargetEntity = (item: StampListItem): string => {
-  if (item.source === 'local') {
-    return item.target?.trim() || item.entity?.trim() || '';
-  }
-  return item.entity?.trim() || '';
-};
+const toStampKey = (item: StampListItem) => (item.source === 'local' ? `local::${item.id}` : `server::${item.stampId}`);
 
-export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelProps) {
+export function StampLibraryPanel({ phase }: StampLibraryPanelProps) {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const storedAuth = useMemo(() => readStoredAuth(), []);
   const userName = storedAuth ? `${storedAuth.facilityId}:${storedAuth.userId}` : null;
+
   const [query, setQuery] = useState('');
   const [entityFilter, setEntityFilter] = useState<EntityFilter>('all');
-  const [selected, setSelected] = useState<StampListItem | null>(null);
+  const [selectedKey, setSelectedKey] = useState('');
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
+  const [editorNotice, setEditorNotice] = useState<StampNotice | null>(null);
+  const [localStamps, setLocalStamps] = useState<LocalStampEntry[]>([]);
+  const [clipboard, setClipboard] = useState<StampClipboardEntry | null>(null);
+  const [editor, setEditor] = useState<StampEditorState>(() => buildInitialEditor(today));
+
+  useEffect(() => {
+    if (!userName) {
+      setLocalStamps([]);
+      return;
+    }
+    setLocalStamps(loadLocalStamps(userName));
+  }, [userName]);
+
+  useEffect(() => {
+    if (!userName) {
+      setClipboard(null);
+      return;
+    }
+    setClipboard(loadStampClipboard(userName));
+  }, [userName]);
 
   const userProfileQuery = useQuery({
     queryKey: ['stamp-library-profile', userName],
@@ -148,18 +215,7 @@ export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelP
     enabled: typeof userPk === 'number',
   });
 
-  const selectedStampId = selected?.source === 'server' ? selected.stampId : null;
-  const stampDetailQuery = useQuery({
-    queryKey: ['stamp-library-detail', selectedStampId],
-    queryFn: () => {
-      if (!selectedStampId) throw new Error('stampId is required');
-      return fetchStampDetail(selectedStampId);
-    },
-    enabled: Boolean(selectedStampId),
-  });
-
   const trees = stampTreeQuery.data?.trees ?? [];
-  const entities = useMemo(() => collectStampTreeEntities(trees), [trees]);
 
   const serverItems = useMemo((): ServerStampListItem[] => {
     const list: ServerStampListItem[] = [];
@@ -180,7 +236,6 @@ export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelP
     return list;
   }, [trees]);
 
-  const localStamps = useMemo(() => (userName ? loadLocalStamps(userName) : []), [userName]);
   const localItems = useMemo((): LocalStampListItem[] => {
     return localStamps.map((stamp) => ({
       source: 'local',
@@ -192,6 +247,42 @@ export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelP
       stamp,
     }));
   }, [localStamps]);
+
+  const selected = useMemo<StampListItem | null>(() => {
+    if (!selectedKey) return null;
+    const [source, id] = selectedKey.split('::');
+    if (source === 'local') {
+      return localItems.find((item) => item.id === id) ?? null;
+    }
+    if (source === 'server') {
+      return serverItems.find((item) => item.stampId === id) ?? null;
+    }
+    return null;
+  }, [localItems, selectedKey, serverItems]);
+
+  useEffect(() => {
+    if (selectedKey && !selected) {
+      setSelectedKey('');
+    }
+  }, [selected, selectedKey]);
+
+  const selectedStampId = selected?.source === 'server' ? selected.stampId : null;
+  const stampDetailQuery = useQuery({
+    queryKey: ['stamp-library-detail', selectedStampId],
+    queryFn: () => {
+      if (!selectedStampId) throw new Error('stampId is required');
+      return fetchStampDetail(selectedStampId);
+    },
+    enabled: Boolean(selectedStampId),
+  });
+
+  const entities = useMemo(() => {
+    const treeEntities = collectStampTreeEntities(trees);
+    const localEntities = localStamps
+      .flatMap((stamp) => [stamp.target, stamp.entity])
+      .filter((value): value is string => Boolean(value && value.trim()));
+    return Array.from(new Set([...treeEntities, ...localEntities])).sort();
+  }, [localStamps, trees]);
 
   const filteredServerItems = useMemo(() => {
     return serverItems
@@ -210,10 +301,120 @@ export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelP
   const groupedServer = useMemo(() => groupByKey(filteredServerItems, (item) => item.treeName), [filteredServerItems]);
   const groupedLocal = useMemo(() => groupByKey(filteredLocalItems, (item) => item.category), [filteredLocalItems]);
 
-  const clipboard = useMemo(() => (userName ? loadStampClipboard(userName) : null), [userName, copyNotice]);
+  const updateBundle = (patch: Partial<LocalStampEntry['bundle']>) => {
+    setEditor((prev) => ({ ...prev, bundle: { ...prev.bundle, ...patch } }));
+  };
+
+  const updateBundleItem = (index: number, patch: Partial<OrderBundleItem>) => {
+    setEditor((prev) => {
+      const items = [...(prev.bundle.items ?? [])];
+      const base = items[index] ?? buildEmptyItem();
+      items[index] = { ...base, ...patch };
+      return {
+        ...prev,
+        bundle: {
+          ...prev.bundle,
+          items,
+        },
+      };
+    });
+  };
+
+  const addBundleItem = () => {
+    setEditor((prev) => ({
+      ...prev,
+      bundle: {
+        ...prev.bundle,
+        items: [...(prev.bundle.items ?? []), buildEmptyItem()],
+      },
+    }));
+  };
+
+  const removeBundleItem = (index: number) => {
+    setEditor((prev) => {
+      const current = prev.bundle.items ?? [];
+      const items = current.length > 1 ? current.filter((_, idx) => idx !== index) : [buildEmptyItem()];
+      return {
+        ...prev,
+        bundle: {
+          ...prev.bundle,
+          items,
+        },
+      };
+    });
+  };
+
+  const applyEditorFromLocalStamp = (stamp: LocalStampEntry) => {
+    const target = stamp.target?.trim() || stamp.entity?.trim() || DEFAULT_STAMP_TARGET;
+    setEditor({
+      localStampId: stamp.id,
+      name: stamp.name,
+      category: stamp.category,
+      target,
+      bundle: cloneBundle(stamp.bundle),
+    });
+  };
+
+  const applyEditorFromServerStamp = (item: ServerStampListItem, stamp: StampBundleJson) => {
+    setEditor({
+      localStampId: undefined,
+      name: item.name || stamp.orderName || stamp.className || '',
+      category: item.treeName,
+      target: item.entity?.trim() || DEFAULT_STAMP_TARGET,
+      bundle: toLocalBundleFromStamp(stamp, today),
+    });
+  };
+
+  const normalizeEditorEntry = (): Omit<LocalStampEntry, 'id' | 'savedAt'> | null => {
+    const name = editor.name.trim();
+    if (!name) {
+      setEditorNotice({ tone: 'error', message: '編集スタンプ名称を入力してください。' });
+      return null;
+    }
+    const target = editor.target.trim();
+    if (!target) {
+      setEditorNotice({ tone: 'error', message: '編集対象を選択してください。' });
+      return null;
+    }
+
+    const normalizedItems = (editor.bundle.items ?? [])
+      .map((item) => ({
+        ...item,
+        name: item.name?.trim() ?? '',
+        code: item.code?.trim(),
+        quantity: item.quantity?.trim() ?? '',
+        unit: item.unit?.trim() ?? '',
+        memo: item.memo?.trim() ?? '',
+      }))
+      .filter((item) => Boolean(item.name || item.code || item.quantity || item.unit || item.memo));
+
+    if (normalizedItems.length === 0) {
+      setEditorNotice({ tone: 'error', message: 'スタンプ項目を1件以上入力してください。' });
+      return null;
+    }
+
+    const bundleName = editor.bundle.bundleName.trim() || normalizedItems[0]?.name || name;
+
+    return {
+      name,
+      category: editor.category.trim(),
+      target,
+      entity: target,
+      bundle: {
+        ...editor.bundle,
+        bundleName,
+        admin: editor.bundle.admin.trim(),
+        bundleNumber: editor.bundle.bundleNumber.trim() || '1',
+        adminMemo: editor.bundle.adminMemo.trim(),
+        memo: editor.bundle.memo.trim(),
+        startDate: editor.bundle.startDate || today,
+        items: normalizedItems,
+      },
+    };
+  };
 
   const handleSelect = (item: StampListItem) => {
-    setSelected(item);
+    setSelectedKey(toStampKey(item));
     setCopyNotice(null);
   };
 
@@ -231,7 +432,8 @@ export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelP
       return;
     }
     if (selected.source === 'local') {
-      saveStampClipboard(userName, toClipboardEntryFromLocalStamp(selected.stamp));
+      const next = saveStampClipboard(userName, toClipboardEntryFromLocalStamp(selected.stamp));
+      setClipboard(next);
       setCopyNotice(`コピーしました（ローカル）: ${selected.name}`);
       return;
     }
@@ -247,8 +449,89 @@ export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelP
       target: selected.entity,
       entity: selected.entity,
     });
-    saveStampClipboard(userName, entry);
+    const next = saveStampClipboard(userName, entry);
+    setClipboard(next);
     setCopyNotice(`コピーしました（サーバー）: ${selected.name}`);
+  };
+
+  const handleLoadToEditor = () => {
+    if (!selected) {
+      setEditorNotice({ tone: 'error', message: '編集対象のスタンプを選択してください。' });
+      return;
+    }
+    if (selected.source === 'local') {
+      applyEditorFromLocalStamp(selected.stamp);
+      setEditorNotice({ tone: 'info', message: 'ローカルスタンプを編集フォームへ読み込みました。' });
+      return;
+    }
+    const detail = stampDetailQuery.data;
+    if (!detail?.ok || !detail.stamp) {
+      setEditorNotice({ tone: 'error', message: 'サーバースタンプ詳細が未取得のため読み込めません。' });
+      return;
+    }
+    applyEditorFromServerStamp(selected, detail.stamp);
+    setEditorNotice({ tone: 'info', message: 'サーバースタンプを読み込みました。内容を確認してローカル登録できます。' });
+  };
+
+  const handleCreateLocalStamp = () => {
+    if (!userName) {
+      setEditorNotice({ tone: 'error', message: 'ログイン情報が取得できないため登録できません。' });
+      return;
+    }
+    const entry = normalizeEditorEntry();
+    if (!entry) return;
+    const saved = saveLocalStamp(userName, entry);
+    const nextLocal = loadLocalStamps(userName);
+    setLocalStamps(nextLocal);
+    applyEditorFromLocalStamp(saved);
+    setSelectedKey(`local::${saved.id}`);
+    setEditorNotice({ tone: 'success', message: 'ローカルスタンプを登録しました。' });
+  };
+
+  const handleUpdateLocalStamp = () => {
+    if (!userName) {
+      setEditorNotice({ tone: 'error', message: 'ログイン情報が取得できないため更新できません。' });
+      return;
+    }
+    if (!editor.localStampId) {
+      setEditorNotice({ tone: 'error', message: '更新対象のローカルスタンプを読み込んでください。' });
+      return;
+    }
+    const entry = normalizeEditorEntry();
+    if (!entry) return;
+    const updated = updateLocalStamp(userName, editor.localStampId, entry);
+    if (!updated) {
+      setEditorNotice({ tone: 'error', message: '更新対象のローカルスタンプが見つかりません。' });
+      return;
+    }
+    const nextLocal = loadLocalStamps(userName);
+    setLocalStamps(nextLocal);
+    applyEditorFromLocalStamp(updated);
+    setSelectedKey(`local::${updated.id}`);
+    setEditorNotice({ tone: 'success', message: 'ローカルスタンプを更新しました。' });
+  };
+
+  const handleDeleteLocalStamp = () => {
+    if (!userName) {
+      setEditorNotice({ tone: 'error', message: 'ログイン情報が取得できないため削除できません。' });
+      return;
+    }
+    if (!editor.localStampId) {
+      setEditorNotice({ tone: 'error', message: '削除対象のローカルスタンプを読み込んでください。' });
+      return;
+    }
+    if (!window.confirm('このローカルスタンプを削除しますか？')) {
+      return;
+    }
+    const removed = deleteLocalStamp(userName, editor.localStampId);
+    if (!removed) {
+      setEditorNotice({ tone: 'error', message: '削除対象のローカルスタンプが見つかりません。' });
+      return;
+    }
+    setLocalStamps(loadLocalStamps(userName));
+    setSelectedKey('');
+    setEditor(buildInitialEditor(today));
+    setEditorNotice({ tone: 'success', message: 'ローカルスタンプを削除しました。' });
   };
 
   const renderPreviewItems = (items?: Array<{ name?: string; number?: string; unit?: string; memo?: string }>) => {
@@ -272,9 +555,9 @@ export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelP
   return (
     <div className="charts-side-panel__content" data-test-id="stamp-library-panel">
       <header>
-        <p className="charts-side-panel__message">StampBox 相当の閲覧導線（Phase{phase}）</p>
+        <p className="charts-side-panel__message">独立スタンプ管理（Phase{phase}）</p>
         <p className="charts-side-panel__message">
-          Phase1: 閲覧/検索/プレビュー。Phase2: クリップボードへコピーし、オーダー編集でペーストできます。
+          スタンプの閲覧/検索/編集/登録をこの画面で完結します。Phase2 ではクリップボード連携も利用できます。
         </p>
       </header>
 
@@ -322,23 +605,9 @@ export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelP
           <button type="button" onClick={handleCopy} disabled={phase < 2 || !selected}>
             クリップボードへコピー（Phase2）
           </button>
-          {phase >= 2 && onOpenOrderEdit ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (!selected) return;
-                const targetEntity = resolveOrderTargetEntity(selected);
-                if (!targetEntity) {
-                  setCopyNotice('対象オーダー種別が判定できないため遷移できません。');
-                  return;
-                }
-                onOpenOrderEdit(targetEntity);
-              }}
-              disabled={!selected}
-            >
-              オーダー編集を開く
-            </button>
-          ) : null}
+          <button type="button" onClick={handleLoadToEditor} disabled={!selected}>
+            編集フォームへ読み込む
+          </button>
         </div>
         {copyNotice ? (
           <p className="charts-side-panel__message" role="status">
@@ -489,6 +758,157 @@ export function StampLibraryPanel({ phase, onOpenOrderEdit }: StampLibraryPanelP
             {renderPreviewItems(stampDetailQuery.data.stamp.claimItem)}
           </>
         )}
+      </section>
+
+      <section aria-label="ローカルスタンプ編集">
+        <h3 style={{ margin: 0, fontSize: '1rem' }}>ローカルスタンプ編集/登録</h3>
+        {editorNotice ? (
+          <div className={`charts-side-panel__notice charts-side-panel__notice--${editorNotice.tone}`}>{editorNotice.message}</div>
+        ) : null}
+        <div className="charts-side-panel__field">
+          <label htmlFor="stamp-editor-name">編集スタンプ名称</label>
+          <input
+            id="stamp-editor-name"
+            value={editor.name}
+            onChange={(event) => setEditor((prev) => ({ ...prev, name: event.target.value }))}
+            placeholder="例: 降圧薬セット"
+          />
+        </div>
+        <div className="charts-side-panel__field-row">
+          <div className="charts-side-panel__field">
+            <label htmlFor="stamp-editor-category">編集分類</label>
+            <input
+              id="stamp-editor-category"
+              value={editor.category}
+              onChange={(event) => setEditor((prev) => ({ ...prev, category: event.target.value }))}
+              placeholder="例: 院内セット"
+            />
+          </div>
+          <div className="charts-side-panel__field">
+            <label htmlFor="stamp-editor-target">編集対象</label>
+            <select
+              id="stamp-editor-target"
+              value={editor.target}
+              onChange={(event) => setEditor((prev) => ({ ...prev, target: event.target.value }))}
+            >
+              {STAMP_TARGET_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="charts-side-panel__field-row">
+          <div className="charts-side-panel__field">
+            <label htmlFor="stamp-editor-bundle-name">セット名</label>
+            <input
+              id="stamp-editor-bundle-name"
+              value={editor.bundle.bundleName}
+              onChange={(event) => updateBundle({ bundleName: event.target.value })}
+              placeholder="例: 降圧セット"
+            />
+          </div>
+          <div className="charts-side-panel__field">
+            <label htmlFor="stamp-editor-admin">指示</label>
+            <input
+              id="stamp-editor-admin"
+              value={editor.bundle.admin}
+              onChange={(event) => updateBundle({ admin: event.target.value })}
+              placeholder="例: 1日1回 朝"
+            />
+          </div>
+        </div>
+        <div className="charts-side-panel__field-row">
+          <div className="charts-side-panel__field">
+            <label htmlFor="stamp-editor-bundle-number">回数</label>
+            <input
+              id="stamp-editor-bundle-number"
+              value={editor.bundle.bundleNumber}
+              onChange={(event) => updateBundle({ bundleNumber: event.target.value })}
+              placeholder="例: 1"
+            />
+          </div>
+          <div className="charts-side-panel__field">
+            <label htmlFor="stamp-editor-start-date">開始日</label>
+            <input
+              id="stamp-editor-start-date"
+              type="date"
+              value={editor.bundle.startDate}
+              onChange={(event) => updateBundle({ startDate: event.target.value })}
+            />
+          </div>
+        </div>
+        <div className="charts-side-panel__field">
+          <label htmlFor="stamp-editor-memo">スタンプメモ</label>
+          <textarea
+            id="stamp-editor-memo"
+            value={editor.bundle.memo}
+            onChange={(event) => updateBundle({ memo: event.target.value })}
+            placeholder="補足メモ"
+          />
+        </div>
+
+        <div className="charts-side-panel__subsection">
+          <div className="charts-side-panel__subheader">
+            <strong>スタンプ項目</strong>
+            <button type="button" className="charts-side-panel__ghost" onClick={addBundleItem}>
+              項目追加
+            </button>
+          </div>
+          {(editor.bundle.items ?? []).map((item, index) => (
+            <div key={`stamp-editor-item-${index}`} className="charts-side-panel__item-row">
+              <input
+                aria-label={`スタンプ項目名-${index + 1}`}
+                value={item.name}
+                onChange={(event) => updateBundleItem(index, { name: event.target.value })}
+                placeholder="項目名"
+              />
+              <input
+                aria-label={`スタンプ数量-${index + 1}`}
+                value={item.quantity ?? ''}
+                onChange={(event) => updateBundleItem(index, { quantity: event.target.value })}
+                placeholder="数量"
+              />
+              <input
+                aria-label={`スタンプ単位-${index + 1}`}
+                value={item.unit ?? ''}
+                onChange={(event) => updateBundleItem(index, { unit: event.target.value })}
+                placeholder="単位"
+              />
+              <input
+                aria-label={`スタンプ備考-${index + 1}`}
+                value={item.memo ?? ''}
+                onChange={(event) => updateBundleItem(index, { memo: event.target.value })}
+                placeholder="備考"
+              />
+              <button type="button" className="charts-side-panel__icon" onClick={() => removeBundleItem(index)}>
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="charts-side-panel__actions" role="group" aria-label="ローカルスタンプ編集操作">
+          <button type="button" onClick={handleCreateLocalStamp} disabled={!userName}>
+            ローカル新規登録
+          </button>
+          <button type="button" onClick={handleUpdateLocalStamp} disabled={!userName || !editor.localStampId}>
+            ローカル既存更新
+          </button>
+          <button type="button" onClick={handleDeleteLocalStamp} disabled={!userName || !editor.localStampId}>
+            ローカル削除
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditor(buildInitialEditor(today));
+              setEditorNotice({ tone: 'info', message: '編集フォームをクリアしました。' });
+            }}
+          >
+            編集フォームをクリア
+          </button>
+        </div>
       </section>
     </div>
   );

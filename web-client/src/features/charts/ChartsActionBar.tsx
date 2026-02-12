@@ -31,7 +31,7 @@ import { useOrcaReportPrint } from './print/useOrcaReportPrint';
 import { MISSING_MASTER_RECOVERY_NEXT_STEPS } from '../shared/missingMasterRecovery';
 import { fetchOrderBundles, type OrderBundle, type OrderBundleItem } from './orderBundleApi';
 
-type ChartAction = 'finish' | 'send' | 'draft' | 'cancel' | 'print';
+type ChartAction = 'start' | 'pause' | 'finish' | 'send' | 'draft' | 'cancel' | 'print';
 
 type ToastState = {
   tone: 'success' | 'warning' | 'error' | 'info';
@@ -64,7 +64,9 @@ type GuardReason = {
 };
 
 const ACTION_LABEL: Record<ChartAction, string> = {
-  finish: '診療終了',
+  start: '診察開始',
+  pause: '診察中断',
+  finish: '診察終了',
   send: 'ORCA送信',
   draft: 'ドラフト保存',
   cancel: 'キャンセル',
@@ -193,7 +195,10 @@ export interface ChartsActionBarProps {
   missingMaster: boolean;
   dataSourceTransition: DataSourceTransition;
   fallbackUsed?: boolean;
+  showOperationalMeta?: boolean;
   compactHeader?: boolean;
+  defaultCollapsed?: boolean;
+  embedded?: boolean;
   claimEnabled?: boolean;
   selectedEntry?: ReceptionEntry;
   sendEnabled?: boolean;
@@ -224,6 +229,8 @@ export interface ChartsActionBarProps {
   onDiscardChanges?: () => void;
   onForceTakeover?: () => void;
   onAfterSend?: () => void | Promise<void>;
+  onAfterStart?: () => void | Promise<void>;
+  onAfterPause?: () => void | Promise<void>;
   onAfterFinish?: () => void | Promise<void>;
   onDraftSaved?: () => void;
   onLockChange?: (locked: boolean, reason?: string) => void;
@@ -238,7 +245,10 @@ export function ChartsActionBar({
   missingMaster,
   dataSourceTransition,
   fallbackUsed = false,
+  showOperationalMeta = true,
   compactHeader = false,
+  defaultCollapsed = false,
+  embedded = false,
   claimEnabled = true,
   selectedEntry,
   sendEnabled = true,
@@ -258,6 +268,8 @@ export function ChartsActionBar({
   onDiscardChanges,
   onForceTakeover,
   onAfterSend,
+  onAfterStart,
+  onAfterPause,
   onAfterFinish,
   onDraftSaved,
   onLockChange,
@@ -282,7 +294,7 @@ export function ChartsActionBar({
   const abortControllerRef = useRef<AbortController | null>(null);
   const outpatientResultRef = useRef(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
-  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(() => compactHeader);
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(() => compactHeader && defaultCollapsed);
 
   const resolvedLockReason = uiLockReason ?? lockReason;
   const uiLocked = resolvedLockReason !== null;
@@ -494,7 +506,7 @@ export function ChartsActionBar({
 
     if (isRunning) {
       reasons.push({
-        key: 'running',
+        key: 'locked',
         summary: '他の操作: 実行中で送信不可',
         detail: runningAction ? `${ACTION_LABEL[runningAction]} 実行中のため送信できません。` : '別アクション実行中のため送信できません。',
         next: ['処理完了を待って再試行'],
@@ -626,8 +638,8 @@ export function ChartsActionBar({
     if (isRunning) {
       reasons.push({
         key: 'locked',
-        summary: '他の操作: 実行中で診療終了不可',
-        detail: '別アクションの実行中は診療終了を開始できません。',
+        summary: '他の操作: 実行中で診察終了不可',
+        detail: '別アクションの実行中は診察終了を開始できません。',
         next: ['処理完了を待つ'],
       });
     }
@@ -635,8 +647,8 @@ export function ChartsActionBar({
     if (uiLocked) {
       reasons.push({
         key: 'locked',
-        summary: 'ロック中: 操作中で診療終了不可',
-        detail: resolvedLockReason ? resolvedLockReason : '別アクション実行中のため診療終了できません。',
+        summary: 'ロック中: 操作中で診察終了不可',
+        detail: resolvedLockReason ? resolvedLockReason : '別アクション実行中のため診察終了できません。',
         next: ['ロック解除', '処理完了を待って再試行'],
       });
     }
@@ -644,7 +656,7 @@ export function ChartsActionBar({
     if (readOnly) {
       reasons.push({
         key: 'locked',
-        summary: '並行編集: 閲覧専用で診療終了不可',
+        summary: '並行編集: 閲覧専用で診察終了不可',
         detail: readOnlyReason,
         next: ['最新を再読込', '別タブを閉じる', '必要ならロック引き継ぎ（強制）'],
       });
@@ -653,7 +665,7 @@ export function ChartsActionBar({
     if (approvalLocked) {
       reasons.push({
         key: 'approval_locked',
-        summary: '承認済み: 編集不可で診療終了不可',
+        summary: '承認済み: 編集不可で診察終了不可',
         detail: approvalReason ?? '署名確定済みのため編集できません。',
         next: ['必要なら新規受付で再作成', '承認内容の確認（監査ログ）'],
       });
@@ -819,7 +831,7 @@ export function ChartsActionBar({
     }
     if (finishPrecheckReasons.length > 0) {
       const summary = summarizeGuardReasons(finishPrecheckReasons);
-      return `診療終了ガード: ${summary?.summary ?? finishPrecheckReasons[0].summary}`;
+      return `診察終了ガード: ${summary?.summary ?? finishPrecheckReasons[0].summary}`;
     }
     if (sendQueueLabel) {
       return `送信状態: ${sendQueueLabel}（runId=${runId} / traceId=${resolvedTraceId ?? 'unknown'}${queueEntry?.requestId ? ` / requestId=${queueEntry.requestId}` : ''}）`;
@@ -898,7 +910,12 @@ export function ChartsActionBar({
     durationMs?: number,
     options?: { phase?: ChartsOperationPhase; details?: Record<string, unknown> },
   ) => {
-    const actionMap: Record<ChartAction, 'ENCOUNTER_CLOSE' | 'ORCA_SEND' | 'DRAFT_SAVE' | 'DRAFT_CANCEL' | 'PRINT_OUTPATIENT'> = {
+    const actionMap: Record<
+      ChartAction,
+      'ENCOUNTER_START' | 'ENCOUNTER_PAUSE' | 'ENCOUNTER_CLOSE' | 'ORCA_SEND' | 'DRAFT_SAVE' | 'DRAFT_CANCEL' | 'PRINT_OUTPATIENT'
+    > = {
+      start: 'ENCOUNTER_START',
+      pause: 'ENCOUNTER_PAUSE',
       finish: 'ENCOUNTER_CLOSE',
       send: 'ORCA_SEND',
       draft: 'DRAFT_SAVE',
@@ -909,7 +926,7 @@ export function ChartsActionBar({
     const phase = options?.phase ?? (outcome === 'blocked' ? 'lock' : 'do');
     const details: Record<string, unknown> = {
       operationPhase: phase,
-      ...(action === 'send' || action === 'finish'
+      ...(action === 'send' || action === 'start' || action === 'pause' || action === 'finish'
         ? {
             ...(resolvedVisitDate ? { visitDate: resolvedVisitDate } : {}),
           }
@@ -1006,16 +1023,7 @@ export function ChartsActionBar({
       setRetryAction(null);
       logTelemetry(action, 'blocked', undefined, blockedReason, blockedReason);
       logUiState({
-        action:
-          action === 'draft'
-            ? 'draft'
-            : action === 'finish'
-              ? 'finish'
-              : action === 'cancel'
-                ? 'cancel'
-                : action === 'print'
-                  ? 'print'
-                  : 'send',
+        action,
         screen: 'charts/action-bar',
         controlId: `action-${action}`,
         runId,
@@ -1052,16 +1060,7 @@ export function ChartsActionBar({
       setRetryAction(null);
       logTelemetry(action, 'blocked', undefined, blockedReason, blockedReason);
       logUiState({
-        action:
-          action === 'draft'
-            ? 'draft'
-            : action === 'finish'
-              ? 'finish'
-              : action === 'cancel'
-                ? 'cancel'
-                : action === 'print'
-                  ? 'print'
-                  : 'send',
+        action,
         screen: 'charts/action-bar',
         controlId: `action-${action}`,
         runId,
@@ -1176,7 +1175,11 @@ export function ChartsActionBar({
 
     logUiState({
       action:
-        action === 'draft'
+        action === 'start'
+          ? 'start'
+          : action === 'pause'
+            ? 'pause'
+            : action === 'draft'
           ? 'draft'
           : action === 'finish'
             ? 'finish'
@@ -1667,6 +1670,36 @@ export function ChartsActionBar({
           });
         });
         return;
+      } else if (action === 'start') {
+        void Promise.resolve(onAfterStart?.()).catch((error) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          logUiState({
+            action: 'start',
+            screen: 'charts/action-bar',
+            controlId: 'action-start',
+            runId,
+            cacheHit,
+            missingMaster,
+            dataSourceTransition,
+            fallbackUsed,
+            details: { operationPhase: 'after_start', error: detail },
+          });
+        });
+      } else if (action === 'pause') {
+        void Promise.resolve(onAfterPause?.()).catch((error) => {
+          const detail = error instanceof Error ? error.message : String(error);
+          logUiState({
+            action: 'pause',
+            screen: 'charts/action-bar',
+            controlId: 'action-pause',
+            runId,
+            cacheHit,
+            missingMaster,
+            dataSourceTransition,
+            fallbackUsed,
+            details: { operationPhase: 'after_pause', error: detail },
+          });
+        });
       } else if (action === 'draft') {
         // TODO: 本実装では localStorage / server に保存。現段階は送信前チェック用のガード連携を優先。
         onDraftSaved?.();
@@ -2214,7 +2247,7 @@ export function ChartsActionBar({
 
   return (
     <section
-      className={`charts-actions${isLocked ? ' charts-actions--locked' : ''}`}
+      className={`charts-actions${isLocked ? ' charts-actions--locked' : ''}${embedded ? ' charts-actions--embedded' : ''}`}
       id="charts-actionbar"
       tabIndex={-1}
       data-focus-anchor="true"
@@ -2222,13 +2255,14 @@ export function ChartsActionBar({
       data-run-id={runId}
       data-test-id="charts-actionbar"
       data-compact-collapsed={compactHeader && isHeaderCollapsed ? '1' : '0'}
+      data-embedded={embedded ? '1' : '0'}
     >
       <header className="charts-actions__header">
         <div>
           <p className="charts-actions__kicker">
-            {compactHeader ? 'アクションバー' : 'アクションバー / ORCA 送信とドラフト制御'}
+            {embedded ? '診療操作' : compactHeader ? '診察状況・送信パネル' : '診察状況更新と送信制御'}
           </p>
-          <h2>{compactHeader ? '送信・ドラフト' : '診療終了・送信・ドラフト・キャンセル'}</h2>
+          <h2>{embedded ? '診察状況・送信' : compactHeader ? '診察状況・送信' : '診察状況更新・送信・ドラフト'}</h2>
           <p className="charts-actions__status" role="status">
             {statusLine}
           </p>
@@ -2239,7 +2273,7 @@ export function ChartsActionBar({
                 type="button"
                 className="charts-actions__toggle"
                 aria-controls="charts-actionbar-details"
-                aria-expanded={String(!isHeaderCollapsed)}
+                aria-expanded={!isHeaderCollapsed}
                 onClick={() => setIsHeaderCollapsed((prev) => !prev)}
               >
                 {isHeaderCollapsed ? '操作を開く' : '操作を閉じる'}
@@ -2248,19 +2282,6 @@ export function ChartsActionBar({
           ) : null}
         </div>
         <div className={`charts-actions__meta${compactHeader ? ' charts-actions__meta--compact' : ''}`}>
-          <StatusPill className="charts-actions__pill" label="runId" value={runId ?? '—'} tone="info" />
-          <StatusPill
-            className="charts-actions__pill"
-            label="missingMaster"
-            value={String(missingMaster)}
-            tone={missingMaster ? 'warning' : 'success'}
-          />
-          <StatusPill
-            className="charts-actions__pill"
-            label="draftDirty"
-            value={String(hasUnsavedDraft)}
-            tone={hasUnsavedDraft ? 'warning' : 'success'}
-          />
           {headerMetaCollapsed ? null : (
             <>
               <StatusPill
@@ -2269,52 +2290,6 @@ export function ChartsActionBar({
                 value={`${selectedEntry?.name ?? '未選択'}（${selectedEntry?.patientId ?? selectedEntry?.appointmentId ?? 'ID不明'}）`}
               />
               <StatusPill className="charts-actions__pill" label="診療日" value={resolvedVisitDate ?? '—'} />
-            </>
-          )}
-
-          {compactHeader ? (
-            <details className="charts-actions__meta-details">
-              <summary className="charts-actions__meta-summary">詳細</summary>
-              <div className="charts-actions__meta-details-grid">
-                <StatusPill className="charts-actions__pill" label="traceId" value={resolvedTraceId ?? 'unknown'} tone="info" />
-                <StatusPill className="charts-actions__pill" label="transition" value={dataSourceTransition} tone="info" />
-                <StatusPill
-                  className="charts-actions__pill"
-                  label="fallbackUsed"
-                  value={String(fallbackUsed)}
-                  tone={fallbackUsed ? 'warning' : 'success'}
-                />
-                <StatusPill
-                  className="charts-actions__pill"
-                  label="cacheHit"
-                  value={String(cacheHit)}
-                  tone={cacheHit ? 'success' : 'warning'}
-                />
-                <StatusPill className="charts-actions__pill" label="受付ID" value={selectedEntry?.receptionId ?? '—'} />
-                <StatusPill
-                  className="charts-actions__pill"
-                  label="現在"
-                  value={`${selectedEntry?.status ?? '—'}（受付→診療→会計）`}
-                />
-              </div>
-            </details>
-          ) : (
-            <>
-              <StatusPill className="charts-actions__pill" label="traceId" value={resolvedTraceId ?? 'unknown'} tone="info" />
-              <StatusPill className="charts-actions__pill" label="transition" value={dataSourceTransition} tone="info" />
-              <StatusPill
-                className="charts-actions__pill"
-                label="fallbackUsed"
-                value={String(fallbackUsed)}
-                tone={fallbackUsed ? 'warning' : 'success'}
-              />
-              <StatusPill
-                className="charts-actions__pill"
-                label="cacheHit"
-                value={String(cacheHit)}
-                tone={cacheHit ? 'success' : 'warning'}
-              />
-              <StatusPill className="charts-actions__pill" label="受付ID" value={selectedEntry?.receptionId ?? '—'} />
               <StatusPill
                 className="charts-actions__pill"
                 label="現在"
@@ -2322,6 +2297,64 @@ export function ChartsActionBar({
               />
             </>
           )}
+
+          {showOperationalMeta ? (
+            <>
+              <StatusPill className="charts-actions__pill" label="runId" value={runId ?? '—'} tone="info" />
+              <StatusPill
+                className="charts-actions__pill"
+                label="missingMaster"
+                value={String(missingMaster)}
+                tone={missingMaster ? 'warning' : 'success'}
+              />
+              <StatusPill
+                className="charts-actions__pill"
+                label="draftDirty"
+                value={String(hasUnsavedDraft)}
+                tone={hasUnsavedDraft ? 'warning' : 'success'}
+              />
+              {compactHeader ? (
+                <details className="charts-actions__meta-details">
+                  <summary className="charts-actions__meta-summary">詳細</summary>
+                  <div className="charts-actions__meta-details-grid">
+                    <StatusPill className="charts-actions__pill" label="traceId" value={resolvedTraceId ?? 'unknown'} tone="info" />
+                    <StatusPill className="charts-actions__pill" label="transition" value={dataSourceTransition} tone="info" />
+                    <StatusPill
+                      className="charts-actions__pill"
+                      label="fallbackUsed"
+                      value={String(fallbackUsed)}
+                      tone={fallbackUsed ? 'warning' : 'success'}
+                    />
+                    <StatusPill
+                      className="charts-actions__pill"
+                      label="cacheHit"
+                      value={String(cacheHit)}
+                      tone={cacheHit ? 'success' : 'warning'}
+                    />
+                    <StatusPill className="charts-actions__pill" label="受付ID" value={selectedEntry?.receptionId ?? '—'} />
+                  </div>
+                </details>
+              ) : (
+                <>
+                  <StatusPill className="charts-actions__pill" label="traceId" value={resolvedTraceId ?? 'unknown'} tone="info" />
+                  <StatusPill className="charts-actions__pill" label="transition" value={dataSourceTransition} tone="info" />
+                  <StatusPill
+                    className="charts-actions__pill"
+                    label="fallbackUsed"
+                    value={String(fallbackUsed)}
+                    tone={fallbackUsed ? 'warning' : 'success'}
+                  />
+                  <StatusPill
+                    className="charts-actions__pill"
+                    label="cacheHit"
+                    value={String(cacheHit)}
+                    tone={cacheHit ? 'success' : 'warning'}
+                  />
+                  <StatusPill className="charts-actions__pill" label="受付ID" value={selectedEntry?.receptionId ?? '—'} />
+                </>
+              )}
+            </>
+          ) : null}
         </div>
       </header>
 
@@ -2344,7 +2377,7 @@ export function ChartsActionBar({
         open={confirmAction === 'send'}
         role="alertdialog"
         title="ORCA送信の確認"
-        description={`現在の患者/受付を ORCA へ送信します。実行後に取り消せない場合があります。（runId=${runId} / transition=${dataSourceTransition}）`}
+        description="現在の患者/受付を ORCA へ送信します。実行後に取り消せない場合があります。"
         onClose={() => {
           finalizeApproval('send', 'cancelled');
           setConfirmAction(null);
@@ -2487,70 +2520,108 @@ export function ChartsActionBar({
         </div>
       ) : null}
 
-      <div className="charts-actions__controls" role="group" aria-label="Charts 操作用ボタン">
-        <button
-          type="button"
-          id="charts-action-finish"
-          className="charts-actions__button"
-          disabled={otherBlocked}
-          data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
-          onClick={() => handleAction('finish')}
-          aria-keyshortcuts="Alt+E"
-        >
-          診療終了
-        </button>
-        <button
-          type="button"
-          id="charts-action-send"
-          className="charts-actions__button charts-actions__button--primary"
-          disabled={sendDisabled}
-          onClick={() => {
-            setConfirmAction('send');
-            approvalSessionRef.current = { action: 'send', closed: false };
-            logApproval('send', 'open');
-          }}
-          aria-disabled={sendDisabled}
-          aria-describedby={!isRunning && sendPrecheckReasons.length > 0 ? 'charts-actions-send-guard' : undefined}
-          data-disabled-reason={
-            sendDisabled
-              ? (isRunning ? 'running' : sendPrecheckReasons.map((reason) => reason.key).join(','))
-              : undefined
-          }
-          aria-keyshortcuts="Alt+S"
-        >
-          ORCA 送信
-        </button>
-        <button
-          type="button"
-          id="charts-action-print"
-          className="charts-actions__button"
-          disabled={printDisabled}
-          aria-disabled={printDisabled}
-          onClick={openPrintDialog}
-          aria-describedby={!isRunning && printPrecheckReasons.length > 0 ? 'charts-actions-print-guard' : undefined}
-          data-disabled-reason={printDisabled ? printPrecheckReasons.map((reason) => reason.key).join(',') : undefined}
-          aria-keyshortcuts="Alt+I"
-        >
-          印刷/エクスポート
-        </button>
-        {compactHeader && isHeaderCollapsed ? null : draftSaveButton}
-        <button
-          type="button"
-          className="charts-actions__button charts-actions__button--ghost"
-          disabled={otherBlocked}
-          data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
-          onClick={() => handleAction('cancel')}
-        >
-          キャンセル
-        </button>
-        <button
-          type="button"
-          className="charts-actions__button charts-actions__button--unlock"
-          disabled={isRunning || !isLocked || approvalLocked}
-          onClick={handleUnlock}
-        >
-          ロック解除
-        </button>
+      <div className="charts-actions__controls">
+        <div className="charts-actions__group" role="group" aria-label="診察状況更新">
+          <button
+            type="button"
+            id="charts-action-start"
+            className="charts-actions__button charts-actions__button--unlock"
+            disabled={otherBlocked || !resolvedPatientId}
+            data-disabled-reason={
+              otherBlocked
+                ? (isLocked ? 'locked' : undefined)
+                : !resolvedPatientId
+                  ? 'patient_not_selected'
+                  : undefined
+            }
+            onClick={() => handleAction('start')}
+          >
+            診察開始
+          </button>
+          <button
+            type="button"
+            id="charts-action-pause"
+            className="charts-actions__button charts-actions__button--ghost"
+            disabled={otherBlocked || !resolvedPatientId}
+            data-disabled-reason={
+              otherBlocked
+                ? (isLocked ? 'locked' : undefined)
+                : !resolvedPatientId
+                  ? 'patient_not_selected'
+                  : undefined
+            }
+            onClick={() => handleAction('pause')}
+          >
+            診察中断
+          </button>
+          <button
+            type="button"
+            id="charts-action-finish"
+            className="charts-actions__button"
+            disabled={otherBlocked}
+            data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
+            onClick={() => handleAction('finish')}
+            aria-keyshortcuts="Alt+E"
+          >
+            診察終了
+          </button>
+        </div>
+        <div className="charts-actions__group" role="group" aria-label="送信と保存">
+          <button
+            type="button"
+            id="charts-action-send"
+            className="charts-actions__button charts-actions__button--primary"
+            disabled={sendDisabled}
+            onClick={() => {
+              setConfirmAction('send');
+              approvalSessionRef.current = { action: 'send', closed: false };
+              logApproval('send', 'open');
+            }}
+            aria-disabled={sendDisabled}
+            aria-describedby={!isRunning && sendPrecheckReasons.length > 0 ? 'charts-actions-send-guard' : undefined}
+            data-disabled-reason={
+              sendDisabled
+                ? (isRunning ? 'running' : sendPrecheckReasons.map((reason) => reason.key).join(','))
+                : undefined
+            }
+            aria-keyshortcuts="Alt+S"
+          >
+            ORCA 送信
+          </button>
+          {compactHeader && isHeaderCollapsed ? null : draftSaveButton}
+          <button
+            type="button"
+            id="charts-action-print"
+            className="charts-actions__button"
+            disabled={printDisabled}
+            aria-disabled={printDisabled}
+            onClick={openPrintDialog}
+            aria-describedby={!isRunning && printPrecheckReasons.length > 0 ? 'charts-actions-print-guard' : undefined}
+            data-disabled-reason={printDisabled ? printPrecheckReasons.map((reason) => reason.key).join(',') : undefined}
+            aria-keyshortcuts="Alt+I"
+          >
+            印刷/エクスポート
+          </button>
+        </div>
+        <div className="charts-actions__group" role="group" aria-label="補助操作">
+          <button
+            type="button"
+            className="charts-actions__button charts-actions__button--ghost"
+            disabled={otherBlocked}
+            data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
+            onClick={() => handleAction('cancel')}
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            className="charts-actions__button charts-actions__button--unlock"
+            disabled={isRunning || !isLocked || approvalLocked}
+            onClick={handleUnlock}
+          >
+            ロック解除
+          </button>
+        </div>
       </div>
 
       {!isRunning && sendPrecheckReasons.length > 0 && (

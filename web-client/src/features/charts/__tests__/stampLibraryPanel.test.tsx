@@ -5,8 +5,8 @@ import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 
 import { StampLibraryPanel } from '../StampLibraryPanel';
-import { fetchStampDetail, fetchStampTree, fetchUserProfile } from '../stampApi';
-import { loadStampClipboard } from '../stampStorage';
+import { fetchStampDetail, fetchStampTree } from '../stampApi';
+import { loadLocalStamps, loadStampClipboard, saveLocalStamp } from '../stampStorage';
 
 const FACILITY_ID = '0001';
 const USER_ID = 'user01';
@@ -147,16 +147,55 @@ describe('StampLibraryPanel (STAMP-001 MVP)', () => {
     expect(saved?.bundle?.items?.[0]?.name).toBe('アムロジピン');
   });
 
-  it('Phase2 では選択スタンプの対象オーダーへ直接遷移できる', async () => {
+  it('編集フォームへ読み込んだ内容をローカル新規登録できる', async () => {
     const user = userEvent.setup();
-    const onOpenOrderEdit = vi.fn();
-    renderWithClient(<StampLibraryPanel phase={2} onOpenOrderEdit={onOpenOrderEdit} />);
+    renderWithClient(<StampLibraryPanel phase={2} />);
 
     await waitFor(() => expect(vi.mocked(fetchStampTree)).toHaveBeenCalled());
     const stampButton = await screen.findByRole('button', { name: /降圧セット/ });
     await user.click(stampButton);
-    await user.click(screen.getByRole('button', { name: 'オーダー編集を開く' }));
+    await user.click(screen.getByRole('button', { name: '編集フォームへ読み込む' }));
+    await waitFor(() => expect(vi.mocked(fetchStampDetail)).toHaveBeenCalledWith('STAMP-1'));
 
-    expect(onOpenOrderEdit).toHaveBeenCalledWith('medOrder');
+    const nameInput = screen.getByLabelText('編集スタンプ名称');
+    await user.clear(nameInput);
+    await user.type(nameInput, '降圧セット（ローカル）');
+    await user.click(screen.getByRole('button', { name: 'ローカル新規登録' }));
+
+    expect(screen.getByText('ローカルスタンプを登録しました。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /降圧セット（ローカル）/ })).toBeInTheDocument();
+  });
+
+  it('既存ローカルスタンプを編集フォームから更新できる', async () => {
+    const user = userEvent.setup();
+    saveLocalStamp(USER_NAME, {
+      name: '既存ローカル',
+      category: '院内',
+      target: 'medOrder',
+      entity: 'medOrder',
+      bundle: {
+        bundleName: '既存ローカル',
+        admin: '1日1回',
+        bundleNumber: '1',
+        adminMemo: '',
+        memo: '',
+        startDate: '2026-01-01',
+        items: [{ name: 'アムロジピン', quantity: '1', unit: '錠' }],
+      },
+    });
+
+    renderWithClient(<StampLibraryPanel phase={2} />);
+
+    const localButton = await screen.findByRole('button', { name: /既存ローカル/ });
+    await user.click(localButton);
+    await user.click(screen.getByRole('button', { name: '編集フォームへ読み込む' }));
+
+    const nameInput = screen.getByLabelText('編集スタンプ名称');
+    await user.clear(nameInput);
+    await user.type(nameInput, '既存ローカル更新');
+    await user.click(screen.getByRole('button', { name: 'ローカル既存更新' }));
+
+    expect(screen.getByText('ローカルスタンプを更新しました。')).toBeInTheDocument();
+    expect(loadLocalStamps(USER_NAME)[0]?.name).toBe('既存ローカル更新');
   });
 });

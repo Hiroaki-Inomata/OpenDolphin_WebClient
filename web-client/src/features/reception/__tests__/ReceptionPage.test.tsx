@@ -4,8 +4,9 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 
 import { ReceptionPage } from '../pages/ReceptionPage';
+import type { AppointmentPayload, ClaimOutpatientPayload, ReceptionEntry } from '../../outpatient/types';
 
-const baseClaimData = {
+const baseClaimData: ClaimOutpatientPayload = {
   runId: 'RUN-CLAIM',
   missingMaster: false,
   cacheHit: false,
@@ -16,15 +17,16 @@ const baseClaimData = {
   queueEntries: [],
 };
 
-const baseAppointmentData = {
+const baseAppointmentData: AppointmentPayload = {
   runId: 'RUN-APPOINT',
   missingMaster: false,
   cacheHit: false,
   fallbackUsed: false,
   dataSourceTransition: 'server',
   fetchedAt: '2026-01-29T00:00:00Z',
-  entries: [],
+  entries: [] as ReceptionEntry[],
   recordsReturned: 0,
+  raw: {},
 };
 
 let mockClaimData = { ...baseClaimData };
@@ -155,6 +157,11 @@ vi.mock('../../outpatient/orcaQueueStatus', () => ({
 
 vi.mock('../../outpatient/appointmentDataBanner', () => ({
   getAppointmentDataBanner: () => null,
+  countAppointmentDataIntegrity: () => ({
+    missingPatientId: 0,
+    missingAppointmentId: 0,
+    missingReceptionId: 0,
+  }),
 }));
 
 vi.mock('@tanstack/react-query', () => ({
@@ -352,7 +359,7 @@ describe('ReceptionPage accept UX', () => {
         department: '内科',
         status: '予約',
         insurance: '保険',
-        source: 'appointments',
+        source: 'reservations',
       },
       {
         id: 'row-2',
@@ -407,7 +414,7 @@ describe('ReceptionPage accept UX', () => {
     await user.click(submitButton);
 
     const resultHeading = await screen.findByRole('heading', { name: '送信結果' });
-    const resultArea = resultHeading.closest('[role="status"]') ?? resultHeading.parentElement ?? resultHeading;
+    const resultArea = (resultHeading.closest('[role="status"]') ?? resultHeading.parentElement ?? resultHeading) as HTMLElement;
     const resultScope = within(resultArea);
 
     expect(resultScope.getByText('Api_Result: 00')).toBeInTheDocument();
@@ -504,7 +511,7 @@ describe('ReceptionPage list and side pane guidance', () => {
     // Preview medical records in a modal (no new tab).
     const recordsButton = screen.getByRole('button', { name: '過去カルテ' });
     await user.click(recordsButton);
-    const dialog = await screen.findByRole('dialog', { name: /過去カルテ/ });
+    const dialog = (await screen.findByRole('dialog', { name: /過去カルテ/ })) as HTMLElement;
     expect(within(dialog).getByText(/患者ID:\s*P-010/)).toBeInTheDocument();
     await waitFor(() => {
       expect(within(dialog).getByText('過去カルテがありません。')).toBeInTheDocument();

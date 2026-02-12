@@ -933,7 +933,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     cacheHit: resolvedCacheHit,
     dataSourceTransition: resolvedTransition,
   };
-  const { tone, message: toneMessage, transitionMeta } = getChartToneDetails(tonePayload);
+  const { tone, message: toneMessage } = getChartToneDetails(tonePayload);
 
   const unlinkedCounts = useMemo(() => {
     return patients.reduce(
@@ -2142,7 +2142,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
             </label>
           </fieldset>
 
-          {(toast || ((toast?.tone === 'error' || toast?.tone === 'warning') && lastAttempt)) && (
+          {toast && (
             <div className="patients-page__save-support" role="status" aria-live={resolveAriaLive('info')}>
               {toast && (
                 <div className={`patients-page__toast patients-page__toast--${toast.tone}`} role="alert" aria-live={resolveAriaLive(toast.tone)}>

@@ -97,7 +97,7 @@ describe('ChartsActionBar', () => {
     );
   });
 
-  it('診療終了の失敗を明示し監査ログにapiResultを残す', async () => {
+  it('診察終了の失敗を明示し監査ログにapiResultを残す', async () => {
     const user = userEvent.setup();
     vi.mocked(httpFetch).mockResolvedValue({
       ok: false,
@@ -117,10 +117,10 @@ describe('ChartsActionBar', () => {
       </MemoryRouter>,
     );
 
-    await user.click(screen.getByRole('button', { name: '診療終了' }));
+    await user.click(screen.getByRole('button', { name: '診察終了' }));
 
     await waitFor(() => expect(httpFetch).toHaveBeenCalled());
-    expect(screen.getByText('診療終了に失敗')).toBeInTheDocument();
+    expect(screen.getByText('診察終了に失敗')).toBeInTheDocument();
     expect(recordChartsAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         outcome: 'error',

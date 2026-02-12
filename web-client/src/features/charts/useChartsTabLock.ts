@@ -159,7 +159,7 @@ export function useChartsTabLock(options: {
       const lock = readChartsTabLock(key);
       if (!lock) {
         setState((prev) => {
-          const next = {
+          const next: ChartsTabLockState = {
             ...prev,
             status: 'none',
             ownerRunId: undefined,
@@ -178,7 +178,7 @@ export function useChartsTabLock(options: {
       const ownedBySelf = lock.owner.tabSessionId === tabSessionId;
       if (expired) {
         setState((prev) => {
-          const next = {
+          const next: ChartsTabLockState = {
             ...prev,
             status: 'expired',
             ownerRunId: lock.owner.runId,
@@ -194,7 +194,7 @@ export function useChartsTabLock(options: {
       }
       if (ownedBySelf) {
         setState((prev) => {
-          const next = {
+          const next: ChartsTabLockState = {
             ...prev,
             status: 'owned',
             ownerRunId: lock.owner.runId,
@@ -209,7 +209,7 @@ export function useChartsTabLock(options: {
         return;
       }
       setState((prev) => {
-        const next = {
+        const next: ChartsTabLockState = {
           ...prev,
           status: 'other-tab',
           ownerRunId: lock.owner.runId,

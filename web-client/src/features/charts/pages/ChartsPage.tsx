@@ -164,11 +164,11 @@ const UTILITY_PATIENT_UNSELECTED_MESSAGE = '患者が未選択のため利用で
 const UTILITY_PANEL_LAYOUT_STORAGE_BASE = 'opendolphin:web-client:charts:utility-panel-layout';
 const UTILITY_PANEL_LAYOUT_STORAGE_VERSION = 'v1';
 const UTILITY_PANEL_DEFAULT_OFFSET_X = 24;
-const UTILITY_PANEL_DEFAULT_OFFSET_Y = 52;
-const UTILITY_PANEL_MIN_WIDTH = 360;
-const UTILITY_PANEL_MAX_WIDTH = 720;
-const UTILITY_PANEL_MIN_HEIGHT = 520;
-const UTILITY_PANEL_MAX_HEIGHT = 980;
+const UTILITY_PANEL_DEFAULT_OFFSET_Y = 28;
+const UTILITY_PANEL_MIN_WIDTH = 640;
+const UTILITY_PANEL_MAX_WIDTH = 1360;
+const UTILITY_PANEL_MIN_HEIGHT = 420;
+const UTILITY_PANEL_MAX_HEIGHT = 920;
 
 type UtilityPanelLayout = {
   width: number;
@@ -191,7 +191,7 @@ const clampUtilityPanelLayout = (layout: UtilityPanelLayout, viewportWidth: numb
   const minHeight = Math.min(UTILITY_PANEL_MIN_HEIGHT, Math.max(420, viewportHeight - 24));
   const dockedMaxWidth = Math.min(
     UTILITY_PANEL_MAX_WIDTH,
-    Math.max(minWidth, Math.floor(viewportWidth * 0.46)),
+    Math.max(minWidth, Math.floor(viewportWidth * 0.78)),
   );
   const maxWidth = Math.max(minWidth, Math.min(viewportWidth - 16, dockedMaxWidth));
   const maxHeight = Math.max(minHeight, Math.min(viewportHeight - 16, UTILITY_PANEL_MAX_HEIGHT));
@@ -205,14 +205,19 @@ const clampUtilityPanelLayout = (layout: UtilityPanelLayout, viewportWidth: numb
 };
 
 const buildDefaultUtilityPanelLayout = (viewportWidth: number, viewportHeight: number): UtilityPanelLayout => {
-  const preferredWidth = Math.min(620, Math.max(440, viewportWidth * 0.33));
-  const preferredHeight = Math.min(900, Math.max(UTILITY_PANEL_MIN_HEIGHT, viewportHeight * 0.84));
+  const preferredWidth = Math.min(1120, Math.max(760, viewportWidth * 0.64));
+  const preferredHeight = Math.min(760, Math.max(UTILITY_PANEL_MIN_HEIGHT, viewportHeight * 0.66));
+  const preferredLeft = Math.max(UTILITY_PANEL_DEFAULT_OFFSET_X, (viewportWidth - preferredWidth) / 2);
+  const preferredTop = Math.max(
+    UTILITY_PANEL_DEFAULT_OFFSET_Y,
+    viewportHeight - preferredHeight - UTILITY_PANEL_DEFAULT_OFFSET_Y,
+  );
   return clampUtilityPanelLayout(
     {
       width: preferredWidth,
       height: preferredHeight,
-      left: viewportWidth - preferredWidth - UTILITY_PANEL_DEFAULT_OFFSET_X,
-      top: UTILITY_PANEL_DEFAULT_OFFSET_Y,
+      left: preferredLeft,
+      top: preferredTop,
     },
     viewportWidth,
     viewportHeight,
@@ -319,23 +324,23 @@ const readChartsPatientTabsStorage = (
     const parsed = JSON.parse(raw) as Partial<ChartsPatientTabsStorage> | null;
     if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.tabs)) return null;
 
-    const normalizedTabs: ChartsPatientTab[] = parsed.tabs
-      .map((tab) => {
-        const patientId = typeof tab.patientId === 'string' ? tab.patientId.trim() : '';
-        const visitDate = normalizeVisitDate(typeof tab.visitDate === 'string' ? tab.visitDate : undefined);
-        if (!patientId || !visitDate) return null;
-        const key = typeof tab.key === 'string' && tab.key.trim() ? tab.key.trim() : buildPatientTabKey(patientId, visitDate);
-        return {
-          key,
-          patientId,
-          visitDate,
-          appointmentId: typeof tab.appointmentId === 'string' ? tab.appointmentId : undefined,
-          receptionId: typeof tab.receptionId === 'string' ? tab.receptionId : undefined,
-          name: typeof tab.name === 'string' ? tab.name : undefined,
-          openedAt: typeof tab.openedAt === 'string' ? tab.openedAt : new Date().toISOString(),
-        };
-      })
-      .filter((tab): tab is ChartsPatientTab => Boolean(tab));
+    const normalizedTabs = parsed.tabs.reduce<ChartsPatientTab[]>((acc, tab) => {
+      const patientId = typeof tab.patientId === 'string' ? tab.patientId.trim() : '';
+      const visitDate = normalizeVisitDate(typeof tab.visitDate === 'string' ? tab.visitDate : undefined);
+      if (!patientId || !visitDate) return acc;
+      const key = typeof tab.key === 'string' && tab.key.trim() ? tab.key.trim() : buildPatientTabKey(patientId, visitDate);
+      const normalized: ChartsPatientTab = {
+        key,
+        patientId,
+        visitDate,
+        openedAt: typeof tab.openedAt === 'string' ? tab.openedAt : new Date().toISOString(),
+      };
+      if (typeof tab.appointmentId === 'string') normalized.appointmentId = tab.appointmentId;
+      if (typeof tab.receptionId === 'string') normalized.receptionId = tab.receptionId;
+      if (typeof tab.name === 'string') normalized.name = tab.name;
+      acc.push(normalized);
+      return acc;
+    }, []);
 
     const activeKey =
       typeof parsed.activeKey === 'string' && parsed.activeKey.trim()
@@ -614,10 +619,6 @@ function ChartsContent() {
   });
   const patientTabs = patientTabsState.tabs;
   const activePatientTabKey = patientTabsState.activeKey ?? null;
-  const activePatientTab = useMemo(() => {
-    if (!activePatientTabKey) return null;
-    return patientTabs.find((tab) => tab.key === activePatientTabKey) ?? null;
-  }, [activePatientTabKey, patientTabs]);
 
   useEffect(() => {
     writeChartsPatientTabsStorage(
@@ -680,6 +681,7 @@ function ChartsContent() {
       }
   >(null);
   const showDebugUi = import.meta.env.VITE_ENABLE_DEBUG_UI === '1' && isSystemAdminRole(session.role);
+  const showOperationalMeta = showDebugUi;
   const [approvalState, setApprovalState] = useState<{
     status: 'none' | 'approved';
     record?: ChartsApprovalRecord;
@@ -714,7 +716,16 @@ function ChartsContent() {
     return readUtilityPanelLayoutStorage(storageScope) ?? buildDefaultUtilityPanelLayout(window.innerWidth, window.innerHeight);
   });
   const utilityPanelLayoutRef = useRef<UtilityPanelLayout>(utilityPanelLayout);
-  const utilityPanelDragRef = useRef<
+  const utilityPanelResizeRef = useRef<
+    | null
+    | {
+        pointerId: number;
+        startX: number;
+        startY: number;
+        startLayout: UtilityPanelLayout;
+      }
+  >(null);
+  const utilityPanelMoveRef = useRef<
     | null
     | {
         pointerId: number;
@@ -768,7 +779,6 @@ function ChartsContent() {
   }>({});
   const lastEditLockAnnouncement = useRef<string | null>(null);
   const lastOrcaQueueSnapshot = useRef<string | null>(null);
-  const lastReceptionStatusSyncRef = useRef<string | null>(null);
 
   const openEncounterInTabs = useCallback(
     (next: OutpatientEncounterContext, options?: { name?: string }) => {
@@ -2072,29 +2082,6 @@ function ChartsContent() {
     [encounterContext.visitDate, selectedEntry?.visitDate, today],
   );
 
-  useEffect(() => {
-    if (!patientId || !actionVisitDate) return;
-    if (!selectedEntry || selectedEntry.status === '予約' || selectedEntry.status === '会計待ち' || selectedEntry.status === '会計済み') {
-      return;
-    }
-    const signature = `${patientId}:${actionVisitDate}:診療中`;
-    if (lastReceptionStatusSyncRef.current === signature) return;
-    lastReceptionStatusSyncRef.current = signature;
-    upsertReceptionStatusOverride({
-      date: actionVisitDate,
-      patientId,
-      status: '診療中',
-      source: 'charts_open',
-      runId: resolvedRunId ?? flags.runId,
-      scope: storageScope,
-      fallbackEntry: {
-        ...selectedEntry,
-        patientId,
-        visitDate: actionVisitDate,
-      },
-    });
-  }, [actionVisitDate, flags.runId, patientId, resolvedRunId, selectedEntry, storageScope]);
-
   const patientFallbackQuery = useQuery({
     queryKey: ['charts-patient-fallback', patientId],
     queryFn: async () => {
@@ -2801,6 +2788,70 @@ function ChartsContent() {
     }
   }, [appointmentQuery, claimQuery, orcaSummaryQuery]);
 
+  const handleAfterStart = useCallback(async () => {
+    if (patientId && actionVisitDate) {
+      upsertReceptionStatusOverride({
+        date: actionVisitDate,
+        patientId,
+        status: '診療中',
+        source: 'charts_start',
+        runId: resolvedRunId ?? flags.runId,
+        scope: storageScope,
+        fallbackEntry: selectedEntry
+          ? {
+              ...selectedEntry,
+              patientId,
+              visitDate: actionVisitDate,
+            }
+          : undefined,
+      });
+    }
+    await handleRefreshSummary();
+  }, [
+    actionVisitDate,
+    flags.runId,
+    handleRefreshSummary,
+    patientId,
+    resolvedRunId,
+    selectedEntry,
+    storageScope,
+  ]);
+
+  const handleAfterPause = useCallback(async () => {
+    if (patientId && actionVisitDate) {
+      upsertReceptionStatusOverride({
+        date: actionVisitDate,
+        patientId,
+        status: '診療中',
+        source: 'charts_pause',
+        runId: resolvedRunId ?? flags.runId,
+        scope: storageScope,
+        fallbackEntry: selectedEntry
+          ? {
+              ...selectedEntry,
+              patientId,
+              visitDate: actionVisitDate,
+            }
+          : undefined,
+      });
+    }
+    await handleRefreshSummary();
+    setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
+    const activeKey = activePatientTabKey;
+    if (!activeKey) return;
+    forceClosePatientTab(activeKey);
+  }, [
+    actionVisitDate,
+    activePatientTabKey,
+    flags.runId,
+    forceClosePatientTab,
+    handleRefreshSummary,
+    patientId,
+    resolvedRunId,
+    selectedEntry,
+    storageScope,
+  ]);
+
   const handleAfterFinish = useCallback(async () => {
     if (patientId && actionVisitDate) {
       upsertReceptionStatusOverride({
@@ -3020,16 +3071,16 @@ function ChartsContent() {
   >(
     () => {
       const base: Array<{ id: DockedUtilityAction; label: string; shortLabel: string; requiresEdit: boolean }> = [
-        { id: 'prescription-edit', label: '処方', shortLabel: '処方', requiresEdit: true },
-        { id: 'order-injection', label: '注射', shortLabel: '注射', requiresEdit: true },
-        { id: 'order-treatment', label: '処置', shortLabel: '処置', requiresEdit: true },
-        { id: 'order-test', label: '検査', shortLabel: '検査', requiresEdit: true },
-        { id: 'order-charge', label: '算定', shortLabel: '算定', requiresEdit: true },
-        { id: 'order-set', label: 'スタンプ', shortLabel: 'スタ', requiresEdit: false },
-        { id: 'document', label: '文書', shortLabel: '文書', requiresEdit: true },
+        { id: 'prescription-edit', label: '処方', shortLabel: 'Rx', requiresEdit: true },
+        { id: 'order-injection', label: '注射', shortLabel: '注', requiresEdit: true },
+        { id: 'order-treatment', label: '処置', shortLabel: '処', requiresEdit: true },
+        { id: 'order-test', label: '検査', shortLabel: '検', requiresEdit: true },
+        { id: 'order-charge', label: '算定', shortLabel: '算', requiresEdit: true },
+        { id: 'order-set', label: 'スタンプ', shortLabel: '★', requiresEdit: false },
+        { id: 'document', label: '文書', shortLabel: '文', requiresEdit: true },
       ];
       if (isPatientImagesMvpEnabled) {
-        base.push({ id: 'imaging', label: '画像', shortLabel: '画像', requiresEdit: false });
+        base.push({ id: 'imaging', label: '画像', shortLabel: '画', requiresEdit: false });
       }
       return base.map((item, index) => ({
         ...item,
@@ -3110,7 +3161,23 @@ function ChartsContent() {
       if (event.button !== 0 || !utilityPanelAction) return;
       event.preventDefault();
       event.stopPropagation();
-      utilityPanelDragRef.current = {
+      utilityPanelResizeRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startLayout: utilityPanelLayoutRef.current,
+      };
+    },
+    [utilityPanelAction],
+  );
+
+  const beginUtilityPanelMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0 || !utilityPanelAction) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('button, input, select, textarea, a, [role="tab"]')) return;
+      event.preventDefault();
+      utilityPanelMoveRef.current = {
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
@@ -3302,21 +3369,40 @@ function ChartsContent() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handlePointerMove = (event: PointerEvent) => {
-      const dragState = utilityPanelDragRef.current;
-      if (!dragState || event.pointerId !== dragState.pointerId) return;
-      const deltaX = event.clientX - dragState.startX;
-      const deltaY = event.clientY - dragState.startY;
+      const resizeState = utilityPanelResizeRef.current;
+      if (resizeState && event.pointerId === resizeState.pointerId) {
+        const deltaX = event.clientX - resizeState.startX;
+        const deltaY = event.clientY - resizeState.startY;
+        const nextLayout = {
+          ...resizeState.startLayout,
+          width: resizeState.startLayout.width + deltaX,
+          height: resizeState.startLayout.height + deltaY,
+        };
+        updateUtilityPanelLayout(nextLayout, { persist: false });
+        return;
+      }
+
+      const moveState = utilityPanelMoveRef.current;
+      if (!moveState || event.pointerId !== moveState.pointerId) return;
+      const deltaX = event.clientX - moveState.startX;
+      const deltaY = event.clientY - moveState.startY;
       const nextLayout = {
-        ...dragState.startLayout,
-        width: dragState.startLayout.width + deltaX,
-        height: dragState.startLayout.height + deltaY,
+        ...moveState.startLayout,
+        left: moveState.startLayout.left + deltaX,
+        top: moveState.startLayout.top + deltaY,
       };
       updateUtilityPanelLayout(nextLayout, { persist: false });
     };
     const handlePointerEnd = (event: PointerEvent) => {
-      const dragState = utilityPanelDragRef.current;
-      if (!dragState || event.pointerId !== dragState.pointerId) return;
-      utilityPanelDragRef.current = null;
+      const resizeState = utilityPanelResizeRef.current;
+      if (resizeState && event.pointerId === resizeState.pointerId) {
+        utilityPanelResizeRef.current = null;
+        persistUtilityPanelLayout(utilityPanelLayoutRef.current);
+        return;
+      }
+      const moveState = utilityPanelMoveRef.current;
+      if (!moveState || event.pointerId !== moveState.pointerId) return;
+      utilityPanelMoveRef.current = null;
       persistUtilityPanelLayout(utilityPanelLayoutRef.current);
     };
     window.addEventListener('pointermove', handlePointerMove);
@@ -3499,8 +3585,10 @@ function ChartsContent() {
     return {
       '--charts-utility-expanded-width': `${utilityPanelLayout.width}px`,
       '--charts-utility-expanded-height': `${utilityPanelLayout.height}px`,
+      '--charts-utility-left': `${utilityPanelLayout.left}px`,
+      '--charts-utility-top': `${utilityPanelLayout.top}px`,
     } as CSSProperties;
-  }, [utilityPanelLayout.height, utilityPanelLayout.width]);
+  }, [utilityPanelLayout.height, utilityPanelLayout.left, utilityPanelLayout.top, utilityPanelLayout.width]);
 
   return (
     <>
@@ -3614,124 +3702,130 @@ function ChartsContent() {
         data-charts-topbar-collapsed={isTopbarCollapsed ? '1' : '0'}
         aria-busy={lockState.locked}
       >
-      <header
-        className="charts-page__header"
-        id="charts-topbar"
-        tabIndex={-1}
-        data-focus-anchor="true"
-        data-topbar-collapsed={isTopbarCollapsed ? '1' : '0'}
-      >
-        <div className="charts-page__header-toprow">
-          <h1>Charts 診療記録とORCA連携</h1>
-          <button
-            type="button"
-            className="charts-topbar__toggle"
-            aria-controls="charts-topbar-details"
-            aria-expanded={String(!isTopbarCollapsed)}
-            onClick={() => setIsTopbarCollapsed((prev) => !prev)}
-          >
-            {isTopbarCollapsed ? '概要を開く' : '概要を閉じる'}
-          </button>
-        </div>
-        <div id="charts-topbar-details" hidden={isTopbarCollapsed}>
-          <p>
-            RUN_ID と flags（dataSourceTransition/missingMaster/fallbackUsed/cacheHit）、監査サマリ、配信ステータスを整理して表示します。
-            DocumentTimeline・OrcaSummary・Patients タブの判断基準をそろえ、迷いを減らします。
-          </p>
-          <div
-            className="charts-page__meta-grid"
-            role="status"
-            aria-live="off"
-            data-test-id="charts-topbar-meta"
-            data-run-id={resolvedRunId}
-            data-trace-id={resolvedTraceId ?? undefined}
-            data-source-transition={resolvedTransition}
-            data-missing-master={String(resolvedMissingMaster)}
-            data-cache-hit={String(resolvedCacheHit)}
-            data-fallback-used={String(resolvedFallbackUsed)}
-          >
-            <section className="charts-page__meta-group" aria-label="RUN_ID と flags">
-              <span className="charts-page__meta-title">
-                RUN_ID / dataSourceTransition / missingMaster / cacheHit / fallbackUsed
-              </span>
-              <div className="charts-page__meta-row">
-                <RunIdBadge runId={resolvedRunId} className="charts-page__pill" />
-                <StatusPill
-                  className="charts-page__pill"
-                  label="dataSourceTransition"
-                  value={resolvedTransition}
-                  tone={resolveTransitionTone()}
-                />
-                <StatusPill
-                  className="charts-page__pill"
-                  label="missingMaster"
-                  value={String(resolvedMissingMaster)}
-                  tone={resolveMetaFlagTone(resolvedMissingMaster)}
-                />
-                <StatusPill
-                  className="charts-page__pill"
-                  label="cacheHit"
-                  value={String(resolvedCacheHit)}
-                  tone={resolveCacheHitTone(resolvedCacheHit)}
-                />
-                <StatusPill
-                  className="charts-page__pill"
-                  label="fallbackUsed"
-                  value={String(resolvedFallbackUsed)}
-                  tone={resolveMetaFlagTone(resolvedFallbackUsed)}
-                />
-              </div>
-            </section>
-            <section className="charts-page__meta-group" aria-label="監査サマリ">
-              <span className="charts-page__meta-title">監査サマリ</span>
-              <div className="charts-page__meta-row">
-                <StatusPill
-                  className="charts-page__pill"
-                  label="編集状態"
-                  value={editStatusValue}
-                  tone={tabLock.isReadOnly ? 'warning' : 'info'}
-                />
-                <AuditSummaryInline
-                  summary={lastUpdatedSummary}
-                  className="charts-page__pill"
-                  variant="inline"
-                  label="監査サマリ"
-                  runId={resolvedRunId}
-                />
-              </div>
-            </section>
-            <section className="charts-page__meta-group" aria-label="配信ステータス">
-              <span className="charts-page__meta-title">配信ステータス</span>
-              <div className="charts-page__meta-row">
-                <StatusPill
-                  className="charts-page__pill"
-                  label="Charts master（配信設定）"
-                  value={chartsMasterSourcePolicy}
-                  tone="info"
-                />
-                <StatusPill
-                  className="charts-page__pill"
-                  label="Charts送信（配信ポリシー）"
-                  value={sendAllowedByDelivery ? 'enabled' : 'disabled'}
-                  tone={sendAllowedByDelivery ? 'success' : 'warning'}
-                />
-                <StatusPill
-                  className="charts-page__pill"
-                  label="ETag"
-                  value={
-                    adminConfigQuery.data?.deliveryEtag ??
-                    adminConfigQuery.data?.deliveryVersion ??
-                    adminConfigQuery.data?.deliveryId ??
-                    '―'
-                  }
-                  tone="neutral"
-                />
-                <StatusPill className="charts-page__pill" label="適用先" value={`${session.facilityId}:${session.userId}`} tone="info" />
-              </div>
-            </section>
+      {showOperationalMeta ? (
+        <header
+          className="charts-page__header"
+          id="charts-topbar"
+          tabIndex={-1}
+          data-focus-anchor="true"
+          data-topbar-collapsed={isTopbarCollapsed ? '1' : '0'}
+        >
+          <div className="charts-page__header-toprow">
+            <h1>診療記録デバッグ情報</h1>
+            <button
+              type="button"
+              className="charts-topbar__toggle"
+              aria-controls="charts-topbar-details"
+              aria-expanded={!isTopbarCollapsed}
+              onClick={() => setIsTopbarCollapsed((prev) => !prev)}
+            >
+              {isTopbarCollapsed ? '概要を開く' : '概要を閉じる'}
+            </button>
           </div>
-        </div>
-      </header>
+          <div id="charts-topbar-details" hidden={isTopbarCollapsed}>
+            <div
+              className="charts-page__meta-grid"
+              role="status"
+              aria-live="off"
+              data-test-id="charts-topbar-meta"
+              data-run-id={resolvedRunId}
+              data-trace-id={resolvedTraceId ?? undefined}
+              data-source-transition={resolvedTransition}
+              data-missing-master={String(resolvedMissingMaster)}
+              data-cache-hit={String(resolvedCacheHit)}
+              data-fallback-used={String(resolvedFallbackUsed)}
+            >
+              <section className="charts-page__meta-group" aria-label="RUN_ID と flags">
+                <span className="charts-page__meta-title">
+                  RUN_ID / dataSourceTransition / missingMaster / cacheHit / fallbackUsed
+                </span>
+                <div className="charts-page__meta-row">
+                  <RunIdBadge runId={resolvedRunId} className="charts-page__pill" />
+                  <StatusPill
+                    className="charts-page__pill"
+                    label="dataSourceTransition"
+                    value={resolvedTransition}
+                    tone={resolveTransitionTone()}
+                  />
+                  <StatusPill
+                    className="charts-page__pill"
+                    label="missingMaster"
+                    value={String(resolvedMissingMaster)}
+                    tone={resolveMetaFlagTone(resolvedMissingMaster)}
+                  />
+                  <StatusPill
+                    className="charts-page__pill"
+                    label="cacheHit"
+                    value={String(resolvedCacheHit)}
+                    tone={resolveCacheHitTone(resolvedCacheHit)}
+                  />
+                  <StatusPill
+                    className="charts-page__pill"
+                    label="fallbackUsed"
+                    value={String(resolvedFallbackUsed)}
+                    tone={resolveMetaFlagTone(resolvedFallbackUsed)}
+                  />
+                </div>
+              </section>
+              <section className="charts-page__meta-group" aria-label="監査サマリ">
+                <span className="charts-page__meta-title">監査サマリ</span>
+                <div className="charts-page__meta-row">
+                  <StatusPill
+                    className="charts-page__pill"
+                    label="編集状態"
+                    value={editStatusValue}
+                    tone={tabLock.isReadOnly ? 'warning' : 'info'}
+                  />
+                  <AuditSummaryInline
+                    summary={lastUpdatedSummary}
+                    className="charts-page__pill"
+                    variant="inline"
+                    label="監査サマリ"
+                    runId={resolvedRunId}
+                  />
+                </div>
+              </section>
+              <section className="charts-page__meta-group" aria-label="配信ステータス">
+                <span className="charts-page__meta-title">配信ステータス</span>
+                <div className="charts-page__meta-row">
+                  <StatusPill
+                    className="charts-page__pill"
+                    label="Charts master（配信設定）"
+                    value={chartsMasterSourcePolicy}
+                    tone="info"
+                  />
+                  <StatusPill
+                    className="charts-page__pill"
+                    label="Charts送信（配信ポリシー）"
+                    value={sendAllowedByDelivery ? 'enabled' : 'disabled'}
+                    tone={sendAllowedByDelivery ? 'success' : 'warning'}
+                  />
+                  <StatusPill
+                    className="charts-page__pill"
+                    label="ETag"
+                    value={
+                      adminConfigQuery.data?.deliveryEtag ??
+                      adminConfigQuery.data?.deliveryVersion ??
+                      adminConfigQuery.data?.deliveryId ??
+                      '―'
+                    }
+                    tone="neutral"
+                  />
+                  <StatusPill className="charts-page__pill" label="適用先" value={`${session.facilityId}:${session.userId}`} tone="info" />
+                </div>
+              </section>
+            </div>
+          </div>
+        </header>
+      ) : (
+        <div
+          className="charts-focus-anchor"
+          id="charts-topbar"
+          tabIndex={-1}
+          data-focus-anchor="true"
+          aria-hidden="true"
+        />
+      )}
       <AdminBroadcastBanner broadcast={broadcast} surface="charts" runId={resolvedRunId ?? flags.runId} />
       {contextAlert ? (
         <ToneBanner
@@ -3773,7 +3867,7 @@ function ChartsContent() {
         />
       ) : null}
 
-      {deliveryAppliedMeta && (!isChartsCompactHeader || !isTopbarCollapsed) ? (
+      {showOperationalMeta && deliveryAppliedMeta && (!isChartsCompactHeader || !isTopbarCollapsed) ? (
         <section className="charts-card" aria-label="管理配信の適用メタ">
           <h2>管理配信（適用メタ）</h2>
           <div className="charts-page__meta" aria-live={infoLive}>
@@ -3854,31 +3948,13 @@ function ChartsContent() {
                         <span className="charts-patient-tabs__empty">タブなし</span>
                       )}
                     </div>
-                    <form className="charts-patient-tabs__quick-open" onSubmit={handleChartsQuickOpenSubmit} aria-label="患者IDでカルテを開く">
-                      <label className="charts-patient-tabs__quick-field" htmlFor="charts-quick-open-patient-id">
-                        <span>患者ID</span>
-                        <input
-                          id="charts-quick-open-patient-id"
-                          name="chartsQuickOpenPatientId"
-                          type="search"
-                          inputMode="numeric"
-                          autoComplete="off"
-                          value={chartsQuickOpenPatientId}
-                          onChange={(event) => setChartsQuickOpenPatientId(event.target.value)}
-                          placeholder="000001"
-                          disabled={chartsQuickOpenPending}
-                        />
-                      </label>
-                      <button
-                        type="submit"
-                        className="charts-patient-tabs__quick-button"
-                        disabled={chartsQuickOpenPending || !chartsQuickOpenPatientId.trim()}
-                      >
-                        {chartsQuickOpenPending ? '検索中…' : '開く'}
-                      </button>
-                    </form>
                   </div>
-                  <div className="charts-card charts-card--summary" id="charts-patient-summary" tabIndex={-1} data-focus-anchor="true">
+                  <div
+                    className="charts-card charts-card--summary charts-card--summary-with-actions"
+                    id="charts-patient-summary"
+                    tabIndex={-1}
+                    data-focus-anchor="true"
+                  >
                     <ChartsPatientSummaryBar
                       patientDisplay={patientDisplay}
                       patientId={patientId}
@@ -3898,103 +3974,112 @@ function ChartsContent() {
                       approvalDetail={approvalDetail}
                       lockStatus={lockStatus}
                       onOpenPatientPanel={() => setIsPatientPanelOpen(true)}
+                      quickOpenPatientId={chartsQuickOpenPatientId}
+                      quickOpenPending={chartsQuickOpenPending}
+                      onQuickOpenPatientIdChange={setChartsQuickOpenPatientId}
+                      onQuickOpenSubmit={handleChartsQuickOpenSubmit}
                     />
-                  </div>
-                  <div className="charts-card charts-card--actions" id="charts-actionbar" tabIndex={-1} data-focus-anchor="true">
-                    <ChartsActionBar
-                      runId={resolvedRunId ?? flags.runId}
-                      cacheHit={resolvedCacheHit ?? false}
-                      missingMaster={resolvedMissingMaster ?? false}
-                      dataSourceTransition={resolvedTransition ?? 'snapshot'}
-                      fallbackUsed={resolvedFallbackUsed}
-                      selectedEntry={selectedEntry}
-                      sendEnabled={sendAllowedByDelivery}
-                      compactHeader
-                      sendDisabledReason={sendDisabledReason}
-                      patientId={patientId}
-                      visitDate={actionVisitDate}
-                      queueEntry={actionBarQueueEntry}
-                      hasUnsavedDraft={draftState.dirty}
-                      hasPermission={hasPermission}
-                      requireServerRouteForSend
-                      requirePatientForSend
-                      networkDegradedReason={networkDegradedReason}
-                      approvalLock={{
-                        locked: approvalLocked,
-                        approvedAt: approvalState.record?.approvedAt,
-                        runId: approvalState.record?.runId,
-                        action: approvalState.record?.action,
-                      }}
-                      editLock={{
-                        readOnly: tabLock.isReadOnly,
-                        reason: tabLock.readOnlyReason,
-                        ownerRunId: tabLock.ownerRunId,
-                        expiresAt: tabLock.expiresAt,
-                        lockStatus: tabLock.status,
-                      }}
-                      onReloadLatest={handleRefreshSummary}
-                      onDiscardChanges={() => {
-                        setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
-                        recordChartsAuditEvent({
-                          action: 'CHARTS_CONFLICT',
-                          outcome: 'discarded',
-                          subject: 'charts-tab-lock',
-                          patientId: lockTarget.patientId,
-                          appointmentId: lockTarget.appointmentId,
-                          runId: resolvedRunId ?? flags.runId,
-                          cacheHit: resolvedCacheHit,
-                          missingMaster: resolvedMissingMaster,
-                          fallbackUsed: resolvedFallbackUsed,
-                          dataSourceTransition: resolvedTransition,
-                          details: {
-                            operationPhase: 'lock',
-                            trigger: 'tab',
-                            resolution: 'discard',
-                            lockStatus: tabLock.status,
-                            tabSessionId: tabLock.tabSessionId,
-                            lockOwnerRunId: tabLock.ownerRunId,
-                            lockExpiresAt: tabLock.expiresAt,
-                            receptionId: lockTarget.receptionId,
-                            facilityId: session.facilityId,
-                            userId: session.userId,
-                          },
-                        });
-                      }}
-                      onForceTakeover={() => {
-                        const wasReadOnly = tabLock.isReadOnly;
-                        tabLock.forceTakeover();
-                        recordChartsAuditEvent({
-                          action: 'CHARTS_EDIT_LOCK',
-                          outcome: wasReadOnly ? 'stolen' : 'acquired',
-                          subject: 'charts-tab-lock',
-                          patientId: lockTarget.patientId,
-                          appointmentId: lockTarget.appointmentId,
-                          runId: resolvedRunId ?? flags.runId,
-                          cacheHit: resolvedCacheHit,
-                          missingMaster: resolvedMissingMaster,
-                          fallbackUsed: resolvedFallbackUsed,
-                          dataSourceTransition: resolvedTransition,
-                          details: {
-                            operationPhase: 'lock',
-                            trigger: 'tab',
-                            resolution: 'force_takeover',
-                            lockStatus: tabLock.status,
-                            tabSessionId: tabLock.tabSessionId,
-                            lockOwnerRunId: tabLock.ownerRunId,
-                            lockExpiresAt: tabLock.expiresAt,
-                            receptionId: lockTarget.receptionId,
-                            facilityId: session.facilityId,
-                            userId: session.userId,
-                          },
-                        });
-                      }}
-                      onApprovalConfirmed={handleApprovalConfirmed}
-                      onApprovalUnlock={handleApprovalUnlock}
-                      onAfterSend={handleRefreshSummary}
-                      onAfterFinish={handleAfterFinish}
-                      onDraftSaved={() => setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }))}
-                      onLockChange={handleLockChange}
-                    />
+                    <div className="charts-patient-summary__embedded-actions">
+                      <ChartsActionBar
+                        runId={resolvedRunId ?? flags.runId}
+                        cacheHit={resolvedCacheHit ?? false}
+                        missingMaster={resolvedMissingMaster ?? false}
+                        dataSourceTransition={resolvedTransition ?? 'snapshot'}
+                        fallbackUsed={resolvedFallbackUsed}
+                        selectedEntry={selectedEntry}
+                        sendEnabled={sendAllowedByDelivery}
+                        compactHeader
+                        defaultCollapsed
+                        embedded
+                        sendDisabledReason={sendDisabledReason}
+                        patientId={patientId}
+                        visitDate={actionVisitDate}
+                        queueEntry={actionBarQueueEntry}
+                        hasUnsavedDraft={draftState.dirty}
+                        hasPermission={hasPermission}
+                        requireServerRouteForSend
+                        requirePatientForSend
+                        networkDegradedReason={networkDegradedReason}
+                        approvalLock={{
+                          locked: approvalLocked,
+                          approvedAt: approvalState.record?.approvedAt,
+                          runId: approvalState.record?.runId,
+                          action: approvalState.record?.action,
+                        }}
+                        editLock={{
+                          readOnly: tabLock.isReadOnly,
+                          reason: tabLock.readOnlyReason,
+                          ownerRunId: tabLock.ownerRunId,
+                          expiresAt: tabLock.expiresAt,
+                          lockStatus: tabLock.status,
+                        }}
+                        onReloadLatest={handleRefreshSummary}
+                        onDiscardChanges={() => {
+                          setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
+                          recordChartsAuditEvent({
+                            action: 'CHARTS_CONFLICT',
+                            outcome: 'discarded',
+                            subject: 'charts-tab-lock',
+                            patientId: lockTarget.patientId,
+                            appointmentId: lockTarget.appointmentId,
+                            runId: resolvedRunId ?? flags.runId,
+                            cacheHit: resolvedCacheHit,
+                            missingMaster: resolvedMissingMaster,
+                            fallbackUsed: resolvedFallbackUsed,
+                            dataSourceTransition: resolvedTransition,
+                            details: {
+                              operationPhase: 'lock',
+                              trigger: 'tab',
+                              resolution: 'discard',
+                              lockStatus: tabLock.status,
+                              tabSessionId: tabLock.tabSessionId,
+                              lockOwnerRunId: tabLock.ownerRunId,
+                              lockExpiresAt: tabLock.expiresAt,
+                              receptionId: lockTarget.receptionId,
+                              facilityId: session.facilityId,
+                              userId: session.userId,
+                            },
+                          });
+                        }}
+                        onForceTakeover={() => {
+                          const wasReadOnly = tabLock.isReadOnly;
+                          tabLock.forceTakeover();
+                          recordChartsAuditEvent({
+                            action: 'CHARTS_EDIT_LOCK',
+                            outcome: wasReadOnly ? 'stolen' : 'acquired',
+                            subject: 'charts-tab-lock',
+                            patientId: lockTarget.patientId,
+                            appointmentId: lockTarget.appointmentId,
+                            runId: resolvedRunId ?? flags.runId,
+                            cacheHit: resolvedCacheHit,
+                            missingMaster: resolvedMissingMaster,
+                            fallbackUsed: resolvedFallbackUsed,
+                            dataSourceTransition: resolvedTransition,
+                            details: {
+                              operationPhase: 'lock',
+                              trigger: 'tab',
+                              resolution: 'force_takeover',
+                              lockStatus: tabLock.status,
+                              tabSessionId: tabLock.tabSessionId,
+                              lockOwnerRunId: tabLock.ownerRunId,
+                              lockExpiresAt: tabLock.expiresAt,
+                              receptionId: lockTarget.receptionId,
+                              facilityId: session.facilityId,
+                              userId: session.userId,
+                            },
+                          });
+                        }}
+                        onApprovalConfirmed={handleApprovalConfirmed}
+                        onApprovalUnlock={handleApprovalUnlock}
+                        showOperationalMeta={showOperationalMeta}
+                        onAfterSend={handleRefreshSummary}
+                        onAfterStart={handleAfterStart}
+                        onAfterPause={handleAfterPause}
+                        onAfterFinish={handleAfterFinish}
+                        onDraftSaved={() => setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }))}
+                        onLockChange={handleLockChange}
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="charts-workbench__sticky-side" aria-hidden="true" />
@@ -4149,6 +4234,7 @@ function ChartsContent() {
                       visitDate={encounterContext.visitDate}
                       onRefresh={handleRefreshSummary}
                       isRefreshing={isManualRefreshing}
+                      showOperationalMeta={showOperationalMeta}
                     />
                   </div>
 
@@ -4199,71 +4285,56 @@ function ChartsContent() {
                 data-panel-open={utilityPanelAction ? 'true' : 'false'}
                 data-order-mode={isOrderUtilityAction ? 'true' : 'false'}
               >
-	                <div className="charts-docked-panel">
-	                  <div className="charts-docked-panel__mini" role="group" aria-label="補助メニュー">
-	                    <button
-	                      type="button"
-	                      className="charts-docked-panel__mini-button"
-	                      onClick={() => setIsShortcutsDialogOpen(true)}
-	                      aria-haspopup="dialog"
-	                      aria-expanded={String(isShortcutsDialogOpen)}
-	                      title="ショートカット一覧"
-	                    >
-	                      ?
-	                      <span className="charts-docked-panel__mini-label">ショートカット</span>
-	                    </button>
-	                  </div>
-	                  <div className="charts-docked-panel__header">
-	                    <div>
-	                      <p className="charts-docked-panel__eyebrow">ユーティリティ</p>
-                      <h2 id="charts-docked-panel-title" ref={utilityHeadingRef} tabIndex={-1}>
-                        {utilityPanelAction ? utilityPanelTitles[utilityPanelAction] : 'ユーティリティ'}
-                      </h2>
-                      <p id="charts-docked-panel-desc" className="charts-docked-panel__desc">
-                        オーダー・文書・画像入力をまとめて呼び出します。
-                      </p>
-                      <p className="charts-docked-panel__shortcut">
-                        Ctrl+Shift+U: 開閉 / Ctrl+Shift+1〜{utilityItems.length}: タブ切替 / Esc: 閉じる
-                      </p>
+                <div className="charts-docked-panel">
+                  <div className="charts-docked-panel__footer">
+                    <div className="charts-docked-panel__tabs" role="tablist" aria-label="ユーティリティ">
+                      {utilityItems.map((item, index) => {
+                        const isActive = utilityPanelAction === item.id;
+                        const isDisabled = item.requiresEdit && (!patientSelected || sidePanelMeta.readOnly);
+                        const disabledReason = !patientSelected
+                          ? UTILITY_PATIENT_UNSELECTED_MESSAGE
+                          : sidePanelMeta.readOnlyReason ?? '読み取り専用のため編集はできません。';
+                        return (
+                          <button
+                            key={item.id}
+                            id={`charts-docked-tab-${item.id}`}
+                            type="button"
+                            role="tab"
+                            className="charts-docked-panel__tab"
+                            data-utility-action={item.id}
+                            data-active={isActive ? 'true' : 'false'}
+                            data-utility-order={index === 0 ? 'first' : undefined}
+                            aria-controls="charts-docked-panel"
+                            aria-selected={isActive}
+                            aria-expanded={isActive}
+                            disabled={isDisabled}
+                            title={isDisabled ? disabledReason : item.shortcut}
+                            onClick={(event) => handleUtilityButtonClick(item.id, event.currentTarget)}
+                          >
+                            <span className="charts-docked-panel__tab-icon" aria-hidden="true">
+                              {item.shortLabel}
+                            </span>
+                            <span className="charts-docked-panel__tab-text">
+                              <span className="charts-docked-panel__tab-label">{item.label}</span>
+                              <span className="charts-docked-panel__tab-shortcut">{item.shortcut}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
-                    <button type="button" className="charts-docked-panel__close" onClick={() => closeUtilityPanel(true)}>
-                      閉じる
-                    </button>
-                  </div>
-                  <div className="charts-docked-panel__tabs" role="tablist" aria-label="ユーティリティ">
-                    {utilityItems.map((item, index) => {
-                      const isActive = utilityPanelAction === item.id;
-                      const isDisabled = item.requiresEdit && (!patientSelected || sidePanelMeta.readOnly);
-                      const disabledReason = !patientSelected
-                        ? UTILITY_PATIENT_UNSELECTED_MESSAGE
-                        : sidePanelMeta.readOnlyReason ?? '読み取り専用のため編集はできません。';
-                      return (
-                        <button
-                          key={item.id}
-                          id={`charts-docked-tab-${item.id}`}
-                          type="button"
-                          role="tab"
-                          className="charts-docked-panel__tab"
-                          data-utility-action={item.id}
-                          data-active={isActive ? 'true' : 'false'}
-                          data-utility-order={index === 0 ? 'first' : undefined}
-                          aria-controls="charts-docked-panel"
-                          aria-selected={isActive}
-                          aria-expanded={isActive}
-                          disabled={isDisabled}
-                          title={isDisabled ? disabledReason : item.shortcut}
-                          onClick={(event) => handleUtilityButtonClick(item.id, event.currentTarget)}
-                        >
-                          <span className="charts-docked-panel__tab-icon" aria-hidden="true">
-                            {item.shortLabel}
-                          </span>
-                          <span className="charts-docked-panel__tab-text">
-                            <span className="charts-docked-panel__tab-label">{item.label}</span>
-                            <span className="charts-docked-panel__tab-shortcut">{item.shortcut}</span>
-                          </span>
-                        </button>
-                      );
-                    })}
+                    <div className="charts-docked-panel__mini" role="group" aria-label="補助メニュー">
+                      <button
+                        type="button"
+                        className="charts-docked-panel__mini-button"
+                        onClick={() => setIsShortcutsDialogOpen(true)}
+                        aria-haspopup="dialog"
+                        aria-expanded={isShortcutsDialogOpen}
+                        title="ショートカット一覧"
+                      >
+                        ?
+                        <span className="charts-docked-panel__mini-label">ショートカット</span>
+                      </button>
+                    </div>
                   </div>
                   <div
                     id="charts-docked-panel"
@@ -4275,6 +4346,26 @@ function ChartsContent() {
                     data-open={utilityPanelAction ? 'true' : 'false'}
                     data-docked-panel-content="true"
                   >
+                    <div
+                      className={`charts-docked-panel__header${utilityPanelAction ? ' charts-docked-panel__header--draggable' : ''}`}
+                      onPointerDown={beginUtilityPanelMove}
+                    >
+                      <div>
+                        <p className="charts-docked-panel__eyebrow">ユーティリティ</p>
+                        <h2 id="charts-docked-panel-title" ref={utilityHeadingRef} tabIndex={-1}>
+                          {utilityPanelAction ? utilityPanelTitles[utilityPanelAction] : 'ユーティリティ'}
+                        </h2>
+                        <p id="charts-docked-panel-desc" className="charts-docked-panel__desc">
+                          オーダー・文書・画像入力をまとめて呼び出します。
+                        </p>
+                        <p className="charts-docked-panel__shortcut">
+                          Ctrl+Shift+U: 開閉 / Ctrl+Shift+1〜{utilityItems.length}: タブ切替 / Esc: 閉じる
+                        </p>
+                      </div>
+                      <button type="button" className="charts-docked-panel__close" onClick={() => closeUtilityPanel(true)}>
+                        閉じる
+                      </button>
+                    </div>
                     {(utilityPanelAction === 'prescription-edit' ||
                       utilityPanelAction === 'order-injection' ||
                       utilityPanelAction === 'order-treatment' ||
@@ -4512,12 +4603,9 @@ function ChartsContent() {
                               <strong>スタンプ</strong>
                             </div>
                             <p className="charts-side-panel__help">
-                              スタンプはオーダー専用の定型入力です。選択後に「オーダー編集を開く」で対象タブへ直接移動できます。
+                              スタンプは独立管理画面で閲覧・編集・登録できます。必要時のみローカルへ保存して運用してください。
                             </p>
-                            <StampLibraryPanel
-                              phase={stampboxMvpPhase === 2 ? 2 : 1}
-                              onOpenOrderEdit={stampboxMvpPhase >= 2 ? handleOpenOrderEditorFromEntity : undefined}
-                            />
+                            <StampLibraryPanel phase={stampboxMvpPhase === 2 ? 2 : 1} />
                           </div>
                         ) : null}
                       </div>

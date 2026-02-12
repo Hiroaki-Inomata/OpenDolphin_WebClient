@@ -15,6 +15,19 @@ type AppointmentDataBannerInput = {
   date?: string;
 };
 
+export type AppointmentDataIntegrityCounts = {
+  missingPatientId: number;
+  missingAppointmentId: number;
+  missingReceptionId: number;
+};
+
+export const countAppointmentDataIntegrity = (entries: ReceptionEntry[]): AppointmentDataIntegrityCounts => ({
+  missingPatientId: entries.filter((entry) => !entry.patientId).length,
+  // `visits` は予約外受付を含み、appointmentId が未採番でも正常系。
+  missingAppointmentId: entries.filter((entry) => entry.source !== 'visits' && !entry.appointmentId).length,
+  missingReceptionId: entries.filter((entry) => entry.source === 'visits' && !entry.receptionId).length,
+});
+
 export function getAppointmentDataBanner({
   entries,
   isLoading,
@@ -35,9 +48,7 @@ export function getAppointmentDataBanner({
     return { tone: 'info', message: `予約/来院データがありません。${date ? `（${date}）` : ''}` };
   }
 
-  const missingPatientId = entries.filter((entry) => !entry.patientId).length;
-  const missingAppointmentId = entries.filter((entry) => !entry.appointmentId).length;
-  const missingReceptionId = entries.filter((entry) => entry.source === 'visits' && !entry.receptionId).length;
+  const { missingPatientId, missingAppointmentId, missingReceptionId } = countAppointmentDataIntegrity(entries);
 
   if (missingPatientId === 0 && missingAppointmentId === 0 && missingReceptionId === 0) return null;
 

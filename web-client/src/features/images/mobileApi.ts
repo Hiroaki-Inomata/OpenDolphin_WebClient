@@ -67,21 +67,20 @@ export async function fetchPatientImageList(patientId: string): Promise<PatientI
     : Array.isArray((payload as any)?.list)
       ? (((payload as any).list as unknown[]) ?? [])
       : [];
-  const list: PatientImageListItem[] = rawList
-    .map((entry: any) => {
-      const imageId = entry?.imageId ?? entry?.id;
-      if (imageId === undefined || imageId === null) return null;
-      return {
-        id: String(imageId),
-        fileName: typeof entry?.fileName === 'string' ? entry.fileName : undefined,
-        contentType: typeof entry?.contentType === 'string' ? entry.contentType : undefined,
-        contentSize: typeof entry?.size === 'number' ? entry.size : typeof entry?.contentSize === 'number' ? entry.contentSize : undefined,
-        recordedAt: typeof entry?.createdAt === 'string' ? entry.createdAt : typeof entry?.recordedAt === 'string' ? entry.recordedAt : undefined,
-        downloadUrl: typeof entry?.downloadUrl === 'string' ? entry.downloadUrl : undefined,
-        thumbnailUrl: typeof entry?.thumbnailUrl === 'string' ? entry.thumbnailUrl : undefined,
-      } satisfies PatientImageListItem;
-    })
-    .filter((item): item is PatientImageListItem => Boolean(item));
+  const list = rawList.reduce<PatientImageListItem[]>((acc, entry: any) => {
+    const imageId = entry?.imageId ?? entry?.id;
+    if (imageId === undefined || imageId === null) return acc;
+    acc.push({
+      id: String(imageId),
+      fileName: typeof entry?.fileName === 'string' ? entry.fileName : undefined,
+      contentType: typeof entry?.contentType === 'string' ? entry.contentType : undefined,
+      contentSize: typeof entry?.size === 'number' ? entry.size : typeof entry?.contentSize === 'number' ? entry.contentSize : undefined,
+      recordedAt: typeof entry?.createdAt === 'string' ? entry.createdAt : typeof entry?.recordedAt === 'string' ? entry.recordedAt : undefined,
+      downloadUrl: typeof entry?.downloadUrl === 'string' ? entry.downloadUrl : undefined,
+      thumbnailUrl: typeof entry?.thumbnailUrl === 'string' ? entry.thumbnailUrl : undefined,
+    });
+    return acc;
+  }, []);
   const metaAfter = getObservabilityMeta();
   return {
     ok: response.ok,

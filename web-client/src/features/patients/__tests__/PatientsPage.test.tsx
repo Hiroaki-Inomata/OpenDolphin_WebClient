@@ -512,7 +512,7 @@ describe('PatientsPage search summary', () => {
     const summary = screen.getByText('検索結果').closest('.patients-search__summary');
     expect(summary).not.toBeNull();
     if (!summary) return;
-    const summaryScope = within(summary);
+    const summaryScope = within(summary as HTMLElement);
     expect(summaryScope.getByText('5件')).toBeInTheDocument();
     expect(summaryScope.getByText('server fetchedAt: 2026-01-29T00:00:00Z')).toBeInTheDocument();
     expect(summaryScope.getByText('Api_Result: 00')).toBeInTheDocument();

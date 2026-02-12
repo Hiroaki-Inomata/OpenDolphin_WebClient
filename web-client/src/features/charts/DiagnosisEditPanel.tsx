@@ -377,7 +377,7 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
       )}
       {notice && <div className={`charts-side-panel__notice charts-side-panel__notice--${notice.tone}`}>{notice.message}</div>}
 
-      <div className="charts-side-panel__list" aria-live={resolveAriaLive('info')}>
+      <div className="charts-side-panel__list charts-diagnosis__list-scroll" aria-live={resolveAriaLive('info')}>
         <div className="charts-side-panel__list-header">
           <span>登録済み病名</span>
           <span>{diagnosisQuery.isFetching ? '更新中' : `${list.length}件`}</span>

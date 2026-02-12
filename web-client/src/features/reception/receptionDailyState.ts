@@ -8,7 +8,13 @@ const LEGACY_STORAGE_KEY = `${STORAGE_BASE_KEY}:v1`;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_DAYS = 365;
 
-type ReceptionStatusOverrideSource = 'api' | 'charts_open' | 'charts_finish' | 'manual';
+type ReceptionStatusOverrideSource =
+  | 'api'
+  | 'charts_open'
+  | 'charts_start'
+  | 'charts_pause'
+  | 'charts_finish'
+  | 'manual';
 
 type ReceptionStatusOverride = {
   status: ReceptionStatus;
@@ -112,7 +118,12 @@ const normalizeOverride = (value: unknown): ReceptionStatusOverride | null => {
   const status = normalizeReceptionStatus(raw.status);
   if (!status) return null;
   const source =
-    raw.source === 'api' || raw.source === 'charts_open' || raw.source === 'charts_finish' || raw.source === 'manual'
+    raw.source === 'api' ||
+    raw.source === 'charts_open' ||
+    raw.source === 'charts_start' ||
+    raw.source === 'charts_pause' ||
+    raw.source === 'charts_finish' ||
+    raw.source === 'manual'
       ? raw.source
       : 'manual';
   return {
@@ -431,4 +442,3 @@ export const listReceptionSnapshotDates = (scope?: StorageScope, limit = 30): st
   const dates = Object.keys(store.days).sort((left, right) => right.localeCompare(left));
   return limit > 0 ? dates.slice(0, limit) : dates;
 };
-

@@ -708,7 +708,7 @@ export function OrcaUserManagementPanel({ runId, role }: OrcaUserManagementPanel
           >
             {ehrUsers.map((user) => {
               const ehrUserId = resolveEhrUserId(user);
-              const displayName = user.displayName ?? `${user.sirName ?? ''}${user.givenName ?? ''}`.trim() || '名称未設定';
+              const displayName = user.displayName ?? (`${user.sirName ?? ''}${user.givenName ?? ''}`.trim() || '名称未設定');
               return (
                 <option key={ehrUserId} value={ehrUserId}>
                   {displayName} / ehrUserId:{ehrUserId} / login_id:{user.loginId}

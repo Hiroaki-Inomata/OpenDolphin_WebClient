@@ -17,7 +17,7 @@ import {
 } from './soapNote';
 import { SubjectivesPanel } from './soap/SubjectivesPanel';
 import { appendImageAttachmentPlaceholders, type ChartImageAttachment } from './documentImageAttach';
-import { postChartSubjectiveEntry } from './soap/subjectiveChartApi';
+import { postChartSubjectiveEntry, type ChartSubjectiveEntryRequest } from './soap/subjectiveChartApi';
 import { RevisionHistoryDrawer } from './revisions/RevisionHistoryDrawer';
 import type { RpHistoryEntry } from './karteExtrasApi';
 import type { OrderBundle } from './orderBundleApi';
@@ -547,21 +547,17 @@ export function SoapNotePanel({
     }
 
     const performDate = meta.visitDate ?? new Date().toISOString().slice(0, 10);
-    const requests = entries
-      .map((entry) => {
-        const soapCategory = resolveSoapCategory(entry.section);
-        if (!soapCategory) return null;
-        return {
-          patientId: meta.patientId as string,
-          performDate,
-          soapCategory,
-          physicianCode: undefined,
-          body: entry.body,
-        };
-      })
-      .filter((entry): entry is { patientId: string; performDate: string; soapCategory: 'S' | 'O' | 'A' | 'P'; physicianCode?: string; body: string } =>
-        Boolean(entry),
-      );
+    const requests = entries.reduce<ChartSubjectiveEntryRequest[]>((acc, entry) => {
+      const soapCategory = resolveSoapCategory(entry.section);
+      if (!soapCategory) return acc;
+      acc.push({
+        patientId: meta.patientId as string,
+        performDate,
+        soapCategory,
+        body: entry.body,
+      });
+      return acc;
+    }, []);
 
     if (requests.length === 0) {
       setFeedback('SOAP server 保存対象がありません。');
@@ -805,7 +801,7 @@ export function SoapNotePanel({
               onClick={() => setRevisionDrawerOpen(true)}
               className="soap-note__ghost"
               aria-haspopup="dialog"
-              aria-expanded={String(revisionDrawerOpen)}
+              aria-expanded={revisionDrawerOpen}
             >
               版履歴
             </button>

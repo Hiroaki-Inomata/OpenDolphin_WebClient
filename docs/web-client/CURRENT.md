@@ -1,7 +1,7 @@
 # Webクライアント ドキュメントハブ（現行）
 
 - 更新日: 2026-02-12
-- RUN_ID: 20260212T003351Z
+- RUN_ID: 20260212T043317Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -41,6 +41,7 @@
 - `docs/web-client/ux/order-document-set-fastpath-check-20260120.md`
 - `docs/web-client/ux/charts-compact-layout-proposal-20260110.md`
 - `docs/web-client/ux/charts-stamp-set-consolidation-20260211.md`
+- `docs/web-client/ux/charts-stamp-standalone-management-20260212.md`
 - `docs/web-client/ux/charts-order-panel-floating-layout-20260211.md`
 - `docs/web-client/ux/charts-order-orca-master-realtime-dropdown-20260211.md`
 - `docs/web-client/ux/reception-status-tab-daily-state-20260211.md`

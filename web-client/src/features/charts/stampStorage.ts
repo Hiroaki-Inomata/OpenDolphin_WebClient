@@ -42,6 +42,12 @@ const buildStorageKey = (userName: string) => `${STORAGE_PREFIX}:${userName}`;
 const buildClipboardKey = (userName: string) => `${CLIPBOARD_PREFIX}:${userName}`;
 const buildLegacyStorageKey = () => buildStorageKey(LEGACY_USER_NAME);
 const buildLegacyClipboardKey = () => buildClipboardKey(LEGACY_USER_NAME);
+const MAX_LOCAL_STAMP_COUNT = 200;
+
+const persistLocalStamps = (userName: string, entries: LocalStampEntry[]) => {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(buildStorageKey(userName), JSON.stringify(entries.slice(0, MAX_LOCAL_STAMP_COUNT)));
+};
 
 const generateLocalStampId = () => {
   if (globalThis.crypto?.randomUUID) {
@@ -89,12 +95,42 @@ export function saveLocalStamp(
   if (typeof localStorage === 'undefined') {
     return { ...entry, id: generateLocalStampId(), savedAt: new Date().toISOString() };
   }
-  const key = buildStorageKey(userName);
   const existing = loadLocalStamps(userName);
   const next: LocalStampEntry = { ...entry, id: generateLocalStampId(), savedAt: new Date().toISOString() };
-  const updated = [next, ...existing].slice(0, 200);
-  localStorage.setItem(key, JSON.stringify(updated));
+  const updated = [next, ...existing];
+  persistLocalStamps(userName, updated);
   return next;
+}
+
+export function updateLocalStamp(
+  userName: string,
+  stampId: string,
+  entry: Omit<LocalStampEntry, 'id' | 'savedAt'>,
+): LocalStampEntry | null {
+  if (typeof localStorage === 'undefined') return null;
+  const existing = loadLocalStamps(userName);
+  let updatedStamp: LocalStampEntry | null = null;
+  const updated = existing.map((current) => {
+    if (current.id !== stampId) return current;
+    updatedStamp = {
+      ...entry,
+      id: current.id,
+      savedAt: new Date().toISOString(),
+    };
+    return updatedStamp;
+  });
+  if (!updatedStamp) return null;
+  persistLocalStamps(userName, updated);
+  return updatedStamp;
+}
+
+export function deleteLocalStamp(userName: string, stampId: string): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  const existing = loadLocalStamps(userName);
+  const updated = existing.filter((entry) => entry.id !== stampId);
+  if (updated.length === existing.length) return false;
+  persistLocalStamps(userName, updated);
+  return true;
 }
 
 export function loadStampClipboard(userName: string): StampClipboardEntry | null {

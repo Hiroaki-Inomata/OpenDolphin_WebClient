@@ -166,6 +166,11 @@ vi.mock('../../outpatient/orcaQueueStatus', () => ({
 
 vi.mock('../../outpatient/appointmentDataBanner', () => ({
   getAppointmentDataBanner: () => null,
+  countAppointmentDataIntegrity: () => ({
+    missingPatientId: 0,
+    missingAppointmentId: 0,
+    missingReceptionId: 0,
+  }),
 }));
 
 describe('ReceptionPage recovery order', () => {

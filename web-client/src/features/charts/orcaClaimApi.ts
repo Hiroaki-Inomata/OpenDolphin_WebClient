@@ -65,27 +65,26 @@ export const buildMedicalModV2RequestXml = (params: {
       },
     ],
   };
-  const medicalInformation = [baseMedicalInfo, ...(params.medicalInformation ?? [])]
-    .map((info) => {
-      const medicalClass = info.medicalClass?.trim();
-      const medications = (info.medications ?? [])
-        .map((medication) => ({
-          code: medication.code.trim(),
-          name: medication.name?.trim() || undefined,
-          number: medication.number?.trim() || '',
-        }))
-        .filter((medication) => medication.code.length > 0);
-      if (!medicalClass || medications.length === 0) return null;
-      return {
-        medicalClass,
-        medicalClassName: info.medicalClassName?.trim() || undefined,
-        medicalClassNumber: info.medicalClassNumber?.trim() || '1',
-        medications,
-      };
-    })
-    .filter((info): info is { medicalClass: string; medicalClassName?: string; medicalClassNumber: string; medications: { code: string; name?: string; number: string }[] } =>
-      Boolean(info),
-    );
+  const medicalInformation = [baseMedicalInfo, ...(params.medicalInformation ?? [])].reduce<
+    Array<{ medicalClass: string; medicalClassName?: string; medicalClassNumber: string; medications: Array<{ code: string; name?: string; number: string }> }>
+  >((acc, info) => {
+    const medicalClass = info.medicalClass?.trim();
+    const medications = (info.medications ?? [])
+      .map((medication) => ({
+        code: medication.code.trim(),
+        name: medication.name?.trim() || undefined,
+        number: medication.number?.trim() || '',
+      }))
+      .filter((medication) => medication.code.length > 0);
+    if (!medicalClass || medications.length === 0) return acc;
+    acc.push({
+      medicalClass,
+      medicalClassName: info.medicalClassName?.trim() || undefined,
+      medicalClassNumber: info.medicalClassNumber?.trim() || '1',
+      medications,
+    });
+    return acc;
+  }, []);
   return [
     '<data>',
     '  <medicalreq type="record">',

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import { resolveAriaLive } from '../../libs/observability/observability';
 import type { DataSourceTransition } from '../../libs/observability/types';
@@ -45,6 +45,10 @@ type ChartsPatientSummaryBarProps = {
   };
   onToggleSafetyDetail?: (open: boolean) => void;
   onOpenPatientPanel?: () => void;
+  quickOpenPatientId?: string;
+  quickOpenPending?: boolean;
+  onQuickOpenPatientIdChange?: (value: string) => void;
+  onQuickOpenSubmit?: (event: FormEvent<HTMLFormElement>) => void;
 };
 
 const normalizeValue = (value?: string): string | undefined => {
@@ -124,13 +128,19 @@ export function ChartsPatientSummaryBar({
   lockStatus,
   onToggleSafetyDetail,
   onOpenPatientPanel,
+  quickOpenPatientId,
+  quickOpenPending = false,
+  onQuickOpenPatientIdChange,
+  onQuickOpenSubmit,
 }: ChartsPatientSummaryBarProps) {
   const [detailOpen, setDetailOpen] = useState(false);
   const [allergyOpen, setAllergyOpen] = useState(false);
+  const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
 
   useEffect(() => {
     setDetailOpen(false);
     setAllergyOpen(false);
+    setQuickSwitchOpen(false);
   }, [appointmentId, patientDisplay.name, patientId, receptionId]);
 
   const safetyTone = resolveSafetyTone({ missingMaster, fallbackUsed, cacheHit, dataSourceTransition });
@@ -175,6 +185,7 @@ export function ChartsPatientSummaryBar({
   const toggleLabel = detailOpen ? '詳細を閉じる' : '詳細を開く';
   const toggleIcon = detailOpen ? 'v' : '>';
   const ariaLive = resolveAriaLive(safetyTone === 'warning' ? 'warning' : 'info');
+  const hasQuickSwitch = Boolean(onQuickOpenPatientIdChange && onQuickOpenSubmit);
 
   return (
     <div
@@ -197,6 +208,17 @@ export function ChartsPatientSummaryBar({
               生:{birthIso ?? '—'}
             </span>
             <span className="charts-patient-summary__fact">ID:{patientId ?? '—'}</span>
+            {hasQuickSwitch ? (
+              <button
+                type="button"
+                className="charts-patient-summary__fact-button"
+                aria-expanded={quickSwitchOpen}
+                aria-controls="charts-patient-summary-quick-switch"
+                onClick={() => setQuickSwitchOpen((prev) => !prev)}
+              >
+                患者ID切替
+              </button>
+            ) : null}
             <span className="charts-patient-summary__fact">
               診療日:{formatVisitDate(patientDisplay.visitDate, patientDisplay.appointmentTime)}
             </span>
@@ -212,6 +234,37 @@ export function ChartsPatientSummaryBar({
               {allergiesLoading ? 'アレルギー…' : `アレルギー:${allergyCount}`}
             </button>
           </div>
+          {hasQuickSwitch ? (
+            <form
+              id="charts-patient-summary-quick-switch"
+              className="charts-patient-summary__quick-switch"
+              hidden={!quickSwitchOpen}
+              onSubmit={onQuickOpenSubmit}
+              aria-label="患者IDでカルテを開く"
+            >
+              <label className="charts-patient-summary__quick-switch-field" htmlFor="charts-quick-open-patient-id">
+                <span>患者ID</span>
+                <input
+                  id="charts-quick-open-patient-id"
+                  name="chartsQuickOpenPatientId"
+                  type="search"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={quickOpenPatientId ?? ''}
+                  onChange={(event) => onQuickOpenPatientIdChange?.(event.target.value)}
+                  placeholder="000001"
+                  disabled={quickOpenPending}
+                />
+              </label>
+              <button
+                type="submit"
+                className="charts-patient-summary__quick-switch-button"
+                disabled={quickOpenPending || !(quickOpenPatientId ?? '').trim()}
+              >
+                {quickOpenPending ? '検索中…' : '開く'}
+              </button>
+            </form>
+          ) : null}
           {memoSnippet ? (
             <div className="charts-patient-summary__memo" data-allergy={hasAllergyHint ? '1' : '0'}>
               <span className="charts-patient-summary__memo-label">{hasAllergyHint ? 'アレルギー/メモ' : 'メモ'}</span>

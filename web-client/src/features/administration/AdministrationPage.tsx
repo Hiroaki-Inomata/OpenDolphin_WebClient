@@ -562,6 +562,7 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
 
   const latestRunId = configQuery.data?.runId ?? queueQuery.data?.runId ?? runId;
   const resolvedRunId = resolveRunId(latestRunId ?? flags.runId);
+  const panelRunId = resolvedRunId ?? runId;
   const infoLive = resolveAriaLive('info');
   const envFallback = normalizeEnvironmentLabel(
     (import.meta.env as Record<string, string | undefined>).VITE_ENVIRONMENT ??
@@ -1864,15 +1865,15 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
 
         {activeTab === 'access' ? (
           <div className="administration-grid administration-grid--wide">
-            <AccessManagementPanel runId={resolvedRunId} role={role} />
+            <AccessManagementPanel runId={panelRunId} role={role} />
           </div>
         ) : activeTab === 'orca-users' ? (
           <div className="administration-grid administration-grid--wide">
-            <OrcaUserManagementPanel runId={resolvedRunId} role={role} />
+            <OrcaUserManagementPanel runId={panelRunId} role={role} />
           </div>
         ) : activeTab === 'master-updates' ? (
           <div className="administration-grid administration-grid--wide">
-            <MasterUpdatesPanel runId={resolvedRunId} role={role} />
+            <MasterUpdatesPanel runId={panelRunId} role={role} />
           </div>
         ) : (
           <>

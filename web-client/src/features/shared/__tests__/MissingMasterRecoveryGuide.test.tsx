@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ReactElement } from 'react';
 
 import { MissingMasterRecoveryGuide } from '../MissingMasterRecoveryGuide';
 import { AppToastProvider } from '../../../libs/ui/appToast';
@@ -24,7 +25,7 @@ beforeEach(() => {
   copyTextToClipboard.mockReset();
 });
 
-const renderWithToast = (ui: JSX.Element, enqueue: ReturnType<typeof vi.fn>) =>
+const renderWithToast = (ui: ReactElement, enqueue: ReturnType<typeof vi.fn>) =>
   render(<AppToastProvider value={{ enqueue, dismiss: vi.fn() }}>{ui}</AppToastProvider>);
 
 describe('MissingMasterRecoveryGuide', () => {

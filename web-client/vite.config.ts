@@ -166,9 +166,9 @@ export default defineConfig(({ mode }) => {
     agent: orcaClientAgent,
     ...(needsProxyConfigure
       ? {
-          configure: (proxy: import('http-proxy').Server) => {
+          configure: (proxy: any) => {
             if (shouldAttachOrcaAuth) {
-              proxy.on('proxyReq', (proxyReq, req) => {
+              proxy.on('proxyReq', (proxyReq: any, req: any) => {
                 const proxyAuth =
                   typeof proxyReq.getHeader === 'function' ? proxyReq.getHeader('authorization') : undefined;
                 const existingAuth = proxyAuth ?? req.headers?.authorization;
@@ -178,7 +178,7 @@ export default defineConfig(({ mode }) => {
               });
             }
             if (shouldDropOrcaHeaders || shouldDropOrcaResultMessage) {
-              proxy.on('proxyRes', (proxyRes) => {
+              proxy.on('proxyRes', (proxyRes: any) => {
                 const headers = proxyRes.headers;
                 if (!headers) return;
                 Object.keys(headers).forEach((key) => {

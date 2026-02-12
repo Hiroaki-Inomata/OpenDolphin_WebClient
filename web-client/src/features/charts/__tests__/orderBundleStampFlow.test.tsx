@@ -1,16 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 
 import { OrderBundleEditPanel } from '../OrderBundleEditPanel';
-import { mutateOrderBundles } from '../orderBundleApi';
-import { fetchStampDetail, fetchStampTree, fetchUserProfile } from '../stampApi';
-import { clearStampClipboard, loadLocalStamps, loadStampClipboard, saveStampClipboard, saveLocalStamp } from '../stampStorage';
+import {
+  clearStampClipboard,
+  deleteLocalStamp,
+  loadLocalStamps,
+  loadStampClipboard,
+  saveStampClipboard,
+  saveLocalStamp,
+  updateLocalStamp,
+} from '../stampStorage';
+
 const FACILITY_ID = '0001';
 const USER_ID = 'user01';
-const USER_NAME = `${FACILITY_ID}:${USER_ID}`;
 
 vi.mock('../orderBundleApi', async () => ({
   fetchOrderBundles: vi.fn().mockResolvedValue({
@@ -19,41 +24,6 @@ vi.mock('../orderBundleApi', async () => ({
     patientId: 'P-1',
   }),
   mutateOrderBundles: vi.fn(),
-}));
-
-vi.mock('../stampApi', async () => ({
-  fetchUserProfile: vi.fn().mockResolvedValue({ ok: true, id: 1, userId: 'user01', status: 200 }),
-  fetchStampTree: vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    trees: [
-      {
-        treeName: '個人',
-        entity: 'medOrder',
-        stampList: [
-          {
-            name: '降圧セット',
-            entity: 'medOrder',
-            stampId: 'STAMP-1',
-          },
-        ],
-      },
-    ],
-  }),
-  fetchStampDetail: vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    stampId: 'STAMP-1',
-    stamp: {
-      orderName: '降圧セット',
-      admin: '1日1回 朝',
-      bundleNumber: '1',
-      memo: '注意事項',
-      claimItem: [
-        { name: 'アムロジピン', quantity: '1', unit: '錠' },
-      ],
-    },
-  }),
 }));
 
 const renderWithClient = (ui: ReactElement) => {
@@ -85,202 +55,28 @@ const baseProps = {
 beforeEach(() => {
   localStorage.setItem('devFacilityId', FACILITY_ID);
   localStorage.setItem('devUserId', USER_ID);
-  seedExistingStamp();
+  sessionStorage.clear();
 });
 
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  sessionStorage.clear();
   vi.clearAllMocks();
 });
 
-const seedExistingStamp = () => {
-  const legacyUserName = ':';
-  // ローカルスタンプをレガシーキーへ保存（移行対象）
-  const stamp = saveLocalStamp(legacyUserName, {
-    name: '降圧セット',
-    category: '循環器',
-    target: 'medOrder',
-    entity: 'medOrder',
-    bundle: {
-      bundleName: '降圧セット',
-      admin: '1日1回 朝',
-      bundleNumber: '1',
-      adminMemo: '',
-      memo: '',
-      startDate: '2026-01-01',
-      items: [{ name: 'アムロジピン', quantity: '1', unit: '錠', code: '6111001' }],
-    },
-  });
-  const legacyKey = `web-client:order-stamps:${legacyUserName}`;
-  const payload = JSON.stringify([stamp]);
-  localStorage.setItem(legacyKey, payload);
-
-  // スタンプクリップボードもスコープ付きで保存しておく
-  saveStampClipboard(legacyUserName, {
-    savedAt: new Date().toISOString(),
-    source: 'server',
-    stampId: 'STAMP-1',
-    name: '降圧セット',
-    category: '循環器',
-    target: 'medOrder',
-    entity: 'medOrder',
-    bundle: stamp.bundle,
-  });
-};
-
-describe('OrderBundleEditPanel stamp flow', () => {
-  it('スタンプ保存入力と反映手順が表示される', () => {
+describe('OrderBundleEditPanel stamp placement', () => {
+  it('オーダー入力UIにはスタンプ編集UIを表示しない', () => {
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    expect(screen.getByLabelText('スタンプ名称')).toBeInTheDocument();
-    expect(screen.getByLabelText('分類')).toBeInTheDocument();
-    expect(screen.getByLabelText('対象')).toBeInTheDocument();
-    expect(screen.getByText('取り込み後は内容を確認し、必要に応じて編集してから「展開する」「展開継続する」または「保存して追加」で反映してください。')).toBeInTheDocument();
-  });
+    expect(screen.queryByText('スタンプ保存/取り込み')).toBeNull();
+    expect(screen.queryByLabelText('スタンプ名称')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'スタンプ保存' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'スタンプ取り込み' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'スタンプコピー' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'スタンプペースト' })).toBeNull();
 
-  it('readOnly の場合はスタンプ操作が無効化される', () => {
-    renderWithClient(
-      <OrderBundleEditPanel
-        {...baseProps}
-        meta={{ ...baseProps.meta, readOnly: true, readOnlyReason: '閲覧専用' }}
-      />,
-    );
-
-    expect(screen.getByLabelText('スタンプ名称')).toBeDisabled();
-    expect(screen.getByLabelText('分類')).toBeDisabled();
-    expect(screen.getByLabelText('対象')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'スタンプ保存' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'スタンプ取り込み' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'スタンプコピー' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'スタンプペースト' })).toBeDisabled();
-  });
-
-  it('スタンプ取り込みでフォームに反映される', async () => {
-    const user = userEvent.setup();
-    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
-
-    const select = await screen.findByLabelText('既存スタンプ');
-    await waitFor(() => expect(select.querySelector('option[value="server::STAMP-1"]')).not.toBeNull(), {
-      timeout: 8000,
-    });
-    await user.selectOptions(select, 'server::STAMP-1');
-    await user.click(screen.getByRole('button', { name: 'スタンプ取り込み' }));
-
-    const bundleNameInput = screen.getByLabelText('RP名') as HTMLInputElement;
-    await waitFor(() => expect(bundleNameInput.value).toBe('降圧セット'));
-  });
-
-  it('スタンプコピー/ペーストでフォームに反映される', async () => {
-    const user = userEvent.setup();
-    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
-
-    const select = await screen.findByLabelText('既存スタンプ');
-    await waitFor(() => expect(select.querySelector('option[value="server::STAMP-1"]')).not.toBeNull(), {
-      timeout: 8000,
-    });
-    await user.selectOptions(select, 'server::STAMP-1');
-    await user.click(screen.getByRole('button', { name: 'スタンプコピー' }));
-
-    await waitFor(() => expect(screen.getByText('スタンプをコピーしました。')).toBeInTheDocument());
-
-    await user.click(screen.getByRole('button', { name: 'スタンプペースト' }));
-
-    const bundleNameInput = screen.getByLabelText('RP名') as HTMLInputElement;
-    await waitFor(() => expect(bundleNameInput.value).toBe('降圧セット'));
-  });
-
-  it('スタンプコピー→ペースト→保存で create が発火する', async () => {
-    const user = userEvent.setup();
-    vi.mocked(mutateOrderBundles).mockResolvedValueOnce({ ok: true, runId: 'RUN-ORDER' });
-    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
-
-    const select = await screen.findByLabelText('既存スタンプ');
-    await waitFor(() => expect(select.querySelector('option[value="server::STAMP-1"]')).not.toBeNull(), {
-      timeout: 8000,
-    });
-    await user.selectOptions(select, 'server::STAMP-1');
-    await user.click(screen.getByRole('button', { name: 'スタンプコピー' }));
-
-    await waitFor(() => expect(screen.getByText('スタンプをコピーしました。')).toBeInTheDocument());
-
-    await user.click(screen.getByRole('button', { name: 'スタンプペースト' }));
-
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
-
-    const mutateMock = vi.mocked(mutateOrderBundles);
-    await waitFor(() => expect(mutateMock).toHaveBeenCalled());
-
-    const payload = mutateMock.mock.calls[0]?.[0];
-    const operation = payload?.operations?.[0];
-    expect(operation?.operation).toBe('create');
-    expect(operation?.documentId).toBeUndefined();
-    expect(operation?.moduleId).toBeUndefined();
-  });
-
-  it('スタンプ保存でローカルスタンプが追加される', async () => {
-    const user = userEvent.setup();
-    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
-
-    await user.type(screen.getByLabelText('スタンプ名称'), '自院セット');
-    await user.selectOptions(screen.getByLabelText('対象'), 'medOrder');
-    await user.click(screen.getByRole('button', { name: 'スタンプ保存' }));
-
-    const select = screen.getByLabelText('既存スタンプ') as HTMLSelectElement;
-    await waitFor(() => expect(select.textContent).toContain('自院セット'), { timeout: 8000 });
-  });
-
-  it('スタンプ取り込み失敗時にエラー通知される', async () => {
-    const user = userEvent.setup();
-    vi.mocked(fetchStampDetail).mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      stampId: 'STAMP-1',
-      message: '取り込み失敗',
-    });
-
-    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
-
-    const select = await screen.findByLabelText('既存スタンプ');
-    await waitFor(() => expect(select.querySelector('option[value="server::STAMP-1"]')).not.toBeNull(), {
-      timeout: 8000,
-    });
-    await user.selectOptions(select, 'server::STAMP-1');
-    await user.click(screen.getByRole('button', { name: 'スタンプ取り込み' }));
-
-    await waitFor(() => expect(screen.getByText('取り込み失敗')).toBeInTheDocument(), { timeout: 8000 });
-  });
-
-  it('サーバースタンプ未取得時はバナー表示とローカルスタンプのフォールバックが動作する', async () => {
-    vi.mocked(fetchStampTree).mockResolvedValueOnce({
-      ok: false,
-      status: 404,
-      trees: [],
-      message: 'not found',
-    });
-
-    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
-
-    await waitFor(() =>
-      expect(
-        screen.getByText('サーバースタンプが取得できませんでした（未登録）。ローカルスタンプのみ利用できます。'),
-      ).toBeInTheDocument(),
-    );
-
-    const select = await screen.findByLabelText('既存スタンプ');
-    await waitFor(() => expect(select.textContent).toContain('降圧セット'));
-    await waitFor(() => expect(vi.mocked(fetchUserProfile)).toHaveBeenCalledWith(USER_NAME));
-    await waitFor(() => expect(localStorage.getItem(`web-client:order-stamps:${USER_NAME}`)).toBeTruthy());
-  });
-
-  it('サーバースタンプ取得成功時はユーザー名でプロフィールとツリーを参照する', async () => {
-    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
-
-    await waitFor(() => expect(vi.mocked(fetchUserProfile)).toHaveBeenCalledWith(USER_NAME));
-    await waitFor(() => expect(vi.mocked(fetchStampTree)).toHaveBeenCalledWith(1));
-    expect(
-      screen.queryByText('サーバースタンプが取得できませんでした（未登録）。ローカルスタンプのみ利用できます。'),
-    ).not.toBeInTheDocument();
+    expect(screen.getByText('頻用オーダー（患者優先）')).toBeInTheDocument();
   });
 });
 
@@ -375,5 +171,61 @@ describe('stampStorage helpers', () => {
     });
     clearStampClipboard(userName);
     expect(loadStampClipboard(userName)).toBeNull();
+  });
+
+  it('updateLocalStamp は既存スタンプを更新する', () => {
+    const saved = saveLocalStamp(userName, {
+      name: '更新前',
+      category: '分類A',
+      target: 'medOrder',
+      entity: 'medOrder',
+      bundle: {
+        bundleName: '更新前',
+        admin: '',
+        bundleNumber: '1',
+        adminMemo: '',
+        memo: '',
+        startDate: '2026-01-01',
+        items: [{ name: '項目A', quantity: '1', unit: '錠', memo: '' }],
+      },
+    });
+
+    const updated = updateLocalStamp(userName, saved.id, {
+      name: '更新後',
+      category: '分類B',
+      target: 'medOrder',
+      entity: 'medOrder',
+      bundle: {
+        ...saved.bundle,
+        bundleName: '更新後',
+        items: [{ name: '項目B', quantity: '2', unit: '錠', memo: '' }],
+      },
+    });
+
+    expect(updated?.name).toBe('更新後');
+    expect(loadLocalStamps(userName)[0]?.name).toBe('更新後');
+  });
+
+  it('deleteLocalStamp は対象スタンプを削除する', () => {
+    const saved = saveLocalStamp(userName, {
+      name: '削除対象',
+      category: '分類A',
+      target: 'medOrder',
+      entity: 'medOrder',
+      bundle: {
+        bundleName: '削除対象',
+        admin: '',
+        bundleNumber: '1',
+        adminMemo: '',
+        memo: '',
+        startDate: '2026-01-01',
+        items: [{ name: '項目A', quantity: '1', unit: '錠', memo: '' }],
+      },
+    });
+
+    const removed = deleteLocalStamp(userName, saved.id);
+
+    expect(removed).toBe(true);
+    expect(loadLocalStamps(userName)).toHaveLength(0);
   });
 });

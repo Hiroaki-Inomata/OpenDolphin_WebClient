@@ -56,19 +56,37 @@ const baseProps = {
   },
 };
 
-const RealDate = Date;
 const fixedNow = new Date('2026-01-21T04:39:02.765Z').getTime();
 const fixedRandom = 0.4835244854724878;
+const RealDate = Date;
+type DateConstructorArgs =
+  | []
+  | [value: string | number | Date]
+  | [
+      year: number,
+      monthIndex: number,
+      date?: number,
+      hours?: number,
+      minutes?: number,
+      seconds?: number,
+      ms?: number,
+    ];
 
 beforeEach(() => {
   vi.stubGlobal(
     'Date',
     class extends RealDate {
-      constructor(...args: ConstructorParameters<typeof RealDate>) {
+      constructor(...args: DateConstructorArgs) {
         if (args.length === 0) {
-          return new RealDate(fixedNow);
+          super(fixedNow);
+          return;
         }
-        return new RealDate(...args);
+        if (args.length === 1) {
+          super(args[0]);
+          return;
+        }
+        const [year, monthIndex, date, hours, minutes, seconds, ms] = args;
+        super(year, monthIndex, date, hours, minutes, seconds, ms);
       }
       static now() {
         return fixedNow;

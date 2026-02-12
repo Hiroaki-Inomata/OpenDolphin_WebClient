@@ -491,7 +491,7 @@ export function DocumentTimeline({
       : hasSendFailure
         ? 'ORCA送信が失敗'
         : 'ORCA送信が滞留';
-    const tone = hasSendFailure ? 'error' : 'warning';
+    const tone: 'error' | 'warning' = hasSendFailure ? 'error' : 'warning';
 
     return { title, tone, details, action };
   }, [

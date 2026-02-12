@@ -95,21 +95,26 @@ export async function fetchRevisionHistory(params: FetchRevisionHistoryParams): 
     if (!historyRes.ok) {
       return { ok: false, source: 'server', revisions: [], error: `HTTP ${historyRes.status} (${historyEndpoint})` };
     }
-    const historyJson = (await safeJson(historyRes)) as any;
-    const groups = Array.isArray(historyJson?.groups) ? historyJson.groups : [];
-    const items = groups.flatMap((group: any) => (Array.isArray(group?.items) ? group.items : []));
+    const historyJson = (await safeJson(historyRes)) as Record<string, unknown>;
+    const groups = Array.isArray(historyJson?.groups) ? (historyJson.groups as unknown[]) : [];
+    const items: Array<Record<string, unknown>> = groups.flatMap((group) => {
+      if (!group || typeof group !== 'object') return [];
+      const groupItems = (group as { items?: unknown }).items;
+      if (!Array.isArray(groupItems)) return [];
+      return groupItems.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object');
+    });
     if (items.length === 0) {
       return { ok: true, source: 'server', revisions: [] };
     }
 
-    const detailById = new Map<number, any>();
+    const detailById = new Map<number, Record<string, unknown>>();
     const diffSummaryByToId = new Map<number, string>();
 
     const revisionIds = Array.from(
       new Set(
         items
-          .map((it: any) => parseNumeric(it?.revisionId))
-          .filter((v: number | null): v is number => Boolean(v)),
+          .map((it) => parseNumeric(it.revisionId))
+          .filter((value): value is number => value !== null),
       ),
     ).slice(0, 20);
 
@@ -121,7 +126,8 @@ export async function fetchRevisionHistory(params: FetchRevisionHistoryParams): 
           const res = await httpFetch(endpoint, { method: 'GET' });
           if (!res.ok) return;
           const json = await safeJson(res);
-          detailById.set(revId, json);
+          if (!json || typeof json !== 'object') return;
+          detailById.set(revId, json as Record<string, unknown>);
         } catch {
           // ignore
         }
@@ -131,19 +137,26 @@ export async function fetchRevisionHistory(params: FetchRevisionHistoryParams): 
     // Best-effort: fetch diffs for items that have parentRevisionId.
     await Promise.all(
       items
-        .map((it: any) => ({
-          to: parseNumeric(it?.revisionId),
-          from: parseNumeric(it?.parentRevisionId),
+        .map((it) => ({
+          to: parseNumeric(it.revisionId),
+          from: parseNumeric(it.parentRevisionId),
         }))
-        .filter((x): x is { to: number; from: number } => Boolean(x.to && x.from))
+        .filter(
+          (pair): pair is { to: number; from: number } =>
+            pair.to !== null && pair.from !== null,
+        )
         .slice(0, 20)
         .map(async ({ from, to }) => {
           const endpoint = `/karte/revisions/diff?fromRevisionId=${encodeURIComponent(String(from))}&toRevisionId=${encodeURIComponent(String(to))}`;
           try {
             const res = await httpFetch(endpoint, { method: 'GET' });
             if (!res.ok) return;
-            const json = (await safeJson(res)) as any;
-            const changed = parseNumeric(json?.summary?.changedEntitiesCount);
+            const json = (await safeJson(res)) as Record<string, unknown>;
+            const summary =
+              json.summary && typeof json.summary === 'object'
+                ? (json.summary as Record<string, unknown>)
+                : undefined;
+            const changed = parseNumeric(summary?.changedEntitiesCount);
             const label = changed === null ? 'server diff: ok' : `server diff: changedEntities=${changed}`;
             diffSummaryByToId.set(to, label);
           } catch {
@@ -153,23 +166,29 @@ export async function fetchRevisionHistory(params: FetchRevisionHistoryParams): 
     );
 
     const revisions = items
-      .map((it: any) => {
-        const revIdNum = parseNumeric(it?.revisionId);
-        const parentIdNum = parseNumeric(it?.parentRevisionId);
+      .map((it) => {
+        const revIdNum = parseNumeric(it.revisionId);
+        const parentIdNum = parseNumeric(it.parentRevisionId);
         if (!revIdNum) return null;
 
         const detail = detailById.get(revIdNum);
         const authorName =
-          typeof detail?.userModel?.commonName === 'string'
-            ? detail.userModel.commonName
-            : typeof it?.creatorUserId === 'string'
+          typeof detail?.userModel === 'object' &&
+          detail.userModel !== null &&
+          typeof (detail.userModel as Record<string, unknown>).commonName === 'string'
+            ? ((detail.userModel as Record<string, unknown>).commonName as string)
+            : typeof it.creatorUserId === 'string'
               ? it.creatorUserId
               : undefined;
         const authoredAt =
           toIsoFromEpoch(detail?.confirmed) ??
-          toIsoFromEpoch(detail?.docInfoModel?.confirmDate) ??
-          toIsoFromEpoch(it?.confirmedAt) ??
-          toIsoFromEpoch(it?.startedAt);
+          toIsoFromEpoch(
+            detail?.docInfoModel && typeof detail.docInfoModel === 'object'
+              ? (detail.docInfoModel as Record<string, unknown>).confirmDate
+              : undefined,
+          ) ??
+          toIsoFromEpoch(it.confirmedAt) ??
+          toIsoFromEpoch(it.startedAt);
 
         const operation = parentIdNum ? 'revise' : 'create';
         return normalizeEntry({
@@ -180,17 +199,17 @@ export async function fetchRevisionHistory(params: FetchRevisionHistoryParams): 
           authorName,
           operation,
           summary: diffSummaryByToId.get(revIdNum),
-          meta: {
-            karteId,
-            visitDate: params.visitDate,
-            docType: typeof it?.docType === 'string' ? it.docType : undefined,
-            title: typeof it?.title === 'string' ? it.title : undefined,
-          },
-        });
+            meta: {
+              karteId,
+              visitDate: params.visitDate,
+              docType: typeof it.docType === 'string' ? it.docType : undefined,
+              title: typeof it.title === 'string' ? it.title : undefined,
+            },
+          });
       })
       .filter((v: RevisionHistoryEntry | null): v is RevisionHistoryEntry => Boolean(v))
       // Prefer newest first. (confirmedAt may be missing; fall back to numeric id)
-      .sort((a, b) => {
+      .sort((a: RevisionHistoryEntry, b: RevisionHistoryEntry) => {
         const at = a.authoredAt ? Date.parse(a.authoredAt) : Number.NaN;
         const bt = b.authoredAt ? Date.parse(b.authoredAt) : Number.NaN;
         if (!Number.isNaN(at) && !Number.isNaN(bt) && at !== bt) return bt - at;

@@ -52,9 +52,10 @@ describe('DocumentTimeline recovery order', () => {
     expect(alert).toBeTruthy();
     expect(banner).toBeTruthy();
     expect(details).toBeTruthy();
+    if (!alert || !banner || !details) return;
 
-    expect(alert?.compareDocumentPosition(banner!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(banner?.compareDocumentPosition(details!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(alert.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(banner.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('does not render entry retry CTA when alert is shown', () => {

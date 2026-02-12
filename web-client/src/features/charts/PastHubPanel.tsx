@@ -243,7 +243,7 @@ export function PastHubPanel({
           </p>
         ) : (
           <div className="charts-past-hub__days" role="list">
-            {dayGroups.slice(0, 20).map((group, index) => {
+            {dayGroups.slice(0, 20).map((group) => {
               const bundlesForDay = bundlesByDate.get(group.date) ?? [];
               const isActiveDay = activeDate && group.date === activeDate;
               const head = group.entries[0];

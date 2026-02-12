@@ -71,8 +71,9 @@ describe('OrcaSummary recovery order', () => {
     expect(banner).toBeTruthy();
     expect(recovery).toBeTruthy();
     expect(details).toBeTruthy();
+    if (!banner || !recovery || !details) return;
 
-    expect(banner?.compareDocumentPosition(recovery!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(recovery?.compareDocumentPosition(details!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(banner.compareDocumentPosition(recovery) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(recovery.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

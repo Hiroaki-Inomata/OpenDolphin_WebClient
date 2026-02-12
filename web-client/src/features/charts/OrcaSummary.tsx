@@ -30,6 +30,7 @@ export interface OrcaSummaryProps {
   summary?: OrcaOutpatientSummary;
   claim?: ClaimOutpatientPayload;
   claimEnabled?: boolean;
+  showOperationalMeta?: boolean;
   appointments?: ReceptionEntry[];
   appointmentMeta?: OutpatientFlagSource;
   patientId?: string;
@@ -42,6 +43,7 @@ export function OrcaSummary({
   summary,
   claim,
   claimEnabled = true,
+  showOperationalMeta = true,
   appointments = [],
   appointmentMeta,
   patientId,
@@ -574,75 +576,77 @@ export function OrcaSummary({
           onOpenReception={handleOpenReception}
         />
       )}
-      <div className="orca-summary__details">
-        <div className="orca-summary__meta">
-          <p className="orca-summary__meta-label">dataSourceTransition</p>
-          <strong>{transitionCopy.headline}</strong>
-          <p>{transitionCopy.body}</p>
-          <p className="orca-summary__meta-label">recordsReturned</p>
-          <strong>{summary?.recordsReturned ?? effectiveClaim?.recordsReturned ?? '―'}</strong>
-          <p className="orca-summary__meta-label">outcome</p>
-          <strong>{summary?.outcome ?? '―'}</strong>
-          {summary?.fetchedAt && <p className="orca-summary__meta-note">取得: {summary.fetchedAt}</p>}
-          {claimEnabled && effectiveClaim?.fetchedAt && !summary?.fetchedAt && (
-            <p className="orca-summary__meta-note">請求取得: {effectiveClaim.fetchedAt}</p>
-          )}
-          {summary?.requestId && <p className="orca-summary__meta-note">requestId: {summary.requestId}</p>}
-          {summary?.note && <p className="orca-summary__meta-note">メッセージ: {summary.note}</p>}
-          {claimEnabled && effectiveClaim?.claimStatus && (
-            <p className="orca-summary__meta-note">
-              請求ステータス: {effectiveClaim.claimStatus}（{effectiveClaim.claimStatusText ?? 'textなし'}）
-            </p>
-          )}
-          {claimEnabled && effectiveClaim?.bundles && effectiveClaim.bundles.length > 0 && (
-            <p className="orca-summary__meta-note">請求バンドル件数: {effectiveClaim.bundles.length}</p>
-          )}
-        </div>
-        <div className="orca-summary__badges">
-          <StatusBadge
-            label="missingMaster"
-            value={resolvedMissingMaster ? 'true' : 'false'}
-            tone={resolvedMissingMaster ? 'warning' : 'success'}
-            description={
-              resolvedMissingMaster
-                ? `マスタ未取得で再送停止。${MISSING_MASTER_RECOVERY_STATUS_DETAIL}`
-                : 'マスタ取得済みで ORCA 再送可能'
-            }
-            ariaLive="off"
-            runId={resolvedRunId}
-          />
-          <StatusBadge
-            label="cacheHit"
-            value={resolvedCacheHit ? 'true' : 'false'}
-            tone={resolvedCacheHit ? 'success' : 'warning'}
-            description={resolvedCacheHit ? 'マスタキャッシュ命中' : 'キャッシュを使えず再取得を試行'}
-            ariaLive="off"
-            runId={resolvedRunId}
-          />
-          <StatusBadge
-            label="fallbackUsed"
-            value={resolvedFallbackUsed ? 'true' : 'false'}
-            tone={resolvedFallbackUsed ? 'error' : 'info'}
-            description={
-              resolvedFallbackUsed
-                ? `fallbackUsed=true ｜ snapshot/fallback データで処理中。${MISSING_MASTER_RECOVERY_STATUS_DETAIL}`
-                : 'fallback 未使用'
-            }
-            ariaLive="off"
-            runId={resolvedRunId}
-          />
-          {fallbackFlagMissing && (
+      {showOperationalMeta ? (
+        <div className="orca-summary__details">
+          <div className="orca-summary__meta">
+            <p className="orca-summary__meta-label">dataSourceTransition</p>
+            <strong>{transitionCopy.headline}</strong>
+            <p>{transitionCopy.body}</p>
+            <p className="orca-summary__meta-label">recordsReturned</p>
+            <strong>{summary?.recordsReturned ?? effectiveClaim?.recordsReturned ?? '―'}</strong>
+            <p className="orca-summary__meta-label">outcome</p>
+            <strong>{summary?.outcome ?? '―'}</strong>
+            {summary?.fetchedAt && <p className="orca-summary__meta-note">取得: {summary.fetchedAt}</p>}
+            {claimEnabled && effectiveClaim?.fetchedAt && !summary?.fetchedAt && (
+              <p className="orca-summary__meta-note">請求取得: {effectiveClaim.fetchedAt}</p>
+            )}
+            {summary?.requestId && <p className="orca-summary__meta-note">requestId: {summary.requestId}</p>}
+            {summary?.note && <p className="orca-summary__meta-note">メッセージ: {summary.note}</p>}
+            {claimEnabled && effectiveClaim?.claimStatus && (
+              <p className="orca-summary__meta-note">
+                請求ステータス: {effectiveClaim.claimStatus}（{effectiveClaim.claimStatusText ?? 'textなし'}）
+              </p>
+            )}
+            {claimEnabled && effectiveClaim?.bundles && effectiveClaim.bundles.length > 0 && (
+              <p className="orca-summary__meta-note">請求バンドル件数: {effectiveClaim.bundles.length}</p>
+            )}
+          </div>
+          <div className="orca-summary__badges">
             <StatusBadge
-              label="fallbackFlagMissing"
-              value="true"
-              tone="warning"
-              description="API 応答に fallbackUsed が含まれていません"
+              label="missingMaster"
+              value={resolvedMissingMaster ? 'true' : 'false'}
+              tone={resolvedMissingMaster ? 'warning' : 'success'}
+              description={
+                resolvedMissingMaster
+                  ? `マスタ未取得で再送停止。${MISSING_MASTER_RECOVERY_STATUS_DETAIL}`
+                  : 'マスタ取得済みで ORCA 再送可能'
+              }
               ariaLive="off"
               runId={resolvedRunId}
             />
-          )}
+            <StatusBadge
+              label="cacheHit"
+              value={resolvedCacheHit ? 'true' : 'false'}
+              tone={resolvedCacheHit ? 'success' : 'warning'}
+              description={resolvedCacheHit ? 'マスタキャッシュ命中' : 'キャッシュを使えず再取得を試行'}
+              ariaLive="off"
+              runId={resolvedRunId}
+            />
+            <StatusBadge
+              label="fallbackUsed"
+              value={resolvedFallbackUsed ? 'true' : 'false'}
+              tone={resolvedFallbackUsed ? 'error' : 'info'}
+              description={
+                resolvedFallbackUsed
+                  ? `fallbackUsed=true ｜ snapshot/fallback データで処理中。${MISSING_MASTER_RECOVERY_STATUS_DETAIL}`
+                  : 'fallback 未使用'
+              }
+              ariaLive="off"
+              runId={resolvedRunId}
+            />
+            {fallbackFlagMissing && (
+              <StatusBadge
+                label="fallbackFlagMissing"
+                value="true"
+                tone="warning"
+                description="API 応答に fallbackUsed が含まれていません"
+                ariaLive="off"
+                runId={resolvedRunId}
+              />
+            )}
+          </div>
         </div>
-      </div>
+      ) : null}
       <div className="orca-summary__cards" aria-live="off">
         {claimEnabled && (
           <div className="orca-summary__card">
@@ -807,7 +811,7 @@ export function OrcaSummary({
           新規予約
         </button>
       </div>
-      {payloadPreview && (
+      {showOperationalMeta && payloadPreview && (
         <div className="orca-summary__payload" aria-live="off">
           <strong>応答プレビュー</strong>
           <p>{payloadPreview}</p>

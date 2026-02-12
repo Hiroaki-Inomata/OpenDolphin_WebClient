@@ -451,7 +451,7 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
     return false;
   };
 
-  let response: Response;
+  let response: Response | null = null;
   const maxAttempts = 2;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -496,6 +496,10 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
       }
       throw error;
     }
+  }
+
+  if (!response) {
+    throw new Error('ログイン応答を取得できませんでした。');
   }
 
   if (!response.ok) {

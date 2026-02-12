@@ -9,6 +9,8 @@ export type ChartsAuditAction =
   | 'CHARTS_EDIT_LOCK'
   | 'CHARTS_CONFLICT'
   | 'ORCA_QUEUE_STATUS'
+  | 'ENCOUNTER_START'
+  | 'ENCOUNTER_PAUSE'
   | 'ORCA_SEND'
   | 'ENCOUNTER_CLOSE'
   | 'DRAFT_SAVE'

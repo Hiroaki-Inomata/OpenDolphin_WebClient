@@ -197,6 +197,14 @@ const buildEmptyForms = (today: string): DocumentFormState => ({
   },
 });
 
+const resolveOutputAuditStatus = (
+  outcome: DocumentOutputResult['outcome'],
+): NonNullable<SavedDocument['outputAudit']>['status'] => {
+  if (outcome === 'success') return 'success';
+  if (outcome === 'blocked') return 'blocked';
+  return 'failed';
+};
+
 const buildDocumentSummary = (type: DocumentType, form: DocumentFormState): string => {
   if (type === 'referral') {
     return form.referral.hospital || '宛先未設定の紹介状';
@@ -396,9 +404,9 @@ const mapLetterToDocument = (letter: LetterModulePayload, fallbackIssuedAt: stri
   };
 };
 
-const buildLetterModulePayload = (params: {
-  type: DocumentType;
-  form: DocumentFormState[DocumentType];
+const buildLetterModulePayload = <T extends DocumentType>(params: {
+  type: T;
+  form: DocumentFormState[T];
   issuedAt: string;
   patientId: string;
   userPk: number;
@@ -440,29 +448,32 @@ const buildLetterModulePayload = (params: {
   let clientDoctor: string | undefined;
 
   if (params.type === 'referral') {
+    const form = params.form as ReferralFormState;
     letterType = LETTER_TYPE_REFERRAL;
     handleClass = HANDLE_CLASS_REFERRAL;
-    consultantHospital = params.form.hospital;
-    consultantDept = params.form.department;
-    consultantDoctor = params.form.doctor;
-    pushItem(LETTER_ITEM_PURPOSE, params.form.purpose);
-    pushItem(LETTER_ITEM_DISEASE, params.form.diagnosis);
-    pushText(LETTER_TEXT_CLINICAL_COURSE, params.form.body);
+    consultantHospital = form.hospital;
+    consultantDept = form.department;
+    consultantDoctor = form.doctor;
+    pushItem(LETTER_ITEM_PURPOSE, form.purpose);
+    pushItem(LETTER_ITEM_DISEASE, form.diagnosis);
+    pushText(LETTER_TEXT_CLINICAL_COURSE, form.body);
   } else if (params.type === 'certificate') {
+    const form = params.form as CertificateFormState;
     letterType = LETTER_TYPE_CERTIFICATE;
     handleClass = HANDLE_CLASS_CERTIFICATE;
-    pushItem(LETTER_ITEM_SUBMIT_TO, params.form.submitTo);
-    pushItem(LETTER_ITEM_DISEASE, params.form.diagnosis);
-    pushItem(LETTER_ITEM_PURPOSE, params.form.purpose);
-    pushText(LETTER_TEXT_INFORMED_CONTENT, params.form.body);
+    pushItem(LETTER_ITEM_SUBMIT_TO, form.submitTo);
+    pushItem(LETTER_ITEM_DISEASE, form.diagnosis);
+    pushItem(LETTER_ITEM_PURPOSE, form.purpose);
+    pushText(LETTER_TEXT_INFORMED_CONTENT, form.body);
   } else {
+    const form = params.form as ReplyFormState;
     letterType = LETTER_TYPE_REPLY;
-    handleClass = params.form.templateId === 'REPLY-ODT-FU' ? HANDLE_CLASS_REPLY1 : HANDLE_CLASS_REPLY2;
-    clientHospital = params.form.hospital;
-    clientDept = params.form.department;
-    clientDoctor = params.form.doctor;
-    pushText(LETTER_TEXT_INFORMED_CONTENT, params.form.summary);
-    const visitedName = params.form.templateId === 'REPLY-ODT-FU' ? LETTER_ITEM_VISITED_DATE : LETTER_ITEM_VISITED;
+    handleClass = form.templateId === 'REPLY-ODT-FU' ? HANDLE_CLASS_REPLY1 : HANDLE_CLASS_REPLY2;
+    clientHospital = form.hospital;
+    clientDept = form.department;
+    clientDoctor = form.doctor;
+    pushText(LETTER_TEXT_INFORMED_CONTENT, form.summary);
+    const visitedName = form.templateId === 'REPLY-ODT-FU' ? LETTER_ITEM_VISITED_DATE : LETTER_ITEM_VISITED;
     pushItem(visitedName, params.issuedAt);
   }
 
@@ -673,12 +684,7 @@ export function DocumentCreatePanel({
         return {
           ...doc,
           outputAudit: {
-            status:
-              outputResult.outcome === 'success'
-                ? 'success'
-                : outputResult.outcome === 'blocked'
-                  ? 'blocked'
-                  : 'failed',
+            status: resolveOutputAuditStatus(outputResult.outcome),
             mode: outputResult.mode,
             at: outputResult.at,
             detail: outputResult.detail,
@@ -738,12 +744,7 @@ export function DocumentCreatePanel({
         return {
           ...doc,
           outputAudit: {
-            status:
-              outputResult.outcome === 'success'
-                ? 'success'
-                : outputResult.outcome === 'blocked'
-                  ? 'blocked'
-                  : 'failed',
+            status: resolveOutputAuditStatus(outputResult.outcome),
             mode: outputResult.mode,
             at: outputResult.at,
             detail: outputResult.detail,

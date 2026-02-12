@@ -57,7 +57,7 @@ import {
 import { useSession } from '../../../AppRouter';
 import { buildFacilityPath } from '../../../routes/facilityRoutes';
 import type { ClaimBundle, ClaimQueueEntry, ClaimQueuePhase } from '../../outpatient/types';
-import { getAppointmentDataBanner } from '../../outpatient/appointmentDataBanner';
+import { countAppointmentDataIntegrity, getAppointmentDataBanner } from '../../outpatient/appointmentDataBanner';
 import type { OrcaQueueEntry } from '../../outpatient/orcaQueueApi';
 import { fetchOrcaQueue, retryOrcaQueue } from '../../outpatient/orcaQueueApi';
 import { ORCA_QUEUE_STALL_THRESHOLD_MS, resolveOrcaSendStatus, toClaimQueueEntryFromOrcaQueueEntry } from '../../outpatient/orcaQueueStatus';
@@ -908,7 +908,7 @@ export function ReceptionPage({
       try {
         const raw = localStorage.getItem(FILTER_STORAGE_KEY);
         return raw
-          ? (JSON.parse(raw) as Partial<Record<'kw' | 'dept' | 'phys' | 'sort' | 'date' | 'pay' | 'statusTab', string>>)
+          ? (JSON.parse(raw) as Partial<Record<'kw' | 'dept' | 'phys' | 'sort' | 'date' | 'pay' | 'statusTab' | 'visitDate', string>>)
           : null;
       } catch {
         return null;
@@ -1816,12 +1816,6 @@ export function ReceptionPage({
     () => (selectedEntry ? resolveQueueForEntry(selectedEntry) : undefined),
     [resolveQueueForEntry, selectedEntry],
   );
-  const selectedQueueStatus = useMemo(() => resolveQueueStatus(selectedQueue), [selectedQueue]);
-  const selectedSendCache = useMemo(() => {
-    if (!selectedEntry?.patientId) return null;
-    return claimSendCache[selectedEntry.patientId] ?? null;
-  }, [claimSendCache, selectedEntry?.patientId]);
-
   const summaryText = useMemo(() => {
     const counts = grouped.map(({ status, items }) => `${SECTION_LABEL[status]}: ${items.length}件`).join(' / ');
     return `検索結果 ${sortedEntries.length}件（${counts}）`;
@@ -1859,30 +1853,8 @@ export function ReceptionPage({
     return formatAutoRefreshTimestamp(parsed);
   }, [selectedSavedView]);
 
-  const orderSummaryText = useMemo(() => {
-    if (!selectedEntry) return 'オーダー概要は未選択です。';
-    if (!claimOutpatientEnabled) {
-      return [
-        `状態 ${selectedEntry.status ?? '—'}`,
-        `直近 ${resolveLastVisitForEntry(selectedEntry)}`,
-        `ORCAキュー ${selectedQueueStatus.label}${selectedQueueStatus.detail ? ` ${selectedQueueStatus.detail}` : ''}`,
-      ].join('、');
-    }
-    return [
-      `請求状態 ${selectedBundle?.claimStatus ?? selectedBundle?.claimStatusText ?? '未取得'}`,
-      `バンドル ${selectedBundle?.bundleNumber ?? '—'}`,
-      `合計金額 ${selectedBundle?.totalClaimAmount !== undefined ? `${selectedBundle.totalClaimAmount.toLocaleString()}円` : '—'}`,
-      `診療時間 ${toDateLabel(selectedBundle?.performTime)}`,
-      `ORCAキュー ${selectedQueueStatus.label}${selectedQueueStatus.detail ? ` ${selectedQueueStatus.detail}` : ''}`,
-    ].join('、');
-  }, [claimOutpatientEnabled, resolveLastVisitForEntry, selectedBundle, selectedEntry, selectedQueueStatus]);
-
   const unlinkedCounts = useMemo(() => {
-    return {
-      missingPatientId: appointmentEntries.filter((entry) => !entry.patientId).length,
-      missingAppointmentId: appointmentEntries.filter((entry) => !entry.appointmentId).length,
-      missingReceptionId: appointmentEntries.filter((entry) => entry.source === 'visits' && !entry.receptionId).length,
-    };
+    return countAppointmentDataIntegrity(appointmentEntries);
   }, [appointmentEntries]);
 
   const unlinkedWarning = useMemo(() => {
