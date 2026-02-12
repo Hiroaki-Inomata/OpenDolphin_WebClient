@@ -289,6 +289,25 @@ type DockedUtilityAction =
   | 'document'
   | 'imaging';
 
+type UtilityVisualKind = 'order' | 'stamp' | 'document' | 'imaging' | 'none';
+
+const resolveUtilityVisualKind = (action: DockedUtilityAction | null): UtilityVisualKind => {
+  if (!action) return 'none';
+  if (
+    action === 'prescription-edit' ||
+    action === 'order-injection' ||
+    action === 'order-treatment' ||
+    action === 'order-test' ||
+    action === 'order-charge'
+  ) {
+    return 'order';
+  }
+  if (action === 'order-set') return 'stamp';
+  if (action === 'document') return 'document';
+  if (action === 'imaging') return 'imaging';
+  return 'none';
+};
+
 type ChartsPatientTab = {
   key: string;
   patientId: string;
@@ -3581,6 +3600,7 @@ function ChartsContent() {
       utilityPanelAction === 'order-charge',
     [utilityPanelAction],
   );
+  const activeUtilityKind = useMemo(() => resolveUtilityVisualKind(utilityPanelAction), [utilityPanelAction]);
   const utilityPanelInlineStyle = useMemo(() => {
     return {
       '--charts-utility-expanded-width': `${utilityPanelLayout.width}px`,
@@ -4290,6 +4310,7 @@ function ChartsContent() {
                     <div className="charts-docked-panel__tabs" role="tablist" aria-label="ユーティリティ">
                       {utilityItems.map((item, index) => {
                         const isActive = utilityPanelAction === item.id;
+                        const utilityKind = resolveUtilityVisualKind(item.id);
                         const isDisabled = item.requiresEdit && (!patientSelected || sidePanelMeta.readOnly);
                         const disabledReason = !patientSelected
                           ? UTILITY_PATIENT_UNSELECTED_MESSAGE
@@ -4302,6 +4323,7 @@ function ChartsContent() {
                             role="tab"
                             className="charts-docked-panel__tab"
                             data-utility-action={item.id}
+                            data-utility-kind={utilityKind}
                             data-active={isActive ? 'true' : 'false'}
                             data-utility-order={index === 0 ? 'first' : undefined}
                             aria-controls="charts-docked-panel"
@@ -4344,6 +4366,7 @@ function ChartsContent() {
                     aria-hidden={!utilityPanelAction}
                     aria-labelledby={utilityPanelAction ? `charts-docked-tab-${utilityPanelAction}` : undefined}
                     data-open={utilityPanelAction ? 'true' : 'false'}
+                    data-utility-kind={activeUtilityKind}
                     data-docked-panel-content="true"
                   >
                     <div

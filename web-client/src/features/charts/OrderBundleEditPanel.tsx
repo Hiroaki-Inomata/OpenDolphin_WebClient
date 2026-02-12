@@ -1778,7 +1778,7 @@ export function OrderBundleEditPanel({
   }
 
   return (
-    <section className="charts-side-panel__section" data-test-id={`${entity}-edit-panel`}>
+    <section className="charts-side-panel__section" data-order-entity={entity} data-test-id={`${entity}-edit-panel`}>
       <header className="charts-side-panel__section-header">
         <div className="charts-side-panel__section-header-main">
           <strong>{title}</strong>
@@ -1789,7 +1789,7 @@ export function OrderBundleEditPanel({
             </span>
             <button
               type="button"
-              className="charts-side-panel__ghost"
+              className="charts-side-panel__ghost charts-side-panel__ghost--info"
               onClick={() => setShowMasterReferenceStatus((prev) => !prev)}
             >
               {showMasterReferenceStatus ? '参照マスタ詳細を閉じる' : '参照マスタ詳細'}
@@ -1798,7 +1798,7 @@ export function OrderBundleEditPanel({
         </div>
         <button
           type="button"
-          className="charts-side-panel__ghost"
+          className="charts-side-panel__ghost charts-side-panel__ghost--reset"
           onClick={() => {
             setForm(buildEmptyForm(today));
             setNotice(null);
@@ -1833,7 +1833,7 @@ export function OrderBundleEditPanel({
             <strong>参照DB更新状態</strong>
             <button
               type="button"
-              className="charts-side-panel__ghost"
+              className="charts-side-panel__ghost charts-side-panel__ghost--info"
               onClick={() => void masterReferenceStatusQuery.refetch()}
               disabled={masterReferenceStatusQuery.isFetching}
             >
@@ -1899,7 +1899,7 @@ export function OrderBundleEditPanel({
           {contraNotice.tone === 'error' ? (
             <button
               type="button"
-              className="charts-side-panel__notice-action"
+              className="charts-side-panel__notice-action charts-side-panel__notice-action--retry"
               onClick={() => void runContraindicationCheck(form)}
               disabled={isContraChecking}
             >
@@ -1925,6 +1925,7 @@ export function OrderBundleEditPanel({
                   <button
                     key={candidate.key}
                     type="button"
+                    className="charts-side-panel__chip-button charts-side-panel__chip-button--recommend"
                     onClick={() => applyRecommendation(candidate)}
                     disabled={isBlocked}
                     title={`${resolveRecommendationLabel(candidate)} / ${candidate.source === 'patient' ? '患者傾向' : '施設傾向'} / ${candidate.count}回`}
@@ -2300,6 +2301,7 @@ export function OrderBundleEditPanel({
             <div className="charts-side-panel__actions">
               <button
                 type="button"
+                className="charts-side-panel__action charts-side-panel__action--search"
                 onClick={() => bodyPartSearchQuery.refetch()}
                 disabled={isBlocked || bodyPartSearchQuery.isFetching}
               >
@@ -2307,6 +2309,7 @@ export function OrderBundleEditPanel({
               </button>
               <button
                 type="button"
+                className="charts-side-panel__action charts-side-panel__action--clear"
                 onClick={() => setForm((prev) => ({ ...prev, bodyPart: null }))}
                 disabled={isBlocked || !form.bodyPart?.name}
               >
@@ -2377,6 +2380,8 @@ export function OrderBundleEditPanel({
               <button
                 key={`master-preset-${preset.type}`}
                 type="button"
+                className="charts-side-panel__chip-button charts-side-panel__chip-button--preset"
+                data-active={masterSearchType === preset.type ? 'true' : 'false'}
                 onClick={() => setMasterSearchType(preset.type)}
                 disabled={isBlocked}
                 aria-pressed={masterSearchType === preset.type}
@@ -2537,7 +2542,7 @@ export function OrderBundleEditPanel({
             <div className="charts-side-panel__subheader-actions">
               <button
                 type="button"
-                className="charts-side-panel__ghost"
+                className="charts-side-panel__ghost charts-side-panel__ghost--add"
                 onClick={() => {
                   const nextItem = buildEmptyItem();
                   setForm((prev) => ({ ...prev, items: [...prev.items, nextItem] }));
@@ -2721,7 +2726,7 @@ export function OrderBundleEditPanel({
               <strong>材料</strong>
               <button
                 type="button"
-                className="charts-side-panel__ghost"
+                className="charts-side-panel__ghost charts-side-panel__ghost--add"
                 onClick={() =>
                   setForm((prev) => ({ ...prev, materialItems: [...prev.materialItems, buildEmptyItem()] }))
                 }
@@ -2977,7 +2982,7 @@ export function OrderBundleEditPanel({
               />
               <button
                 type="button"
-                className="charts-side-panel__ghost"
+                className="charts-side-panel__ghost charts-side-panel__ghost--add"
                 onClick={() => {
                   if (!commentDraft.code?.trim() || !commentDraft.name.trim()) return;
                   setForm((prev) => ({
@@ -3073,6 +3078,7 @@ export function OrderBundleEditPanel({
         <div className="charts-side-panel__actions">
           <button
             type="button"
+            className="charts-side-panel__action charts-side-panel__action--expand"
             onClick={() => submitAction('expand')}
             disabled={isSaving || isBlocked}
           >
@@ -3080,12 +3086,13 @@ export function OrderBundleEditPanel({
           </button>
           <button
             type="button"
+            className="charts-side-panel__action charts-side-panel__action--expand-continue"
             onClick={() => submitAction('expand_continue')}
             disabled={isSaving || isBlocked}
           >
             展開継続する
           </button>
-          <button type="submit" disabled={isSaving || isBlocked}>
+          <button type="submit" className="charts-side-panel__action charts-side-panel__action--save" disabled={isSaving || isBlocked}>
             {form.documentId ? '保存して更新' : '保存して追加'}
           </button>
         </div>
@@ -3134,6 +3141,7 @@ export function OrderBundleEditPanel({
                     <div className="charts-side-panel__item-actions">
                       <button
                         type="button"
+                        className="charts-side-panel__history-action charts-side-panel__history-action--copy"
                         onClick={() => copyFromHistory(bundle)}
                         disabled={isBlocked}
                       >
@@ -3141,6 +3149,7 @@ export function OrderBundleEditPanel({
                       </button>
                       <button
                         type="button"
+                        className="charts-side-panel__history-action charts-side-panel__history-action--edit"
                         onClick={() => {
                           setForm(toFormState(bundle, today));
                           setNotice(null);
@@ -3151,6 +3160,7 @@ export function OrderBundleEditPanel({
                       </button>
                       <button
                         type="button"
+                        className="charts-side-panel__history-action charts-side-panel__history-action--delete"
                         onClick={() => deleteMutation.mutate(bundle)}
                         disabled={deleteMutation.isPending || isBlocked}
                       >
