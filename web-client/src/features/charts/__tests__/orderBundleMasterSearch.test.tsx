@@ -96,16 +96,16 @@ describe('OrderBundleEditPanel master search UI', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const keywordInput = screen.getByLabelText('キーワード', {
-      selector: 'input[id$="-master-keyword"]',
-    });
-    await user.type(keywordInput, 'アム');
+    const itemNameInput = screen.getByPlaceholderText('項目名');
+    await user.type(itemNameInput, 'アム');
 
-    await waitFor(() => expect(searchMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'generic-class', keyword: 'アム' })),
+    );
     expect(screen.getByText('アムロジピン')).toBeInTheDocument();
 
-    await user.clear(keywordInput);
-    await user.type(keywordInput, 'ベル');
+    await user.clear(itemNameInput);
+    await user.type(itemNameInput, 'ベル');
 
     await waitFor(() => expect(screen.getByText('ベルベリン')).toBeInTheDocument());
   });
@@ -130,10 +130,8 @@ describe('OrderBundleEditPanel master search UI', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const keywordInput = screen.getByLabelText('キーワード', {
-      selector: 'input[id$="-master-keyword"]',
-    });
-    await user.type(keywordInput, 'アム');
+    const itemNameInput = screen.getByPlaceholderText('項目名');
+    await user.type(itemNameInput, 'アム');
 
     await waitFor(() => expect(screen.getByText('アムロジピン')).toBeInTheDocument());
 
@@ -141,8 +139,8 @@ describe('OrderBundleEditPanel master search UI', () => {
     expect(rowButton).not.toBeNull();
     await user.click(rowButton!);
 
-    const itemNameInput = screen.getByPlaceholderText('項目名') as HTMLInputElement;
-    expect(itemNameInput.value).toBe('A100 アムロジピン');
+    const selectedItemNameInput = screen.getByPlaceholderText('項目名') as HTMLInputElement;
+    expect(selectedItemNameInput.value).toBe('A100 アムロジピン');
   });
 
   it('項目名入力のリアルタイム候補で主項目を補完できる', async () => {
@@ -203,10 +201,7 @@ describe('OrderBundleEditPanel master search UI', () => {
       />,
     );
 
-    const keywordInput = screen.getByLabelText('キーワード', {
-      selector: 'input[id$="-master-keyword"]',
-    });
-    expect(keywordInput).toBeDisabled();
+    expect(screen.getByPlaceholderText('項目名')).toBeDisabled();
     expect(screen.getByRole('button', { name: '処方薬剤' })).toBeDisabled();
     expect(fetchOrderBundles).toHaveBeenCalled();
   });
@@ -326,14 +321,10 @@ describe('OrderBundleEditPanel master search UI', () => {
       />,
     );
 
-    expect(screen.getByText('注射マスタ検索')).toBeInTheDocument();
+    expect(screen.getByText('注射専用フォームです。注射薬剤と注射手技を分けて検索できます。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '注射薬剤' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '注射手技' })).toBeInTheDocument();
-    expect(
-      screen.queryByLabelText('キーワード', {
-        selector: 'input[id$="-usage-keyword"]',
-      }),
-    ).toBeNull();
+    expect(screen.queryByText('用法候補')).toBeNull();
     expect(screen.getByLabelText('投与指示')).toBeInTheDocument();
   });
 
@@ -351,14 +342,14 @@ describe('OrderBundleEditPanel master search UI', () => {
       />,
     );
 
-    expect(screen.getByText('画像検査マスタ検索')).toBeInTheDocument();
+    expect(screen.getByText('画像検査専用フォームです。画像検査点数・器材・造影薬剤を個別に検索できます。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '画像検査' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '画像器材' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '造影薬剤' })).toBeInTheDocument();
     expect(screen.getByLabelText('検査指示')).toBeInTheDocument();
   });
 
-  it('コメントマスタ検索の行選択でコメントコードが追加される', async () => {
+  it('コメント候補の行選択でコメントコードを追加できる', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
     const searchMock = vi.mocked(fetchOrderMasterSearch);
@@ -384,9 +375,9 @@ describe('OrderBundleEditPanel master search UI', () => {
     const user = userEvent.setup();
     const { container } = renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const commentKeywordInput = container.querySelector<HTMLInputElement>('input[id$="-comment-keyword"]');
-    expect(commentKeywordInput).not.toBeNull();
-    await user.type(commentKeywordInput!, '服薬');
+    const commentDraftNameInput = container.querySelector<HTMLInputElement>('input[id$="-comment-draft-name"]');
+    expect(commentDraftNameInput).not.toBeNull();
+    await user.type(commentDraftNameInput!, '服薬');
 
     await waitFor(() =>
       expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'comment', keyword: '服薬' })),
@@ -394,6 +385,7 @@ describe('OrderBundleEditPanel master search UI', () => {
     await waitFor(() => expect(screen.getByText('服薬指示')).toBeInTheDocument());
 
     await user.click(screen.getByText('服薬指示').closest('button')!);
+    await user.click(screen.getByRole('button', { name: 'コメント追加' }));
 
     const commentCodeInput = container.querySelector<HTMLInputElement>('input[id$="-comment-code-0"]');
     const commentNameInput = container.querySelector<HTMLInputElement>('input[id$="-comment-name-0"]');
@@ -401,7 +393,7 @@ describe('OrderBundleEditPanel master search UI', () => {
     expect(commentNameInput?.value).toBe('服薬指示');
   });
 
-  it('コメントコードはプルダウンから選択して追加できる', async () => {
+  it('コメント内容入力欄の blur 補完でコメント追加できる', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
     const searchMock = vi.mocked(fetchOrderMasterSearch);
@@ -419,16 +411,13 @@ describe('OrderBundleEditPanel master search UI', () => {
     const user = userEvent.setup();
     const { container } = renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const commentKeywordInput = container.querySelector<HTMLInputElement>('input[id$="-comment-keyword"]');
-    expect(commentKeywordInput).not.toBeNull();
-    await user.type(commentKeywordInput!, '服薬');
+    const commentDraftNameInput = container.querySelector<HTMLInputElement>('input[id$="-comment-draft-name"]');
+    expect(commentDraftNameInput).not.toBeNull();
+    await user.type(commentDraftNameInput!, '服薬指示');
+    await user.tab();
     await waitFor(() =>
-      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'comment', keyword: '服薬' })),
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'comment', keyword: '服薬指示' })),
     );
-
-    const commentSelect = container.querySelector<HTMLSelectElement>('select[id$="-comment-select"]');
-    expect(commentSelect).not.toBeNull();
-    await user.selectOptions(commentSelect!, '0082|服薬指示');
 
     const addButton = screen.getByRole('button', { name: 'コメント追加' });
     await user.click(addButton);
@@ -474,12 +463,14 @@ describe('OrderBundleEditPanel master search UI', () => {
     const user = userEvent.setup();
     const { container } = renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const keywordInput = container.querySelector<HTMLInputElement>('input[id$="-master-keyword"]');
-    expect(keywordInput).not.toBeNull();
-    await user.type(keywordInput!, '1234');
+    const itemNameInput = container.querySelector<HTMLInputElement>('input[id$="-item-name-0"]');
+    expect(itemNameInput).not.toBeNull();
+    await user.type(itemNameInput!, '1234');
 
     await waitFor(() => expect(screen.getByText('選択式コメント候補（medicationgetv2）')).toBeInTheDocument());
-    await user.click(screen.getByText('食後').closest('button')!);
+    const selectionCommentButton = screen.getAllByText('食後')[0]?.closest('button');
+    expect(selectionCommentButton).not.toBeNull();
+    await user.click(selectionCommentButton!);
 
     const commentCodeInput = container.querySelector<HTMLInputElement>('input[id$="-comment-code-0"]');
     const commentNameInput = container.querySelector<HTMLInputElement>('input[id$="-comment-name-0"]');

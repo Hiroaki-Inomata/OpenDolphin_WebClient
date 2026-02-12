@@ -21,6 +21,7 @@ import {
 type AccessManagementPanelProps = {
   runId: string;
   role?: string;
+  mode?: 'full' | 'linked-only';
 };
 
 type Feedback = { tone: 'success' | 'warning' | 'error' | 'info'; message: string };
@@ -93,10 +94,11 @@ const buildEditDraft = (user: AccessManagedUser): AccessUserUpsertPayload => ({
   roles: normalizeRoles(user.roles),
 });
 
-export function AccessManagementPanel({ runId, role }: AccessManagementPanelProps) {
+export function AccessManagementPanel({ runId, role, mode = 'full' }: AccessManagementPanelProps) {
   const session = useSession();
   const queryClient = useQueryClient();
   const isSystemAdmin = isSystemAdminRole(role ?? session.role);
+  const linkedOnlyMode = mode === 'linked-only';
   const infoLive = resolveAriaLive('info');
 
   const [keyword, setKeyword] = useState('');
@@ -120,16 +122,19 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
   });
 
   const users = usersQuery.data?.users ?? [];
+  const linkedUsers = useMemo(() => users.filter((u) => u.orcaLink?.linked), [users]);
+  const targetUsers = linkedOnlyMode ? linkedUsers : users;
   const filteredUsers = useMemo(() => {
     const q = keyword.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) => {
+    if (!q) return targetUsers;
+    return targetUsers.filter((u) => {
       const hay = [
         u.loginId,
         u.displayName,
         u.sirName,
         u.givenName,
         u.email,
+        u.orcaLink?.orcaUserId,
         ...(u.roles ?? []),
         u.staffRole ?? '',
       ]
@@ -138,7 +143,7 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [keyword, users]);
+  }, [keyword, targetUsers]);
 
   const createMutation = useMutation({
     mutationFn: (payload: AccessUserUpsertPayload) => createAccessUser(payload),
@@ -207,6 +212,7 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
   });
 
   const openCreate = () => {
+    if (linkedOnlyMode) return;
     setFeedback(null);
     setCreateDraft(buildEmptyCreateDraft());
     setCreateOpen(true);
@@ -219,6 +225,7 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
   };
 
   const openReset = (user: AccessManagedUser) => {
+    if (linkedOnlyMode) return;
     setFeedback(null);
     setResetTarget(user);
     setTotpCode('');
@@ -238,6 +245,7 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
   };
 
   const handleSubmitCreate = () => {
+    if (linkedOnlyMode) return;
     const error = validateCreateDraft(createDraft);
     if (error) {
       setFeedback({ tone: 'error', message: error });
@@ -252,10 +260,12 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
 
   const handleSubmitEdit = () => {
     if (!editTarget || !editDraft) return;
-    const payload: AccessUserUpsertPayload = {
-      ...editDraft,
-      roles: normalizeRoles(editDraft.roles),
-    };
+    const payload: AccessUserUpsertPayload = linkedOnlyMode
+      ? { roles: normalizeRoles(editDraft.roles) }
+      : {
+          ...editDraft,
+          roles: normalizeRoles(editDraft.roles),
+        };
     updateMutation.mutate({ userPk: editTarget.userPk, payload });
   };
 
@@ -279,18 +289,20 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
     next.add('user');
     return { ...draft, roles: Array.from(next) };
   };
+  const panelTitle = linkedOnlyMode ? '電子カルテ権限付与（ORCA連携済み）' : 'アクセス管理（職員ユーザー）';
+  const panelLabel = linkedOnlyMode ? '電子カルテ権限付与' : 'アクセス管理';
 
   if (!isSystemAdmin) {
     return (
-      <section className="administration-card" aria-label="アクセス管理">
-        <h2 className="administration-card__title">アクセス管理（職員ユーザー）</h2>
+      <section className="administration-card" aria-label={panelLabel}>
+        <h2 className="administration-card__title">{panelTitle}</h2>
         <div className="admin-guard" role="alert" aria-live={resolveAriaLive('warning')}>
           <div className="admin-guard__header">
             <span className="admin-guard__title">操作ガード中</span>
             <span className="admin-guard__badge">system_adminのみ</span>
           </div>
           <p className="admin-guard__message">
-            現在のロール（{role ?? session.role ?? 'unknown'}）ではアクセス管理を操作できません。
+            現在のロール（{role ?? session.role ?? 'unknown'}）では {panelLabel} を操作できません。
           </p>
         </div>
       </section>
@@ -298,10 +310,12 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
   }
 
   return (
-    <section className="administration-card" aria-label="アクセス管理" data-run-id={runId}>
-      <h2 className="administration-card__title">アクセス管理（職員ユーザー）</h2>
+    <section className="administration-card" aria-label={panelLabel} data-run-id={runId}>
+      <h2 className="administration-card__title">{panelTitle}</h2>
       <p className="admin-quiet" role="status" aria-live={infoLive}>
-        職員ユーザーの作成/編集、パスワードリセットを行います。パスワードリセットは管理者の Authenticator（TOTP）を必須とします。
+        {linkedOnlyMode
+          ? `ORCA連携済みユーザー（${linkedUsers.length}件）の電子カルテ権限のみ編集できます。`
+          : '職員ユーザーの作成/編集、パスワードリセットを行います。パスワードリセットは管理者の Authenticator（TOTP）を必須とします。'}
       </p>
 
       {feedback ? (
@@ -312,9 +326,11 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
       ) : null}
 
       <div className="admin-actions">
-        <button type="button" className="admin-button admin-button--primary" onClick={openCreate}>
-          新規作成
-        </button>
+        {!linkedOnlyMode ? (
+          <button type="button" className="admin-button admin-button--primary" onClick={openCreate}>
+            新規作成
+          </button>
+        ) : null}
         <div className="admin-form__field" style={{ marginLeft: 'auto', minWidth: 220 }}>
           <label htmlFor="admin-access-search">絞り込み</label>
           <input
@@ -322,20 +338,27 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
             type="text"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
-            placeholder="loginId / 氏名 / role で検索"
+            placeholder={linkedOnlyMode ? 'loginId / ORCA User_Id / role で検索' : 'loginId / 氏名 / role で検索'}
           />
         </div>
       </div>
 
+      {linkedOnlyMode && linkedUsers.length === 0 ? (
+        <p className="admin-note">
+          ORCA連携済みユーザーがまだありません。先に「ORCAユーザー連携」セクションでリンクを実行してください。
+        </p>
+      ) : null}
+
       {usersQuery.isPending ? <p className="admin-quiet">読み込み中…</p> : null}
       {usersQuery.isError ? <p className="admin-error">取得に失敗しました: {toErrorMessage(usersQuery.error)}</p> : null}
 
-      <div className="admin-scroll" aria-label="ユーザー一覧">
+      <div className="admin-scroll" aria-label={linkedOnlyMode ? 'ORCA連携済みユーザー一覧' : 'ユーザー一覧'}>
         <table className="admin-table">
           <thead>
             <tr>
               <th>loginId</th>
               <th>氏名</th>
+              {linkedOnlyMode ? <th>ORCA User_Id</th> : null}
               <th>性別</th>
               <th>役割</th>
               <th>roles</th>
@@ -348,23 +371,26 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
               <tr key={user.userPk}>
                 <td>{user.loginId}</td>
                 <td>{user.displayName ?? '—'}</td>
+                {linkedOnlyMode ? <td>{user.orcaLink?.orcaUserId ?? '—'}</td> : null}
                 <td>{user.sex ?? '—'}</td>
                 <td>{user.staffRole ?? '—'}</td>
                 <td>{(user.roles ?? []).join(', ') || '—'}</td>
                 <td>{user.factor2Auth ?? '—'}</td>
                 <td>
                   <button type="button" className="admin-button admin-button--secondary" onClick={() => openEdit(user)}>
-                    編集
+                    {linkedOnlyMode ? '権限編集' : '編集'}
                   </button>{' '}
-                  <button type="button" className="admin-button admin-button--danger" onClick={() => openReset(user)}>
-                    パスワードリセット
-                  </button>
+                  {!linkedOnlyMode ? (
+                    <button type="button" className="admin-button admin-button--danger" onClick={() => openReset(user)}>
+                      パスワードリセット
+                    </button>
+                  ) : null}
                 </td>
               </tr>
             ))}
             {filteredUsers.length === 0 ? (
               <tr>
-                <td colSpan={7} className="admin-quiet">
+                <td colSpan={linkedOnlyMode ? 8 : 7} className="admin-quiet">
                   該当ユーザーがありません。
                 </td>
               </tr>
@@ -373,13 +399,14 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
         </table>
       </div>
 
-      <FocusTrapDialog
-        open={createOpen}
-        title="職員ユーザー作成"
-        description="loginId と氏名、初期パスワードを登録します。"
-        onClose={() => setCreateOpen(false)}
-        testId="admin-access-create"
-      >
+      {!linkedOnlyMode ? (
+        <FocusTrapDialog
+          open={createOpen}
+          title="職員ユーザー作成"
+          description="loginId と氏名、初期パスワードを登録します。"
+          onClose={() => setCreateOpen(false)}
+          testId="admin-access-create"
+        >
         <form className="admin-form" onSubmit={(e) => e.preventDefault()}>
           <div className="admin-form__field">
             <label htmlFor="admin-access-create-loginId">loginId</label>
@@ -492,12 +519,19 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
             </button>
           </div>
         </form>
-      </FocusTrapDialog>
+        </FocusTrapDialog>
+      ) : null}
 
       <FocusTrapDialog
         open={Boolean(editTarget && editDraft)}
-        title="職員ユーザー編集"
-        description={editTarget ? `loginId: ${editTarget.loginId}` : undefined}
+        title={linkedOnlyMode ? '電子カルテ権限編集' : '職員ユーザー編集'}
+        description={
+          editTarget
+            ? linkedOnlyMode
+              ? `loginId: ${editTarget.loginId} / ORCA User_Id: ${editTarget.orcaLink?.orcaUserId ?? '未連携'}`
+              : `loginId: ${editTarget.loginId}`
+            : undefined
+        }
         onClose={() => {
           setEditTarget(null);
           setEditDraft(null);
@@ -506,54 +540,62 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
       >
         {editTarget && editDraft ? (
           <form className="admin-form" onSubmit={(e) => e.preventDefault()}>
-            <div className="admin-form__field">
-              <label htmlFor="admin-access-edit-displayName">氏名（displayName）</label>
-              <input
-                id="admin-access-edit-displayName"
-                type="text"
-                value={editDraft.displayName ?? ''}
-                onChange={(event) => setEditDraft((prev) => ({ ...(prev ?? {}), displayName: event.target.value }))}
-              />
-            </div>
-            <div className="admin-form__field">
-              <label htmlFor="admin-access-edit-sex">性別</label>
-              <select
-                id="admin-access-edit-sex"
-                value={(editDraft.sex ?? '') as string}
-                onChange={(event) =>
-                  setEditDraft((prev) => ({ ...(prev ?? {}), sex: event.target.value as AccessSex | '' }))
-                }
-              >
-                {SEX_OPTIONS.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="admin-form__field">
-              <label htmlFor="admin-access-edit-staffRole">役割（表示用）</label>
-              <select
-                id="admin-access-edit-staffRole"
-                value={(editDraft.staffRole ?? '') as string}
-                onChange={(event) => setEditDraft((prev) => ({ ...(prev ?? {}), staffRole: event.target.value }))}
-              >
-                {STAFF_ROLE_OPTIONS.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="admin-form__field">
-              <label htmlFor="admin-access-edit-email">メール（任意）</label>
-              <input
-                id="admin-access-edit-email"
-                type="text"
-                value={editDraft.email ?? ''}
-                onChange={(event) => setEditDraft((prev) => ({ ...(prev ?? {}), email: event.target.value }))}
-              />
-            </div>
+            {!linkedOnlyMode ? (
+              <>
+                <div className="admin-form__field">
+                  <label htmlFor="admin-access-edit-displayName">氏名（displayName）</label>
+                  <input
+                    id="admin-access-edit-displayName"
+                    type="text"
+                    value={editDraft.displayName ?? ''}
+                    onChange={(event) => setEditDraft((prev) => ({ ...(prev ?? {}), displayName: event.target.value }))}
+                  />
+                </div>
+                <div className="admin-form__field">
+                  <label htmlFor="admin-access-edit-sex">性別</label>
+                  <select
+                    id="admin-access-edit-sex"
+                    value={(editDraft.sex ?? '') as string}
+                    onChange={(event) =>
+                      setEditDraft((prev) => ({ ...(prev ?? {}), sex: event.target.value as AccessSex | '' }))
+                    }
+                  >
+                    {SEX_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="admin-form__field">
+                  <label htmlFor="admin-access-edit-staffRole">役割（表示用）</label>
+                  <select
+                    id="admin-access-edit-staffRole"
+                    value={(editDraft.staffRole ?? '') as string}
+                    onChange={(event) => setEditDraft((prev) => ({ ...(prev ?? {}), staffRole: event.target.value }))}
+                  >
+                    {STAFF_ROLE_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="admin-form__field">
+                  <label htmlFor="admin-access-edit-email">メール（任意）</label>
+                  <input
+                    id="admin-access-edit-email"
+                    type="text"
+                    value={editDraft.email ?? ''}
+                    onChange={(event) => setEditDraft((prev) => ({ ...(prev ?? {}), email: event.target.value }))}
+                  />
+                </div>
+              </>
+            ) : (
+              <p className="admin-note">
+                ORCA連携済みユーザーに対して、電子カルテ側の権限（roles）のみ変更できます。
+              </p>
+            )}
 
             <div className="admin-form__field">
               <label>権限（roles）</label>
@@ -606,74 +648,75 @@ export function AccessManagementPanel({ runId, role }: AccessManagementPanelProp
         ) : null}
       </FocusTrapDialog>
 
-      <FocusTrapDialog
-        open={Boolean(resetTarget)}
-        title="パスワードリセット"
-        description={resetTarget ? `対象: ${resetTarget.loginId} / ${resetTarget.displayName ?? ''}` : undefined}
-        onClose={() => {
-          setResetTarget(null);
-          setTotpCode('');
-          setResetResult(null);
-        }}
-        testId="admin-access-reset"
-      >
-        {resetTarget ? (
-          <form className="admin-form" onSubmit={(e) => e.preventDefault()}>
-            <div className="admin-form__field">
-              <label htmlFor="admin-access-reset-totp">管理者 Authenticator（TOTP）コード</label>
-              <input
-                id="admin-access-reset-totp"
-                type="text"
-                value={totpCode}
-                onChange={(event) => setTotpCode(event.target.value)}
-                placeholder="6桁"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-              />
-              <p className="admin-quiet">
-                対策: 管理者の 2FA 未登録時は 412（totp_missing）でブロックします。
-              </p>
-            </div>
+      {!linkedOnlyMode ? (
+        <FocusTrapDialog
+          open={Boolean(resetTarget)}
+          title="パスワードリセット"
+          description={resetTarget ? `対象: ${resetTarget.loginId} / ${resetTarget.displayName ?? ''}` : undefined}
+          onClose={() => {
+            setResetTarget(null);
+            setTotpCode('');
+            setResetResult(null);
+          }}
+          testId="admin-access-reset"
+        >
+          {resetTarget ? (
+            <form className="admin-form" onSubmit={(e) => e.preventDefault()}>
+              <div className="admin-form__field">
+                <label htmlFor="admin-access-reset-totp">管理者 Authenticator（TOTP）コード</label>
+                <input
+                  id="admin-access-reset-totp"
+                  type="text"
+                  value={totpCode}
+                  onChange={(event) => setTotpCode(event.target.value)}
+                  placeholder="6桁"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                />
+                <p className="admin-quiet">
+                  対策: 管理者の 2FA 未登録時は 412（totp_missing）でブロックします。
+                </p>
+              </div>
 
-            <div className="admin-actions">
-              <button
-                type="button"
-                className="admin-button admin-button--danger"
-                onClick={handleSubmitReset}
-                disabled={resetMutation.isPending}
-              >
-                一時パスワード発行
-              </button>
-              <button type="button" className="admin-button admin-button--secondary" onClick={() => setResetTarget(null)}>
-                閉じる
-              </button>
-            </div>
-
-            {resetResult?.temporaryPassword ? (
-              <div className="admin-result admin-result--stack">
-                <div>
-                  一時パスワード: <strong>{resetResult.temporaryPassword}</strong>
-                </div>
+              <div className="admin-actions">
                 <button
                   type="button"
-                  className="admin-button admin-button--secondary"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(resetResult.temporaryPassword ?? '');
-                      setFeedback({ tone: 'success', message: '一時パスワードをコピーしました。' });
-                    } catch {
-                      setFeedback({ tone: 'error', message: 'コピーに失敗しました（クリップボード権限を確認してください）。' });
-                    }
-                  }}
+                  className="admin-button admin-button--danger"
+                  onClick={handleSubmitReset}
+                  disabled={resetMutation.isPending}
                 >
-                  コピー
+                  一時パスワード発行
+                </button>
+                <button type="button" className="admin-button admin-button--secondary" onClick={() => setResetTarget(null)}>
+                  閉じる
                 </button>
               </div>
-            ) : null}
-          </form>
-        ) : null}
-      </FocusTrapDialog>
+
+              {resetResult?.temporaryPassword ? (
+                <div className="admin-result admin-result--stack">
+                  <div>
+                    一時パスワード: <strong>{resetResult.temporaryPassword}</strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="admin-button admin-button--secondary"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(resetResult.temporaryPassword ?? '');
+                        setFeedback({ tone: 'success', message: '一時パスワードをコピーしました。' });
+                      } catch {
+                        setFeedback({ tone: 'error', message: 'コピーに失敗しました（クリップボード権限を確認してください）。' });
+                      }
+                    }}
+                  >
+                    コピー
+                  </button>
+                </div>
+              ) : null}
+            </form>
+          ) : null}
+        </FocusTrapDialog>
+      ) : null}
     </section>
   );
 }
-

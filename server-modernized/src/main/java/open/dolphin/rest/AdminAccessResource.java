@@ -14,6 +14,7 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.sql.Timestamp;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -30,6 +31,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.infomodel.Factor2Credential;
 import open.dolphin.infomodel.Factor2CredentialType;
@@ -58,6 +60,8 @@ public class AdminAccessResource extends AbstractResource {
     private static final Set<String> ALLOWED_SEX = Set.of("M", "F", "O");
     private static final int DEFAULT_TEMP_PASSWORD_LENGTH = 14;
     private static final String TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    private static final Pattern ORCA_USER_ID_PATTERN = Pattern.compile("^[A-Za-z0-9_]+$");
+    private static final String BASELINE_ROLE = "user";
 
     @PersistenceContext
     private EntityManager em;
@@ -82,11 +86,12 @@ public class AdminAccessResource extends AbstractResource {
         List<UserModel> users = userServiceBean.getAllUser(facilityId);
         List<Long> userPks = users.stream().mapToLong(UserModel::getId).boxed().toList();
         Map<Long, UserAccessProfile> profileMap = loadProfiles(userPks);
+        Map<Long, OrcaLinkStatus> orcaLinkMap = loadOrcaLinks(userPks);
 
         List<Map<String, Object>> rows = users.stream()
                 .sorted(Comparator.comparing((UserModel u) -> extractLoginId(u.getUserId()),
                         Comparator.nullsLast(String::compareToIgnoreCase)))
-                .map((user) -> toUserRow(user, profileMap.get(user.getId())))
+                .map((user) -> toUserRow(user, profileMap.get(user.getId()), orcaLinkMap.get(user.getId())))
                 .toList();
 
         Map<String, Object> body = new LinkedHashMap<>();
@@ -147,8 +152,17 @@ public class AdminAccessResource extends AbstractResource {
         String email = trimToEmpty(asString(payload.get("email")));
 
         List<String> roles = normalizeRoles(payload.get("roles"));
-        if (!roles.contains("user")) {
-            roles.add("user");
+        if (!containsRole(roles, BASELINE_ROLE)) {
+            roles.add(BASELINE_ROLE);
+        }
+        String orcaUserId = trimToNull(asString(payload.get("orcaUserId")));
+        if (orcaUserId != null && !ORCA_USER_ID_PATTERN.matcher(orcaUserId).matches()) {
+            throw restError(request, Response.Status.BAD_REQUEST, "invalid_orca_user_id",
+                    "ORCA User_Id は半角英数字とアンダースコアのみ使用できます。");
+        }
+        if (hasPrivilegedRoles(roles) && orcaUserId == null) {
+            throw restError(request, Response.Status.CONFLICT, "orca_link_required",
+                    "電子カルテ側の権限付与は ORCA 連携済みユーザーのみ実行できます。ORCA User_Id を指定してください。");
         }
 
         String compositeUserId = facilityId + IInfoModel.COMPOSITE_KEY_MAKER + loginId;
@@ -174,10 +188,14 @@ public class AdminAccessResource extends AbstractResource {
         upsertPublicShadowUser(user);
         persistRoles(user, roles);
         UserAccessProfile profile = upsertProfile(user.getId(), sex, staffRole, Instant.now());
+        OrcaLinkStatus orcaLink = null;
+        if (orcaUserId != null) {
+            orcaLink = upsertOrcaLink(request, user.getId(), orcaUserId, actor);
+        }
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("runId", runId);
-        body.put("user", toUserRow(user, profile));
+        body.put("user", toUserRow(user, profile, orcaLink));
 
         Map<String, Object> auditDetails = new LinkedHashMap<>();
         auditDetails.put("operation", "create");
@@ -187,6 +205,7 @@ public class AdminAccessResource extends AbstractResource {
         auditDetails.put("roles", roles);
         auditDetails.put("sex", sex);
         auditDetails.put("staffRole", staffRole);
+        auditDetails.put("orcaUserId", orcaUserId);
         recordAudit(request, "ADMIN_ACCESS_USER_CREATE", AuditEventEnvelope.Outcome.SUCCESS, runId, auditDetails, null, null);
 
         return Response.status(Response.Status.CREATED).entity(body).header("x-run-id", runId).build();
@@ -232,11 +251,28 @@ public class AdminAccessResource extends AbstractResource {
 
         boolean rolesProvided = payload.containsKey("roles");
         List<String> roles = rolesProvided ? normalizeRoles(payload.get("roles")) : List.of();
+        String orcaUserId = trimToNull(asString(payload.get("orcaUserId")));
+        if (orcaUserId != null && !ORCA_USER_ID_PATTERN.matcher(orcaUserId).matches()) {
+            throw restError(request, Response.Status.BAD_REQUEST, "invalid_orca_user_id",
+                    "ORCA User_Id は半角英数字とアンダースコアのみ使用できます。");
+        }
+        OrcaLinkStatus orcaLink = null;
+        if (orcaUserId != null) {
+            orcaLink = upsertOrcaLink(request, userPk, orcaUserId, actor);
+        }
         if (rolesProvided) {
             // Keep shadow row in public schema up-to-date (and satisfy FK targets) before updating roles.
             upsertPublicShadowUser(user);
-            if (!roles.contains("user")) {
-                roles.add("user");
+            if (!containsRole(roles, BASELINE_ROLE)) {
+                roles.add(BASELINE_ROLE);
+            }
+            if (hasPrivilegedRoles(roles)) {
+                OrcaLinkStatus effectiveLink = orcaLink != null ? orcaLink : findOrcaLinkByUserPk(userPk);
+                if (effectiveLink == null) {
+                    throw restError(request, Response.Status.CONFLICT, "orca_link_required",
+                            "電子カルテ側の権限付与は ORCA 連携済みユーザーのみ実行できます。");
+                }
+                orcaLink = effectiveLink;
             }
             long actorPk = resolveActorUserPk(actor);
             if (actorPk == userPk && !containsAdminRole(roles)) {
@@ -248,10 +284,13 @@ public class AdminAccessResource extends AbstractResource {
 
         Instant now = Instant.now();
         UserAccessProfile profile = upsertProfile(userPk, sexToken, staffRole, now);
+        if (orcaLink == null) {
+            orcaLink = findOrcaLinkByUserPk(userPk);
+        }
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("runId", runId);
-        body.put("user", toUserRow(user, profile));
+        body.put("user", toUserRow(user, profile, orcaLink));
 
         Map<String, Object> updateAuditDetails = new LinkedHashMap<>();
         updateAuditDetails.put("operation", "update");
@@ -261,6 +300,7 @@ public class AdminAccessResource extends AbstractResource {
         updateAuditDetails.put("roles", rolesProvided ? roles : null);
         updateAuditDetails.put("sex", sexToken);
         updateAuditDetails.put("staffRole", staffRole);
+        updateAuditDetails.put("orcaUserId", orcaLink != null ? orcaLink.orcaUserId() : null);
         recordAudit(request, "ADMIN_ACCESS_USER_UPDATE", AuditEventEnvelope.Outcome.SUCCESS, runId, updateAuditDetails, null, null);
 
         return Response.ok(body).header("x-run-id", runId).build();
@@ -459,7 +499,53 @@ public class AdminAccessResource extends AbstractResource {
         return map;
     }
 
-    private Map<String, Object> toUserRow(UserModel user, UserAccessProfile profile) {
+    private Map<Long, OrcaLinkStatus> loadOrcaLinks(List<Long> userPks) {
+        if (userPks == null || userPks.isEmpty() || !isOrcaLinkTablePresent()) {
+            return Map.of();
+        }
+        Set<Long> targets = Set.copyOf(userPks);
+        List<?> rows = em.createNativeQuery(
+                        "select ehr_user_pk, orca_user_id, updated_at from opendolphin.d_orca_user_link")
+                .getResultList();
+        Map<Long, OrcaLinkStatus> map = new HashMap<>();
+        for (Object rowObj : rows) {
+            if (!(rowObj instanceof Object[] row) || row.length < 3) {
+                continue;
+            }
+            Long userPk = asLong(row[0]);
+            String orcaUserId = trimToNull(asString(row[1]));
+            if (userPk == null || orcaUserId == null || !targets.contains(userPk)) {
+                continue;
+            }
+            map.put(userPk, new OrcaLinkStatus(orcaUserId, toIsoTimestamp(row[2])));
+        }
+        return map;
+    }
+
+    private OrcaLinkStatus findOrcaLinkByUserPk(long userPk) {
+        if (!isOrcaLinkTablePresent()) {
+            return null;
+        }
+        List<?> rows = em.createNativeQuery(
+                        "select orca_user_id, updated_at from opendolphin.d_orca_user_link where ehr_user_pk=:userPk")
+                .setParameter("userPk", userPk)
+                .setMaxResults(1)
+                .getResultList();
+        if (rows.isEmpty()) {
+            return null;
+        }
+        Object rowObj = rows.get(0);
+        if (!(rowObj instanceof Object[] row) || row.length < 2) {
+            return null;
+        }
+        String orcaUserId = trimToNull(asString(row[0]));
+        if (orcaUserId == null) {
+            return null;
+        }
+        return new OrcaLinkStatus(orcaUserId, toIsoTimestamp(row[1]));
+    }
+
+    private Map<String, Object> toUserRow(UserModel user, UserAccessProfile profile, OrcaLinkStatus orcaLink) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("userPk", user.getId());
         row.put("userId", user.getUserId());
@@ -485,6 +571,15 @@ public class AdminAccessResource extends AbstractResource {
             row.put("staffRole", null);
             row.put("profileCreatedAt", null);
             row.put("profileUpdatedAt", null);
+        }
+        if (orcaLink != null) {
+            Map<String, Object> link = new LinkedHashMap<>();
+            link.put("linked", Boolean.TRUE);
+            link.put("orcaUserId", orcaLink.orcaUserId());
+            link.put("updatedAt", orcaLink.updatedAt());
+            row.put("orcaLink", link);
+        } else {
+            row.put("orcaLink", Map.of("linked", Boolean.FALSE));
         }
         return row;
     }
@@ -622,10 +717,125 @@ public class AdminAccessResource extends AbstractResource {
         return list.isEmpty() ? null : list.get(0);
     }
 
+    private OrcaLinkStatus upsertOrcaLink(HttpServletRequest request, long userPk, String orcaUserId, String actor) {
+        requireOrcaLinkTableAvailable(request);
+        Long owner = findOwnerByOrcaUserId(orcaUserId);
+        if (owner != null && owner.longValue() != userPk) {
+            throw restError(request, Response.Status.CONFLICT, "orca_user_already_linked",
+                    "指定した ORCA User_Id は別の電子カルテユーザーにリンク済みです。");
+        }
+
+        Instant now = Instant.now();
+        em.createNativeQuery(
+                        "insert into opendolphin.d_orca_user_link (ehr_user_pk, orca_user_id, created_at, updated_at, updated_by) "
+                                + "values (:ehrUserPk, :orcaUserId, :createdAt, :updatedAt, :updatedBy) "
+                                + "on conflict (ehr_user_pk) do update set "
+                                + "orca_user_id=excluded.orca_user_id, updated_at=excluded.updated_at, updated_by=excluded.updated_by")
+                .setParameter("ehrUserPk", userPk)
+                .setParameter("orcaUserId", orcaUserId)
+                .setParameter("createdAt", Timestamp.from(now))
+                .setParameter("updatedAt", Timestamp.from(now))
+                .setParameter("updatedBy", actor)
+                .executeUpdate();
+        return new OrcaLinkStatus(orcaUserId, now.toString());
+    }
+
+    private void requireOrcaLinkTableAvailable(HttpServletRequest request) {
+        if (isOrcaLinkTablePresent()) {
+            return;
+        }
+        throw restError(request, Response.Status.SERVICE_UNAVAILABLE,
+                "orca_link_table_missing",
+                "ORCAユーザー連携テーブルが存在しません。Flyway migration を適用してください。");
+    }
+
+    private boolean isOrcaLinkTablePresent() {
+        List<?> rows = em.createNativeQuery(
+                        "select 1 from information_schema.tables where table_schema='opendolphin' and table_name='d_orca_user_link'")
+                .setMaxResults(1)
+                .getResultList();
+        return !rows.isEmpty();
+    }
+
+    private Long findOwnerByOrcaUserId(String orcaUserId) {
+        if (!isOrcaLinkTablePresent()) {
+            return null;
+        }
+        List<?> rows = em.createNativeQuery("select ehr_user_pk from opendolphin.d_orca_user_link where orca_user_id=:orcaUserId")
+                .setParameter("orcaUserId", orcaUserId)
+                .setMaxResults(1)
+                .getResultList();
+        if (rows.isEmpty()) {
+            return null;
+        }
+        return asLong(rows.get(0));
+    }
+
+    private boolean containsRole(List<String> roles, String targetRole) {
+        String target = normalizeRoleKey(targetRole);
+        if (target == null) {
+            return false;
+        }
+        for (String role : roles) {
+            if (target.equals(normalizeRoleKey(role))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasPrivilegedRoles(List<String> roles) {
+        for (String role : roles) {
+            String normalized = normalizeRoleKey(role);
+            if (normalized == null) {
+                continue;
+            }
+            if (!BASELINE_ROLE.equals(normalized)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizeRoleKey(String role) {
+        if (role == null) {
+            return null;
+        }
+        String normalized = role.trim().toLowerCase(Locale.ROOT);
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private Long asLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private String toIsoTimestamp(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Timestamp timestamp) {
+            return timestamp.toInstant().toString();
+        }
+        if (value instanceof Instant instant) {
+            return instant.toString();
+        }
+        return String.valueOf(value);
+    }
+
     private boolean containsAdminRole(List<String> roles) {
         for (String role : roles) {
-            if (role == null) continue;
-            String normalized = role.trim().toLowerCase(Locale.ROOT);
+            String normalized = normalizeRoleKey(role);
+            if (normalized == null) continue;
             if (normalized.equals("admin")
                     || normalized.equals("system_admin")
                     || normalized.equals("system-admin")
@@ -753,5 +963,11 @@ public class AdminAccessResource extends AbstractResource {
         payload.setRunId(runId);
         payload.setDetails(details);
         sessionAuditDispatcher.record(payload, outcome, errorCode, errorMessage);
+    }
+
+    private record OrcaLinkStatus(
+            String orcaUserId,
+            String updatedAt
+    ) {
     }
 }

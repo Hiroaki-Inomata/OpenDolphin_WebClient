@@ -2,6 +2,12 @@ import { httpFetch } from '../../libs/http/httpClient';
 
 export type AccessSex = 'M' | 'F' | 'O';
 
+export type AccessOrcaLinkStatus = {
+  linked: boolean;
+  orcaUserId?: string;
+  updatedAt?: string;
+};
+
 export type AccessManagedUser = {
   userPk: number;
   userId: string;
@@ -17,6 +23,7 @@ export type AccessManagedUser = {
   registeredDate?: string | null;
   profileCreatedAt?: string | null;
   profileUpdatedAt?: string | null;
+  orcaLink?: AccessOrcaLinkStatus;
 };
 
 export type AccessUsersResponse = {
@@ -132,4 +139,3 @@ export async function resetAccessUserPassword(
   });
   return await requireOkJson<AccessPasswordResetResponse>(response);
 }
-

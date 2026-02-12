@@ -140,10 +140,8 @@ describe('OrderBundleEditPanel contraindication warning', () => {
 
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const keywordInput = screen.getByLabelText('キーワード', {
-      selector: 'input[id$="-master-keyword"]',
-    });
-    fireEvent.change(keywordInput, { target: { value: 'アム' } });
+    const itemNameInput = screen.getByPlaceholderText('項目名');
+    fireEvent.change(itemNameInput, { target: { value: 'アム' } });
 
     await waitFor(() => expect(screen.getByText('アムロジピン')).toBeInTheDocument());
 
@@ -151,16 +149,9 @@ describe('OrderBundleEditPanel contraindication warning', () => {
     expect(rowButton).not.toBeNull();
     fireEvent.click(rowButton!);
 
-    fireEvent.change(
-      screen.getByLabelText('キーワード', {
-        selector: 'input[id$="-usage-keyword"]',
-      }),
-      { target: { value: '1日1回' } },
-    );
-    await waitFor(() =>
-      expect((screen.getByLabelText('用法') as HTMLSelectElement).querySelector('option[value="1日1回"]')).not.toBeNull(),
-    );
     fireEvent.change(screen.getByLabelText('用法'), { target: { value: '1日1回' } });
+    await waitFor(() => expect(screen.getByText('1日1回')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('1日1回').closest('button')!);
 
     fireEvent.click(screen.getByRole('button', { name: '保存して追加' }));
 
@@ -233,10 +224,8 @@ describe('OrderBundleEditPanel contraindication warning', () => {
 
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const keywordInput = screen.getByLabelText('キーワード', {
-      selector: 'input[id$="-master-keyword"]',
-    });
-    fireEvent.change(keywordInput, { target: { value: 'ロサ' } });
+    const itemNameInput = screen.getByPlaceholderText('項目名');
+    fireEvent.change(itemNameInput, { target: { value: 'ロサ' } });
 
     await waitFor(() => expect(screen.getByText('ロサルタン')).toBeInTheDocument());
 
@@ -244,16 +233,9 @@ describe('OrderBundleEditPanel contraindication warning', () => {
     expect(rowButton).not.toBeNull();
     fireEvent.click(rowButton!);
 
-    fireEvent.change(
-      screen.getByLabelText('キーワード', {
-        selector: 'input[id$="-usage-keyword"]',
-      }),
-      { target: { value: '1日1回' } },
-    );
-    await waitFor(() =>
-      expect((screen.getByLabelText('用法') as HTMLSelectElement).querySelector('option[value="1日1回"]')).not.toBeNull(),
-    );
     fireEvent.change(screen.getByLabelText('用法'), { target: { value: '1日1回' } });
+    await waitFor(() => expect(screen.getByText('1日1回')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('1日1回').closest('button')!);
 
     fireEvent.click(screen.getByRole('button', { name: '保存して追加' }));
 

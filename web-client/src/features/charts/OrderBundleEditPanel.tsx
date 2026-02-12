@@ -130,30 +130,8 @@ const PRESCRIPTION_CLASS_NAMES: Record<string, string> = {
   '291': '内服薬剤（臨時投薬）（院内）',
   '292': '内服薬剤（臨時投薬）（院外）',
 };
-const USAGE_FILTER_OPTIONS = [
-  { value: '', label: '用法選択', pattern: '' },
-  { value: '0010001', label: '内服1回等(100)', pattern: '0010001' },
-  { value: '0010002', label: '内服2回等(200)', pattern: '0010002' },
-  { value: '0010003', label: '内服3回等(300)', pattern: '0010003' },
-  { value: '0010004', label: '内服4回等(400)', pattern: '0010004' },
-  { value: '(0010005|0010007)', label: '点眼等(500,700)', pattern: '(0010005|0010007)' },
-  { value: '0010006', label: '塗布等(600)', pattern: '0010006' },
-  { value: '0010008', label: '頓用等(800)', pattern: '0010008' },
-  { value: '0010009', label: '吸入等(900)', pattern: '0010009' },
-  { value: '001', label: '全て', pattern: '001' },
-];
-const DEFAULT_USAGE_LIMIT = 50;
+const DEFAULT_USAGE_SUGGESTION_LIMIT = 12;
 const DEFAULT_PREDICTIVE_LIMIT = 20;
-
-const MASTER_KEYWORD_PLACEHOLDER: Record<OrderMasterSearchType, string> = {
-  'generic-class': '例: アムロジピン',
-  youhou: '例: 1日2回 朝夕食後',
-  material: '例: ガーゼ',
-  'kensa-sort': '例: 採血',
-  etensu: '例: 胸部単純X線',
-  comment: '例: 服薬指示',
-  bodypart: '例: 胸部',
-};
 
 type OrderEntityUiProfile = {
   formDescription: string;
@@ -508,17 +486,12 @@ const formatBundleName = (bundle: OrderBundle) => bundle.bundleName ?? '名称�
 const formatMasterLabel = (item: OrderMasterSearchItem) => (item.code ? `${item.code} ${item.name}` : item.name);
 const formatUsageLabel = (item: OrderMasterSearchItem) => formatMasterLabel(item);
 const normalizePredictiveLabel = (value: string) => value.replace(/\s+/g, ' ').trim();
-const resolveUsagePattern = (value: string) =>
-  USAGE_FILTER_OPTIONS.find((option) => option.value === value)?.pattern ?? '';
-const matchesUsagePattern = (code: string | undefined, pattern: string) => {
-  if (!pattern) return true;
-  if (!code) return false;
-  try {
-    const regex = new RegExp(`^${pattern}`);
-    return regex.test(code);
-  } catch {
-    return code.startsWith(pattern);
-  }
+const normalizePartialKeyword = (value: string) => value.trim().toLowerCase();
+const matchesMasterItemByPartial = (item: OrderMasterSearchItem, keyword: string) => {
+  const normalizedKeyword = normalizePartialKeyword(keyword);
+  if (!normalizedKeyword) return true;
+  const candidates = [item.code ?? '', item.name, formatMasterLabel(item), item.category ?? '', item.note ?? ''];
+  return candidates.some((candidate) => candidate.toLowerCase().includes(normalizedKeyword));
 };
 
 const resolveMasterReferenceStatusLabel = (status?: string) => {
@@ -664,20 +637,13 @@ export function OrderBundleEditPanel({
   const [contraNotice, setContraNotice] = useState<ContraindicationNotice | null>(null);
   const [contraDetails, setContraDetails] = useState<string[]>([]);
   const [isContraChecking, setIsContraChecking] = useState(false);
-  const [masterKeyword, setMasterKeyword] = useState('');
   const [masterSearchType, setMasterSearchType] = useState<OrderMasterSearchType>(() => resolveDefaultMasterSearchType(entity));
-  const [usageKeyword, setUsageKeyword] = useState('');
-  const [usageFilter, setUsageFilter] = useState(USAGE_FILTER_OPTIONS[0].value);
-  const [usagePartialMatch, setUsagePartialMatch] = useState(false);
-  const [usageLimit, setUsageLimit] = useState(DEFAULT_USAGE_LIMIT);
   const [materialKeyword, setMaterialKeyword] = useState('');
   const [bodyPartKeyword, setBodyPartKeyword] = useState('');
-  const [commentKeyword, setCommentKeyword] = useState('');
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [selectedItemRowId, setSelectedItemRowId] = useState<string | null>(null);
   const [optimisticBundles, setOptimisticBundles] = useState<OrderBundle[]>([]);
-  const [commentSelectValue, setCommentSelectValue] = useState('');
   const [showMasterReferenceStatus, setShowMasterReferenceStatus] = useState(false);
   const [commentDraft, setCommentDraft] = useState<OrderBundleItem>({
     code: '',
@@ -695,7 +661,6 @@ export function OrderBundleEditPanel({
   const supportsBodyPartSearch = orderUiProfile.supportsBodyPartSearch;
   const supportsCommentCodes = orderUiProfile.supportsCommentCodes;
   const supportsMaterials = orderUiProfile.supportsMaterials;
-  const masterKeywordPlaceholder = MASTER_KEYWORD_PLACEHOLDER[masterSearchType];
   const masterSearchPresets = orderUiProfile.masterSearchPresets;
   const selectedMasterPresetLabel =
     masterSearchPresets.find((preset) => preset.type === masterSearchType)?.label ?? masterSearchType;
@@ -737,9 +702,7 @@ export function OrderBundleEditPanel({
 
   useEffect(() => {
     setMasterSearchType(resolveDefaultMasterSearchType(entity));
-    setMasterKeyword('');
-    setCommentKeyword('');
-    setCommentSelectValue('');
+    setCommentDraft({ code: '', name: '', quantity: '', unit: '', memo: '' });
   }, [entity]);
 
   useEffect(() => {
@@ -841,29 +804,85 @@ export function OrderBundleEditPanel({
     });
   }, [entity, meta]);
 
-  const masterSearchQuery = useQuery({
-    queryKey: ['charts-order-master-search', masterSearchType, masterKeyword],
-    queryFn: () => fetchOrderMasterSearch({ type: masterSearchType, keyword: masterKeyword }),
-    enabled: masterKeyword.trim().length > 0,
+  const selectedItemForPrediction = useMemo(() => {
+    const rows = form.items as OrderBundleItemWithRowId[];
+    if (rows.length === 0) return null;
+    if (!selectedItemRowId) return rows[0];
+    return rows.find((row) => row.rowId === selectedItemRowId) ?? rows[0];
+  }, [form.items, selectedItemRowId]);
+  const selectedItemPredictionKeyword = selectedItemForPrediction?.name?.trim() ?? '';
+  const itemPredictiveSearchType = masterSearchType;
+  const isItemCodeSearch = /^\d{4,}$/.test(selectedItemPredictionKeyword);
+  const itemPredictiveQuery = useQuery({
+    queryKey: ['charts-order-item-predictive', entity, itemPredictiveSearchType, selectedItemPredictionKeyword],
+    queryFn: () =>
+      fetchOrderMasterSearch({
+        type: itemPredictiveSearchType,
+        keyword: selectedItemPredictionKeyword,
+        page: 1,
+        size: DEFAULT_PREDICTIVE_LIMIT,
+      }),
+    enabled: selectedItemPredictionKeyword.length > 0,
     staleTime: 30 * 1000,
   });
-  const isCodeSearch = /^\d{4,}$/.test(masterKeyword.trim());
-  const correctionCandidates = masterSearchQuery.data?.correctionCandidates ?? [];
-  const correctionMeta = masterSearchQuery.data?.correctionMeta;
-  const selectionCommentCandidates = masterSearchQuery.data?.selectionComments ?? [];
+  const itemMasterCandidates = useMemo(
+    () =>
+      itemPredictiveQuery.data?.ok
+        ? itemPredictiveQuery.data.items
+            .filter((item) => matchesMasterItemByPartial(item, selectedItemPredictionKeyword))
+            .slice(0, DEFAULT_PREDICTIVE_LIMIT)
+        : [],
+    [itemPredictiveQuery.data, selectedItemPredictionKeyword],
+  );
+  const correctionMeta = itemPredictiveQuery.data?.correctionMeta;
+  const itemCorrectionCandidates = useMemo(
+    () =>
+      (itemPredictiveQuery.data?.correctionCandidates ?? []).filter((item) =>
+        matchesMasterItemByPartial(item, selectedItemPredictionKeyword),
+      ),
+    [itemPredictiveQuery.data?.correctionCandidates, selectedItemPredictionKeyword],
+  );
+  const itemPredictiveItems = useMemo(() => {
+    const merged = [...itemCorrectionCandidates, ...itemMasterCandidates];
+    const deduped = new Map<string, OrderMasterSearchItem>();
+    merged.forEach((item) => {
+      const key = `${item.code?.trim() ?? ''}|${item.name.trim()}`;
+      if (!deduped.has(key)) {
+        deduped.set(key, item);
+      }
+    });
+    return Array.from(deduped.values()).slice(0, DEFAULT_PREDICTIVE_LIMIT);
+  }, [itemCorrectionCandidates, itemMasterCandidates]);
+  const itemPredictiveCandidates = useMemo(
+    () =>
+      itemPredictiveItems.map((item) => ({
+        item,
+        label: formatMasterLabel(item),
+      })),
+    [itemPredictiveItems],
+  );
+  const selectionCommentCandidates = itemPredictiveQuery.data?.selectionComments ?? [];
 
-  const usagePattern = useMemo(() => resolveUsagePattern(usageFilter), [usageFilter]);
+  const usageKeyword = form.admin.trim();
   const usageSearchQuery = useQuery({
     queryKey: ['charts-order-usage-search', usageKeyword],
     queryFn: () =>
       fetchOrderMasterSearch({
         type: 'youhou',
         keyword: usageKeyword,
-        allowEmpty: Boolean(usagePattern),
       }),
-    enabled: supportsUsageSearch && (usageKeyword.trim().length > 0 || Boolean(usagePattern)),
+    enabled: supportsUsageSearch && usageKeyword.length > 0,
     staleTime: 30 * 1000,
   });
+  const usageItems = useMemo(
+    () =>
+      usageSearchQuery.data?.ok
+        ? usageSearchQuery.data.items
+            .filter((item) => matchesMasterItemByPartial(item, usageKeyword))
+            .slice(0, DEFAULT_USAGE_SUGGESTION_LIMIT)
+        : [],
+    [usageKeyword, usageSearchQuery.data],
+  );
 
   const materialSearchQuery = useQuery({
     queryKey: ['charts-order-material-search', materialKeyword],
@@ -879,6 +898,7 @@ export function OrderBundleEditPanel({
     staleTime: 30 * 1000,
   });
 
+  const commentKeyword = commentDraft.name?.trim() ?? '';
   const commentSearchQuery = useQuery({
     queryKey: ['charts-order-comment-search', commentKeyword],
     queryFn: () => fetchOrderMasterSearch({ type: 'comment', keyword: commentKeyword }),
@@ -886,61 +906,8 @@ export function OrderBundleEditPanel({
     staleTime: 30 * 1000,
   });
 
-  const usageItems = useMemo(() => {
-    if (!usageSearchQuery.data?.ok) return [];
-    const keyword = usageKeyword.trim().toLowerCase();
-    return usageSearchQuery.data.items.filter((item) => {
-      if (!matchesUsagePattern(item.code, usagePattern)) return false;
-      if (!usagePartialMatch || !keyword) return true;
-      const name = item.name.toLowerCase();
-      const code = item.code?.toLowerCase() ?? '';
-      return name.includes(keyword) || code.includes(keyword);
-    });
-  }, [usageKeyword, usagePartialMatch, usagePattern, usageSearchQuery.data]);
-
-  const usageItemsLimited = useMemo(
-    () => usageItems.slice(0, Math.max(1, usageLimit)),
-    [usageItems, usageLimit],
-  );
-
-  const selectedItemForPrediction = useMemo(() => {
-    const rows = form.items as OrderBundleItemWithRowId[];
-    if (rows.length === 0) return null;
-    if (!selectedItemRowId) return rows[0];
-    return rows.find((row) => row.rowId === selectedItemRowId) ?? rows[0];
-  }, [form.items, selectedItemRowId]);
-  const selectedItemPredictionKeyword = selectedItemForPrediction?.name?.trim() ?? '';
-  const itemPredictiveSearchType = masterSearchType;
-  const itemPredictiveQuery = useQuery({
-    queryKey: ['charts-order-item-predictive', entity, itemPredictiveSearchType, selectedItemPredictionKeyword],
-    queryFn: () =>
-      fetchOrderMasterSearch({
-        type: itemPredictiveSearchType,
-        keyword: selectedItemPredictionKeyword,
-        page: 1,
-        size: DEFAULT_PREDICTIVE_LIMIT,
-      }),
-    enabled: selectedItemPredictionKeyword.length > 0,
-    staleTime: 30 * 1000,
-  });
-  const itemPredictiveItems = useMemo(
-    () =>
-      itemPredictiveQuery.data?.ok
-        ? itemPredictiveQuery.data.items.slice(0, DEFAULT_PREDICTIVE_LIMIT)
-        : [],
-    [itemPredictiveQuery.data],
-  );
-  const itemPredictiveCandidates = useMemo(
-    () =>
-      itemPredictiveItems.map((item) => ({
-        item,
-        label: formatMasterLabel(item),
-      })),
-    [itemPredictiveItems],
-  );
-
   const usageSelectOptions = useMemo(() => {
-    const options = [...usageItemsLimited];
+    const options = [...usageItems];
     const currentAdmin = form.admin.trim();
     if (!currentAdmin) {
       return options;
@@ -954,21 +921,35 @@ export function OrderBundleEditPanel({
       });
     }
     return options;
-  }, [form.admin, form.adminMemo, usageItemsLimited]);
+  }, [form.admin, form.adminMemo, usageItems]);
 
   const commentMasterOptions = useMemo(() => {
     const map = new Map<string, OrderMasterSearchItem>();
     if (commentSearchQuery.data?.ok) {
-      commentSearchQuery.data.items.forEach((item) => {
+      commentSearchQuery.data.items
+        .filter((item) => matchesMasterItemByPartial(item, commentKeyword))
+        .forEach((item) => {
+          const code = item.code?.trim();
+          const name = item.name.trim();
+          if (!code || !name) return;
+          map.set(`${code}|${name}`, item);
+        });
+    }
+    selectionCommentCandidates.forEach((item) => {
         const code = item.code?.trim();
         const name = item.name.trim();
         if (!code || !name) return;
-        map.set(`${code}|${name}`, item);
-      });
-    }
+        map.set(`${code}|${name}`, {
+          type: 'comment',
+          code,
+          name,
+          category: item.category,
+        });
+    });
     const draftCode = commentDraft.code?.trim();
     const draftName = commentDraft.name?.trim();
-    if (draftCode && draftName && !map.has(`${draftCode}|${draftName}`)) {
+    if (!draftName) return Array.from(map.values());
+    if (draftCode) {
       map.set(`${draftCode}|${draftName}`, {
         type: 'comment',
         code: draftCode,
@@ -976,22 +957,34 @@ export function OrderBundleEditPanel({
         unit: commentDraft.unit ?? '',
         note: commentDraft.memo ?? '',
       });
+      return Array.from(map.values());
+    }
+    if (!map.size) {
+      map.set(`|${draftName}`, {
+        type: 'comment',
+        code: '',
+        name: draftName,
+      });
     }
     return Array.from(map.values());
-  }, [commentDraft.code, commentDraft.memo, commentDraft.name, commentDraft.unit, commentSearchQuery.data]);
-
-  const appendItem = (item: OrderBundleItem) => {
-    setForm((prev) => {
-      const nextItems = [...prev.items];
-      const emptyIndex = nextItems.findIndex((row) => row.name.trim().length === 0);
-      if (emptyIndex >= 0) {
-        nextItems[emptyIndex] = ensureRowId({ ...nextItems[emptyIndex], ...item });
-      } else {
-        nextItems.push(ensureRowId(item));
-      }
-      return { ...prev, items: nextItems };
-    });
-  };
+  }, [
+    commentDraft.code,
+    commentDraft.memo,
+    commentDraft.name,
+    commentDraft.unit,
+    commentKeyword,
+    commentSearchQuery.data,
+    selectionCommentCandidates,
+  ]);
+  const selectableCommentOptions = useMemo(
+    () =>
+      commentMasterOptions.filter((item) => {
+        const code = item.code?.trim();
+        const name = item.name?.trim();
+        return Boolean(code && name);
+      }),
+    [commentMasterOptions],
+  );
 
   const resolvePredictiveItem = (value: string) => {
     const normalized = normalizePredictiveLabel(value);
@@ -1024,14 +1017,13 @@ export function OrderBundleEditPanel({
     }));
   };
 
-  const applyCommentDraftSelection = (value: string) => {
-    setCommentSelectValue(value);
-    if (!value) {
-      setCommentDraft((prev) => ({ ...prev, code: '', name: '' }));
-      return;
-    }
-    const selected = commentMasterOptions.find((item) => `${item.code?.trim() ?? ''}|${item.name.trim()}` === value);
-    if (!selected) return;
+  const applyCommentDraftSelection = (selected: {
+    code?: string;
+    name?: string;
+    unit?: string;
+    note?: string;
+  }) => {
+    if (!selected.name?.trim()) return;
     setCommentDraft((prev) => ({
       ...prev,
       code: selected.code?.trim() ?? '',
@@ -1047,7 +1039,6 @@ export function OrderBundleEditPanel({
     const firstComment = candidate.template.commentItems[0] ?? { code: '', name: '', quantity: '', unit: '', memo: '' };
     setForm(nextForm);
     setCommentDraft(firstComment);
-    setCommentSelectValue(firstComment.code?.trim() && firstComment.name.trim() ? `${firstComment.code.trim()}|${firstComment.name.trim()}` : '');
     setNotice({
       tone: 'info',
       message: `頻用オーダーを反映しました（${candidate.source === 'patient' ? '患者傾向' : '施設傾向'} / ${candidate.count}回）。`,
@@ -1061,6 +1052,17 @@ export function OrderBundleEditPanel({
       admin: label,
       adminMemo: item.code?.trim() ?? '',
     }));
+  };
+
+  const applyUsageSelection = (value: string) => {
+    const normalized = normalizePredictiveLabel(value);
+    if (!normalized) return;
+    const selected =
+      usageSelectOptions.find((item) => normalizePredictiveLabel(formatUsageLabel(item)) === normalized) ??
+      usageSelectOptions.find((item) => normalizePredictiveLabel(item.name) === normalized) ??
+      null;
+    if (!selected) return;
+    applyUsage(selected);
   };
 
   const appendMaterialItem = (item: OrderBundleItem) => {
@@ -1107,7 +1109,6 @@ export function OrderBundleEditPanel({
       unit: item.unit ?? '',
       memo: item.note ?? '',
     });
-    setCommentSelectValue(`${code}|${name}`);
   };
 
   const resolveBundleClassMeta = (bundleForm: BundleFormState) => {
@@ -1732,7 +1733,6 @@ export function OrderBundleEditPanel({
       commentItems: [],
     }));
     setCommentDraft({ code: '', name: '', quantity: '', unit: '', memo: '' });
-    setCommentSelectValue('');
   };
 
   const removeItemRowById = (rowId?: string | null) => {
@@ -1761,17 +1761,6 @@ export function OrderBundleEditPanel({
       setSelectedItemRowId((rows[0] as OrderBundleItemWithRowId).rowId ?? null);
     }
   }, [form.items, selectedItemRowId]);
-
-  useEffect(() => {
-    const code = commentDraft.code?.trim();
-    const name = commentDraft.name?.trim();
-    if (!code || !name) {
-      setCommentSelectValue('');
-      return;
-    }
-    const nextValue = `${code}|${name}`;
-    setCommentSelectValue((prev) => (prev === nextValue ? prev : nextValue));
-  }, [commentDraft.code, commentDraft.name]);
 
   if (!patientId) {
     return <p className="charts-side-panel__empty">患者IDが未選択のため {title} を開始できません。</p>;
@@ -1804,15 +1793,9 @@ export function OrderBundleEditPanel({
             setNotice(null);
             setContraNotice(null);
             setContraDetails([]);
-            setMasterKeyword('');
-            setUsageKeyword('');
-            setUsageFilter(USAGE_FILTER_OPTIONS[0].value);
-            setUsagePartialMatch(false);
-            setUsageLimit(DEFAULT_USAGE_LIMIT);
             setMaterialKeyword('');
             setBodyPartKeyword('');
-            setCommentKeyword('');
-            setCommentSelectValue('');
+            setMasterSearchType(resolveDefaultMasterSearchType(entity));
             setCommentDraft({
               code: '',
               name: '',
@@ -2043,30 +2026,21 @@ export function OrderBundleEditPanel({
           <div className="charts-side-panel__field">
             <label htmlFor={`${entity}-admin`}>{orderUiProfile.instructionLabel}</label>
             {supportsUsageSearch ? (
-              <select
+              <input
                 id={`${entity}-admin`}
                 value={form.admin}
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  const selected = usageSelectOptions.find((item) => formatUsageLabel(item) === nextValue);
+                list={usageSelectOptions.length > 0 ? `${entity}-usage-suggestion-list` : undefined}
+                onChange={(event) =>
                   setForm((prev) => ({
                     ...prev,
-                    admin: nextValue,
-                    adminMemo: selected?.code?.trim() ?? '',
-                  }));
-                }}
+                    admin: event.target.value,
+                    adminMemo: '',
+                  }))
+                }
+                onBlur={(event) => applyUsageSelection(event.target.value)}
+                placeholder={orderUiProfile.instructionPlaceholder}
                 disabled={isBlocked}
-              >
-                <option value="">{orderUiProfile.instructionPlaceholder}</option>
-                {usageSelectOptions.map((item) => {
-                  const label = formatUsageLabel(item);
-                  return (
-                    <option key={`${item.code ?? 'nocode'}-${item.name}`} value={label}>
-                      {label}
-                    </option>
-                  );
-                })}
-              </select>
+              />
             ) : (
               <input
                 id={`${entity}-admin`}
@@ -2096,83 +2070,36 @@ export function OrderBundleEditPanel({
         {supportsUsageSearch && (
           <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
             <div className="charts-side-panel__subheader">
-              <strong>用法検索</strong>
+              <strong>用法候補</strong>
               <span className="charts-side-panel__search-count">
                 {usageSearchQuery.isFetching
                   ? '検索中...'
                   : usageSearchQuery.data?.ok
-                    ? usageItems.length > usageItemsLimited.length
-                      ? `${usageItems.length}件 (表示: ${usageItemsLimited.length}件)`
-                      : `${usageItems.length}件`
+                    ? `${usageItems.length}件`
                     : ''}
               </span>
             </div>
             <p className="charts-side-panel__message">
-              用法は手入力ではなく候補選択で入力します。上の{orderUiProfile.instructionLabel}プルダウンに即時反映されます。
+              {orderUiProfile.instructionLabel}欄に入力した文字列で部分一致候補を表示します。候補選択で自動入力されます。
             </p>
-            <div className="charts-side-panel__field-row">
-              <div className="charts-side-panel__field">
-                <label htmlFor={`${entity}-usage-keyword`}>キーワード</label>
-                <input
-                  id={`${entity}-usage-keyword`}
-                  value={usageKeyword}
-                  onChange={(event) => setUsageKeyword(event.target.value)}
-                  placeholder="例: 1日1回"
-                  disabled={isBlocked}
-                />
-              </div>
-              <div className="charts-side-panel__field">
-                <label htmlFor={`${entity}-usage-filter`}>用法フィルタ</label>
-                <select
-                  id={`${entity}-usage-filter`}
-                  value={usageFilter}
-                  onChange={(event) => setUsageFilter(event.target.value)}
-                  disabled={isBlocked}
-                >
-                  {USAGE_FILTER_OPTIONS.map((option) => (
-                    <option key={option.value || option.label} value={option.value}>
-                      {option.label}
+            {usageSelectOptions.length > 0 && (
+              <datalist id={`${entity}-usage-suggestion-list`}>
+                {usageSelectOptions.map((item) => {
+                  const label = formatUsageLabel(item);
+                  return (
+                    <option key={`${item.code ?? 'nocode'}-${item.name}`} value={label}>
+                      {item.category ?? ''}
                     </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="charts-side-panel__field-row">
-              <div className="charts-side-panel__field">
-                <label className="charts-side-panel__toggle">
-                  <input
-                    id={`${entity}-usage-partial-match`}
-                    name={`${entity}-usage-partial-match`}
-                    type="checkbox"
-                    checked={usagePartialMatch}
-                    onChange={(event) => setUsagePartialMatch(event.target.checked)}
-                    disabled={isBlocked}
-                  />
-                  部分一致
-                </label>
-              </div>
-              <div className="charts-side-panel__field">
-                <label htmlFor={`${entity}-usage-limit`}>件数上限</label>
-                <select
-                  id={`${entity}-usage-limit`}
-                  value={usageLimit}
-                  onChange={(event) => setUsageLimit(Number(event.target.value))}
-                  disabled={isBlocked}
-                >
-                  {[20, 50, 100].map((value) => (
-                    <option key={value} value={value}>
-                      {value}件
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+                  );
+                })}
+              </datalist>
+            )}
             {usageSearchQuery.data && !usageSearchQuery.data.ok && (
               <div className="charts-side-panel__notice charts-side-panel__notice--error">
                 {usageSearchQuery.data.message ?? '用法マスタの検索に失敗しました。'}
               </div>
             )}
-            {usageSearchQuery.data?.ok && usageItemsLimited.length > 0 && (
+            {usageSearchQuery.data?.ok && usageItems.length > 0 && (
               <div className="charts-side-panel__search-table">
                 <div className="charts-side-panel__search-header">
                   <span>コード</span>
@@ -2181,7 +2108,7 @@ export function OrderBundleEditPanel({
                   <span>分類</span>
                   <span>備考</span>
                 </div>
-                {usageItemsLimited.map((item) => (
+                {usageItems.map((item) => (
                   <button
                     key={`usage-${item.code ?? item.name}`}
                     type="button"
@@ -2198,7 +2125,7 @@ export function OrderBundleEditPanel({
                 ))}
               </div>
             )}
-            {usageSearchQuery.data?.ok && usageItemsLimited.length === 0 && (usageKeyword.trim() || usagePattern) && (
+            {usageSearchQuery.data?.ok && usageItems.length === 0 && usageKeyword && (
               <p className="charts-side-panel__empty">該当する用法が見つかりません。</p>
             )}
           </div>
@@ -2364,178 +2291,6 @@ export function OrderBundleEditPanel({
           </div>
         )}
 
-        <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
-          <div className="charts-side-panel__subheader">
-            <strong>{orderUiProfile.masterSectionTitle}</strong>
-            <span className="charts-side-panel__search-count">
-              {masterSearchQuery.isFetching
-                ? '検索中...'
-                : masterSearchQuery.data?.ok
-                  ? `${masterSearchQuery.data.totalCount ?? 0}件`
-                  : ''}
-            </span>
-          </div>
-          <div className="charts-side-panel__template-actions" aria-label="おすすめ検索">
-            {masterSearchPresets.map((preset) => (
-              <button
-                key={`master-preset-${preset.type}`}
-                type="button"
-                className="charts-side-panel__chip-button charts-side-panel__chip-button--preset"
-                data-active={masterSearchType === preset.type ? 'true' : 'false'}
-                onClick={() => setMasterSearchType(preset.type)}
-                disabled={isBlocked}
-                aria-pressed={masterSearchType === preset.type}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <div className="charts-side-panel__field">
-            <label htmlFor={`${entity}-master-keyword`}>キーワード</label>
-            <input
-              id={`${entity}-master-keyword`}
-              value={masterKeyword}
-              onChange={(event) => setMasterKeyword(event.target.value)}
-              placeholder={masterKeywordPlaceholder}
-              disabled={isBlocked}
-            />
-          </div>
-          <p className="charts-side-panel__help">現在の検索対象: {selectedMasterPresetLabel}</p>
-          {masterSearchQuery.data && !masterSearchQuery.data.ok && (
-            <div className="charts-side-panel__notice charts-side-panel__notice--error">
-              {masterSearchQuery.data.message ?? 'マスタ検索に失敗しました。'}
-            </div>
-          )}
-          {masterSearchQuery.data?.ok && isCodeSearch && correctionMeta && (
-            <div className="charts-side-panel__correction">
-              <div className="charts-side-panel__correction-header">
-                <strong>コード補正候補（medicationgetv2）</strong>
-                <span>
-                  Api_Result: {correctionMeta.apiResult ?? '—'} / 有効期限: {correctionMeta.validTo ?? '—'}
-                </span>
-              </div>
-              {correctionMeta.apiResultMessage ? (
-                <p className="charts-side-panel__message">{correctionMeta.apiResultMessage}</p>
-              ) : null}
-              {correctionCandidates.length === 0 ? (
-                <p className="charts-side-panel__empty">補正候補は見つかりませんでした。</p>
-              ) : (
-                <div className="charts-side-panel__search-table">
-                  <div className="charts-side-panel__search-header">
-                    <span>コード</span>
-                    <span>名称</span>
-                    <span>単位</span>
-                    <span>分類</span>
-                    <span>備考</span>
-                  </div>
-                  {correctionCandidates.map((item) => (
-                    <button
-                      key={`correction-${item.code ?? item.name}`}
-                      type="button"
-                      className="charts-side-panel__search-row charts-side-panel__search-row--correction"
-                      onClick={() =>
-                        appendItem({
-                          code: item.code,
-                          name: formatMasterLabel(item),
-                          quantity: '',
-                          unit: item.unit ?? '',
-                          memo: item.note ?? '',
-                        })
-                      }
-                      disabled={isBlocked}
-                    >
-                      <span>{item.code ?? '-'}</span>
-                      <span>{item.name}</span>
-                      <span>{item.unit ?? '-'}</span>
-                      <span>{item.category ?? '-'}</span>
-                      <span>{item.validTo ?? item.note ?? '-'}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          {masterSearchQuery.data?.ok && isCodeSearch && supportsCommentCodes && selectionCommentCandidates.length > 0 && (
-            <div className="charts-side-panel__correction">
-              <div className="charts-side-panel__correction-header">
-                <strong>選択式コメント候補（medicationgetv2）</strong>
-                <span>{selectionCommentCandidates.length}件</span>
-              </div>
-              <div className="charts-side-panel__search-table">
-                <div className="charts-side-panel__search-header">
-                  <span>コード</span>
-                  <span>名称</span>
-                  <span>分類</span>
-                  <span>項番</span>
-                  <span>枝番</span>
-                </div>
-                {selectionCommentCandidates.map((item) => (
-                  <button
-                    key={`selection-comment-${item.code}-${item.name}`}
-                    type="button"
-                    className="charts-side-panel__search-row charts-side-panel__search-row--correction"
-                    onClick={() =>
-                      appendCommentItem({
-                        code: item.code,
-                        name: item.name,
-                        note: item.category,
-                      })
-                    }
-                    disabled={isBlocked}
-                  >
-                    <span>{item.code}</span>
-                    <span>{item.name}</span>
-                    <span>{item.category ?? '-'}</span>
-                    <span>{item.itemNumber ?? '-'}</span>
-                    <span>{item.itemNumberBranch ?? '-'}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {masterSearchQuery.data?.ok && masterSearchQuery.data.items.length > 0 && (
-            <div className="charts-side-panel__search-table">
-              <div className="charts-side-panel__search-header">
-                <span>コード</span>
-                <span>名称</span>
-                <span>単位</span>
-                <span>分類</span>
-                <span>備考</span>
-              </div>
-              {masterSearchQuery.data.items.map((item) => (
-                <button
-                  key={`master-${item.code ?? item.name}`}
-                  type="button"
-                  className="charts-side-panel__search-row"
-                  onClick={() => {
-                    if (item.type === 'youhou' || masterSearchType === 'youhou') {
-                      applyUsage(item);
-                      return;
-                    }
-                    appendItem({
-                      code: item.code,
-                      name: formatMasterLabel(item),
-                      quantity: '',
-                      unit: item.unit ?? '',
-                      memo: item.note ?? '',
-                    });
-                  }}
-                  disabled={isBlocked}
-                >
-                  <span>{item.code ?? '-'}</span>
-                  <span>{item.name}</span>
-                  <span>{item.unit ?? '-'}</span>
-                  <span>{item.category ?? '-'}</span>
-                  <span>{item.note ?? '-'}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          {masterSearchQuery.data?.ok && masterSearchQuery.data.items.length === 0 && masterKeyword.trim() && (
-            <p className="charts-side-panel__empty">該当するマスタが見つかりません。</p>
-          )}
-        </div>
-
         <div className="charts-side-panel__subsection">
           <div className="charts-side-panel__subheader">
             <strong>{orderUiProfile.mainItemLabel}</strong>
@@ -2570,20 +2325,49 @@ export function OrderBundleEditPanel({
               </button>
             </div>
           </div>
+          <div className="charts-side-panel__template-actions" aria-label="入力候補マスタ">
+            {masterSearchPresets.map((preset) => (
+              <button
+                key={`master-preset-${preset.type}`}
+                type="button"
+                className="charts-side-panel__chip-button charts-side-panel__chip-button--preset"
+                data-active={masterSearchType === preset.type ? 'true' : 'false'}
+                onClick={() => setMasterSearchType(preset.type)}
+                disabled={isBlocked}
+                aria-pressed={masterSearchType === preset.type}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <p className="charts-side-panel__help">現在の候補対象: {selectedMasterPresetLabel}</p>
           <p className="charts-side-panel__help">
             {selectedItemPredictionKeyword
                 ? itemPredictiveQuery.isFetching
                 ? '入力候補を検索中...'
-                : itemPredictiveItems.length > 0
-                  ? `入力候補 ${itemPredictiveItems.length}件（ORCA ${itemPredictiveSearchType} マスタ）`
+                : itemPredictiveCandidates.length > 0
+                  ? `入力候補 ${itemPredictiveCandidates.length}件（ORCA ${itemPredictiveSearchType} マスタ）`
                   : '入力候補はありません。'
-              : '項目名入力中に ORCA マスタ候補をリアルタイム表示します。'}
+              : `項目名の入力文字列に対して、${selectedMasterPresetLabel}を部分一致検索します。`}
           </p>
           {itemPredictiveQuery.data && !itemPredictiveQuery.data.ok && (
             <div className="charts-side-panel__notice charts-side-panel__notice--error">
               {itemPredictiveQuery.data.message ?? '予測候補の検索に失敗しました。'}
             </div>
           )}
+          {itemPredictiveQuery.data?.ok && isItemCodeSearch && correctionMeta ? (
+            <div className="charts-side-panel__correction">
+              <div className="charts-side-panel__correction-header">
+                <strong>コード補正候補（medicationgetv2）</strong>
+                <span>
+                  Api_Result: {correctionMeta.apiResult ?? '—'} / 有効期限: {correctionMeta.validTo ?? '—'}
+                </span>
+              </div>
+              {correctionMeta.apiResultMessage ? (
+                <p className="charts-side-panel__message">{correctionMeta.apiResultMessage}</p>
+              ) : null}
+            </div>
+          ) : null}
           {itemPredictiveCandidates.length > 0 && (
             <datalist id={`${entity}-item-predictive-list`}>
               {itemPredictiveCandidates.map((candidate, candidateIndex) => (
@@ -2718,6 +2502,76 @@ export function OrderBundleEditPanel({
               </button>
             </div>
           ))}
+          {itemPredictiveCandidates.length > 0 && (
+            <div className="charts-side-panel__search-table">
+              <div className="charts-side-panel__search-header">
+                <span>コード</span>
+                <span>名称</span>
+                <span>単位</span>
+                <span>分類</span>
+                <span>備考</span>
+              </div>
+              {itemPredictiveCandidates.map((candidate, candidateIndex) => {
+                const item = candidate.item;
+                return (
+                  <button
+                    key={`item-suggestion-${item.code ?? item.name}-${candidateIndex}`}
+                    type="button"
+                    className="charts-side-panel__search-row"
+                    onClick={() => applyPredictiveItemSelection(selectedItemRowId ?? undefined, candidate.label)}
+                    disabled={isBlocked || !selectedItemRowId}
+                  >
+                    <span>{item.code ?? '-'}</span>
+                    <span>{item.name}</span>
+                    <span>{item.unit ?? '-'}</span>
+                    <span>{item.category ?? '-'}</span>
+                    <span>{item.validTo ?? item.note ?? '-'}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {selectedItemPredictionKeyword && !itemPredictiveQuery.isFetching && itemPredictiveCandidates.length === 0 && (
+            <p className="charts-side-panel__empty">該当する候補が見つかりません。</p>
+          )}
+          {isItemCodeSearch && supportsCommentCodes && selectionCommentCandidates.length > 0 && (
+            <div className="charts-side-panel__correction">
+              <div className="charts-side-panel__correction-header">
+                <strong>選択式コメント候補（medicationgetv2）</strong>
+                <span>{selectionCommentCandidates.length}件</span>
+              </div>
+              <div className="charts-side-panel__search-table">
+                <div className="charts-side-panel__search-header">
+                  <span>コード</span>
+                  <span>名称</span>
+                  <span>分類</span>
+                  <span>項番</span>
+                  <span>枝番</span>
+                </div>
+                {selectionCommentCandidates.map((item) => (
+                  <button
+                    key={`selection-comment-${item.code}-${item.name}`}
+                    type="button"
+                    className="charts-side-panel__search-row charts-side-panel__search-row--correction"
+                    onClick={() =>
+                      appendCommentItem({
+                        code: item.code,
+                        name: item.name,
+                        note: item.category,
+                      })
+                    }
+                    disabled={isBlocked}
+                  >
+                    <span>{item.code}</span>
+                    <span>{item.name}</span>
+                    <span>{item.category ?? '-'}</span>
+                    <span>{item.itemNumber ?? '-'}</span>
+                    <span>{item.itemNumberBranch ?? '-'}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {supportsMaterials && (
@@ -2859,94 +2713,30 @@ export function OrderBundleEditPanel({
           <div className="charts-side-panel__subsection">
             <div className="charts-side-panel__subheader">
               <strong>コメントコード</strong>
-            </div>
-            <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
-              <div className="charts-side-panel__subheader">
-                <strong>コメントマスタ検索</strong>
-                <span className="charts-side-panel__search-count">
-                  {commentSearchQuery.isFetching
-                    ? '検索中...'
-                    : commentSearchQuery.data?.ok
-                      ? `${commentSearchQuery.data.totalCount ?? 0}件`
-                      : ''}
-                </span>
-              </div>
-              <div className="charts-side-panel__field">
-                <label htmlFor={`${entity}-comment-keyword`}>キーワード</label>
-                <input
-                  id={`${entity}-comment-keyword`}
-                  value={commentKeyword}
-                  onChange={(event) => setCommentKeyword(event.target.value)}
-                  placeholder="例: 服薬指示 / 食後 / 疼痛"
-                  disabled={isBlocked}
-                />
-              </div>
-              {commentSearchQuery.data && !commentSearchQuery.data.ok && (
-                <div className="charts-side-panel__notice charts-side-panel__notice--error">
-                  {commentSearchQuery.data.message ?? 'コメントマスタの検索に失敗しました。'}
-                </div>
-              )}
-              {commentSearchQuery.data?.ok && commentSearchQuery.data.items.length > 0 && (
-                <div className="charts-side-panel__search-table">
-                  <div className="charts-side-panel__search-header">
-                    <span>コード</span>
-                    <span>名称</span>
-                    <span>単位</span>
-                    <span>分類</span>
-                    <span>備考</span>
-                  </div>
-                  {commentSearchQuery.data.items.map((item) => (
-                    <button
-                      key={`comment-${item.code ?? item.name}`}
-                      type="button"
-                      className="charts-side-panel__search-row"
-                      onClick={() =>
-                        appendCommentItem({
-                          code: item.code,
-                          name: item.name,
-                          unit: item.unit,
-                          note: item.note,
-                        })
-                      }
-                      disabled={isBlocked}
-                    >
-                      <span>{item.code ?? '-'}</span>
-                      <span>{item.name}</span>
-                      <span>{item.unit ?? '-'}</span>
-                      <span>{item.category ?? '-'}</span>
-                      <span>{item.note ?? '-'}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {commentSearchQuery.data?.ok && commentSearchQuery.data.items.length === 0 && commentKeyword.trim() && (
-                <p className="charts-side-panel__empty">該当するコメントコードが見つかりません。</p>
-              )}
+              <span className="charts-side-panel__search-count">
+                {commentSearchQuery.isFetching
+                  ? '検索中...'
+                  : commentSearchQuery.data?.ok
+                    ? `${selectableCommentOptions.length}件`
+                    : ''}
+              </span>
             </div>
             <p className="charts-side-panel__message">
-              コメントコードは候補から選択して登録します。自由記述は上部のメモ欄を使用してください。
+              コメント内容欄に入力した文字列で部分一致候補を表示します。候補選択でコードと名称を自動入力します。
             </p>
-            <div className="charts-side-panel__field">
-              <label htmlFor={`${entity}-comment-select`}>コメント候補</label>
-              <select
-                id={`${entity}-comment-select`}
-                value={commentSelectValue}
-                onChange={(event) => applyCommentDraftSelection(event.target.value)}
-                disabled={isBlocked}
-              >
-                <option value="">コメントコードを選択</option>
-                {commentMasterOptions.map((item) => {
+            {selectableCommentOptions.length > 0 && (
+              <datalist id={`${entity}-comment-suggestion-list`}>
+                {selectableCommentOptions.map((item) => {
                   const code = item.code?.trim();
                   const name = item.name.trim();
-                  if (!code || !name) return null;
                   return (
-                    <option key={`${code}-${name}`} value={`${code}|${name}`}>
-                      {code} {name}
+                    <option key={`${code}-${name}`} value={name}>
+                      {code}
                     </option>
                   );
                 })}
-              </select>
-            </div>
+              </datalist>
+            )}
             <div className="charts-side-panel__item-row charts-side-panel__item-row--comment">
               <input
                 id={`${entity}-comment-draft-code`}
@@ -2961,7 +2751,24 @@ export function OrderBundleEditPanel({
                 name={`${entity}-comment-draft-name`}
                 value={commentDraft.name}
                 placeholder="コメント内容"
-                readOnly
+                list={selectableCommentOptions.length > 0 ? `${entity}-comment-suggestion-list` : undefined}
+                onChange={(event) =>
+                  setCommentDraft((prev) => ({
+                    ...prev,
+                    code: '',
+                    name: event.target.value,
+                  }))
+                }
+                onBlur={(event) => {
+                  const normalized = normalizePredictiveLabel(event.target.value);
+                  if (!normalized) return;
+                  const selected =
+                    selectableCommentOptions.find((item) => normalizePredictiveLabel(item.name) === normalized) ??
+                    selectableCommentOptions.find((item) => normalizePredictiveLabel(formatMasterLabel(item)) === normalized) ??
+                    null;
+                  if (!selected) return;
+                  applyCommentDraftSelection(selected);
+                }}
                 disabled={isBlocked}
               />
               <input
@@ -2998,7 +2805,6 @@ export function OrderBundleEditPanel({
                       },
                     ],
                   }));
-                  setCommentSelectValue('');
                   setCommentDraft({ code: '', name: '', quantity: '', unit: '', memo: '' });
                 }}
                 disabled={isBlocked || !commentDraft.code?.trim() || !commentDraft.name.trim()}
@@ -3006,6 +2812,40 @@ export function OrderBundleEditPanel({
                 コメント追加
               </button>
             </div>
+            {commentSearchQuery.data && !commentSearchQuery.data.ok && (
+              <div className="charts-side-panel__notice charts-side-panel__notice--error">
+                {commentSearchQuery.data.message ?? 'コメントマスタの検索に失敗しました。'}
+              </div>
+            )}
+            {selectableCommentOptions.length > 0 && (
+              <div className="charts-side-panel__search-table">
+                <div className="charts-side-panel__search-header">
+                  <span>コード</span>
+                  <span>名称</span>
+                  <span>単位</span>
+                  <span>分類</span>
+                  <span>備考</span>
+                </div>
+                {selectableCommentOptions.map((item) => (
+                  <button
+                    key={`comment-${item.code ?? item.name}`}
+                    type="button"
+                    className="charts-side-panel__search-row"
+                    onClick={() => applyCommentDraftSelection(item)}
+                    disabled={isBlocked}
+                  >
+                    <span>{item.code ?? '-'}</span>
+                    <span>{item.name}</span>
+                    <span>{item.unit ?? '-'}</span>
+                    <span>{item.category ?? '-'}</span>
+                    <span>{item.note ?? '-'}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {(commentKeyword || isItemCodeSearch) && !commentSearchQuery.isFetching && selectableCommentOptions.length === 0 && (
+              <p className="charts-side-panel__empty">該当するコメントコードが見つかりません。</p>
+            )}
             {form.commentItems.map((item, index) => (
               <div key={`${entity}-comment-${index}`} className="charts-side-panel__item-row charts-side-panel__item-row--comment">
                 <input

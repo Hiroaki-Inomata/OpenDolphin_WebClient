@@ -74,15 +74,10 @@ describe('OrderBundleEditPanel item actions', () => {
   };
 
   const selectUsage = async (user: ReturnType<typeof userEvent.setup>) => {
-    const usageSelect = screen.getByLabelText('用法') as HTMLSelectElement;
-    await user.type(
-      screen.getByLabelText('キーワード', {
-        selector: 'input[id$="-usage-keyword"]',
-      }),
-      '1回',
-    );
-    await waitFor(() => expect(usageSelect.querySelector('option[value="1回"]')).not.toBeNull());
-    await user.selectOptions(usageSelect, '1回');
+    const usageInput = screen.getByLabelText('用法') as HTMLInputElement;
+    await user.type(usageInput, '1回');
+    await waitFor(() => expect(screen.getByText('1回')).toBeInTheDocument());
+    await user.click(screen.getByText('1回').closest('button')!);
   };
 
   it('入力順が保存 payload に反映される', async () => {

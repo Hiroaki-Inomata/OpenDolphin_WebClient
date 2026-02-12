@@ -74,15 +74,11 @@ describe('OrderBundleEditPanel bundle number UI', () => {
   };
 
   const selectUsage = async (user: ReturnType<typeof userEvent.setup>) => {
-    const usageSelect = screen.getByLabelText('用法') as HTMLSelectElement;
-    await user.type(
-      screen.getByLabelText('キーワード', {
-        selector: 'input[id$="-usage-keyword"]',
-      }),
-      '1日1回',
-    );
-    await waitFor(() => expect(usageSelect.querySelector('option[value="1日1回"]')).not.toBeNull());
-    await user.selectOptions(usageSelect, '1日1回');
+    const usageInput = screen.getByLabelText('用法') as HTMLInputElement;
+    await user.clear(usageInput);
+    await user.type(usageInput, '1日1回');
+    await waitFor(() => expect(screen.getByText('1日1回')).toBeInTheDocument());
+    await user.click(screen.getByText('1日1回').closest('button')!);
   };
 
   it('用法入力後に日数入力が編集可能になる', async () => {

@@ -81,7 +81,7 @@ type AdministrationPageProps = {
   role?: string;
 };
 
-type AdministrationTab = 'delivery' | 'access' | 'orca-users' | 'master-updates';
+type AdministrationTab = 'delivery' | 'orca-users' | 'master-updates';
 
 type Feedback = { tone: 'success' | 'warning' | 'error' | 'info'; message: string };
 type OrcaXmlProxyFormState = {
@@ -450,7 +450,8 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (() => {
     const tab = searchParams.get('tab');
-    if (tab === 'access' || tab === 'orca-users' || tab === 'master-updates') return tab;
+    if (tab === 'access') return 'orca-users';
+    if (tab === 'orca-users' || tab === 'master-updates') return tab;
     return 'delivery';
   })() as AdministrationTab;
   const handleTabChange = (next: AdministrationTab) => {
@@ -1738,10 +1739,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
               管理者が ORCA 接続・MSW トグル・配信フラグを編集し、保存時に broadcast / audit を送ります。RUN_ID:{' '}
               <strong>{resolvedRunId}</strong>
             </p>
-          ) : activeTab === 'access' ? (
-            <p className="administration-page__lead" role="status" aria-live={infoLive}>
-              職員ユーザーの作成/編集、パスワードリセットを行います。RUN_ID: <strong>{resolvedRunId}</strong>
-            </p>
           ) : activeTab === 'master-updates' ? (
             <p className="administration-page__lead" role="status" aria-live={infoLive}>
               ORCA/外部マスタの参照データ更新を管理します（自動・手動・アップロード・ロールバック）。RUN_ID:{' '}
@@ -1749,7 +1746,8 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
             </p>
           ) : (
             <p className="administration-page__lead" role="status" aria-live={infoLive}>
-              ORCA職員マスタの同期・紐づけ・作成更新削除を管理します。RUN_ID: <strong>{resolvedRunId}</strong>
+              ORCA職員マスタ連携と、ORCA連携済みユーザーへの電子カルテ権限付与を管理します。RUN_ID:{' '}
+              <strong>{resolvedRunId}</strong>
             </p>
           )}
 
@@ -1806,20 +1804,11 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
             <button
               type="button"
               role="tab"
-              aria-selected={activeTab === 'access'}
-              className={`administration-tab${activeTab === 'access' ? ' is-active' : ''}`}
-              onClick={() => handleTabChange('access')}
-            >
-              アクセス管理
-            </button>
-            <button
-              type="button"
-              role="tab"
               aria-selected={activeTab === 'orca-users'}
               className={`administration-tab${activeTab === 'orca-users' ? ' is-active' : ''}`}
               onClick={() => handleTabChange('orca-users')}
             >
-              ORCAユーザー連携
+              ORCAユーザー連携・権限
             </button>
             <button
               type="button"
@@ -1863,13 +1852,10 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
           ) : null}
         </div>
 
-        {activeTab === 'access' ? (
-          <div className="administration-grid administration-grid--wide">
-            <AccessManagementPanel runId={panelRunId} role={role} />
-          </div>
-        ) : activeTab === 'orca-users' ? (
+        {activeTab === 'orca-users' ? (
           <div className="administration-grid administration-grid--wide">
             <OrcaUserManagementPanel runId={panelRunId} role={role} />
+            <AccessManagementPanel runId={panelRunId} role={role} mode="linked-only" />
           </div>
         ) : activeTab === 'master-updates' ? (
           <div className="administration-grid administration-grid--wide">

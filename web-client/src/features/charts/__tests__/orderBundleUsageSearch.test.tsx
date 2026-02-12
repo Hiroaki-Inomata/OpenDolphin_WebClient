@@ -60,7 +60,7 @@ afterEach(() => {
 });
 
 describe('OrderBundleEditPanel usage search UI', () => {
-  it('用法入力欄はプルダウンで、候補を直接選択できる', async () => {
+  it('用法入力欄に入力した文字列で候補を選択できる', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
     const searchMock = vi.mocked(fetchOrderMasterSearch);
@@ -81,20 +81,19 @@ describe('OrderBundleEditPanel usage search UI', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const usageKeywordInput = screen.getByLabelText('キーワード', {
-      selector: 'input[id$="-usage-keyword"]',
-    });
-    await user.type(usageKeywordInput, '朝');
+    const usageInput = screen.getByLabelText('用法') as HTMLInputElement;
+    await user.type(usageInput, '朝');
 
-    await waitFor(() => expect(searchMock).toHaveBeenCalled());
-    const usageSelect = screen.getByLabelText('用法') as HTMLSelectElement;
-    expect(usageSelect.tagName).toBe('SELECT');
+    await waitFor(() =>
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'youhou', keyword: '朝' })),
+    );
+    expect(screen.getByText('1日2回 朝夕食後')).toBeInTheDocument();
 
-    await user.selectOptions(usageSelect, '0010002 1日2回 朝夕食後');
-    expect(usageSelect.value).toBe('0010002 1日2回 朝夕食後');
+    await user.click(screen.getByText('1日2回 朝夕食後').closest('button')!);
+    expect(usageInput.value).toBe('0010002 1日2回 朝夕食後');
   });
 
-  it('用法検索の行選択で用法が反映される', async () => {
+  it('用法欄の入力候補から blur で補完できる', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
     const searchMock = vi.mocked(fetchOrderMasterSearch);
@@ -119,20 +118,16 @@ describe('OrderBundleEditPanel usage search UI', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const usageKeywordInput = screen.getByLabelText('キーワード', {
-      selector: 'input[id$="-usage-keyword"]',
-    });
-    await user.type(usageKeywordInput, '朝食');
+    const usageInput = screen.getByLabelText('用法') as HTMLInputElement;
+    await user.type(usageInput, '0010001 1日1回 朝食後');
+    await user.tab();
 
-    await waitFor(() => expect(searchMock).toHaveBeenCalled());
-    expect(screen.getByText('1日1回 朝食後')).toBeInTheDocument();
-
-    const rowButton = screen.getByText('1日1回 朝食後').closest('button');
-    expect(rowButton).not.toBeNull();
-    await user.click(rowButton!);
-
-    const adminInput = screen.getByLabelText('用法') as HTMLSelectElement;
-    expect(adminInput.value).toBe('0010001 1日1回 朝食後');
+    await waitFor(() =>
+      expect(searchMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'youhou', keyword: '0010001 1日1回 朝食後' }),
+      ),
+    );
+    expect(usageInput.value).toBe('0010001 1日1回 朝食後');
   });
 
   it('readOnly の場合は用法検索が無効化される', async () => {
@@ -149,14 +144,7 @@ describe('OrderBundleEditPanel usage search UI', () => {
       />,
     );
 
-    expect(
-      screen.getByLabelText('キーワード', {
-        selector: 'input[id$="-usage-keyword"]',
-      }),
-    ).toBeDisabled();
-    expect(screen.getByLabelText('用法フィルタ')).toBeDisabled();
-    expect(screen.getByLabelText('部分一致')).toBeDisabled();
-    expect(screen.getByLabelText('件数上限')).toBeDisabled();
+    expect(screen.getByLabelText('用法')).toBeDisabled();
     expect(fetchOrderBundles).toHaveBeenCalled();
   });
 });

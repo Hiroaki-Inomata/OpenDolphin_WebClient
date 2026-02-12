@@ -61,9 +61,13 @@ FLYWAY_APPLIED=0
 ADMIN_USER="1.3.6.1.4.1.9414.10.1:dolphin"
 ADMIN_PASS="36cdf8b887a5cffc78dcd5c08991b993" # dolphin (MD5)
 
-NEW_USER_ID="dolphindev"
-NEW_USER_PASS="dolphindev"
-NEW_USER_NAME="Dolphin Dev"
+NEW_USER_ID="${DEV_ADMIN_USER_ID:-ormaster}"
+NEW_USER_PASS="${DEV_ADMIN_USER_PASS:-}"
+NEW_USER_NAME="${DEV_ADMIN_USER_NAME:-OR Master Admin}"
+NEW_USER_SIR_NAME="${DEV_ADMIN_SIR_NAME:-ORCA}"
+NEW_USER_GIVEN_NAME="${DEV_ADMIN_GIVEN_NAME:-Master}"
+NEW_USER_EMAIL="${DEV_ADMIN_EMAIL:-ormaster@example.com}"
+NEW_USER_PASS_SOURCE="env:DEV_ADMIN_USER_PASS"
 FACILITY_ID="1.3.6.1.4.1.9414.10.1"
 
 WEB_CLIENT_MODE="${WEB_CLIENT_MODE:-docker}"
@@ -441,6 +445,26 @@ read_orca_info() {
       exit 1
     fi
   fi
+}
+
+resolve_dev_admin_credentials() {
+  if [[ -n "$NEW_USER_PASS" ]]; then
+    log "DEV_ADMIN account=${NEW_USER_ID} pass_source=${NEW_USER_PASS_SOURCE}"
+    return
+  fi
+
+  if [[ -n "${ORCA_API_USER:-}" && -n "${ORCA_API_PASSWORD:-}" && "$NEW_USER_ID" == "$ORCA_API_USER" ]]; then
+    NEW_USER_PASS="${ORCA_API_PASSWORD}"
+    NEW_USER_PASS_SOURCE="ORCA_API_PASSWORD"
+  elif [[ -n "${ORMASTER_PASS:-}" ]]; then
+    NEW_USER_PASS="${ORMASTER_PASS}"
+    NEW_USER_PASS_SOURCE="env:ORMASTER_PASS"
+  else
+    NEW_USER_PASS="change_me"
+    NEW_USER_PASS_SOURCE="default:change_me"
+  fi
+
+  log "DEV_ADMIN account=${NEW_USER_ID} pass_source=${NEW_USER_PASS_SOURCE}"
 }
 
 generate_custom_properties() {
@@ -861,8 +885,19 @@ SELECT
     (SELECT id FROM d_facility WHERE facilityid = '$FACILITY_ID'),
     'PROCESS',
     now(),
-    'Dolphin', 'Dev', 'dev@example.com'
+    '$NEW_USER_SIR_NAME', '$NEW_USER_GIVEN_NAME', '$NEW_USER_EMAIL'
 WHERE NOT EXISTS (SELECT 1 FROM d_users WHERE userid = '$FACILITY_ID:$NEW_USER_ID');
+
+-- Keep default dev admin account aligned with configured credentials
+UPDATE d_users
+SET
+    password = '$pass_hash',
+    commonname = '$NEW_USER_NAME',
+    sirname = '$NEW_USER_SIR_NAME',
+    givenname = '$NEW_USER_GIVEN_NAME',
+    email = '$NEW_USER_EMAIL',
+    facility_id = (SELECT id FROM d_facility WHERE facilityid = '$FACILITY_ID')
+WHERE userid = '$FACILITY_ID:$NEW_USER_ID';
 
 -- Create roles if missing
 INSERT INTO d_roles (id, c_role, user_id, c_user)
@@ -1061,6 +1096,7 @@ start_web_client() {
 
 main() {
   read_orca_info
+  resolve_dev_admin_credentials
   if [[ "${ORCA_CONFIG_ONLY:-0}" == "1" ]]; then
     log "ORCA_CONFIG_ONLY=1: skipping docker startup."
     return 0
@@ -1094,8 +1130,8 @@ main() {
 # ---------------------------------------------------------
 # ログイン情報 (開発用)
 # 施設ID: 1.3.6.1.4.1.9414.10.1
-# ユーザーID: dolphindev
-# パスワード: dolphindev
+# ユーザーID: ormaster
+# パスワード: ORCA Basic パスワード（未設定時は change_me）
 #
 # 医師アカウント (既存)
 # 施設ID: 1.3.6.1.4.1.9414.72.103

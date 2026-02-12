@@ -35,10 +35,14 @@ $WorktreeContainerSuffix = if ($env:WORKTREE_CONTAINER_SUFFIX) { $env:WORKTREE_C
 $AdminUser = "1.3.6.1.4.1.9414.10.1:dolphin"
 $AdminPass = "36cdf8b887a5cffc78dcd5c08991b993" # dolphin (MD5)
 
-# 作成するユーザー
-$NewUserId = "dolphindev"
-$NewUserPass = "dolphindev"
-$NewUserName = "Dolphin Dev"
+# 作成するユーザー（既定: ORCA連携前提の ormaster）
+$NewUserId = if ($env:DEV_ADMIN_USER_ID) { $env:DEV_ADMIN_USER_ID } else { "ormaster" }
+$NewUserPass = if ($env:DEV_ADMIN_USER_PASS) { $env:DEV_ADMIN_USER_PASS } else { "" }
+$NewUserName = if ($env:DEV_ADMIN_USER_NAME) { $env:DEV_ADMIN_USER_NAME } else { "OR Master Admin" }
+$NewUserSirName = if ($env:DEV_ADMIN_SIR_NAME) { $env:DEV_ADMIN_SIR_NAME } else { "ORCA" }
+$NewUserGivenName = if ($env:DEV_ADMIN_GIVEN_NAME) { $env:DEV_ADMIN_GIVEN_NAME } else { "Master" }
+$NewUserEmail = if ($env:DEV_ADMIN_EMAIL) { $env:DEV_ADMIN_EMAIL } else { "ormaster@example.com" }
+$NewUserPassSource = if ($env:DEV_ADMIN_USER_PASS) { "env:DEV_ADMIN_USER_PASS" } else { "unset" }
 $FacilityId = "1.3.6.1.4.1.9414.10.1"
 
 # Web クライアント設定
@@ -302,6 +306,26 @@ function Read-OrcaInfo {
     }
 }
 
+function Resolve-DevAdminCredentials {
+    if ($NewUserPass) {
+        Log "DEV_ADMIN account=$NewUserId pass_source=$NewUserPassSource" -Color Cyan
+        return
+    }
+
+    if ($ORN_ORCA_API_USER -and $ORN_ORCA_API_PASSWORD -and ($ORN_ORCA_API_USER -eq $NewUserId)) {
+        $script:NewUserPass = $ORN_ORCA_API_PASSWORD
+        $script:NewUserPassSource = "ORCA_API_PASSWORD"
+    } elseif ($env:ORMASTER_PASS) {
+        $script:NewUserPass = $env:ORMASTER_PASS
+        $script:NewUserPassSource = "env:ORMASTER_PASS"
+    } else {
+        $script:NewUserPass = "change_me"
+        $script:NewUserPassSource = "default:change_me"
+    }
+
+    Log "DEV_ADMIN account=$NewUserId pass_source=$NewUserPassSource" -Color Cyan
+}
+
 function Generate-CustomProperties {
     Log "Generating $CustomPropOutput from $CustomPropTemplate..." -Color Cyan
     if (-not (Test-Path $CustomPropTemplate)) {
@@ -410,6 +434,7 @@ function Register-InitialUser {
         return
     }
     $passHash = Get-MD5Hash $NewUserPass
+    $compositeUserId = "$FacilityId`:$NewUserId"
 
     $sql = @"
 SET search_path = public;
@@ -452,30 +477,41 @@ INSERT INTO d_users (
 )
 SELECT
     nextval('hibernate_sequence'),
-    '$NewUserId',
+    '$compositeUserId',
     '$passHash',
     '$NewUserName',
     (SELECT id FROM d_facility WHERE facilityid = '$FacilityId'),
     'PROCESS',
     now(),
-    'Dolphin', 'Dev', 'dev@example.com'
-WHERE NOT EXISTS (SELECT 1 FROM d_users WHERE userid = '$NewUserId');
+    '$NewUserSirName', '$NewUserGivenName', '$NewUserEmail'
+WHERE NOT EXISTS (SELECT 1 FROM d_users WHERE userid = '$compositeUserId');
+
+-- Keep default dev admin account aligned with configured credentials
+UPDATE d_users
+SET
+    password = '$passHash',
+    commonname = '$NewUserName',
+    sirname = '$NewUserSirName',
+    givenname = '$NewUserGivenName',
+    email = '$NewUserEmail',
+    facility_id = (SELECT id FROM d_facility WHERE facilityid = '$FacilityId')
+WHERE userid = '$compositeUserId';
 
 -- Create roles if missing
 INSERT INTO d_roles (id, c_role, user_id, c_user)
-SELECT nextval('hibernate_sequence'), 'admin', '$NewUserId', id
-FROM d_users WHERE userid = '$NewUserId'
-AND NOT EXISTS (SELECT 1 FROM d_roles WHERE user_id = '$NewUserId' AND c_role = 'admin');
+SELECT nextval('hibernate_sequence'), 'admin', '$compositeUserId', id
+FROM d_users WHERE userid = '$compositeUserId'
+AND NOT EXISTS (SELECT 1 FROM d_roles WHERE user_id = '$compositeUserId' AND c_role = 'admin');
 
 INSERT INTO d_roles (id, c_role, user_id, c_user)
-SELECT nextval('hibernate_sequence'), 'user', '$NewUserId', id
-FROM d_users WHERE userid = '$NewUserId'
-AND NOT EXISTS (SELECT 1 FROM d_roles WHERE user_id = '$NewUserId' AND c_role = 'user');
+SELECT nextval('hibernate_sequence'), 'user', '$compositeUserId', id
+FROM d_users WHERE userid = '$compositeUserId'
+AND NOT EXISTS (SELECT 1 FROM d_roles WHERE user_id = '$compositeUserId' AND c_role = 'user');
 
 INSERT INTO d_roles (id, c_role, user_id, c_user)
-SELECT nextval('hibernate_sequence'), 'doctor', '$NewUserId', id
-FROM d_users WHERE userid = '$NewUserId'
-AND NOT EXISTS (SELECT 1 FROM d_roles WHERE user_id = '$NewUserId' AND c_role = 'doctor');
+SELECT nextval('hibernate_sequence'), 'doctor', '$compositeUserId', id
+FROM d_users WHERE userid = '$compositeUserId'
+AND NOT EXISTS (SELECT 1 FROM d_roles WHERE user_id = '$compositeUserId' AND c_role = 'doctor');
 "@
 
     $tmpSql = Join-Path $env:TEMP "modern_user_seed.sql"
@@ -622,6 +658,7 @@ function Start-WebClient {
 
 function Main {
     Read-OrcaInfo
+    Resolve-DevAdminCredentials
     if (Is-OrcaConfigOnly) {
         Log "ORCA_CONFIG_ONLY=1: skipping docker startup." -Color Yellow
         return
