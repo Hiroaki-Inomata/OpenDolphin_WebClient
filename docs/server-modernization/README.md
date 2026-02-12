@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
-- 更新日: 2026-01-27
-- RUN_ID: 20260127T232450Z
+- 更新日: 2026-02-12
+- RUN_ID: 20260212T003351Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -17,6 +17,7 @@
 - `docs/server-modernization/server-api-inventory.md`
 - `docs/server-modernization/MODERNIZED_REST_API_INVENTORY.md`
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
+- `docs/server-modernization/orca-master-reference-update-platform-design-20260212.md`
 - `docs/server-modernization/api-architecture-consolidation-plan.md`
 - `docs/server-modernization/rest-api-modernization.md`
 - `docs/server-modernization/stub-endpoint-control.md`

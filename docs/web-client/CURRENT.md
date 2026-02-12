@@ -1,7 +1,7 @@
 # Webクライアント ドキュメントハブ（現行）
 
-- 更新日: 2026-02-11
-- RUN_ID: 20260211T210116Z
+- 更新日: 2026-02-12
+- RUN_ID: 20260212T003351Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -44,6 +44,7 @@
 - `docs/web-client/ux/charts-order-panel-floating-layout-20260211.md`
 - `docs/web-client/ux/charts-order-orca-master-realtime-dropdown-20260211.md`
 - `docs/web-client/ux/reception-status-tab-daily-state-20260211.md`
+- `docs/web-client/ux/admin-master-update-console-20260212.md`
 
 ### ORCA 追加API / 接続計画
 - `docs/web-client-orca-additional-api-plan.md`

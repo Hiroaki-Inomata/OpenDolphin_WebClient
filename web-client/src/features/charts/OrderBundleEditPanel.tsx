@@ -11,6 +11,7 @@ import {
   type OrderMasterSearchItem,
   type OrderMasterSearchType,
 } from './orderMasterSearchApi';
+import { fetchMasterReferenceStatus, type MasterReferenceStatusResponse } from './masterReferenceStatusApi';
 import { buildContraindicationCheckRequestXml, fetchContraindicationCheckXml } from './contraindicationCheckApi';
 import { fetchStampDetail, fetchStampTree, fetchUserProfile, type StampBundleJson, type StampTreeEntry } from './stampApi';
 import {
@@ -634,6 +635,27 @@ const matchesUsagePattern = (code: string | undefined, pattern: string) => {
   }
 };
 
+const resolveMasterReferenceStatusLabel = (status?: string) => {
+  if (status === 'normal') return '正常';
+  if (status === 'running') return '更新中';
+  if (status === 'update_detected') return '更新あり';
+  if (status === 'failed') return '失敗';
+  return '未確認';
+};
+
+const resolveMasterReferenceStatusTone = (status?: string): 'ok' | 'warn' | 'error' => {
+  if (status === 'normal') return 'ok';
+  if (status === 'failed') return 'error';
+  return 'warn';
+};
+
+const formatMasterReferenceTimestamp = (value?: string) => {
+  if (!value) return '―';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('ja-JP', { hour12: false });
+};
+
 export const resolvePrescriptionClassCode = (timing: PrescriptionTiming, location: PrescriptionLocation) =>
   PRESCRIPTION_CLASS_CODES[timing][location];
 
@@ -776,6 +798,7 @@ export function OrderBundleEditPanel({
   const [selectedItemRowId, setSelectedItemRowId] = useState<string | null>(null);
   const [optimisticBundles, setOptimisticBundles] = useState<OrderBundle[]>([]);
   const [commentSelectValue, setCommentSelectValue] = useState('');
+  const [showMasterReferenceStatus, setShowMasterReferenceStatus] = useState(false);
   const [commentDraft, setCommentDraft] = useState<OrderBundleItem>({
     code: '',
     name: '',
@@ -909,6 +932,30 @@ export function OrderBundleEditPanel({
     },
     enabled: !!patientId,
   });
+
+  const masterReferenceStatusQuery = useQuery({
+    queryKey: ['charts-master-reference-status'],
+    queryFn: fetchMasterReferenceStatus,
+    enabled: showMasterReferenceStatus,
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+  const masterReferenceStatus = masterReferenceStatusQuery.data as MasterReferenceStatusResponse | undefined;
+  const masterReferenceOverallStatus = masterReferenceStatus?.overallStatus;
+  const masterReferenceBadgeLabel = showMasterReferenceStatus
+    ? masterReferenceStatusQuery.isFetching
+      ? '確認中'
+      : masterReferenceStatusQuery.isError
+        ? '取得失敗'
+        : resolveMasterReferenceStatusLabel(masterReferenceOverallStatus)
+    : '未確認';
+  const masterReferenceBadgeTone: 'ok' | 'warn' | 'error' = showMasterReferenceStatus
+    ? masterReferenceStatusQuery.isFetching
+      ? 'warn'
+      : masterReferenceStatusQuery.isError
+        ? 'error'
+        : resolveMasterReferenceStatusTone(masterReferenceOverallStatus)
+    : 'warn';
 
   const resolveActionMessage = (action: OrderBundleSubmitAction, ok: boolean) => {
     if (action === 'save') {
@@ -2798,9 +2845,21 @@ export function OrderBundleEditPanel({
   return (
     <section className="charts-side-panel__section" data-test-id={`${entity}-edit-panel`}>
       <header className="charts-side-panel__section-header">
-        <div>
+        <div className="charts-side-panel__section-header-main">
           <strong>{title}</strong>
           <p>{orderUiProfile.formDescription}</p>
+          <div className="charts-side-panel__master-ref-inline">
+            <span className={`charts-side-panel__status charts-side-panel__status--${masterReferenceBadgeTone}`}>
+              参照マスタ: {masterReferenceBadgeLabel}
+            </span>
+            <button
+              type="button"
+              className="charts-side-panel__ghost"
+              onClick={() => setShowMasterReferenceStatus((prev) => !prev)}
+            >
+              {showMasterReferenceStatus ? '参照マスタ詳細を閉じる' : '参照マスタ詳細'}
+            </button>
+          </div>
         </div>
         <button
           type="button"
@@ -2833,6 +2892,58 @@ export function OrderBundleEditPanel({
           新規入力
         </button>
       </header>
+
+      {showMasterReferenceStatus ? (
+        <section className="charts-side-panel__master-ref-panel" aria-label="参照マスタ状態">
+          <div className="charts-side-panel__master-ref-header">
+            <strong>参照DB更新状態</strong>
+            <button
+              type="button"
+              className="charts-side-panel__ghost"
+              onClick={() => void masterReferenceStatusQuery.refetch()}
+              disabled={masterReferenceStatusQuery.isFetching}
+            >
+              {masterReferenceStatusQuery.isFetching ? '再確認中…' : '再確認'}
+            </button>
+          </div>
+          {masterReferenceStatusQuery.isError ? (
+            <div className="charts-side-panel__notice charts-side-panel__notice--error">
+              参照マスタ状態の取得に失敗しました。通信回復後に再確認してください。
+            </div>
+          ) : null}
+          {masterReferenceStatus?.datasets?.length ? (
+            <div className="charts-side-panel__master-ref-list" role="list">
+              {masterReferenceStatus.datasets.map((dataset) => (
+                <div key={dataset.code} className="charts-side-panel__master-ref-item" role="listitem">
+                  <div className="charts-side-panel__master-ref-item-head">
+                    <strong>{dataset.name}</strong>
+                    <span
+                      className={`charts-side-panel__status charts-side-panel__status--${resolveMasterReferenceStatusTone(dataset.status)}`}
+                    >
+                      {resolveMasterReferenceStatusLabel(dataset.status)}
+                    </span>
+                  </div>
+                  <div className="charts-side-panel__master-ref-item-meta">
+                    <span>最終成功: {formatMasterReferenceTimestamp(dataset.lastSuccessfulAt)}</span>
+                    <span>件数: {dataset.currentRecordCount ?? '―'}</span>
+                    <span>更新検知: {dataset.updateDetected ? 'あり' : 'なし'}</span>
+                  </div>
+                  {dataset.lastFailureReason ? (
+                    <div className="charts-side-panel__master-ref-item-error">{dataset.lastFailureReason}</div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : masterReferenceStatusQuery.isFetching ? (
+            <p className="charts-side-panel__help">参照マスタ状態を確認しています…</p>
+          ) : (
+            <p className="charts-side-panel__help">参照マスタ状態のデータはありません。</p>
+          )}
+          <p className="charts-side-panel__help">
+            診療中の候補提示は院内参照DBを使用し、最終判定は ORCA 応答を優先します。
+          </p>
+        </section>
+      ) : null}
 
       {isBlocked && (
         <div className="charts-side-panel__notice charts-side-panel__notice--info">

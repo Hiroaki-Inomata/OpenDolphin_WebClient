@@ -65,6 +65,8 @@ import {
 import { LegacyRestPanel } from './LegacyRestPanel';
 import { TouchAdmPhrPanel } from './TouchAdmPhrPanel';
 import { AccessManagementPanel } from './AccessManagementPanel';
+import { OrcaUserManagementPanel } from './OrcaUserManagementPanel';
+import { MasterUpdatesPanel } from './MasterUpdatesPanel';
 import './administration.css';
 import {
   publishAdminBroadcast,
@@ -78,6 +80,8 @@ type AdministrationPageProps = {
   runId: string;
   role?: string;
 };
+
+type AdministrationTab = 'delivery' | 'access' | 'orca-users' | 'master-updates';
 
 type Feedback = { tone: 'success' | 'warning' | 'error' | 'info'; message: string };
 type OrcaXmlProxyFormState = {
@@ -444,8 +448,12 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const isSystemAdmin = isSystemAdminRole(role);
   const session = useSession();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = searchParams.get('tab') === 'access' ? 'access' : 'delivery';
-  const handleTabChange = (next: 'delivery' | 'access') => {
+  const activeTab = (() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'access' || tab === 'orca-users' || tab === 'master-updates') return tab;
+    return 'delivery';
+  })() as AdministrationTab;
+  const handleTabChange = (next: AdministrationTab) => {
     setSearchParams(
       (prev) => {
         const updated = new URLSearchParams(prev);
@@ -1729,9 +1737,18 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
               管理者が ORCA 接続・MSW トグル・配信フラグを編集し、保存時に broadcast / audit を送ります。RUN_ID:{' '}
               <strong>{resolvedRunId}</strong>
             </p>
-          ) : (
+          ) : activeTab === 'access' ? (
             <p className="administration-page__lead" role="status" aria-live={infoLive}>
               職員ユーザーの作成/編集、パスワードリセットを行います。RUN_ID: <strong>{resolvedRunId}</strong>
+            </p>
+          ) : activeTab === 'master-updates' ? (
+            <p className="administration-page__lead" role="status" aria-live={infoLive}>
+              ORCA/外部マスタの参照データ更新を管理します（自動・手動・アップロード・ロールバック）。RUN_ID:{' '}
+              <strong>{resolvedRunId}</strong>
+            </p>
+          ) : (
+            <p className="administration-page__lead" role="status" aria-live={infoLive}>
+              ORCA職員マスタの同期・紐づけ・作成更新削除を管理します。RUN_ID: <strong>{resolvedRunId}</strong>
             </p>
           )}
 
@@ -1794,6 +1811,24 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
             >
               アクセス管理
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'orca-users'}
+              className={`administration-tab${activeTab === 'orca-users' ? ' is-active' : ''}`}
+              onClick={() => handleTabChange('orca-users')}
+            >
+              ORCAユーザー連携
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'master-updates'}
+              className={`administration-tab${activeTab === 'master-updates' ? ' is-active' : ''}`}
+              onClick={() => handleTabChange('master-updates')}
+            >
+              マスタ更新
+            </button>
           </div>
 
           {isForbidden && activeTab === 'delivery' ? (
@@ -1830,6 +1865,14 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
         {activeTab === 'access' ? (
           <div className="administration-grid administration-grid--wide">
             <AccessManagementPanel runId={resolvedRunId} role={role} />
+          </div>
+        ) : activeTab === 'orca-users' ? (
+          <div className="administration-grid administration-grid--wide">
+            <OrcaUserManagementPanel runId={resolvedRunId} role={role} />
+          </div>
+        ) : activeTab === 'master-updates' ? (
+          <div className="administration-grid administration-grid--wide">
+            <MasterUpdatesPanel runId={resolvedRunId} role={role} />
           </div>
         ) : (
           <>

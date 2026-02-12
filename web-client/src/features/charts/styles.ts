@@ -2491,10 +2491,24 @@ export const chartsStyles = css`
     align-items: flex-start;
   }
 
+  .charts-side-panel__section-header-main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-2xs);
+  }
+
   .charts-side-panel__section-header p {
     margin: var(--charts-space-2xs) 0 0;
     color: #64748b;
     font-size: 0.85rem;
+  }
+
+  .charts-side-panel__master-ref-inline {
+    margin-top: var(--charts-space-2xs);
+    display: flex;
+    align-items: center;
+    gap: var(--charts-space-xs);
+    flex-wrap: wrap;
   }
 
   .charts-side-panel__ghost {
@@ -2709,6 +2723,66 @@ export const chartsStyles = css`
     border-color: rgba(234, 179, 8, 0.45);
     color: #92400e;
     background: #fef9c3;
+  }
+
+  .charts-side-panel__status--error {
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #991b1b;
+    background: #fee2e2;
+  }
+
+  .charts-side-panel__master-ref-panel {
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: var(--charts-radius-sm);
+    padding: var(--charts-space-sm);
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-xs);
+  }
+
+  .charts-side-panel__master-ref-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--charts-space-xs);
+  }
+
+  .charts-side-panel__master-ref-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-xs);
+  }
+
+  .charts-side-panel__master-ref-item {
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: var(--charts-radius-sm);
+    background: #f8fafc;
+    padding: var(--charts-space-xs);
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-2xs);
+  }
+
+  .charts-side-panel__master-ref-item-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--charts-space-xs);
+  }
+
+  .charts-side-panel__master-ref-item-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--charts-space-xs);
+    font-size: 0.75rem;
+    color: #475569;
+  }
+
+  .charts-side-panel__master-ref-item-error {
+    font-size: 0.78rem;
+    color: #b91c1c;
+    font-weight: 700;
   }
 
   .charts-side-panel__search-count {

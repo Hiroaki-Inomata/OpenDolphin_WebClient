@@ -105,7 +105,8 @@
 
 .admin-form__field input[type='text'],
 .admin-form__field input[type='password'],
-.admin-form__field input[type='number'] {
+.admin-form__field input[type='number'],
+.admin-form__field input[type='time'] {
   border: 1px solid rgba(148, 163, 184, 0.8);
   border-radius: 10px;
   padding: 0.5rem 0.65rem;
@@ -170,6 +171,97 @@
   gap: 0.5rem;
   flex-wrap: wrap;
   margin-top: 0.5rem;
+}
+
+.admin-form__field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+}
+
+.admin-master__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.admin-master__minor {
+  margin-top: 0.6rem;
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  border-radius: 12px;
+  padding: 0.6rem 0.75rem;
+  background: #f8fafc;
+}
+
+.admin-master__minor > summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #334155;
+}
+
+.admin-master__schedule-overrides {
+  margin-top: 0.65rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.admin-master__feedback {
+  margin: 0;
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.admin-master__feedback--success {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+  color: #065f46;
+}
+
+.admin-master__feedback--warning {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+
+.admin-master__feedback--error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.admin-master__feedback--info {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e3a8a;
+}
+
+.admin-inline-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #1f2937;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.admin-spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 999px;
+  border: 2px solid rgba(15, 23, 42, 0.22);
+  border-top-color: #2563eb;
+  animation: admin-spin 0.8s linear infinite;
+}
+
+@keyframes admin-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .admin-status-row {
@@ -308,6 +400,20 @@
 
 .admin-error {
   color: #b91c1c;
+  font-weight: 700;
+}
+
+.admin-orca-link-status {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.admin-warning-box {
+  border-radius: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: #fffbeb;
+  color: #92400e;
+  padding: 0.6rem 0.8rem;
   font-weight: 700;
 }
 
