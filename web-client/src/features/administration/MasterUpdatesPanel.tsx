@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { isSystemAdminRole } from '../../libs/auth/roles';
+import { useAppToast } from '../../libs/ui/appToast';
 import {
   fetchMasterUpdateDatasetDetail,
   fetchMasterUpdateDatasets,
@@ -18,8 +19,6 @@ type MasterUpdatesPanelProps = {
   runId: string;
   role?: string;
 };
-
-type Feedback = { tone: 'success' | 'warning' | 'error' | 'info'; message: string };
 
 const formatTimestamp = (iso?: string) => {
   if (!iso) return '―';
@@ -48,9 +47,9 @@ const normalizeSchedule = (schedule?: MasterUpdateSchedule): MasterUpdateSchedul
 export function MasterUpdatesPanel({ runId, role }: MasterUpdatesPanelProps) {
   const isSystemAdmin = isSystemAdminRole(role);
   const queryClient = useQueryClient();
+  const { enqueue } = useAppToast();
   const [selectedDatasetCode, setSelectedDatasetCode] = useState<string>('');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [scheduleForm, setScheduleForm] = useState<MasterUpdateSchedule>(() => normalizeSchedule());
 
   const datasetsQuery = useQuery({
@@ -97,35 +96,51 @@ export function MasterUpdatesPanel({ runId, role }: MasterUpdatesPanelProps) {
 
   const runMutation = useMutation({
     mutationFn: async (params: { code: string; force?: boolean }) => runMasterUpdateDataset(params.code, params.force ?? false),
-    onSuccess: async (result) => {
-      setFeedback({ tone: 'success', message: result.message ?? '更新処理を実行しました。' });
+    onSuccess: async (result, variables) => {
+      enqueue({
+        tone: 'success',
+        message: result.message ?? '更新処理を実行しました。',
+        detail: `対象: ${variables.code}`,
+      });
       await refreshQueries();
     },
     onError: (error) => {
-      setFeedback({ tone: 'error', message: error instanceof Error ? error.message : String(error) });
+      enqueue({ tone: 'error', message: '更新処理に失敗しました。', detail: error instanceof Error ? error.message : String(error) });
     },
   });
 
   const rollbackMutation = useMutation({
     mutationFn: async (params: { code: string; versionId: string }) => rollbackMasterUpdateDataset(params.code, params.versionId),
-    onSuccess: async (result) => {
-      setFeedback({ tone: 'success', message: result.message ?? 'ロールバックを実行しました。' });
+    onSuccess: async (result, variables) => {
+      enqueue({
+        tone: 'success',
+        message: result.message ?? 'ロールバックを実行しました。',
+        detail: `対象: ${variables.code} / 版ID: ${variables.versionId}`,
+      });
       await refreshQueries();
     },
     onError: (error) => {
-      setFeedback({ tone: 'error', message: error instanceof Error ? error.message : String(error) });
+      enqueue({ tone: 'error', message: 'ロールバックに失敗しました。', detail: error instanceof Error ? error.message : String(error) });
     },
   });
 
   const uploadMutation = useMutation({
     mutationFn: async (params: { code: string; file: File }) => uploadMasterUpdateDataset(params.code, params.file),
-    onSuccess: async (result) => {
-      setFeedback({ tone: 'success', message: result.message ?? 'アップロード更新を実行しました。' });
+    onSuccess: async (result, variables) => {
+      enqueue({
+        tone: 'success',
+        message: result.message ?? 'アップロード更新を実行しました。',
+        detail: `対象: ${variables.code} / ファイル: ${variables.file.name}`,
+      });
       setUploadFile(null);
       await refreshQueries();
     },
     onError: (error) => {
-      setFeedback({ tone: 'error', message: error instanceof Error ? error.message : String(error) });
+      enqueue({
+        tone: 'error',
+        message: 'アップロード更新に失敗しました。',
+        detail: error instanceof Error ? error.message : String(error),
+      });
     },
   });
 
@@ -133,11 +148,15 @@ export function MasterUpdatesPanel({ runId, role }: MasterUpdatesPanelProps) {
     mutationFn: async () => saveMasterUpdateSchedule(scheduleForm),
     onSuccess: async (result) => {
       setScheduleForm(normalizeSchedule(result.schedule));
-      setFeedback({ tone: 'success', message: 'スケジュールを更新しました。' });
+      enqueue({ tone: 'success', message: 'スケジュールを更新しました。' });
       await refreshQueries();
     },
     onError: (error) => {
-      setFeedback({ tone: 'error', message: error instanceof Error ? error.message : String(error) });
+      enqueue({
+        tone: 'error',
+        message: 'スケジュールの更新に失敗しました。',
+        detail: error instanceof Error ? error.message : String(error),
+      });
     },
   });
 
@@ -254,7 +273,7 @@ export function MasterUpdatesPanel({ runId, role }: MasterUpdatesPanelProps) {
                 disabled={!detailDataset.manualUploadAllowed || !isSystemAdmin || uploadMutation.isPending || detailDataset.running}
                 onClick={() => {
                   if (!uploadFile) {
-                    setFeedback({ tone: 'warning', message: 'アップロードするファイルを選択してください。' });
+                    enqueue({ tone: 'warning', message: 'アップロードするファイルを選択してください。' });
                     return;
                   }
                   uploadMutation.mutate({ code: detailDataset.code, file: uploadFile });
@@ -430,7 +449,7 @@ export function MasterUpdatesPanel({ runId, role }: MasterUpdatesPanelProps) {
               className="admin-button admin-button--secondary"
               onClick={() => {
                 setScheduleForm(normalizeSchedule(scheduleQuery.data?.schedule));
-                setFeedback({ tone: 'info', message: '現在値を再反映しました。' });
+                enqueue({ tone: 'info', message: '現在値を再反映しました。' });
               }}
               disabled={saveScheduleMutation.isPending}
             >
@@ -439,12 +458,6 @@ export function MasterUpdatesPanel({ runId, role }: MasterUpdatesPanelProps) {
           </div>
         </div>
       </section>
-
-      {feedback ? (
-        <p className={`admin-master__feedback admin-master__feedback--${feedback.tone}`} role="status">
-          {feedback.message}
-        </p>
-      ) : null}
     </>
   );
 }
