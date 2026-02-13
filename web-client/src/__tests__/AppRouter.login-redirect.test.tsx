@@ -58,7 +58,7 @@ vi.mock('../features/charts/authService', async () => {
 vi.mock('../LoginScreen', () => {
   const MockLogin = ({ onLoginSuccess }: { onLoginSuccess?: (result: any) => void }) => {
     useEffect(() => {
-      if (onLoginSuccess) {
+      if ((globalThis as any).__mockAutoLogin !== false && onLoginSuccess) {
         onLoginSuccess(globalThis.__mockLoginResult);
       }
     }, [onLoginSuccess]);
@@ -101,6 +101,8 @@ vi.mock('../features/debug/LegacyRestConsolePage', () => ({
 declare global {
   // eslint-disable-next-line no-var
   var __mockLoginResult: any;
+  // eslint-disable-next-line no-var
+  var __mockAutoLogin: boolean | undefined;
 }
 
 const AUTH_STORAGE_KEY = 'opendolphin:web-client:auth';
@@ -114,6 +116,7 @@ const buildRouter = (initialEntries: Array<string | { pathname: string; search?:
 beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
+  globalThis.__mockAutoLogin = true;
   globalThis.__mockLoginResult = {
     facilityId: '123',
     userId: 'user-1',
@@ -204,5 +207,28 @@ describe('AppRouter login redirect', () => {
       expect(router.state.location.pathname).toBe('/f/123/reception');
     });
     expect(screen.queryByText('ログイン中のため切替が必要です')).not.toBeInTheDocument();
+  });
+
+  it('localStorage に残った旧セッションは復元せずログイン画面を表示する', async () => {
+    globalThis.__mockAutoLogin = false;
+    localStorage.setItem(
+      AUTH_STORAGE_KEY,
+      JSON.stringify({
+        facilityId: '123',
+        userId: 'user-1',
+        role: 'doctor',
+        runId: 'run-stale',
+      }),
+    );
+
+    const router = buildRouter(['/f/123/reception']);
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/f/123/login');
+    });
+    expect(screen.getByTestId('login-screen')).toBeInTheDocument();
+    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
   });
 });

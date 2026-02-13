@@ -467,8 +467,26 @@ public class LogFilter implements Filter {
 
     private void sendUnauthorized(HttpServletRequest request, HttpServletResponse response, String errorCode,
             String message, Map<String, Object> details) throws IOException {
-        response.setHeader("WWW-Authenticate", AUTH_CHALLENGE);
+        if (shouldAttachAuthChallenge(request)) {
+            response.setHeader("WWW-Authenticate", AUTH_CHALLENGE);
+        }
         AbstractResource.writeRestError(request, response, HttpServletResponse.SC_UNAUTHORIZED, errorCode, message, details);
+    }
+
+    private boolean shouldAttachAuthChallenge(HttpServletRequest request) {
+        if (request == null) {
+            return false;
+        }
+        // Browser fetch/XHR requests should not trigger the native Basic auth credential prompt.
+        // Only attach the challenge when the request is likely a top-level navigation.
+        String fetchDest = safeHeader(request, "Sec-Fetch-Dest");
+        if (fetchDest != null && !fetchDest.isBlank()) {
+            String normalized = fetchDest.trim().toLowerCase();
+            return "document".equals(normalized) || "iframe".equals(normalized);
+        }
+        // Fallback: treat HTML navigations as eligible for Basic auth challenge.
+        String accept = safeHeader(request, "Accept");
+        return accept != null && accept.toLowerCase().contains("text/html");
     }
 
     private String normalize(String value) {

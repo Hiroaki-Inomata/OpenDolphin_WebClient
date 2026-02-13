@@ -52,7 +52,6 @@ import {
   type SessionExpiryNotice,
 } from './libs/session/sessionExpiry';
 import { clearAllAuthShared, clearScopedStorage } from './libs/session/storageCleanup';
-import { persistSharedSession, restoreSharedAuthToSessionStorage } from './libs/session/authSync';
 import {
   buildFacilityPath,
   buildFacilityUrl,
@@ -91,14 +90,6 @@ const loadStoredSession = (): Session | null => {
       return null;
     }
   };
-  const readFallbackRaw = () => {
-    if (typeof localStorage === 'undefined') return null;
-    try {
-      return localStorage.getItem(AUTH_STORAGE_KEY);
-    } catch {
-      return null;
-    }
-  };
   const resolveSession = (raw: string | null) => {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Session;
@@ -108,8 +99,14 @@ const loadStoredSession = (): Session | null => {
   try {
     const stored = resolveSession(readRaw());
     if (stored) return stored;
-    const fallback = resolveSession(readFallbackRaw());
-    if (fallback) return fallback;
+    // 永続化ストレージに残っている旧セッションは復元しない（ウィンドウを閉じたらログアウト扱い）。
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+      } catch {
+        // ignore
+      }
+    }
     clearStoredAuthFlags();
     return null;
   } catch {
@@ -132,14 +129,7 @@ const persistSession = (session: Session) => {
   try {
     sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
   } catch {
-    // storage が使えない環境では localStorage にフォールバックする
-    if (typeof localStorage !== 'undefined') {
-      try {
-        localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-      } catch {
-        // ignore
-      }
-    }
+    // storage が使えない環境では保持せず、都度ログインし直す（セッションの永続化を避ける）。
   }
 };
 
@@ -316,12 +306,7 @@ export function AppRouter() {
 }
 
 export function AppRouterWithNavigation() {
-  const [session, setSession] = useState<Session | null>(() => {
-    const stored = loadStoredSession();
-    if (stored) return stored;
-    const restored = restoreSharedAuthToSessionStorage();
-    return (restored.session as Session | null) ?? null;
-  });
+  const [session, setSession] = useState<Session | null>(() => loadStoredSession());
   const [pendingRedirect, setPendingRedirect] = useState<LoginRedirectIntent | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
@@ -359,16 +344,6 @@ export function AppRouterWithNavigation() {
       addRecentFacility(result.facilityId);
       setSession(result);
       persistSession(result);
-      persistSharedSession({
-        facilityId: result.facilityId,
-        userId: result.userId,
-        displayName: result.displayName,
-        commonName: result.commonName,
-        role: result.role,
-        roles: result.roles,
-        clientUuid: result.clientUuid,
-        runId: result.runId,
-      });
 
       const redirectIntent = resolveLoginRedirect(location);
       const fallbackPath = buildFacilityPath(result.facilityId, '/reception');
@@ -410,20 +385,6 @@ export function AppRouterWithNavigation() {
     navigate(pendingRedirect.to, { replace: true, state: pendingRedirect.state });
     setPendingRedirect(null);
   }, [navigate, pendingRedirect, session]);
-
-  useEffect(() => {
-    if (!session) return;
-    persistSharedSession({
-      facilityId: session.facilityId,
-      userId: session.userId,
-      displayName: session.displayName,
-      commonName: session.commonName,
-      role: session.role,
-      roles: session.roles,
-      clientUuid: session.clientUuid,
-      runId: session.runId,
-    });
-  }, [session]);
 
   useEffect(() => {
     const onSessionExpired = (event: Event) => {

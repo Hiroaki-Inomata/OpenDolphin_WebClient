@@ -833,13 +833,22 @@ register_initial_user() {
     log "Warning: d_users table not found; skipping initial user registration."
     return
   fi
+  local seed_schema="public"
+  if [[ "$(schema_table_exists opendolphin.d_users)" == "t" ]]; then
+    seed_schema="opendolphin"
+  fi
+  local seed_search_path="$seed_schema"
+  if [[ "$seed_schema" != "public" ]]; then
+    seed_search_path="${seed_schema},public"
+  fi
   local pass_hash
   pass_hash=$(printf "%s" "$NEW_USER_PASS" | md5sum | awk '{print $1}')
 
   local tmp_sql
   tmp_sql=$(mktemp)
   cat > "$tmp_sql" <<EOF
-SET search_path = public;
+-- Prefer opendolphin schema when available so the server can authenticate the seeded user.
+SET search_path = ${seed_search_path};
 
 -- Ensure hibernate_sequence exists and is aligned
 DO \$\$
