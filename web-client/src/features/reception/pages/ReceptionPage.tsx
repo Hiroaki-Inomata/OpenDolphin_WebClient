@@ -90,17 +90,19 @@ import { saveOrcaClaimSendCache } from '../../charts/orcaClaimSendCache';
 import { fetchOrderBundles, type OrderBundle, type OrderBundleItem } from '../../charts/orderBundleApi';
 
 type SortKey = 'time' | 'acceptance' | 'reservation' | 'name' | 'department';
-type StatusTab = 'all' | '受付中' | '診療中' | '診察後' | '会計済み';
+type StatusTab = 'all' | '予約' | '受付中' | '診療中' | '診察後' | '会計済み';
 
-const STATUS_TAB_ORDER: StatusTab[] = ['all', '受付中', '診療中', '診察後', '会計済み'];
+const STATUS_TAB_ORDER: StatusTab[] = ['all', '予約', '受付中', '診療中', '診察後', '会計済み'];
 const STATUS_TAB_LABEL: Record<StatusTab, string> = {
   all: 'すべて',
+  予約: '予約',
   受付中: '診察待ち',
   診療中: '診察中',
   診察後: '診察終了',
   会計済み: '会計済み',
 };
 const STATUS_TAB_TO_STATUSES: Record<Exclude<StatusTab, 'all'>, ReceptionStatus[]> = {
+  予約: ['予約'],
   受付中: ['受付中'],
   診療中: ['診療中'],
   診察後: ['会計待ち'],
@@ -109,12 +111,13 @@ const STATUS_TAB_TO_STATUSES: Record<Exclude<StatusTab, 'all'>, ReceptionStatus[
 
 const isStatusTab = (value?: string | null): value is StatusTab =>
   value === 'all' ||
+  value === '予約' ||
   value === '受付中' ||
   value === '診療中' ||
   value === '診察後' ||
   value === '会計済み';
 
-const SECTION_ORDER: ReceptionStatus[] = ['受付中', '診療中', '会計待ち', '会計済み'];
+const SECTION_ORDER: ReceptionStatus[] = ['予約', '受付中', '診療中', '会計待ち', '会計済み'];
 const SECTION_LABEL: Record<ReceptionStatus, string> = {
   受付中: '診察待ち',
   診療中: '診察中',
@@ -572,6 +575,7 @@ const filterGroupedByStatusTab = (
 const buildStatusTabCounts = (grouped: ReturnType<typeof groupByStatus>): Record<StatusTab, number> => {
   const counts: Record<StatusTab, number> = {
     all: 0,
+    予約: 0,
     受付中: 0,
     診療中: 0,
     診察後: 0,
@@ -580,6 +584,7 @@ const buildStatusTabCounts = (grouped: ReturnType<typeof groupByStatus>): Record
   grouped.forEach(({ status, items }) => {
     const count = items.length;
     counts.all += count;
+    if (status === '予約') counts.予約 += count;
     if (status === '受付中') counts.受付中 += count;
     if (status === '診療中') counts.診療中 += count;
     if (status === '会計待ち') counts.診察後 += count;
@@ -1366,7 +1371,7 @@ export function ReceptionPage({
   );
   const appointmentEntries = dailyEntriesState.entries;
   const visibleAppointmentEntries = useMemo(
-    () => appointmentEntries.filter((entry) => entry.status !== '予約'),
+    () => appointmentEntries,
     [appointmentEntries],
   );
   const snapshotDateOptions = useMemo(() => {

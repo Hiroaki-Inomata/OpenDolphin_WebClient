@@ -1,7 +1,7 @@
 # Reception 状態タブ・日次状態保存（2026-02-11）
 
 - RUN_ID: `20260211T223228Z`
-- 更新: 2026-02-13（RUN_ID: `20260213T064029Z`）
+- 更新: 2026-02-13（RUN_ID: `20260213T114440Z`、前回: `20260213T064029Z`）
 - 対象: `web-client/src/features/reception/pages/ReceptionPage.tsx`, `web-client/src/features/charts/pages/ChartsPage.tsx`, `web-client/src/features/charts/PatientsTab.tsx`
 
 ## 目的
@@ -11,7 +11,7 @@
 
 ## 実装概要
 1. `Reception` に状態タブ UI を追加。
-- `すべて / 診察待ち / 診察中 / 診察終了 / 会計済み` のタブで表示を切り替え可能（予約カート列は廃止）。
+- `すべて / 予約 / 診察待ち / 診察中 / 診察終了 / 会計済み` のタブで表示を切り替え可能（予約は ORCA 予約一覧の表示）。
 - 内部ステータスの表示名は以下へ寄せる:
   - `受付中` → `診察待ち`
   - `診療中` → `診察中`
