@@ -4,3 +4,4 @@
 [submodule "docker/orca/jma-receipt-docker"]
 	path = docker/orca/jma-receipt-docker
 	url = https://github.com/circlemouth/jma-receipt-docker-for-Ubuntu-22.04.git
+	ignore = dirty
