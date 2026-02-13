@@ -680,6 +680,7 @@ export function PatientsTab({
     const receptionDate =
       normalizeVisitDate(selected?.visitDate) ?? normalizeVisitDate(selectedContext?.visitDate) ?? undefined;
     const params = new URLSearchParams();
+    params.set('from', 'charts');
     if (keywordValue) params.set('kw', keywordValue);
     if (receptionDate) {
       params.set('date', receptionDate);

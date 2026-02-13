@@ -82,23 +82,25 @@ import {
   listReceptionSnapshotDates,
   resolveReceptionEntriesForDate,
   saveReceptionEntriesForDate,
+  upsertReceptionStatusOverride,
 } from '../receptionDailyState';
 import { useAppToast } from '../../../libs/ui/appToast';
+import { buildMedicalModV2RequestXml, postOrcaMedicalModV2Xml, type MedicalModV2Information } from '../../charts/orcaClaimApi';
+import { saveOrcaClaimSendCache } from '../../charts/orcaClaimSendCache';
+import { fetchOrderBundles, type OrderBundle, type OrderBundleItem } from '../../charts/orderBundleApi';
 
 type SortKey = 'time' | 'acceptance' | 'reservation' | 'name' | 'department';
-type StatusTab = 'all' | '予約' | '受付中' | '診療中' | '診察後' | '会計済み';
+type StatusTab = 'all' | '受付中' | '診療中' | '診察後' | '会計済み';
 
-const STATUS_TAB_ORDER: StatusTab[] = ['all', '予約', '受付中', '診療中', '診察後', '会計済み'];
+const STATUS_TAB_ORDER: StatusTab[] = ['all', '受付中', '診療中', '診察後', '会計済み'];
 const STATUS_TAB_LABEL: Record<StatusTab, string> = {
   all: 'すべて',
-  予約: '予約',
-  受付中: '受付',
-  診療中: '診療中',
-  診察後: '診察後',
+  受付中: '診察待ち',
+  診療中: '診察中',
+  診察後: '診察終了',
   会計済み: '会計済み',
 };
 const STATUS_TAB_TO_STATUSES: Record<Exclude<StatusTab, 'all'>, ReceptionStatus[]> = {
-  予約: ['予約'],
   受付中: ['受付中'],
   診療中: ['診療中'],
   診察後: ['会計待ち'],
@@ -107,19 +109,18 @@ const STATUS_TAB_TO_STATUSES: Record<Exclude<StatusTab, 'all'>, ReceptionStatus[
 
 const isStatusTab = (value?: string | null): value is StatusTab =>
   value === 'all' ||
-  value === '予約' ||
   value === '受付中' ||
   value === '診療中' ||
   value === '診察後' ||
   value === '会計済み';
 
-const SECTION_ORDER: ReceptionStatus[] = ['予約', '受付中', '診療中', '会計待ち', '会計済み'];
+const SECTION_ORDER: ReceptionStatus[] = ['受付中', '診療中', '会計待ち', '会計済み'];
 const SECTION_LABEL: Record<ReceptionStatus, string> = {
-  受付中: '受付中',
-  診療中: '診療中',
-  会計待ち: '診察後（会計待ち）',
+  受付中: '診察待ち',
+  診療中: '診察中',
+  会計待ち: '診察終了',
   会計済み: '会計済み',
-  予約: '予約カート',
+  予約: '予約',
 };
 
 const COLLAPSE_STORAGE_KEY = 'reception-section-collapses';
@@ -210,6 +211,94 @@ const normalizePhysicianCode = (value?: string) => {
   if (!code) return undefined;
   if (code.length === 4) return `1${code}`;
   return code;
+};
+
+const resolveDepartmentCode = (department?: string) => {
+  if (!department) return undefined;
+  const trimmed = department.trim();
+  if (!trimmed) return undefined;
+  const leading = trimmed.match(/^(\d{2})(?:\D|$)/)?.[1];
+  if (leading) return leading;
+  const match = trimmed.match(/\b(\d{2})\b/);
+  return match?.[1];
+};
+
+const isApiResultOk = (apiResult?: string) => Boolean(apiResult && /^0+$/.test(apiResult));
+const isIdempotentDuplicate = (apiResult?: string, apiResultMessage?: string) =>
+  apiResult === '80' && Boolean(apiResultMessage && /既に同日の診療データが登録されています/.test(apiResultMessage));
+
+const ORCA_SEND_ORDER_ENTITIES = [
+  'generalOrder',
+  'treatmentOrder',
+  'testOrder',
+  'laboTest',
+  'physiologyOrder',
+  'bacteriaOrder',
+  'instractionChargeOrder',
+  'surgeryOrder',
+  'otherOrder',
+  'radiologyOrder',
+  'baseChargeOrder',
+  'injectionOrder',
+] as const;
+
+const BODY_PART_CODE_PREFIX = '002';
+const COMMENT_CODE_PATTERN = /^(008[1-6]|8[1-6]|098|099|98|99)/;
+
+const toMedicalModV2Medication = (item: OrderBundleItem) => {
+  const code = item.code?.trim();
+  if (!code) return null;
+  if (code.startsWith(BODY_PART_CODE_PREFIX)) return null;
+  if (COMMENT_CODE_PATTERN.test(code)) return null;
+  return {
+    code,
+    name: item.name?.trim() || undefined,
+    number: item.quantity?.trim() || undefined,
+    unit: item.unit?.trim() || undefined,
+  };
+};
+
+const resolveMedicalModV2ClassFallback = (bundle: OrderBundle) => {
+  // `OrderBundleEditPanel` only assigns `classCode` for medOrder today.
+  // For other entities, keep medicalmodv2 export working by applying a sane default.
+  // NOTE: This is a pragmatic fallback for verification; refine mapping once ORCA class rules are fixed.
+  const entity = bundle.entity?.trim();
+  if (!entity) return null;
+  if (entity === 'generalOrder') return '01';
+  return null;
+};
+
+const toMedicalModV2Information = (bundle: OrderBundle): MedicalModV2Information | null => {
+  const medications = bundle.items
+    .map(toMedicalModV2Medication)
+    .filter((item): item is NonNullable<ReturnType<typeof toMedicalModV2Medication>> => Boolean(item));
+  if (medications.length === 0) return null;
+  const medicalClass = bundle.classCode?.trim() || resolveMedicalModV2ClassFallback(bundle);
+  if (!medicalClass) return null;
+  return {
+    medicalClass,
+    medicalClassName: bundle.className?.trim() || undefined,
+    medicalClassNumber: bundle.bundleNumber?.trim() || undefined,
+    medications,
+  };
+};
+
+const fetchMedicalModV2OrderBundles = async (patientId: string, from: string) => {
+  const results = await Promise.allSettled(
+    ORCA_SEND_ORDER_ENTITIES.map((entity) => fetchOrderBundles({ patientId, entity, from })),
+  );
+  const bundles: OrderBundle[] = [];
+  const errors: string[] = [];
+  results.forEach((result, index) => {
+    const entity = ORCA_SEND_ORDER_ENTITIES[index];
+    if (result.status === 'fulfilled') {
+      bundles.push(...(result.value.bundles ?? []).map((bundle) => ({ ...bundle, entity: bundle.entity ?? entity })));
+      return;
+    }
+    const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+    errors.push(`${entity}: ${reason}`);
+  });
+  return { bundles, errors };
 };
 
 const truncateText = (value: string, maxLength = 60) => {
@@ -483,7 +572,6 @@ const filterGroupedByStatusTab = (
 const buildStatusTabCounts = (grouped: ReturnType<typeof groupByStatus>): Record<StatusTab, number> => {
   const counts: Record<StatusTab, number> = {
     all: 0,
-    予約: 0,
     受付中: 0,
     診療中: 0,
     診察後: 0,
@@ -492,7 +580,6 @@ const buildStatusTabCounts = (grouped: ReturnType<typeof groupByStatus>): Record
   grouped.forEach(({ status, items }) => {
     const count = items.length;
     counts.all += count;
-    if (status === '予約') counts.予約 += count;
     if (status === '受付中') counts.受付中 += count;
     if (status === '診療中') counts.診療中 += count;
     if (status === '会計待ち') counts.診察後 += count;
@@ -533,6 +620,8 @@ export function ReceptionPage({
   const [selectedDate, setSelectedDate] = useState(() => {
     const fromDate = searchParams.get('date');
     if (fromDate) return fromDate;
+    const openedFromCharts = searchParams.get('from') === 'charts';
+    if (openedFromCharts) return todayString();
     const fromVisitDate = normalizeVisitDate(searchParams.get('visitDate') ?? undefined);
     return fromVisitDate ?? todayString();
   });
@@ -652,6 +741,8 @@ export function ReceptionPage({
     error?: string | null;
   }>({});
   const [retryingPatientId, setRetryingPatientId] = useState<string | null>(null);
+  const [claimSendingPatientId, setClaimSendingPatientId] = useState<string | null>(null);
+  const [dailyStateRevision, setDailyStateRevision] = useState(0);
   const [openCardActionMenuKey, setOpenCardActionMenuKey] = useState<string | null>(null);
 
   const debugUiEnabled =
@@ -914,6 +1005,7 @@ export function ReceptionPage({
         return null;
       }
     })();
+    const openedFromCharts = searchParams.get('from') === 'charts';
     const fromUrl = {
       kw: searchParams.get('kw') ?? undefined,
       dept: searchParams.get('dept') ?? undefined,
@@ -924,7 +1016,11 @@ export function ReceptionPage({
       statusTab: searchParams.get('statusTab') ?? undefined,
       visitDate: normalizeVisitDate(searchParams.get('visitDate') ?? undefined),
     };
-    const merged = { ...(stored ?? {}), ...Object.fromEntries(Object.entries(fromUrl).filter(([, v]) => v !== undefined)) };
+    const storedEffective = { ...(stored ?? {}) };
+    if (openedFromCharts && !fromUrl.date) {
+      delete storedEffective.date;
+    }
+    const merged = { ...storedEffective, ...Object.fromEntries(Object.entries(fromUrl).filter(([, v]) => v !== undefined)) };
     if (merged.kw !== undefined) {
       setKeyword(merged.kw);
       setSubmittedKeyword(merged.kw);
@@ -935,7 +1031,7 @@ export function ReceptionPage({
     if (merged.sort !== undefined && isSortKey(merged.sort)) setSortKey(merged.sort);
     if (merged.date !== undefined) {
       setSelectedDate(merged.date);
-    } else if (typeof merged.visitDate === 'string' && merged.visitDate) {
+    } else if (!openedFromCharts && typeof merged.visitDate === 'string' && merged.visitDate) {
       setSelectedDate(merged.visitDate);
     }
     if (isStatusTab(merged.statusTab)) setActiveStatusTab(merged.statusTab);
@@ -1266,9 +1362,13 @@ export function ReceptionPage({
         incomingEntries: normalizedLiveEntries,
         scope: storageScope,
       }),
-    [normalizedLiveEntries, selectedDate, storageScope],
+    [dailyStateRevision, normalizedLiveEntries, selectedDate, storageScope],
   );
   const appointmentEntries = dailyEntriesState.entries;
+  const visibleAppointmentEntries = useMemo(
+    () => appointmentEntries.filter((entry) => entry.status !== '予約'),
+    [appointmentEntries],
+  );
   const snapshotDateOptions = useMemo(() => {
     const fromState = dailyEntriesState.availableDates ?? [];
     if (fromState.length > 0) return fromState.slice(0, 30);
@@ -1359,12 +1459,12 @@ export function ReceptionPage({
     };
   }, []);
   const uniqueDepartments = useMemo(
-    () => Array.from(new Set(appointmentEntries.map((entry) => entry.department).filter(Boolean))) as string[],
-    [appointmentEntries],
+    () => Array.from(new Set(visibleAppointmentEntries.map((entry) => entry.department).filter(Boolean))) as string[],
+    [visibleAppointmentEntries],
   );
   const uniquePhysicians = useMemo(
-    () => Array.from(new Set(appointmentEntries.map((entry) => entry.physician).filter(Boolean))) as string[],
-    [appointmentEntries],
+    () => Array.from(new Set(visibleAppointmentEntries.map((entry) => entry.physician).filter(Boolean))) as string[],
+    [visibleAppointmentEntries],
   );
   const departmentOptions = useMemo(() => {
     const byCode = new Map<string, string>();
@@ -1411,8 +1511,8 @@ export function ReceptionPage({
     }
   }, [acceptDepartmentSelection, departmentOptions]);
   const filteredEntries = useMemo(
-    () => filterEntries(appointmentEntries, keyword, departmentFilter, physicianFilter, paymentMode),
-    [appointmentEntries, departmentFilter, keyword, paymentMode, physicianFilter],
+    () => filterEntries(visibleAppointmentEntries, keyword, departmentFilter, physicianFilter, paymentMode),
+    [departmentFilter, keyword, paymentMode, physicianFilter, visibleAppointmentEntries],
   );
   const sortedEntries = useMemo(() => sortEntries(filteredEntries, sortKey), [filteredEntries, sortKey]);
   const grouped = useMemo(() => groupByStatus(sortedEntries), [sortedEntries]);
@@ -1422,13 +1522,13 @@ export function ReceptionPage({
     [activeStatusTab, grouped],
   );
   useEffect(() => {
-    if (!selectedDate || appointmentEntries.length === 0) return;
+    if (!selectedDate || visibleAppointmentEntries.length === 0) return;
     saveReceptionEntriesForDate({
       date: selectedDate,
-      entries: appointmentEntries,
+      entries: visibleAppointmentEntries,
       scope: storageScope,
     });
-  }, [appointmentEntries, selectedDate, storageScope]);
+  }, [selectedDate, storageScope, visibleAppointmentEntries]);
   const tableColCount = claimOutpatientEnabled ? 10 : 9;
 
   const claimBundles = claimOutpatientEnabled ? claimQuery.data?.bundles ?? [] : [];
@@ -1437,6 +1537,12 @@ export function ReceptionPage({
   useEffect(() => {
     setClaimSendCacheUpdatedAt(Date.now());
   }, [broadcast?.updatedAt, claimQuery.data?.runId]);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => setClaimSendCacheUpdatedAt(Date.now());
+    window.addEventListener('orca-claim-send-cache-update', handler as EventListener);
+    return () => window.removeEventListener('orca-claim-send-cache-update', handler as EventListener);
+  }, []);
   const claimSendCache = useMemo(
     () => loadOrcaClaimSendCache({ facilityId: session.facilityId, userId: session.userId }) ?? {},
     [claimSendCacheUpdatedAt, session.facilityId, session.userId],
@@ -1824,17 +1930,19 @@ export function ReceptionPage({
   const selectionSummaryText = useMemo(() => {
     if (!selectedEntry) return '選択中の患者はありません。';
     const queue = resolveQueueStatus(selectedQueue);
+    const statusLabel = SECTION_LABEL[selectedEntry.status] ?? selectedEntry.status ?? '-';
     return [
       `選択中: ${selectedEntry.name ?? '未登録'}`,
       `患者ID ${selectedEntry.patientId ?? '未登録'}`,
-      `状態 ${selectedEntry.status ?? '-'}`,
+      `状態 ${statusLabel}`,
       `ORCAキュー ${queue.label}${queue.detail ? ` ${queue.detail}` : ''}`,
     ].join('、');
   }, [selectedEntry, selectedQueue]);
   const selectionSummaryShort = useMemo(() => {
     if (!selectedEntry) return '一覧の行を選択してください。';
+    const statusLabel = SECTION_LABEL[selectedEntry.status] ?? selectedEntry.status ?? '—';
     const parts = [
-      selectedEntry.status ?? '—',
+      statusLabel,
       selectedEntry.appointmentTime ? `来院 ${selectedEntry.appointmentTime}` : undefined,
       selectedEntry.department ?? undefined,
     ].filter((value): value is string => Boolean(value));
@@ -1854,12 +1962,12 @@ export function ReceptionPage({
   }, [selectedSavedView]);
 
   const unlinkedCounts = useMemo(() => {
-    return countAppointmentDataIntegrity(appointmentEntries);
-  }, [appointmentEntries]);
+    return countAppointmentDataIntegrity(visibleAppointmentEntries);
+  }, [visibleAppointmentEntries]);
 
   const unlinkedWarning = useMemo(() => {
     const banner = getAppointmentDataBanner({
-      entries: appointmentEntries,
+      entries: visibleAppointmentEntries,
       isLoading: appointmentQuery.isLoading,
       isError: appointmentQuery.isError,
       error: appointmentQuery.error,
@@ -1877,12 +1985,12 @@ export function ReceptionPage({
     appointmentQuery.error,
     appointmentQuery.isError,
     appointmentQuery.isLoading,
-    appointmentEntries,
     mergedMeta.runId,
     selectedDate,
     unlinkedCounts.missingAppointmentId,
     unlinkedCounts.missingPatientId,
     unlinkedCounts.missingReceptionId,
+    visibleAppointmentEntries,
   ]);
 
   useEffect(() => {
@@ -2946,6 +3054,260 @@ export function ReceptionPage({
     ],
   );
 
+  const handleSendBilling = useCallback(
+    async (entry: ReceptionEntry) => {
+      const patientId = entry.patientId?.trim() || '';
+      if (!patientId) {
+        enqueue({
+          tone: 'warning',
+          message: '患者IDが未登録のため会計送信できません。',
+          detail: '患者IDを確認してください。',
+        });
+        return;
+      }
+
+      const baseRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
+      const calculationDate = normalizeVisitDate(entry.visitDate) ?? normalizeVisitDate(selectedDate) ?? todayString();
+      if (!calculationDate) {
+        enqueue({
+          tone: 'warning',
+          message: '日付が未確定のため会計送信できません。',
+          detail: `selectedDate=${selectedDate || '—'} / entry.visitDate=${entry.visitDate || '—'}`,
+        });
+        return;
+      }
+
+      const fetchVisitContextCodes = async (): Promise<{ departmentCode?: string; physicianCode?: string }> => {
+        try {
+          const response = await httpFetch('/orca/visits/list', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ visitDate: calculationDate, requestNumber: '01' }),
+          });
+          if (!response.ok) return {};
+          const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+          const visits = Array.isArray(payload.visits) ? payload.visits : [];
+          const matched = visits.find((candidate) => {
+            if (!candidate || typeof candidate !== 'object') return false;
+            const rawCandidateId =
+              (candidate as { patientId?: string }).patientId ??
+              ((candidate as { patient?: { patientId?: string } }).patient?.patientId ?? undefined);
+            return typeof rawCandidateId === 'string' && rawCandidateId.trim() === patientId;
+          });
+          if (!matched || typeof matched !== 'object') return {};
+          const rawDepartment =
+            (matched as { departmentCode?: unknown }).departmentCode ??
+            (matched as { Department_Code?: unknown }).Department_Code ??
+            (matched as { department?: unknown }).department;
+          const rawPhysician =
+            (matched as { physicianCode?: unknown }).physicianCode ??
+            (matched as { Physician_Code?: unknown }).Physician_Code ??
+            (matched as { physician?: unknown }).physician;
+          const departmentCode = resolveDepartmentCode(typeof rawDepartment === 'string' ? rawDepartment : undefined);
+          const physicianCode = normalizePhysicianCode(typeof rawPhysician === 'string' ? rawPhysician : undefined);
+          return { departmentCode, physicianCode };
+        } catch {
+          return {};
+        }
+      };
+
+      setClaimSendingPatientId(patientId);
+      const startedAt = performance.now();
+      try {
+        let departmentCode =
+          resolveDepartmentCode(entry.department) ??
+          (entry.department ? departmentCodeMap.get(entry.department) : undefined);
+        let physicianCode = normalizePhysicianCode(entry.physician);
+
+        if (!departmentCode) {
+          const resolvedCodes = await fetchVisitContextCodes();
+          departmentCode = resolvedCodes.departmentCode;
+          physicianCode = physicianCode ?? resolvedCodes.physicianCode;
+        }
+
+        if (!departmentCode) {
+          enqueue({
+            tone: 'warning',
+            message: '診療科コードが不明のため会計送信できません。',
+            detail: `department=${entry.department ?? '—'} / visitDate=${calculationDate}`,
+          });
+          logAuditEvent({
+            runId: baseRunId,
+            source: 'reception/claim-send',
+            patientId,
+            payload: {
+              action: 'RECEPTION_CLAIM_SEND',
+              result: 'blocked',
+              blockedReasons: ['missing_department_code'],
+              visitDate: calculationDate,
+              department: entry.department,
+              physician: entry.physician,
+            },
+          });
+          return;
+        }
+
+        const orderBundleResult = await fetchMedicalModV2OrderBundles(patientId, calculationDate);
+        const medicalInformation = orderBundleResult.bundles
+          .map(toMedicalModV2Information)
+          .filter((info): info is MedicalModV2Information => Boolean(info));
+        const requestXml = buildMedicalModV2RequestXml({
+          patientId,
+          performDate: calculationDate,
+          departmentCode,
+          physicianCode,
+          medicalInformation,
+        });
+        const result = await postOrcaMedicalModV2Xml(requestXml, { classCode: '01' });
+        const idempotentDuplicate = isIdempotentDuplicate(result.apiResult, result.apiResultMessage);
+        const apiResultOk = isApiResultOk(result.apiResult) || idempotentDuplicate;
+        const hasMissingTags = Boolean(result.missingTags?.length);
+        const allowMissingTags = idempotentDuplicate;
+        const outcome =
+          result.ok && apiResultOk && (!hasMissingTags || allowMissingTags)
+            ? ('success' as const)
+            : result.ok
+              ? ('warning' as const)
+              : ('error' as const);
+        const durationMs = Math.round(performance.now() - startedAt);
+        const nextRunId = result.runId ?? baseRunId;
+        const nextTraceId = result.traceId ?? undefined;
+        const detailParts = [
+          `runId=${nextRunId}`,
+          `traceId=${nextTraceId ?? 'unknown'}`,
+          result.apiResult ? `Api_Result=${result.apiResult}` : undefined,
+          result.apiResultMessage ? `Api_Result_Message=${result.apiResultMessage}` : undefined,
+          result.invoiceNumber ? `Invoice_Number=${result.invoiceNumber}` : undefined,
+          result.dataId ? `Data_Id=${result.dataId}` : undefined,
+          `duration=${durationMs}ms`,
+        ].filter((part): part is string => Boolean(part));
+        const detail = detailParts.join(' / ');
+
+        enqueue({
+          tone: outcome === 'success' ? 'success' : outcome === 'warning' ? 'warning' : 'error',
+          message: outcome === 'success' ? '会計送信を完了' : outcome === 'warning' ? '会計送信に警告' : '会計送信に失敗',
+          detail,
+        });
+
+        logUiState({
+          action: 'claim_send',
+          screen: 'reception/claim-send',
+          controlId: 'claim-send-card',
+          runId: nextRunId,
+          cacheHit: mergedMeta.cacheHit,
+          missingMaster: mergedMeta.missingMaster,
+          dataSourceTransition: mergedMeta.dataSourceTransition,
+          patientId,
+          details: {
+            visitDate: calculationDate,
+            departmentCode,
+            physicianCode,
+            httpStatus: result.status,
+            apiResult: result.apiResult,
+            apiResultMessage: result.apiResultMessage,
+            invoiceNumber: result.invoiceNumber,
+            dataId: result.dataId,
+            missingTags: result.missingTags,
+            orderBundles: {
+              entities: ORCA_SEND_ORDER_ENTITIES.length,
+              bundles: orderBundleResult.bundles.length,
+              medicalInformation: medicalInformation.length,
+              fetchErrors: orderBundleResult.errors.length > 0 ? orderBundleResult.errors : undefined,
+            },
+          },
+        });
+        logAuditEvent({
+          runId: nextRunId,
+          source: 'reception/claim-send',
+          patientId,
+          payload: {
+            action: 'RECEPTION_CLAIM_SEND',
+            result: outcome,
+            visitDate: calculationDate,
+            departmentCode,
+            physicianCode,
+            httpStatus: result.status,
+            apiResult: result.apiResult,
+            apiResultMessage: result.apiResultMessage,
+            invoiceNumber: result.invoiceNumber,
+            dataId: result.dataId,
+            missingTags: result.missingTags,
+            orderBundles: {
+              entities: ORCA_SEND_ORDER_ENTITIES.length,
+              bundles: orderBundleResult.bundles.length,
+              medicalInformation: medicalInformation.length,
+              fetchErrors: orderBundleResult.errors.length > 0 ? orderBundleResult.errors : undefined,
+            },
+          },
+        });
+
+        saveOrcaClaimSendCache(
+          {
+            patientId,
+            appointmentId: entry.appointmentId,
+            invoiceNumber: result.invoiceNumber,
+            dataId: result.dataId,
+            runId: nextRunId,
+            traceId: nextTraceId,
+            apiResult: result.apiResult,
+            sendStatus: outcome === 'success' ? 'success' : 'error',
+            errorMessage: outcome === 'success' ? undefined : detail,
+          },
+          storageScope,
+        );
+
+        if (outcome === 'success') {
+          upsertReceptionStatusOverride({
+            date: calculationDate,
+            patientId,
+            status: '会計済み',
+            source: 'manual',
+            runId: nextRunId,
+            scope: storageScope,
+            fallbackEntry: {
+              ...entry,
+              patientId,
+              visitDate: calculationDate,
+            },
+          });
+          setDailyStateRevision((prev) => prev + 1);
+        }
+
+        void Promise.resolve(refetchAppointment()).catch(() => undefined);
+        void Promise.resolve(orcaQueueQuery.refetch()).catch(() => undefined);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        enqueue({ tone: 'error', message: '会計送信に失敗しました', detail });
+        logAuditEvent({
+          runId: baseRunId,
+          source: 'reception/claim-send',
+          patientId,
+          payload: {
+            action: 'RECEPTION_CLAIM_SEND',
+            result: 'error',
+            error: detail,
+          },
+        });
+      } finally {
+        setClaimSendingPatientId(null);
+      }
+    },
+    [
+      departmentCodeMap,
+      enqueue,
+      flags.runId,
+      initialRunId,
+      mergedMeta.cacheHit,
+      mergedMeta.dataSourceTransition,
+      mergedMeta.missingMaster,
+      mergedMeta.runId,
+      orcaQueueQuery,
+      refetchAppointment,
+      selectedDate,
+      storageScope,
+    ],
+  );
+
   const handleOpenCharts = useCallback(
     (entry: ReceptionEntry, urlOverride?: string) => {
       const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
@@ -3828,8 +4190,7 @@ export function ReceptionPage({
                   disabled={
                     isAcceptSubmitting ||
                     !selectedEntry?.patientId ||
-                    !selectedEntry?.receptionId ||
-                    selectedEntry?.status === '予約'
+                    !selectedEntry?.receptionId
                   }
                   title={
                     isAcceptSubmitting
@@ -3838,11 +4199,9 @@ export function ReceptionPage({
                         ? '患者を選択してください'
                         : !selectedEntry.patientId
                           ? '患者IDが未登録のため取消できません'
-                          : selectedEntry.status === '予約'
-                            ? '予約は受付取消できません'
-                            : selectedEntry.receptionId
-                              ? '受付取消（一覧選択 → 取消）'
-                              : '受付IDが未登録のため取消できません'
+                          : selectedEntry.receptionId
+                            ? '受付取消（一覧選択 → 取消）'
+                            : '受付IDが未登録のため取消できません'
                   }
                   data-test-id="reception-cancel-selected"
                 >
@@ -4081,7 +4440,7 @@ export function ReceptionPage({
                                 {cached?.invoiceNumber ? <small>invoice: {cached.invoiceNumber}</small> : null}
                                 {cached?.dataId ? <small>data: {cached.dataId}</small> : null}
                                 {cached?.sendStatus ? (
-                                  <small>ORCA送信: {cached.sendStatus === 'success' ? '成功' : '失敗'}</small>
+                                  <small>会計送信: {cached.sendStatus === 'success' ? '成功' : '失敗'}</small>
                                 ) : null}
                                 <span className={`reception-queue reception-queue--${activeQueue.tone}`}>{activeQueue.label}</span>
                                 {activeQueue.detail ? <small>{truncateText(activeQueue.detail, 44)}</small> : null}
@@ -4096,9 +4455,31 @@ export function ReceptionPage({
                                 </div>
                               ) : null}
                               <div className="reception-card__actions">
+                                {status === '会計待ち' ? (
+                                  <button
+                                    type="button"
+                                    className="reception-card__action reception-card__action--primary"
+                                    aria-label="会計送信（カード）"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setOpenCardActionMenuKey(null);
+                                      void handleSendBilling(entry);
+                                    }}
+                                    disabled={!entry.patientId || claimSendingPatientId === entry.patientId}
+                                    title={
+                                      !entry.patientId
+                                        ? '患者IDが未登録のため会計送信できません'
+                                        : claimSendingPatientId === entry.patientId
+                                          ? '送信中です'
+                                          : 'ORCAへ会計送信します'
+                                    }
+                                  >
+                                    {claimSendingPatientId === entry.patientId ? '送信中…' : '会計送信'}
+                                  </button>
+                                ) : null}
                                 <button
                                   type="button"
-                                  className="reception-card__action reception-card__action--primary"
+                                  className={`reception-card__action${status === '会計待ち' ? '' : ' reception-card__action--primary'}`}
                                   aria-label="カルテを開く（カード）"
                                   onClick={(event) => {
                                     event.stopPropagation();
@@ -4384,7 +4765,7 @@ export function ReceptionPage({
                                         {cached.dataId && <small className="reception-table__sub">D: {cached.dataId}</small>}
                                         {cached.sendStatus && (
                                           <small className="reception-table__sub">
-                                            送信: {cached.sendStatus === 'success' ? '成功' : '失敗'}
+                                            会計送信: {cached.sendStatus === 'success' ? '成功' : '失敗'}
                                           </small>
                                         )}
                                       </>

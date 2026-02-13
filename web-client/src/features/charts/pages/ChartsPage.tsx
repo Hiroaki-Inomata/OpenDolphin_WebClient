@@ -980,15 +980,14 @@ function ChartsContent() {
   const receptionCarryover = useMemo(() => parseReceptionCarryoverParams(location.search), [location.search]);
   const receptionUrl = useMemo(() => {
     const params = new URLSearchParams();
+    params.set('from', 'charts');
     if (receptionCarryover.kw) params.set('kw', receptionCarryover.kw);
     if (receptionCarryover.dept) params.set('dept', receptionCarryover.dept);
     if (receptionCarryover.phys) params.set('phys', receptionCarryover.phys);
     if (receptionCarryover.pay) params.set('pay', receptionCarryover.pay);
     if (receptionCarryover.sort) params.set('sort', receptionCarryover.sort);
-    if (receptionCarryover.date) {
-      params.set('date', receptionCarryover.date);
-    } else if (encounterContext.visitDate) {
-      params.set('date', encounterContext.visitDate);
+    if (encounterContext.visitDate) {
+      // Reception は既定で「当日」を表示し、カルテ日(visitDate)はヒントとして渡す。
       params.set('visitDate', encounterContext.visitDate);
     }
     const query = params.toString();
@@ -2806,6 +2805,26 @@ function ChartsContent() {
       setIsManualRefreshing(false);
     }
   }, [appointmentQuery, claimQuery, orcaSummaryQuery]);
+
+  useEffect(() => {
+    // カルテを開いた時点で「診察中」扱いに寄せる（受付ボードの運用優先）。
+    if (!patientId || !actionVisitDate) return;
+    upsertReceptionStatusOverride({
+      date: actionVisitDate,
+      patientId,
+      status: '診療中',
+      source: 'charts_open',
+      runId: resolvedRunId ?? flags.runId,
+      scope: storageScope,
+      fallbackEntry: selectedEntry
+        ? {
+            ...selectedEntry,
+            patientId,
+            visitDate: actionVisitDate,
+          }
+        : undefined,
+    });
+  }, [actionVisitDate, flags.runId, patientId, resolvedRunId, selectedEntry, storageScope]);
 
   const handleAfterStart = useCallback(async () => {
     if (patientId && actionVisitDate) {

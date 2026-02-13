@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 
 import { ReceptionPage } from '../pages/ReceptionPage';
 import type { AppointmentPayload, ClaimOutpatientPayload, ReceptionEntry } from '../../outpatient/types';
+import { postOrcaMedicalModV2Xml } from '../../charts/orcaClaimApi';
 
 const baseClaimData: ClaimOutpatientPayload = {
   runId: 'RUN-CLAIM',
@@ -129,6 +130,29 @@ vi.mock('../../outpatient/savedViews', () => ({
 
 vi.mock('../../charts/orcaClaimSendCache', () => ({
   loadOrcaClaimSendCache: () => mockClaimSendCache,
+  saveOrcaClaimSendCache: (entry: { patientId: string }) => {
+    mockClaimSendCache = { ...mockClaimSendCache, [entry.patientId]: entry as any };
+  },
+}));
+
+vi.mock('../../charts/orcaClaimApi', () => ({
+  buildMedicalModV2RequestXml: vi.fn().mockReturnValue('<data></data>'),
+  postOrcaMedicalModV2Xml: vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    rawXml: '<xml></xml>',
+    apiResult: '00',
+    apiResultMessage: 'OK',
+    invoiceNumber: 'INV-001',
+    dataId: 'DATA-001',
+    missingTags: [],
+    runId: 'RUN-ORCA',
+    traceId: 'TRACE-ORCA',
+  }),
+}));
+
+vi.mock('../../charts/orderBundleApi', () => ({
+  fetchOrderBundles: vi.fn(async () => ({ ok: true, bundles: [], recordsReturned: 0 })),
 }));
 
 vi.mock('../exceptionLogic', () => ({
@@ -230,7 +254,7 @@ const renderReceptionPage = () => {
       <ReceptionPage runId="RUN-INIT" />
     </MemoryRouter>,
   );
-  screen.getByRole('heading', { name: '受付中' });
+  screen.getByRole('heading', { name: '診察待ち' });
 };
 
 beforeEach(() => {
@@ -354,12 +378,12 @@ describe('ReceptionPage accept UX', () => {
         id: 'row-1',
         patientId: 'P-100',
         appointmentId: 'A-100',
-        name: '予約患者',
+        name: '受付IDなし患者',
         appointmentTime: '09:00',
         department: '内科',
-        status: '予約',
+        status: '受付中',
         insurance: '保険',
-        source: 'reservations',
+        source: 'visits',
       },
       {
         id: 'row-2',
@@ -526,10 +550,22 @@ describe('ReceptionPage list and side pane guidance', () => {
 });
 
 describe('ReceptionPage status/date/card action UX', () => {
-  it('defaults date filter to visitDate from URL', () => {
+  it('defaults date filter to visitDate from URL (non-charts navigation)', () => {
     mockSearchParams = new URLSearchParams('visitDate=2026-02-03');
     renderReceptionPage();
     expect(screen.getByText('日付: 2026-02-03')).toBeInTheDocument();
+  });
+
+  it('defaults date filter to today when opened from charts (visitDate is only a hint)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-02-13T00:00:00Z'));
+    try {
+      mockSearchParams = new URLSearchParams('from=charts&visitDate=2026-02-03');
+      renderReceptionPage();
+      expect(screen.getByText('日付: 2026-02-13')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows open charts button always and exposes other card actions via submenu', async () => {
@@ -566,7 +602,7 @@ describe('ReceptionPage status/date/card action UX', () => {
     });
   });
 
-  it('moves 会計待ち entries under 診察後 tab filtering', async () => {
+  it('moves 会計待ち entries under 診察終了 tab filtering', async () => {
     mockAppointmentData.entries = [
       {
         id: 'row-tab-1',
@@ -596,9 +632,40 @@ describe('ReceptionPage status/date/card action UX', () => {
     renderReceptionPage();
     const board = screen.getByRole('region', { name: 'ステータス別患者一覧' });
 
-    await user.click(screen.getByRole('tab', { name: /診察後/ }));
+    await user.click(screen.getByRole('tab', { name: /診察終了/ }));
 
     expect(within(board).getByText('診察後患者')).toBeInTheDocument();
     expect(within(board).queryByText('受付患者')).toBeNull();
+  });
+
+  it('shows 会計送信 button on 診察終了 cards and moves them to 会計済み on success', async () => {
+    mockAppointmentData.entries = [
+      {
+        id: 'row-claim-1',
+        patientId: 'P-501',
+        receptionId: 'R-501',
+        name: '診察終了患者',
+        appointmentTime: '11:00',
+        department: '01 内科',
+        status: '会計待ち',
+        insurance: '保険',
+        source: 'visits',
+      },
+    ];
+
+    const user = userEvent.setup();
+    renderReceptionPage();
+
+    const board = screen.getByRole('region', { name: 'ステータス別患者一覧' });
+    const sendButton = within(board).getByRole('button', { name: '会計送信（カード）' });
+    await user.click(sendButton);
+
+    await waitFor(() => expect(vi.mocked(postOrcaMedicalModV2Xml)).toHaveBeenCalled());
+
+    const completedColumn = screen.getByRole('region', { name: /会計済み/ });
+    const toggle = within(completedColumn).getByRole('button', { name: '開く' });
+    await user.click(toggle);
+    const completedList = within(completedColumn).getByRole('list', { name: '会計済みの患者一覧' });
+    expect(within(completedList).getByText('診察終了患者')).toBeInTheDocument();
   });
 });

@@ -24,6 +24,7 @@ RUN_ID=20260120T091753Z（作成日: 2026-01-20）
   - 「診療終了」: `/api21/medicalmodv23` を後続で実行（結果は参考扱い）。必須項目（Patient_ID/Department_Code/日付）が欠けると警告を出し送信スキップ。  
   - 送信失敗時はバナー・監査ログ・再送キュー（ローカル）に反映。  
   - 証跡: `artifacts/webclient/orca-e2e/20260121/claim-send/`。  
+- **Reception 側の会計送信**（RUN_ID=20260213T064029Z）: 診察終了（会計待ち）カードに個別の「会計送信」ボタンを追加し、事務側で ORCA `medicalmodv2` を送信して会計済み列へ移動できるようにした。  
 - **オーダー編集**: `web-client/src/features/charts/OrderBundleEditPanel.tsx` + `/orca/order/bundles`（サーバー内製）でローカルカルテのオーダーCRUD。ORCA マスタ参照は実装済みだが、ORCA送信との業務連動は別途整理が必要。  
 - **ギャップ**: Trial での Data_Id 実取得は未確認。再送キューはローカル管理のため、実 ORCA との突合せは運用検証が必要。
 
