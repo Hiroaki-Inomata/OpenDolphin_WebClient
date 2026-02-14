@@ -20,6 +20,13 @@ export type OrcaClaimSendResult = {
   informationTime?: string;
   invoiceNumber?: string;
   dataId?: string;
+  medicalWarnings?: Array<{
+    medicalWarning?: string;
+    medicalWarningMessage?: string;
+    medicalWarningPosition?: number;
+    medicalWarningItemPosition?: number;
+    medicalWarningCode?: string;
+  }>;
   missingTags?: string[];
   runId?: string;
   traceId?: string;
@@ -33,6 +40,7 @@ export type MedicalModV2Medication = {
   name?: string;
   number?: string;
   unit?: string;
+  genericFlg?: 'yes' | 'no';
 };
 
 export type MedicalModV2Information = {
@@ -66,7 +74,12 @@ export const buildMedicalModV2RequestXml = (params: {
     ],
   };
   const medicalInformation = [baseMedicalInfo, ...(params.medicalInformation ?? [])].reduce<
-    Array<{ medicalClass: string; medicalClassName?: string; medicalClassNumber: string; medications: Array<{ code: string; name?: string; number: string }> }>
+    Array<{
+      medicalClass: string;
+      medicalClassName?: string;
+      medicalClassNumber: string;
+      medications: Array<{ code: string; name?: string; number: string; genericFlg?: 'yes' | 'no' }>;
+    }>
   >((acc, info) => {
     const medicalClass = info.medicalClass?.trim();
     const medications = (info.medications ?? [])
@@ -74,6 +87,7 @@ export const buildMedicalModV2RequestXml = (params: {
         code: medication.code.trim(),
         name: medication.name?.trim() || undefined,
         number: medication.number?.trim() || '',
+        genericFlg: medication.genericFlg,
       }))
       .filter((medication) => medication.code.length > 0);
     if (!medicalClass || medications.length === 0) return acc;
@@ -109,6 +123,9 @@ export const buildMedicalModV2RequestXml = (params: {
         `              <Medication_Code type="string">${escapeXml(medication.code)}</Medication_Code>`,
         medication.name ? `              <Medication_Name type="string">${escapeXml(medication.name)}</Medication_Name>` : undefined,
         `              <Medication_Number type="string">${escapeXml(medication.number)}</Medication_Number>`,
+        medication.genericFlg
+          ? `              <Medication_Generic_Flg type="string">${escapeXml(medication.genericFlg)}</Medication_Generic_Flg>`
+          : undefined,
         '            </Medication_info_child>',
       ]),
       '          </Medication_info>',
@@ -143,6 +160,30 @@ export async function postOrcaMedicalModV2Xml(
   const meta = extractOrcaXmlMeta(doc);
   const invoiceNumber = readXmlText(doc, 'Invoice_Number');
   const dataId = readXmlText(doc, 'Data_Id') ?? readXmlText(doc, 'DataID') ?? readXmlText(doc, 'Data_ID');
+  const parsePosition = (value?: string) => {
+    if (!value) return undefined;
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? num : undefined;
+  };
+  const medicalWarnings = doc
+    ? Array.from(doc.querySelectorAll('Medical_Warning_Info_child'))
+        .map((node) => ({
+          medicalWarning: readXmlText(node, 'Medical_Warning'),
+          medicalWarningMessage: readXmlText(node, 'Medical_Warning_Message'),
+          medicalWarningPosition: parsePosition(readXmlText(node, 'Medical_Warning_Position')),
+          medicalWarningItemPosition: parsePosition(readXmlText(node, 'Medical_Warning_Item_Position')),
+          medicalWarningCode: readXmlText(node, 'Medical_Warning_Code'),
+        }))
+        .filter((entry) =>
+          Boolean(
+            entry.medicalWarning ||
+              entry.medicalWarningMessage ||
+              entry.medicalWarningPosition ||
+              entry.medicalWarningItemPosition ||
+              entry.medicalWarningCode,
+          ),
+        )
+    : undefined;
   const requiredCheck = checkRequiredTags(doc, ['Api_Result', 'Invoice_Number', 'Data_Id']);
   return {
     ok: response.ok && !error,
@@ -154,6 +195,7 @@ export async function postOrcaMedicalModV2Xml(
     informationTime: meta.informationTime,
     invoiceNumber,
     dataId,
+    medicalWarnings,
     missingTags: requiredCheck.missingTags,
     runId: getObservabilityMeta().runId ?? runId,
     traceId: getObservabilityMeta().traceId,

@@ -25,11 +25,12 @@ import { useOptionalSession } from '../../AppRouter';
 import { buildFacilityPath } from '../../routes/facilityRoutes';
 import { buildMedicalModV23RequestXml, postOrcaMedicalModV23Xml } from './orcaMedicalModApi';
 import { buildMedicalModV2RequestXml, postOrcaMedicalModV2Xml, type MedicalModV2Information } from './orcaClaimApi';
-import { getOrcaClaimSendEntry, saveOrcaClaimSendCache } from './orcaClaimSendCache';
+import { getOrcaClaimSendEntry, saveOrcaClaimSendCache, type OrcaMedicalWarningUi } from './orcaClaimSendCache';
 import { ReportPrintDialog } from './print/ReportPrintDialog';
 import { useOrcaReportPrint } from './print/useOrcaReportPrint';
 import { MISSING_MASTER_RECOVERY_NEXT_STEPS } from '../shared/missingMasterRecovery';
 import { fetchOrderBundles, type OrderBundle, type OrderBundleItem } from './orderBundleApi';
+import { parseOrcaOrderItemMemo } from './orcaOrderItemMeta';
 
 type ChartAction = 'start' | 'pause' | 'finish' | 'send' | 'draft' | 'cancel' | 'print';
 
@@ -93,18 +94,23 @@ const ORCA_SEND_ORDER_ENTITIES = [
   'radiologyOrder',
   'baseChargeOrder',
   'injectionOrder',
+  'medOrder',
 ] as const;
 
 const COMMENT_CODE_PATTERN = /^(008[1-6]|8[1-6]|098|099|98|99)/;
+const DRUG_CODE_PATTERN = /^6\d{8}$/;
 
 const toMedicalModV2Medication = (item: OrderBundleItem) => {
   const code = item.code?.trim();
   if (!code) return null;
+  const { meta } = parseOrcaOrderItemMemo(item.memo);
+  const genericFlg = DRUG_CODE_PATTERN.test(code) ? meta.genericFlg : undefined;
   return {
     code,
     name: item.name?.trim() || undefined,
     number: item.quantity?.trim() || undefined,
     unit: item.unit?.trim() || undefined,
+    genericFlg,
   };
 };
 
@@ -114,46 +120,108 @@ const resolveMedicalModV2ClassFallback = (bundle: OrderBundle) => {
   // NOTE: This is a pragmatic fallback for verification; refine mapping once ORCA class rules are fixed.
   const entity = bundle.entity?.trim();
   if (!entity) return null;
-  if (entity === 'generalOrder') return '01';
-  return null;
+  switch (entity) {
+    case 'generalOrder':
+      return '01';
+    case 'treatmentOrder':
+      return '400';
+    case 'surgeryOrder':
+      return '500';
+    case 'radiologyOrder':
+      return '700';
+    case 'testOrder':
+    case 'laboTest':
+    case 'physiologyOrder':
+    case 'bacteriaOrder':
+      return '600';
+    case 'otherOrder':
+      return '800';
+    case 'instractionChargeOrder':
+      return '130';
+    case 'baseChargeOrder':
+      return '110';
+    case 'injectionOrder':
+      return '310';
+    default:
+      return null;
+  }
 };
 
-const toMedicalModV2Information = (bundle: OrderBundle): MedicalModV2Information | null => {
-  const medications = bundle.items
-    .map(toMedicalModV2Medication)
-    .filter((item): item is NonNullable<ReturnType<typeof toMedicalModV2Medication>> => Boolean(item));
-  if (medications.length === 0) return null;
+type MedicalModV2MedicationRow = NonNullable<ReturnType<typeof toMedicalModV2Medication>>;
+
+type MedicalModV2RowSource =
+  | { kind: 'bundle_item'; itemIndex: number }
+  | { kind: 'usage' };
+
+type MedicalModV2InformationSource = {
+  entity?: string;
+  documentId?: number;
+  moduleId?: number;
+  bundleName?: string;
+  medicalClass: string;
+  medicalClassName?: string;
+  medicalClassNumber?: string;
+  rows: Array<{ medication: MedicalModV2MedicationRow; source: MedicalModV2RowSource }>;
+};
+
+const toMedicalModV2InformationWithSource = (
+  bundle: OrderBundle,
+): { info: MedicalModV2Information; source: MedicalModV2InformationSource } | null => {
+  const bundleRows = (bundle.items ?? [])
+    .map((item, itemIndex) => {
+      const medication = toMedicalModV2Medication(item);
+      if (!medication) return null;
+      return {
+        medication,
+        source: { kind: 'bundle_item', itemIndex } as const,
+      };
+    })
+    .filter((row): row is { medication: MedicalModV2MedicationRow; source: { kind: 'bundle_item'; itemIndex: number } } =>
+      Boolean(row),
+    );
+  if (bundleRows.length === 0) return null;
+
   const medicalClass = bundle.classCode?.trim() || resolveMedicalModV2ClassFallback(bundle);
   if (!medicalClass) return null;
 
   // For prescriptions (medOrder), insert usage as its own Medication_info row.
   const isPrescription = (bundle.entity?.trim() ?? '') === 'medOrder';
   const usageCodeCandidate =
-    bundle.adminMemo?.trim() ||
-    (bundle.admin?.trim() ? bundle.admin.trim().split(/\s+/)[0] : '');
+    bundle.adminMemo?.trim() || (bundle.admin?.trim() ? bundle.admin.trim().split(/\s+/)[0] : '');
   const usageCode = isPrescription && /^\d{4,}$/.test(usageCodeCandidate) ? usageCodeCandidate : '';
-  const hasUsageAlready = Boolean(usageCode && medications.some((item) => item.code.trim() === usageCode));
+  const hasUsageAlready = Boolean(usageCode && bundleRows.some((row) => row.medication.code.trim() === usageCode));
   const usageName =
     usageCode && bundle.admin?.trim()
       ? bundle.admin.trim().startsWith(`${usageCode} `)
         ? bundle.admin.trim().slice(usageCode.length).trim() || undefined
         : bundle.admin.trim()
       : undefined;
-  const usageMedication = usageCode && !hasUsageAlready ? { code: usageCode, name: usageName, number: '', unit: undefined } : null;
+  const usageMedication: MedicalModV2MedicationRow | null =
+    usageCode && !hasUsageAlready ? { code: usageCode, name: usageName, number: '', unit: undefined } : null;
+  const usageRow = usageMedication ? ({ medication: usageMedication, source: { kind: 'usage' } as const } satisfies { medication: MedicalModV2MedicationRow; source: MedicalModV2RowSource }) : null;
 
   const isCommentMedication = (code: string) => COMMENT_CODE_PATTERN.test(code.trim());
-  const head = isPrescription ? medications.filter((item) => !isCommentMedication(item.code)) : medications;
-  const tail = isPrescription ? medications.filter((item) => isCommentMedication(item.code)) : [];
-  const mergedMedications = isPrescription
-    ? [...head, ...(usageMedication ? [usageMedication] : []), ...tail]
-    : medications;
+  const head = isPrescription ? bundleRows.filter((row) => !isCommentMedication(row.medication.code)) : bundleRows;
+  const tail = isPrescription ? bundleRows.filter((row) => isCommentMedication(row.medication.code)) : [];
+  const mergedRows = isPrescription ? [...head, ...(usageRow ? [usageRow] : []), ...tail] : bundleRows;
 
-  return {
+  const info: MedicalModV2Information = {
     medicalClass,
     medicalClassName: bundle.className?.trim() || undefined,
     medicalClassNumber: bundle.bundleNumber?.trim() || undefined,
-    medications: mergedMedications,
+    medications: mergedRows.map((row) => row.medication),
   };
+  const source: MedicalModV2InformationSource = {
+    entity: bundle.entity?.trim() || undefined,
+    documentId: bundle.documentId,
+    moduleId: bundle.moduleId,
+    bundleName: bundle.bundleName?.trim() || undefined,
+    medicalClass,
+    medicalClassName: bundle.className?.trim() || undefined,
+    medicalClassNumber: bundle.bundleNumber?.trim() || undefined,
+    rows: mergedRows,
+  };
+  return { info, source };
 };
 
 const fetchMedicalModV2OrderBundles = async (patientId: string, from: string) => {
@@ -1288,9 +1356,13 @@ export function ChartsActionBar({
           onApprovalConfirmed?.({ action: 'send', actor });
 
           const orderBundleResult = await fetchMedicalModV2OrderBundles(resolvedPatientId, calculationDate);
-          const medicalInformation = orderBundleResult.bundles
-            .map(toMedicalModV2Information)
-            .filter((info): info is MedicalModV2Information => Boolean(info));
+          const medicalInformationWithSource = orderBundleResult.bundles
+            .map(toMedicalModV2InformationWithSource)
+            .filter(
+              (entry): entry is NonNullable<ReturnType<typeof toMedicalModV2InformationWithSource>> => Boolean(entry),
+            );
+          const medicalInformationSources = medicalInformationWithSource.map((entry) => entry.source);
+          const medicalInformation = medicalInformationWithSource.map((entry) => entry.info);
 
           // ORCA medicalmodv2 limits: Medical_Information max 40 groups, Medication_info max 40 rows per group.
           // `buildMedicalModV2RequestXml` always prepends a base group, so we reserve 1 slot here.
@@ -1368,6 +1440,37 @@ export function ChartsActionBar({
             result.dataId ? `Data_Id=${result.dataId}` : undefined,
           ].filter((part): part is string => Boolean(part));
 
+          const mappedWarnings: OrcaMedicalWarningUi[] = (result.medicalWarnings ?? []).map((warning) => {
+            const groupPosition = warning.medicalWarningPosition;
+            const itemPosition = warning.medicalWarningItemPosition;
+            const groupIndex = typeof groupPosition === 'number' ? groupPosition - 2 : undefined;
+            const groupSource =
+              typeof groupIndex === 'number' && groupIndex >= 0 && groupIndex < medicalInformationSources.length
+                ? medicalInformationSources[groupIndex]
+                : undefined;
+            const rowIndex = typeof itemPosition === 'number' ? itemPosition - 1 : undefined;
+            const rowSource =
+              groupSource && typeof rowIndex === 'number' && rowIndex >= 0 && rowIndex < groupSource.rows.length
+                ? groupSource.rows[rowIndex]
+                : undefined;
+            return {
+              medicalWarning: warning.medicalWarning,
+              message: warning.medicalWarningMessage,
+              code: warning.medicalWarningCode,
+              groupPosition,
+              itemPosition,
+              entity: groupSource?.entity,
+              documentId: groupSource?.documentId,
+              moduleId: groupSource?.moduleId,
+              bundleName: groupSource?.bundleName,
+              medicalClass: groupSource?.medicalClass,
+              medicationCode: rowSource?.medication.code,
+              medicationName: rowSource?.medication.name,
+              sourceKind: rowSource?.source.kind,
+              sourceItemIndex: rowSource?.source.kind === 'bundle_item' ? rowSource.source.itemIndex : undefined,
+            };
+          });
+
           let retryMeta:
             | { retryRequested?: boolean; retryApplied?: boolean; retryReason?: string; queueRunId?: string; queueTraceId?: string }
             | undefined;
@@ -1428,6 +1531,7 @@ export function ChartsActionBar({
               invoiceNumber: result.invoiceNumber,
               dataId: result.dataId,
               missingTags: result.missingTags,
+              medicalWarnings: mappedWarnings.length > 0 ? mappedWarnings.length : undefined,
               retryQueue: retryMeta,
               orderBundles: {
                 entities: ORCA_SEND_ORDER_ENTITIES.length,
@@ -1443,6 +1547,7 @@ export function ChartsActionBar({
               {
                 patientId: resolvedPatientId,
                 appointmentId: resolvedAppointmentId,
+                performDate: calculationDate,
                 invoiceNumber: result.invoiceNumber,
                 dataId: result.dataId,
                 runId: nextRunId,
@@ -1450,6 +1555,7 @@ export function ChartsActionBar({
                 apiResult: result.apiResult,
                 sendStatus: outcome === 'success' ? 'success' : 'error',
                 errorMessage: outcome === 'success' ? undefined : detailParts.join(' / '),
+                medicalWarnings: mappedWarnings,
               },
               storageScope,
             );
@@ -1910,11 +2016,13 @@ export function ChartsActionBar({
             {
               patientId: resolvedPatientId,
               appointmentId: resolvedAppointmentId,
+              performDate: normalizeVisitDate(resolvedVisitDate) ?? undefined,
               runId: errorRunId,
               traceId: errorTraceId ?? undefined,
               apiResult: errorApiResult,
               sendStatus: 'error',
               errorMessage: detail,
+              medicalWarnings: [],
             },
             storageScope,
           );

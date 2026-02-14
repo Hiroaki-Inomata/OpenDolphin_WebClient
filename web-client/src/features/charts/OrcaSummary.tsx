@@ -17,7 +17,7 @@ import { resolveOutpatientFlags, type OutpatientFlagSource } from '../outpatient
 import { buildFacilityPath } from '../../routes/facilityRoutes';
 import { useOptionalSession } from '../../AppRouter';
 import { buildIncomeInfoRequestXml, fetchOrcaIncomeInfoXml } from './orcaIncomeInfoApi';
-import { getOrcaClaimSendEntry } from './orcaClaimSendCache';
+import { getOrcaClaimSendEntry, type OrcaMedicalWarningUi } from './orcaClaimSendCache';
 import { formatOrcaIdentifier } from './orcaIdentifiers';
 import {
   buildBillingStatusUpdateAudit,
@@ -65,6 +65,7 @@ export function OrcaSummary({
   const [perfMeasured, setPerfMeasured] = useState(false);
   const renderStartedAt = useMemo(() => performance.now(), []);
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const performDate = useMemo(() => (visitDate ?? today).slice(0, 10), [today, visitDate]);
   const performMonth = useMemo(() => (visitDate ?? today).slice(0, 7), [today, visitDate]);
   const tonePayload: ChartTonePayload = {
     missingMaster: resolvedMissingMaster ?? false,
@@ -124,6 +125,27 @@ export function OrcaSummary({
       window.removeEventListener('orca-claim-send-cache-update', handler);
     };
   }, [claimEnabled, patientId, session?.facilityId, session?.userId]);
+
+  const sendWarnings = useMemo(() => {
+    const warnings = lastSendCache?.medicalWarnings ?? [];
+    if (!lastSendCache?.performDate || lastSendCache.performDate.slice(0, 10) !== performDate) {
+      return [];
+    }
+    return warnings;
+  }, [lastSendCache?.medicalWarnings, lastSendCache?.performDate, performDate]);
+
+  const handleWarningFocus = useCallback(
+    (warning: OrcaMedicalWarningUi) => {
+      if (typeof window === 'undefined') return;
+      if (!patientId) return;
+      window.dispatchEvent(
+        new CustomEvent('orca-medical-warning-focus', {
+          detail: { patientId, warning },
+        }),
+      );
+    },
+    [patientId],
+  );
 
   const incomeInfoNotice = useMemo(() => {
     if (!patientId) {
@@ -671,6 +693,42 @@ export function OrcaSummary({
                 <li>直近送信: {lastSendDataIdIdentifier}（runId={lastSendCache?.runId ?? '—'}）</li>
               )}
             </ul>
+          </div>
+        )}
+        {claimEnabled && sendWarnings.length > 0 && (
+          <div className="orca-summary__card orca-summary__card--warning">
+            <header>
+              <strong>ORCA 警告</strong>
+              <span className="orca-summary__card-meta">{sendWarnings.length} 件</span>
+            </header>
+            <ul className="orca-summary__warning-list">
+              {sendWarnings.slice(0, 8).map((warning, index) => {
+                const key = `${warning.groupPosition ?? 'g'}-${warning.itemPosition ?? 'l'}-${warning.code ?? ''}-${index}`;
+                const pos = warning.groupPosition
+                  ? `G${warning.groupPosition}${warning.itemPosition ? `-L${warning.itemPosition}` : ''}`
+                  : '位置不明';
+                const text = warning.message ?? warning.medicalWarning ?? warning.code ?? '警告';
+                return (
+                  <li key={key}>
+                    <button
+                      type="button"
+                      className="orca-summary__warning-button"
+                      onClick={() => handleWarningFocus(warning)}
+                      title={warning.bundleName ? `${warning.bundleName} / ${text}` : text}
+                    >
+                      <span className="orca-summary__warning-pos">{pos}</span>
+                      <span className="orca-summary__warning-text">{text}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {sendWarnings.length > 8 && (
+              <p className="orca-summary__help">他 {sendWarnings.length - 8} 件</p>
+            )}
+            <p className="orca-summary__help">
+              警告項目をクリックすると、オーダー入力側（同一タブ内）で該当行へフォーカスします。
+            </p>
           </div>
         )}
         <div className="orca-summary__card">

@@ -1,8 +1,26 @@
 type StorageScope = { facilityId?: string | null; userId?: string | null };
 
+export type OrcaMedicalWarningUi = {
+  medicalWarning?: string;
+  message?: string;
+  code?: string;
+  groupPosition?: number;
+  itemPosition?: number;
+  entity?: string;
+  documentId?: number;
+  moduleId?: number;
+  bundleName?: string;
+  medicalClass?: string;
+  medicationCode?: string;
+  medicationName?: string;
+  sourceKind?: 'bundle_item' | 'usage';
+  sourceItemIndex?: number;
+};
+
 export type OrcaClaimSendCacheEntry = {
   patientId?: string;
   appointmentId?: string;
+  performDate?: string;
   invoiceNumber?: string;
   dataId?: string;
   runId?: string;
@@ -10,6 +28,7 @@ export type OrcaClaimSendCacheEntry = {
   apiResult?: string;
   sendStatus?: 'success' | 'error';
   errorMessage?: string;
+  medicalWarnings?: OrcaMedicalWarningUi[];
   savedAt: string;
 };
 

@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { recordOutpatientFunnel } from '../../libs/telemetry/telemetryClient';
 import { getObservabilityMeta, resolveAriaLive } from '../../libs/observability/observability';
+import { useOptionalSession } from '../../AppRouter';
 import { fetchOrderBundles, mutateOrderBundles, type OrderBundle, type OrderBundleItem } from './orderBundleApi';
+import { getOrcaClaimSendEntry, type OrcaMedicalWarningUi } from './orcaClaimSendCache';
 import {
   fetchOrderMasterSearch,
   type OrderMasterSearchItem,
@@ -13,6 +15,7 @@ import {
 import { fetchMasterReferenceStatus, type MasterReferenceStatusResponse } from './masterReferenceStatusApi';
 import { buildContraindicationCheckRequestXml, fetchContraindicationCheckXml } from './contraindicationCheckApi';
 import { buildMedicationGetRequestXml, fetchOrcaMedicationGetXml } from './orcaMedicationGetApi';
+import { parseOrcaOrderItemMemo, updateOrcaOrderItemMeta } from './orcaOrderItemMeta';
 import {
   fetchOrderRecommendations,
   type OrderRecommendationCandidate,
@@ -138,6 +141,8 @@ const PRESCRIPTION_CLASS_NAMES: Record<string, string> = {
 };
 const DEFAULT_USAGE_SUGGESTION_LIMIT = 12;
 const DEFAULT_PREDICTIVE_LIMIT = 20;
+
+const isDrugMedicationCode = (code: string) => /^6\d{8}$/.test(code.trim());
 
 type OrderEntityUiProfile = {
   formDescription: string;
@@ -286,6 +291,7 @@ const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
     supportsInjectionNoProcedure: false,
     masterSearchPresets: [
       { type: 'etensu', label: '処置項目' },
+      { type: 'generic-class', label: '使用薬剤' },
       { type: 'material', label: '処置材料' },
     ],
     defaultMasterSearchType: 'etensu',
@@ -719,6 +725,87 @@ export function OrderBundleEditPanel({
     return reasons;
   }, [meta.fallbackUsed, meta.missingMaster, meta.readOnly]);
   const isBlocked = blockReasons.length > 0;
+  const session = useOptionalSession();
+  const storageScope = useMemo(
+    () => ({ facilityId: session?.facilityId, userId: session?.userId }),
+    [session?.facilityId, session?.userId],
+  );
+  const [orcaSendEntry, setOrcaSendEntry] = useState<ReturnType<typeof getOrcaClaimSendEntry> | null>(() =>
+    getOrcaClaimSendEntry(storageScope, patientId),
+  );
+  useEffect(() => {
+    setOrcaSendEntry(getOrcaClaimSendEntry(storageScope, patientId));
+  }, [patientId, storageScope]);
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ patientId?: string }>).detail;
+      if (detail?.patientId && detail.patientId !== patientId) return;
+      setOrcaSendEntry(getOrcaClaimSendEntry(storageScope, patientId));
+    };
+    window.addEventListener('orca-claim-send-cache-update', handler);
+    return () => {
+      window.removeEventListener('orca-claim-send-cache-update', handler);
+    };
+  }, [patientId, storageScope]);
+
+  const currentPerformDate = useMemo(() => (meta.visitDate ?? today).slice(0, 10), [meta.visitDate, today]);
+  const orcaMedicalWarnings = useMemo<OrcaMedicalWarningUi[]>(() => {
+    const warnings = orcaSendEntry?.medicalWarnings ?? [];
+    const sentDate = orcaSendEntry?.performDate?.slice(0, 10);
+    if (!sentDate || sentDate !== currentPerformDate) return [];
+    return warnings;
+  }, [currentPerformDate, orcaSendEntry?.medicalWarnings, orcaSendEntry?.performDate]);
+
+  const orcaWarningsForEntity = useMemo(
+    () => orcaMedicalWarnings.filter((warning) => warning.entity === entity),
+    [entity, orcaMedicalWarnings],
+  );
+
+  type WarningFocusTarget =
+    | { kind: 'usage' }
+    | { kind: 'bodyPart' }
+    | { kind: 'items'; index: number }
+    | { kind: 'materialItems'; index: number }
+    | { kind: 'commentItems'; index: number };
+
+  const resolveWarningFocusTarget = useCallback(
+    (warning: OrcaMedicalWarningUi): { elementId: string; target: WarningFocusTarget } | null => {
+      if (warning.sourceKind === 'usage') {
+        return { elementId: `${entity}-admin`, target: { kind: 'usage' } };
+      }
+      if (typeof warning.sourceItemIndex !== 'number') return null;
+      const bodyPartCount = form.bodyPart && form.bodyPart.name.trim() ? 1 : 0;
+      const sourceIndex = warning.sourceItemIndex;
+      if (sourceIndex < bodyPartCount) {
+        return { elementId: `${entity}-bodypart`, target: { kind: 'bodyPart' } };
+      }
+      const itemsStart = bodyPartCount;
+      const itemsEnd = itemsStart + form.items.length;
+      if (sourceIndex >= itemsStart && sourceIndex < itemsEnd) {
+        const index = sourceIndex - itemsStart;
+        return { elementId: `${entity}-item-name-${index}`, target: { kind: 'items', index } };
+      }
+      const materialStart = itemsEnd;
+      const materialEnd = materialStart + form.materialItems.length;
+      if (sourceIndex >= materialStart && sourceIndex < materialEnd) {
+        const index = sourceIndex - materialStart;
+        return { elementId: `${entity}-material-name-${index}`, target: { kind: 'materialItems', index } };
+      }
+      const commentStart = materialEnd;
+      const commentEnd = commentStart + form.commentItems.length;
+      if (sourceIndex >= commentStart && sourceIndex < commentEnd) {
+        const index = sourceIndex - commentStart;
+        return { elementId: `${entity}-comment-name-${index}`, target: { kind: 'commentItems', index } };
+      }
+      return null;
+    },
+    [entity, form.bodyPart, form.commentItems.length, form.items.length, form.materialItems.length],
+  );
+
+  const [warningFocusRequest, setWarningFocusRequest] = useState<OrcaMedicalWarningUi | null>(null);
+  const [warningFocusTarget, setWarningFocusTarget] = useState<WarningFocusTarget | null>(null);
+
   const auditMetaDetails = useMemo(
     () => ({
       cacheHit: meta.cacheHit,
@@ -1777,6 +1864,94 @@ export function OrderBundleEditPanel({
     if (pending.length === 0) return fetchedBundles;
     return [...pending, ...fetchedBundles];
   }, [fetchedBundles, optimisticBundles]);
+
+  const orcaWarningsForActiveBundle = useMemo(() => {
+    if (!form.documentId) return [];
+    return orcaWarningsForEntity.filter((warning) => warning.documentId === form.documentId);
+  }, [form.documentId, orcaWarningsForEntity]);
+
+  const orcaWarningTargets = useMemo(() => {
+    const items = new Set<number>();
+    const materialItems = new Set<number>();
+    const commentItems = new Set<number>();
+    let usage = false;
+    let bodyPart = false;
+    orcaWarningsForActiveBundle.forEach((warning) => {
+      const resolved = resolveWarningFocusTarget(warning);
+      if (!resolved) return;
+      if (resolved.target.kind === 'usage') usage = true;
+      if (resolved.target.kind === 'bodyPart') bodyPart = true;
+      if (resolved.target.kind === 'items') items.add(resolved.target.index);
+      if (resolved.target.kind === 'materialItems') materialItems.add(resolved.target.index);
+      if (resolved.target.kind === 'commentItems') commentItems.add(resolved.target.index);
+    });
+    if (warningFocusTarget?.kind === 'usage') usage = true;
+    if (warningFocusTarget?.kind === 'bodyPart') bodyPart = true;
+    if (warningFocusTarget?.kind === 'items') items.add(warningFocusTarget.index);
+    if (warningFocusTarget?.kind === 'materialItems') materialItems.add(warningFocusTarget.index);
+    if (warningFocusTarget?.kind === 'commentItems') commentItems.add(warningFocusTarget.index);
+    return { usage, bodyPart, items, materialItems, commentItems };
+  }, [orcaWarningsForActiveBundle, resolveWarningFocusTarget, warningFocusTarget]);
+
+  const requestWarningFocus = useCallback(
+    (warning: OrcaMedicalWarningUi) => {
+      setWarningFocusRequest(warning);
+      if (warning.documentId && warning.documentId !== form.documentId) {
+        const nextBundle = bundles.find((bundle) => bundle.documentId === warning.documentId) ?? null;
+        if (nextBundle) {
+          setForm(toFormState(nextBundle, today));
+          setNotice({ tone: 'info', message: 'ORCA警告の該当オーダーを表示しました。' });
+        }
+      }
+    },
+    [bundles, form.documentId, today],
+  );
+
+  useEffect(() => {
+    if (!warningFocusRequest) return;
+    if (warningFocusRequest.entity && warningFocusRequest.entity !== entity) {
+      setWarningFocusRequest(null);
+      return;
+    }
+    if (warningFocusRequest.documentId && form.documentId !== warningFocusRequest.documentId) return;
+    const resolved = resolveWarningFocusTarget(warningFocusRequest);
+    setWarningFocusRequest(null);
+    if (!resolved) return;
+    setWarningFocusTarget(resolved.target);
+    if (typeof document === 'undefined') return;
+    requestAnimationFrame(() => {
+      const el = document.getElementById(resolved.elementId);
+      if (!el || !(el instanceof HTMLElement)) return;
+      el.scrollIntoView({ block: 'center' });
+      el.focus();
+    });
+  }, [
+    entity,
+    form.bodyPart,
+    form.commentItems.length,
+    form.documentId,
+    form.items.length,
+    form.materialItems.length,
+    resolveWarningFocusTarget,
+    warningFocusRequest,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ patientId?: string; warning?: OrcaMedicalWarningUi }>).detail;
+      if (detail?.patientId && detail.patientId !== patientId) return;
+      const warning = detail?.warning;
+      if (!warning) return;
+      if (warning.entity && warning.entity !== entity) return;
+      requestWarningFocus(warning);
+    };
+    window.addEventListener('orca-medical-warning-focus', handler);
+    return () => {
+      window.removeEventListener('orca-medical-warning-focus', handler);
+    };
+  }, [entity, patientId, requestWarningFocus]);
+
   const submitAction = (action: OrderBundleSubmitAction) => {
     if (isContraChecking) return;
     void (async () => {
@@ -2030,6 +2205,33 @@ export function OrderBundleEditPanel({
           ) : null}
         </div>
       )}
+      {orcaWarningsForEntity.length > 0 && (
+        <div className="charts-side-panel__notice charts-side-panel__notice--warning" aria-live={resolveAriaLive('warning')}>
+          <div className="charts-side-panel__warning-header">
+            <strong>ORCA 警告</strong> <span>{orcaWarningsForEntity.length}件</span>
+          </div>
+          <ul className="charts-side-panel__warning-list">
+            {orcaWarningsForEntity.slice(0, 8).map((warning, index) => {
+              const key = `${warning.groupPosition ?? 'g'}-${warning.itemPosition ?? 'l'}-${warning.code ?? ''}-${index}`;
+              const pos = warning.groupPosition
+                ? `G${warning.groupPosition}${warning.itemPosition ? `-L${warning.itemPosition}` : ''}`
+                : '位置不明';
+              const text = warning.message ?? warning.medicalWarning ?? warning.code ?? '警告';
+              return (
+                <li key={key}>
+                  <button type="button" className="charts-side-panel__warning-button" onClick={() => requestWarningFocus(warning)}>
+                    <span className="charts-side-panel__warning-pos">{pos}</span>
+                    <span className="charts-side-panel__warning-text">{text}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {orcaWarningsForEntity.length > 8 && (
+            <p className="charts-side-panel__help">他 {orcaWarningsForEntity.length - 8} 件</p>
+          )}
+        </div>
+      )}
       <div className="charts-side-panel__workspace">
         <aside className="charts-side-panel__workspace-left" aria-label="頻用オーダー">
           <div className="charts-side-panel__subsection">
@@ -2188,6 +2390,7 @@ export function OrderBundleEditPanel({
               <input
                 id={`${entity}-admin`}
                 value={form.admin}
+                data-orca-warning={orcaWarningTargets.usage ? 'true' : undefined}
                 list={usageSelectOptions.length > 0 ? `${entity}-usage-suggestion-list` : undefined}
                 onChange={(event) =>
                   setForm((prev) => ({
@@ -2210,6 +2413,7 @@ export function OrderBundleEditPanel({
               <input
                 id={`${entity}-admin`}
                 value={form.admin}
+                data-orca-warning={orcaWarningTargets.usage ? 'true' : undefined}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, admin: event.target.value, adminMemo: '' }))
                 }
@@ -2363,6 +2567,7 @@ export function OrderBundleEditPanel({
                 <input
                   id={`${entity}-bodypart`}
                   value={form.bodyPart?.name ?? ''}
+                  data-orca-warning={orcaWarningTargets.bodyPart ? 'true' : undefined}
                   onChange={(event) =>
                     setForm((prev) => ({
                       ...prev,
@@ -2549,6 +2754,10 @@ export function OrderBundleEditPanel({
             <div
               key={(item as OrderBundleItemWithRowId).rowId ?? `${entity}-item-${index}`}
               className={`charts-side-panel__item-row${
+                isMedOrder ? ' charts-side-panel__item-row--med' : ''
+              }${
+                orcaWarningTargets.items.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
+              }${
                 dragOverIndex === index ? ' charts-side-panel__item-row--drag-over' : ''
               }${draggingIndex === index ? ' charts-side-panel__item-row--dragging' : ''}${
                 selectedItemRowId === (item as OrderBundleItemWithRowId).rowId
@@ -2656,6 +2865,42 @@ export function OrderBundleEditPanel({
                 placeholder="単位"
                 disabled={isBlocked}
               />
+              {isMedOrder && (() => {
+                const code = item.code?.trim() ?? '';
+                const { meta } = parseOrcaOrderItemMemo(item.memo);
+                const value = meta.genericFlg ?? '';
+                const disabled = isBlocked || !isDrugMedicationCode(code);
+                return (
+                  <select
+                    id={`${entity}-item-generic-${index}`}
+                    name={`${entity}-item-generic-${index}`}
+                    aria-label="一般名"
+                    value={value}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      setForm((prev) => {
+                        const next = [...prev.items];
+                        const current = next[index];
+                        if (!current) return prev;
+                        next[index] = {
+                          ...current,
+                          memo: updateOrcaOrderItemMeta(current.memo ?? '', {
+                            genericFlg: nextValue === 'yes' || nextValue === 'no' ? (nextValue as 'yes' | 'no') : undefined,
+                          }),
+                        };
+                        return { ...prev, items: next };
+                      });
+                    }}
+                    onFocus={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
+                    disabled={disabled}
+                    title={disabled ? '薬剤コード確定後に選択できます。' : undefined}
+                  >
+                    <option value="">既定</option>
+                    <option value="yes">一般名</option>
+                    <option value="no">一般名なし</option>
+                  </select>
+                );
+              })()}
               <button
                 type="button"
                 className="charts-side-panel__icon"
@@ -2807,7 +3052,12 @@ export function OrderBundleEditPanel({
               <p className="charts-side-panel__empty">該当する材料が見つかりません。</p>
             )}
             {form.materialItems.map((item, index) => (
-              <div key={`${entity}-material-${index}`} className="charts-side-panel__item-row">
+              <div
+                key={`${entity}-material-${index}`}
+                className={`charts-side-panel__item-row${
+                  orcaWarningTargets.materialItems.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
+                }`}
+              >
                 <input
                   id={`${entity}-material-name-${index}`}
                   name={`${entity}-material-name-${index}`}
@@ -3012,7 +3262,12 @@ export function OrderBundleEditPanel({
               <p className="charts-side-panel__empty">該当するコメントコードが見つかりません。</p>
             )}
             {form.commentItems.map((item, index) => (
-              <div key={`${entity}-comment-${index}`} className="charts-side-panel__item-row charts-side-panel__item-row--comment">
+              <div
+                key={`${entity}-comment-${index}`}
+                className={`charts-side-panel__item-row charts-side-panel__item-row--comment${
+                  orcaWarningTargets.commentItems.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
+                }`}
+              >
                 {/*
                  * Free comment (810...) used for gaiyo mixing needs to stay editable so users can adjust wording.
                  * We tag it via memo marker and keep other comment codes read-only.

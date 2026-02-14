@@ -27,6 +27,20 @@ vi.mock('../orderMasterSearchApi', async () => ({
   fetchOrderMasterSearch: vi.fn(),
 }));
 
+vi.mock('../contraindicationCheckApi', async () => ({
+  buildContraindicationCheckRequestXml: vi.fn().mockReturnValue('<data />'),
+  fetchContraindicationCheckXml: vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    rawXml: '<data />',
+    apiResult: '00',
+    apiResultMessage: 'OK',
+    results: [],
+    symptomInfo: [],
+    missingTags: [],
+  }),
+}));
+
 const renderWithClient = (ui: ReactElement) => {
   const client = new QueryClient({
     defaultOptions: {
@@ -165,6 +179,62 @@ describe('OrderBundleEditPanel item actions', () => {
         }),
       ]),
     );
+  });
+
+  it('一般名指示が薬剤行ごとに memo へ保存される', async () => {
+    const user = userEvent.setup();
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type, keyword }) => {
+      if (type === 'youhou' && keyword.trim().length > 0) {
+        return {
+          ok: true,
+          items: [{ type: 'youhou', name: '1回' }],
+          totalCount: 1,
+        };
+      }
+      if (type === 'generic-class' && keyword.trim().length > 0) {
+        return {
+          ok: true,
+          items: [
+            {
+              type: 'generic-class',
+              code: '612345678',
+              name: 'アムロジピン',
+              unit: '錠',
+              note: '元メモ',
+            },
+          ],
+          totalCount: 1,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+
+    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    const nameInput = screen.getByPlaceholderText('項目名') as HTMLInputElement;
+    await user.click(nameInput);
+    await user.type(nameInput, 'アムロジピン');
+    const suggestion = await screen.findByRole('button', { name: /612345678/ });
+    await user.click(suggestion);
+
+    const genericSelect = screen.getByLabelText('一般名') as HTMLSelectElement;
+    await waitFor(() => expect(genericSelect).toBeEnabled());
+    await user.selectOptions(genericSelect, 'yes');
+
+    const usageInput = screen.getByLabelText('用法') as HTMLInputElement;
+    await user.type(usageInput, '1回');
+    await waitFor(() => expect(screen.getByText('1回')).toBeInTheDocument());
+    await user.click(screen.getByText('1回').closest('button')!);
+
+    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+
+    const mutateMock = vi.mocked(mutateOrderBundles);
+    await waitFor(() => expect(mutateMock).toHaveBeenCalled());
+
+    const payload = mutateMock.mock.calls[0]?.[0];
+    const items = payload?.operations?.[0]?.items ?? [];
+    expect(items[0]?.memo).toBe('__orca_meta__:{"genericFlg":"yes"}\n元メモ');
   });
 
   it.each([
