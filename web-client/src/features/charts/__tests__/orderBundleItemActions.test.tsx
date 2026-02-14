@@ -139,6 +139,34 @@ describe('OrderBundleEditPanel item actions', () => {
     expect(operation?.className).toBe('頓服薬剤（院内処方）');
   });
 
+  it('外用の混合トグルで混合コメント行が保存 payload に追加される', async () => {
+    mockUsageMaster();
+    const user = userEvent.setup();
+    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    await user.type(screen.getByPlaceholderText('項目名'), 'アムロジピン');
+    await selectUsage(user);
+
+    await user.selectOptions(screen.getByLabelText('剤区分'), 'gaiyo');
+    await user.click(screen.getByLabelText('混合'));
+
+    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+
+    const mutateMock = vi.mocked(mutateOrderBundles);
+    await waitFor(() => expect(mutateMock).toHaveBeenCalled());
+    const payload = mutateMock.mock.calls[0]?.[0];
+    const items = payload?.operations?.[0]?.items ?? [];
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: '810000001',
+          name: '混合',
+          memo: '__mixing_comment__',
+        }),
+      ]),
+    );
+  });
+
   it.each([
     ['readOnly', { readOnly: true, readOnlyReason: '閲覧専用' }],
     ['missingMaster', { missingMaster: true }],

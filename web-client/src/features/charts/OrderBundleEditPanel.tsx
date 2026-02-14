@@ -109,6 +109,7 @@ const NO_PROCEDURE_CHARGE_TEXT = '手技料なし';
 const MATERIAL_CODE_PREFIX = '7';
 const BODY_PART_CODE_PREFIX = '002';
 const COMMENT_CODE_PATTERN = /^(008[1-6]|8[1-6]|098|099|98|99)/;
+const MIXING_COMMENT_MARKER = '__mixing_comment__';
 const DOCUMENT_ITEM_KEYWORDS = ['文書', '診断書', '紹介状', '返信', '報告', '証明書', '意見書', '指示書'];
 const DEFAULT_PRESCRIPTION_LOCATION: PrescriptionLocation = 'out';
 const DEFAULT_PRESCRIPTION_TIMING: PrescriptionTiming = 'regular';
@@ -672,6 +673,24 @@ export function OrderBundleEditPanel({
   const isInjectionOrder = entity === 'injectionOrder';
   const isRadiologyOrder = entity === 'radiologyOrder';
   const isRehabOrder = entity === 'generalOrder';
+  const isGaiyoPrescription = isMedOrder && form.prescriptionTiming === 'gaiyo';
+  const mixingCommentIndex = useMemo(
+    () => (isMedOrder ? form.commentItems.findIndex((item) => item.memo === MIXING_COMMENT_MARKER) : -1),
+    [form.commentItems, isMedOrder],
+  );
+  const mixingComment = mixingCommentIndex >= 0 ? form.commentItems[mixingCommentIndex] : null;
+  const mixingEnabled = Boolean(isGaiyoPrescription && mixingComment);
+
+  useEffect(() => {
+    if (!isMedOrder) return;
+    if (form.prescriptionTiming === 'gaiyo') return;
+    if (mixingCommentIndex < 0) return;
+    setForm((prev) => ({
+      ...prev,
+      commentItems: prev.commentItems.filter((item) => item.memo !== MIXING_COMMENT_MARKER),
+    }));
+  }, [form.prescriptionTiming, isMedOrder, mixingCommentIndex]);
+
   const supportsUsageSearch = orderUiProfile.supportsUsageSearch;
   const supportsBodyPartSearch = orderUiProfile.supportsBodyPartSearch;
   const supportsCommentCodes = orderUiProfile.supportsCommentCodes;
@@ -1139,6 +1158,46 @@ export function OrderBundleEditPanel({
       const currentToken = extractCodeToken(prev.admin);
       if (currentToken.toLowerCase() !== token.toLowerCase()) return prev;
       return { ...prev, admin: nextLabel, adminMemo: code };
+    });
+  };
+
+  const setMixingCommentEnabled = (enabled: boolean) => {
+    setForm((prev) => {
+      const others = prev.commentItems.filter((item) => item.memo !== MIXING_COMMENT_MARKER);
+      if (!enabled) {
+        if (others.length === prev.commentItems.length) return prev;
+        return { ...prev, commentItems: others };
+      }
+      const current = prev.commentItems.find((item) => item.memo === MIXING_COMMENT_MARKER);
+      const mixingItem: OrderBundleItem =
+        current ?? { code: '810000001', name: '混合', quantity: '', unit: '', memo: MIXING_COMMENT_MARKER };
+      return { ...prev, commentItems: [...others, mixingItem] };
+    });
+  };
+
+  const updateMixingCommentText = (text: string) => {
+    setForm((prev) => {
+      const index = prev.commentItems.findIndex((item) => item.memo === MIXING_COMMENT_MARKER);
+      if (index === -1) return prev;
+      const next = [...prev.commentItems];
+      next[index] = { ...next[index], name: text };
+      // Keep mixing comment at the very end to match ORCA's RP comment constraint.
+      const [updated] = next.splice(index, 1);
+      next.push(updated);
+      return { ...prev, commentItems: next };
+    });
+  };
+
+  const applyMixingTemplate = (templateText: string) => {
+    setForm((prev) => {
+      const others = prev.commentItems.filter((item) => item.memo !== MIXING_COMMENT_MARKER);
+      const current = prev.commentItems.find((item) => item.memo === MIXING_COMMENT_MARKER);
+      const mixingItem: OrderBundleItem = {
+        ...(current ?? { code: '810000001', quantity: '', unit: '', memo: MIXING_COMMENT_MARKER }),
+        name: templateText,
+        memo: MIXING_COMMENT_MARKER,
+      };
+      return { ...prev, commentItems: [...others, mixingItem] };
     });
   };
 
@@ -2081,6 +2140,47 @@ export function OrderBundleEditPanel({
             </div>
           </div>
         )}
+        {isGaiyoPrescription && (
+          <div className="charts-side-panel__field">
+            <label className="charts-side-panel__toggle">
+              <input
+                id={`${entity}-mixing`}
+                name={`${entity}-mixing`}
+                type="checkbox"
+                checked={mixingEnabled}
+                onChange={(event) => setMixingCommentEnabled(event.target.checked)}
+                disabled={isBlocked}
+              />
+              混合
+            </label>
+            {mixingEnabled && (
+              <>
+                <div className="charts-side-panel__template-actions" aria-label="混合テンプレート">
+                  <button type="button" className="charts-side-panel__chip-button" onClick={() => applyMixingTemplate('混合')} disabled={isBlocked}>
+                    混合
+                  </button>
+                  <button type="button" className="charts-side-panel__chip-button" onClick={() => applyMixingTemplate('別包')} disabled={isBlocked}>
+                    別包
+                  </button>
+                  <button type="button" className="charts-side-panel__chip-button" onClick={() => applyMixingTemplate('患者指示優先')} disabled={isBlocked}>
+                    患者指示優先
+                  </button>
+                </div>
+                <input
+                  id={`${entity}-mixing-comment`}
+                  name={`${entity}-mixing-comment`}
+                  value={mixingComment?.name ?? ''}
+                  onChange={(event) => updateMixingCommentText(event.target.value)}
+                  placeholder="混合コメント"
+                  disabled={isBlocked}
+                />
+              </>
+            )}
+            <p className="charts-side-panel__message">
+              外用の混合コメントは RP 末尾へ自動配置します。必要に応じてテンプレボタンで文言を補正できます。
+            </p>
+          </div>
+        )}
         <div className="charts-side-panel__field-row">
           <div className="charts-side-panel__field">
             <label htmlFor={`${entity}-admin`}>{orderUiProfile.instructionLabel}</label>
@@ -2913,6 +3013,14 @@ export function OrderBundleEditPanel({
             )}
             {form.commentItems.map((item, index) => (
               <div key={`${entity}-comment-${index}`} className="charts-side-panel__item-row charts-side-panel__item-row--comment">
+                {/*
+                 * Free comment (810...) used for gaiyo mixing needs to stay editable so users can adjust wording.
+                 * We tag it via memo marker and keep other comment codes read-only.
+                 */}
+                {(() => {
+                  const isMixingItem = item.memo === MIXING_COMMENT_MARKER;
+                  return (
+                    <>
                 <input
                   id={`${entity}-comment-code-${index}`}
                   name={`${entity}-comment-code-${index}`}
@@ -2926,9 +3034,21 @@ export function OrderBundleEditPanel({
                   name={`${entity}-comment-name-${index}`}
                   value={item.name}
                   placeholder="コメント内容"
-                  readOnly
+                  readOnly={!isMixingItem}
+                  onChange={(event) => {
+                    if (!isMixingItem) return;
+                    const value = event.target.value;
+                    setForm((prev) => {
+                      const next = [...prev.commentItems];
+                      next[index] = { ...next[index], name: value };
+                      return { ...prev, commentItems: next };
+                    });
+                  }}
                   disabled={isBlocked}
                 />
+                    </>
+                  );
+                })()}
                 <input
                   id={`${entity}-comment-quantity-${index}`}
                   name={`${entity}-comment-quantity-${index}`}
