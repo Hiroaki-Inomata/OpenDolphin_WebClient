@@ -144,7 +144,15 @@ const readMessage = (json: unknown, fallback: string) => {
   return fallback;
 };
 
-const isLikelyCodeSearch = (value: string) => /^\d{4,}$/.test(value.trim());
+const extractCodeToken = (value: string) => value.trim().split(/\s+/)[0] ?? '';
+
+const isLikelyCodeSearch = (value: string) => {
+  const token = extractCodeToken(value);
+  if (!token) return false;
+  if (/^\d{4,}$/.test(token)) return true;
+  // ORCA input codes such as Y00001 are alphanumeric; accept other similar short codes too.
+  return /^[A-Za-z]\d{3,}$/.test(token);
+};
 
 const extractList = <T,>(json: unknown): { items: T[]; totalCount?: number } => {
   if (Array.isArray(json)) {
@@ -254,7 +262,8 @@ export async function fetchOrderMasterSearch(params: {
   let selectionComments: OrderMasterSearchResult['selectionComments'];
   if ((params.type === 'generic-class' || params.type === 'kensa-sort') && isLikelyCodeSearch(keyword)) {
     const baseDate = params.effective ?? new Date().toISOString().slice(0, 10);
-    const requestXml = buildMedicationGetRequestXml({ requestCode: keyword, baseDate });
+    const requestCode = extractCodeToken(keyword);
+    const requestXml = buildMedicationGetRequestXml({ requestNumber: '01', requestCode, baseDate });
     const medicationResult = await fetchOrcaMedicationGetXml(requestXml);
     const apiOk = medicationResult.apiResult && /^0+$/.test(medicationResult.apiResult);
     correctionMeta = {
@@ -266,7 +275,7 @@ export async function fetchOrderMasterSearch(params: {
       correctionCandidates = [
         {
           type: params.type,
-          code: medicationResult.medication.medicationCode ?? keyword,
+          code: medicationResult.medication.medicationCode ?? requestCode,
           name: medicationResult.medication.medicationName,
           unit: undefined,
           category: medicationResult.medication.medicationNameKana ?? 'medicationgetv2',

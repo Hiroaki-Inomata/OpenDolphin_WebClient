@@ -95,14 +95,11 @@ const ORCA_SEND_ORDER_ENTITIES = [
   'injectionOrder',
 ] as const;
 
-const BODY_PART_CODE_PREFIX = '002';
 const COMMENT_CODE_PATTERN = /^(008[1-6]|8[1-6]|098|099|98|99)/;
 
 const toMedicalModV2Medication = (item: OrderBundleItem) => {
   const code = item.code?.trim();
   if (!code) return null;
-  if (code.startsWith(BODY_PART_CODE_PREFIX)) return null;
-  if (COMMENT_CODE_PATTERN.test(code)) return null;
   return {
     code,
     name: item.name?.trim() || undefined,
@@ -122,15 +119,40 @@ const resolveMedicalModV2ClassFallback = (bundle: OrderBundle) => {
 };
 
 const toMedicalModV2Information = (bundle: OrderBundle): MedicalModV2Information | null => {
-  const medications = bundle.items.map(toMedicalModV2Medication).filter((item): item is NonNullable<ReturnType<typeof toMedicalModV2Medication>> => Boolean(item));
+  const medications = bundle.items
+    .map(toMedicalModV2Medication)
+    .filter((item): item is NonNullable<ReturnType<typeof toMedicalModV2Medication>> => Boolean(item));
   if (medications.length === 0) return null;
   const medicalClass = bundle.classCode?.trim() || resolveMedicalModV2ClassFallback(bundle);
   if (!medicalClass) return null;
+
+  // For prescriptions (medOrder), insert usage as its own Medication_info row.
+  const isPrescription = (bundle.entity?.trim() ?? '') === 'medOrder';
+  const usageCodeCandidate =
+    bundle.adminMemo?.trim() ||
+    (bundle.admin?.trim() ? bundle.admin.trim().split(/\s+/)[0] : '');
+  const usageCode = isPrescription && /^\d{4,}$/.test(usageCodeCandidate) ? usageCodeCandidate : '';
+  const hasUsageAlready = Boolean(usageCode && medications.some((item) => item.code.trim() === usageCode));
+  const usageName =
+    usageCode && bundle.admin?.trim()
+      ? bundle.admin.trim().startsWith(`${usageCode} `)
+        ? bundle.admin.trim().slice(usageCode.length).trim() || undefined
+        : bundle.admin.trim()
+      : undefined;
+  const usageMedication = usageCode && !hasUsageAlready ? { code: usageCode, name: usageName, number: '', unit: undefined } : null;
+
+  const isCommentMedication = (code: string) => COMMENT_CODE_PATTERN.test(code.trim());
+  const head = isPrescription ? medications.filter((item) => !isCommentMedication(item.code)) : medications;
+  const tail = isPrescription ? medications.filter((item) => isCommentMedication(item.code)) : [];
+  const mergedMedications = isPrescription
+    ? [...head, ...(usageMedication ? [usageMedication] : []), ...tail]
+    : medications;
+
   return {
     medicalClass,
     medicalClassName: bundle.className?.trim() || undefined,
     medicalClassNumber: bundle.bundleNumber?.trim() || undefined,
-    medications,
+    medications: mergedMedications,
   };
 };
 
@@ -1269,6 +1291,57 @@ export function ChartsActionBar({
           const medicalInformation = orderBundleResult.bundles
             .map(toMedicalModV2Information)
             .filter((info): info is MedicalModV2Information => Boolean(info));
+
+          // ORCA medicalmodv2 limits: Medical_Information max 40 groups, Medication_info max 40 rows per group.
+          // `buildMedicalModV2RequestXml` always prepends a base group, so we reserve 1 slot here.
+          const groupLimit = 40;
+          const rowLimit = 40;
+          const totalGroups = medicalInformation.length + 1;
+          const groupLimitExceeded = totalGroups > groupLimit;
+          const rowLimitExceeded = medicalInformation.some((info) => (info.medications?.length ?? 0) > rowLimit);
+          if (groupLimitExceeded || rowLimitExceeded) {
+            const reasons: string[] = [];
+            if (groupLimitExceeded) {
+              reasons.push(`Medical_Information=${totalGroups}/${groupLimit}`);
+            }
+            if (rowLimitExceeded) {
+              reasons.push(`Medication_info>${rowLimit}`);
+            }
+            setBanner({
+              tone: 'warning',
+              message: `ORCA送信を停止: 中途データ上限を超過（${reasons.join(' / ')}）`,
+              nextAction: 'RP/オーダー束を分割して再送してください。',
+            });
+            setIsRunning(false);
+            setRunningAction(null);
+            return;
+          }
+
+          const invalidCodes: Array<{ code: string; name?: string; group: number; row: number }> = [];
+          medicalInformation.forEach((info, groupIndex) => {
+            info.medications.forEach((item, rowIndex) => {
+              const code = item.code?.trim() ?? '';
+              if (!code) return;
+              if (/^\d{4,}$/.test(code)) return;
+              if (invalidCodes.length >= 12) return;
+              invalidCodes.push({ code, name: item.name?.trim() || undefined, group: groupIndex + 2, row: rowIndex + 1 });
+              // groupIndex + 2: +1 for 1-based, +1 for base group prepended by buildMedicalModV2RequestXml
+            });
+          });
+          if (invalidCodes.length > 0) {
+            const preview = invalidCodes
+              .slice(0, 5)
+              .map((entry) => `G${entry.group}-L${entry.row}:${entry.code}${entry.name ? `(${entry.name})` : ''}`)
+              .join(' / ');
+            setBanner({
+              tone: 'warning',
+              message: `ORCA送信を停止: 入力コードが未正規化（medicationgetv2 で9桁コードへ変換してください）: ${preview}`,
+              nextAction: 'オーダー入力に戻り、候補選択またはコード補正候補を適用してください。',
+            });
+            setIsRunning(false);
+            setRunningAction(null);
+            return;
+          }
 
           const requestXml = buildMedicalModV2RequestXml({
             patientId: resolvedPatientId,

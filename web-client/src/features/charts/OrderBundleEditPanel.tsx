@@ -12,6 +12,7 @@ import {
 } from './orderMasterSearchApi';
 import { fetchMasterReferenceStatus, type MasterReferenceStatusResponse } from './masterReferenceStatusApi';
 import { buildContraindicationCheckRequestXml, fetchContraindicationCheckXml } from './contraindicationCheckApi';
+import { buildMedicationGetRequestXml, fetchOrcaMedicationGetXml } from './orcaMedicationGetApi';
 import {
   fetchOrderRecommendations,
   type OrderRecommendationCandidate,
@@ -48,7 +49,7 @@ export type OrderBundleEditPanelProps = {
 };
 
 type PrescriptionLocation = 'in' | 'out';
-type PrescriptionTiming = 'regular' | 'tonyo' | 'temporal';
+type PrescriptionTiming = 'regular' | 'tonyo' | 'gaiyo' | 'temporal';
 
 type BundleFormState = {
   documentId?: number;
@@ -115,11 +116,13 @@ const PRESCRIPTION_CLASS_CODE_SYSTEM = 'Claim007';
 const PRESCRIPTION_CLASS_CODES: Record<PrescriptionTiming, Record<PrescriptionLocation, string>> = {
   regular: { in: '211', out: '212' },
   tonyo: { in: '221', out: '222' },
+  gaiyo: { in: '231', out: '232' },
   temporal: { in: '291', out: '292' },
 };
 const PRESCRIPTION_LABELS: Record<PrescriptionTiming, Record<PrescriptionLocation, string>> = {
   regular: { in: '内用（院内処方）', out: '内用（院外処方）' },
   tonyo: { in: '頓用（院内処方）', out: '頓用（院外処方）' },
+  gaiyo: { in: '外用（院内処方）', out: '外用（院外処方）' },
   temporal: { in: '臨時（院内処方）', out: '臨時（院外処方）' },
 };
 const PRESCRIPTION_CLASS_NAMES: Record<string, string> = {
@@ -127,6 +130,8 @@ const PRESCRIPTION_CLASS_NAMES: Record<string, string> = {
   '212': '内服薬剤（院外処方）',
   '221': '頓服薬剤（院内処方）',
   '222': '頓服薬剤（院外処方）',
+  '231': '外用薬剤（院内処方）',
+  '232': '外用薬剤（院外処方）',
   '291': '内服薬剤（臨時投薬）（院内）',
   '292': '内服薬剤（臨時投薬）（院外）',
 };
@@ -486,6 +491,13 @@ const formatBundleName = (bundle: OrderBundle) => bundle.bundleName ?? '名称�
 const formatMasterLabel = (item: OrderMasterSearchItem) => (item.code ? `${item.code} ${item.name}` : item.name);
 const formatUsageLabel = (item: OrderMasterSearchItem) => formatMasterLabel(item);
 const normalizePredictiveLabel = (value: string) => value.replace(/\s+/g, ' ').trim();
+const extractCodeToken = (value: string) => value.trim().split(/\s+/)[0] ?? '';
+const isLikelyCodeSearch = (value: string) => {
+  const token = extractCodeToken(value);
+  if (!token) return false;
+  if (/^\d{4,}$/.test(token)) return true;
+  return /^[A-Za-z]\d{3,}$/.test(token);
+};
 const normalizePartialKeyword = (value: string) => value.trim().toLowerCase();
 const matchesMasterItemByPartial = (item: OrderMasterSearchItem, keyword: string) => {
   const normalizedKeyword = normalizePartialKeyword(keyword);
@@ -536,6 +548,8 @@ export const parsePrescriptionClassCode = (classCode?: string | null) => {
   let timing: PrescriptionTiming = 'regular';
   if (normalized.startsWith('22')) {
     timing = 'tonyo';
+  } else if (normalized.startsWith('23')) {
+    timing = 'gaiyo';
   } else if (normalized.startsWith('29')) {
     timing = 'temporal';
   }
@@ -632,6 +646,7 @@ export function OrderBundleEditPanel({
 }: OrderBundleEditPanelProps) {
   const queryClient = useQueryClient();
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const isTestMode = import.meta.env.MODE === 'test';
   const [form, setForm] = useState<BundleFormState>(() => buildEmptyForm(today));
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
   const [contraNotice, setContraNotice] = useState<ContraindicationNotice | null>(null);
@@ -812,7 +827,7 @@ export function OrderBundleEditPanel({
   }, [form.items, selectedItemRowId]);
   const selectedItemPredictionKeyword = selectedItemForPrediction?.name?.trim() ?? '';
   const itemPredictiveSearchType = masterSearchType;
-  const isItemCodeSearch = /^\d{4,}$/.test(selectedItemPredictionKeyword);
+  const isItemCodeSearch = isLikelyCodeSearch(selectedItemPredictionKeyword);
   const itemPredictiveQuery = useQuery({
     queryKey: ['charts-order-item-predictive', entity, itemPredictiveSearchType, selectedItemPredictionKeyword],
     queryFn: () =>
@@ -861,7 +876,43 @@ export function OrderBundleEditPanel({
       })),
     [itemPredictiveItems],
   );
-  const selectionCommentCandidates = itemPredictiveQuery.data?.selectionComments ?? [];
+  const selectedItemCode = selectedItemForPrediction?.code?.trim() ?? '';
+  const selectionCommentQuery = useQuery({
+    queryKey: ['charts-order-selection-comments', selectedItemCode, form.startDate],
+    queryFn: async () => {
+      const baseDate = form.startDate?.trim() || today;
+      const requestXml = buildMedicationGetRequestXml({ requestNumber: '02', requestCode: selectedItemCode, baseDate });
+      return fetchOrcaMedicationGetXml(requestXml);
+    },
+    enabled: supportsCommentCodes && !isTestMode && /^\d{4,}$/.test(selectedItemCode),
+    staleTime: 30 * 1000,
+    retry: 0,
+  });
+  const selectionCommentCandidates = useMemo(() => {
+    const map = new Map<
+      string,
+      { code: string; name: string; category?: string; itemNumber?: string; itemNumberBranch?: string }
+    >();
+    (itemPredictiveQuery.data?.selectionComments ?? []).forEach((item) => {
+      const code = item.code?.trim();
+      const name = item.name.trim();
+      if (!code || !name) return;
+      map.set(`${code}|${name}`, item);
+    });
+    (selectionCommentQuery.data?.selections ?? []).forEach((selection) => {
+      const code = selection.commentCode?.trim();
+      const name = selection.commentName?.trim();
+      if (!code || !name) return;
+      map.set(`${code}|${name}`, {
+        code,
+        name,
+        category: selection.category,
+        itemNumber: selection.itemNumber,
+        itemNumberBranch: selection.itemNumberBranch,
+      });
+    });
+    return Array.from(map.values());
+  }, [itemPredictiveQuery.data?.selectionComments, selectionCommentQuery.data?.selections]);
 
   const usageKeyword = form.admin.trim();
   const usageSearchQuery = useQuery({
@@ -1045,6 +1096,8 @@ export function OrderBundleEditPanel({
     });
   };
 
+  const usageNormalizationSeqRef = useRef(0);
+
   const applyUsage = (item: OrderMasterSearchItem) => {
     const label = formatUsageLabel(item);
     setForm((prev) => ({
@@ -1054,15 +1107,39 @@ export function OrderBundleEditPanel({
     }));
   };
 
-  const applyUsageSelection = (value: string) => {
+  const applyUsageSelection = (value: string): boolean => {
     const normalized = normalizePredictiveLabel(value);
-    if (!normalized) return;
+    if (!normalized) return false;
     const selected =
       usageSelectOptions.find((item) => normalizePredictiveLabel(formatUsageLabel(item)) === normalized) ??
       usageSelectOptions.find((item) => normalizePredictiveLabel(item.name) === normalized) ??
       null;
-    if (!selected) return;
+    if (!selected) return false;
     applyUsage(selected);
+    return true;
+  };
+
+  const normalizeUsageInput = async (rawValue: string) => {
+    if (isBlocked || isTestMode) return;
+    const token = extractCodeToken(rawValue);
+    if (!token) return;
+    if (!/^[A-Za-z]\d{3,}$/.test(token)) return;
+    const requestId = (usageNormalizationSeqRef.current += 1);
+    const baseDate = form.startDate?.trim() || today;
+    const requestXml = buildMedicationGetRequestXml({ requestNumber: '01', requestCode: token, baseDate });
+    const result = await fetchOrcaMedicationGetXml(requestXml);
+    const apiOk = result.apiResult && /^0+$/.test(result.apiResult);
+    const code = result.medication?.medicationCode?.trim();
+    if (!result.ok || !apiOk || !code) return;
+    const name = result.medication?.medicationName?.trim();
+    if (requestId !== usageNormalizationSeqRef.current) return;
+    const nextLabel = name ? `${code} ${name}` : code;
+    setForm((prev) => {
+      if (prev.adminMemo?.trim()) return prev;
+      const currentToken = extractCodeToken(prev.admin);
+      if (currentToken.toLowerCase() !== token.toLowerCase()) return prev;
+      return { ...prev, admin: nextLabel, adminMemo: code };
+    });
   };
 
   const appendMaterialItem = (item: OrderBundleItem) => {
@@ -1215,25 +1292,28 @@ export function OrderBundleEditPanel({
   }, [copyFromHistory, historyCopyRequest, onHistoryCopyConsumed]);
 
   const isNoProcedureCharge = isInjectionOrder && form.memo === NO_PROCEDURE_CHARGE_TEXT;
+  const isDaysBasedPrescription =
+    isMedOrder && (form.prescriptionTiming === 'regular' || form.prescriptionTiming === 'gaiyo');
   const bundleNumberLabel = isMedOrder
-    ? form.prescriptionTiming === 'regular'
+    ? isDaysBasedPrescription
       ? '日数'
       : '回数'
     : '回数';
   const bundleNumberPlaceholder = isMedOrder
-    ? form.prescriptionTiming === 'regular'
+    ? isDaysBasedPrescription
       ? '例: 7'
       : '例: 1'
     : '1';
-  const isPrescriptionLocationLocked = isMedOrder && form.prescriptionTiming !== 'regular';
   const canEditBundleNumber = !isMedOrder || form.admin.trim().length > 0;
   const bundleNumberDisabled = isBlocked || !canEditBundleNumber;
   const bundleNumberHelp = isMedOrder
     ? form.admin.trim()
-      ? form.prescriptionTiming === 'regular'
-        ? '通常処方は日数として扱われます。'
+      ? isDaysBasedPrescription
+        ? form.prescriptionTiming === 'gaiyo'
+          ? '外用は日数として扱われます。'
+          : '通常処方は日数として扱われます。'
         : '頓用/臨時は回数として扱われます。'
-      : form.prescriptionTiming === 'regular'
+      : isDaysBasedPrescription
         ? '用法入力後に日数を入力できます。'
         : '用法入力後に回数を入力できます。'
     : '';
@@ -1958,7 +2038,7 @@ export function OrderBundleEditPanel({
                         prescriptionLocation: 'in',
                       }))
                     }
-                    disabled={isBlocked || isPrescriptionLocationLocked}
+                    disabled={isBlocked}
                   />
                   院内
                 </label>
@@ -1974,51 +2054,30 @@ export function OrderBundleEditPanel({
                         prescriptionLocation: 'out',
                       }))
                     }
-                    disabled={isBlocked || isPrescriptionLocationLocked}
+                    disabled={isBlocked}
                   />
                   院外
                 </label>
               </div>
-              {isPrescriptionLocationLocked && (
-                <p className="charts-side-panel__help">頓用/臨時では院内/院外を変更できません。</p>
-              )}
             </div>
             <div className="charts-side-panel__field">
-              <label>頓用/臨時</label>
-              <div className="charts-side-panel__field-row">
-                <label className="charts-side-panel__toggle">
-                  <input
-                    id={`${entity}-prescription-tonyo`}
-                    name={`${entity}-prescription-tonyo`}
-                    type="checkbox"
-                    checked={form.prescriptionTiming === 'tonyo'}
-                    onChange={(event) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        prescriptionTiming: event.target.checked ? 'tonyo' : 'regular',
-                      }))
-                    }
-                    disabled={isBlocked}
-                  />
-                  頓用
-                </label>
-                <label className="charts-side-panel__toggle">
-                  <input
-                    id={`${entity}-prescription-temporal`}
-                    name={`${entity}-prescription-temporal`}
-                    type="checkbox"
-                    checked={form.prescriptionTiming === 'temporal'}
-                    onChange={(event) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        prescriptionTiming: event.target.checked ? 'temporal' : 'regular',
-                      }))
-                    }
-                    disabled={isBlocked}
-                  />
-                  臨時
-                </label>
-              </div>
+              <label htmlFor={`${entity}-prescription-timing`}>剤区分</label>
+              <select
+                id={`${entity}-prescription-timing`}
+                value={form.prescriptionTiming}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    prescriptionTiming: event.target.value as PrescriptionTiming,
+                  }))
+                }
+                disabled={isBlocked}
+              >
+                <option value="regular">内服</option>
+                <option value="tonyo">頓用</option>
+                <option value="gaiyo">外用</option>
+                <option value="temporal">臨時</option>
+              </select>
             </div>
           </div>
         )}
@@ -2037,7 +2096,13 @@ export function OrderBundleEditPanel({
                     adminMemo: '',
                   }))
                 }
-                onBlur={(event) => applyUsageSelection(event.target.value)}
+                onBlur={(event) => {
+                  const value = event.target.value;
+                  const matched = applyUsageSelection(value);
+                  if (!matched) {
+                    void normalizeUsageInput(value);
+                  }
+                }}
                 placeholder={orderUiProfile.instructionPlaceholder}
                 disabled={isBlocked}
               />
@@ -2534,7 +2599,7 @@ export function OrderBundleEditPanel({
           {selectedItemPredictionKeyword && !itemPredictiveQuery.isFetching && itemPredictiveCandidates.length === 0 && (
             <p className="charts-side-panel__empty">該当する候補が見つかりません。</p>
           )}
-          {isItemCodeSearch && supportsCommentCodes && selectionCommentCandidates.length > 0 && (
+          {supportsCommentCodes && selectionCommentCandidates.length > 0 && (
             <div className="charts-side-panel__correction">
               <div className="charts-side-panel__correction-header">
                 <strong>選択式コメント候補（medicationgetv2）</strong>

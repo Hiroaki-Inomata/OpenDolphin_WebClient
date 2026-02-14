@@ -14,6 +14,8 @@ describe('prescription class code round trip', () => {
     { timing: 'regular', location: 'out', code: '212' },
     { timing: 'tonyo', location: 'in', code: '221' },
     { timing: 'tonyo', location: 'out', code: '222' },
+    { timing: 'gaiyo', location: 'in', code: '231' },
+    { timing: 'gaiyo', location: 'out', code: '232' },
     { timing: 'temporal', location: 'in', code: '291' },
     { timing: 'temporal', location: 'out', code: '292' },
   ] as const;

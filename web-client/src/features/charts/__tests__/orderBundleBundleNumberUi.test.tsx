@@ -101,7 +101,7 @@ describe('OrderBundleEditPanel bundle number UI', () => {
     await selectUsage(user);
     expect(screen.getByLabelText('日数')).toBeInTheDocument();
 
-    await user.click(screen.getByLabelText('頓用'));
+    await user.selectOptions(screen.getByLabelText('剤区分'), 'tonyo');
 
     const bundleNumberInput = screen.getByLabelText('回数') as HTMLInputElement;
     expect(bundleNumberInput).toBeInTheDocument();
@@ -118,7 +118,7 @@ describe('OrderBundleEditPanel bundle number UI', () => {
     await user.type(screen.getByPlaceholderText('項目名'), 'アムロジピン');
     await selectUsage(user);
     await user.click(screen.getByLabelText('院内'));
-    await user.click(screen.getByLabelText('頓用'));
+    await user.selectOptions(screen.getByLabelText('剤区分'), 'tonyo');
     await user.clear(screen.getByLabelText('回数'));
     await user.type(screen.getByLabelText('回数'), '3');
     await user.type(screen.getByLabelText('RP名'), 'RP-A');

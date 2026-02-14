@@ -118,7 +118,7 @@ describe('OrderBundleEditPanel item actions', () => {
     await user.type(nameInputs[0], 'アムロジピン');
 
     await user.click(screen.getByLabelText('院内'));
-    await user.click(screen.getByLabelText('頓用'));
+    await user.selectOptions(screen.getByLabelText('剤区分'), 'tonyo');
 
     await selectUsage(user);
     await user.clear(screen.getByLabelText('回数'));
