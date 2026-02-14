@@ -288,6 +288,18 @@ export const receptionStyles = css`
     border: 1px solid var(--ui-border);
   }
 
+  .reception-page__title {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .reception-page__title-main {
+    min-width: 0;
+  }
+
   .reception-page__header h1 {
     margin: 0;
     font-size: 2rem;
@@ -300,50 +312,186 @@ export const receptionStyles = css`
     line-height: 1.6;
   }
 
-  .reception-quick-open {
-    margin-top: 0.95rem;
-    padding: 0.85rem 1rem;
-    border-radius: 18px;
-    border: 1px solid rgba(148, 163, 184, 0.28);
-    background: rgba(248, 250, 252, 0.92);
-  }
-
-  .reception-quick-open__form {
-    display: flex;
-    gap: 0.6rem;
-    align-items: flex-end;
-    flex-wrap: wrap;
-  }
-
-  .reception-quick-open__field {
-    display: flex;
+  .reception-daily-calendar {
+    position: relative;
+    display: inline-flex;
     flex-direction: column;
     gap: 0.35rem;
-    font-weight: 700;
-    color: #0f172a;
-    font-size: 0.9rem;
-    min-width: min(240px, 100%);
   }
 
-  .reception-quick-open__field span {
-    font-size: 0.82rem;
-    letter-spacing: 0.02em;
-    color: #0f172a;
+  .reception-daily-calendar__trigger {
+    border-radius: 18px;
+    border: 1px solid rgba(30, 64, 175, 0.25);
+    background: linear-gradient(180deg, rgba(239, 246, 255, 0.95), rgba(255, 255, 255, 0.95));
+    padding: 0.65rem 0.85rem;
+    cursor: pointer;
+    text-align: left;
+    min-width: 14rem;
+    box-shadow: 0 10px 24px rgba(30, 64, 175, 0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
   }
 
-  .reception-quick-open__field input {
-    width: 100%;
-    border-radius: 12px;
-    border: 1px solid #cbd5e1;
-    padding: 0.55rem 0.75rem;
-    background: #ffffff;
+  .reception-daily-calendar__trigger-label {
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    font-weight: 800;
+    color: #1e3a8a;
+    text-transform: uppercase;
+  }
+
+  .reception-daily-calendar__trigger-date {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
     font-size: 0.95rem;
+    font-weight: 900;
+    color: #0f172a;
   }
 
-  @media (max-width: 640px) {
-    .reception-quick-open__form {
-      align-items: stretch;
-    }
+  .reception-daily-calendar.is-open .reception-daily-calendar__trigger {
+    border-color: rgba(37, 99, 235, 0.55);
+    box-shadow: 0 16px 34px rgba(37, 99, 235, 0.18);
+  }
+
+  .reception-daily-calendar__trigger:focus-visible {
+    outline: 3px solid rgba(37, 99, 235, 0.45);
+    outline-offset: 2px;
+  }
+
+  .reception-daily-calendar__popover {
+    position: absolute;
+    top: calc(100% + 0.45rem);
+    right: 0;
+    width: min(340px, 92vw);
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    background: #ffffff;
+    box-shadow: 0 22px 60px rgba(15, 23, 42, 0.25);
+    padding: 0.85rem 0.9rem;
+    z-index: 200;
+  }
+
+  .reception-daily-calendar__popover-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .reception-daily-calendar__month {
+    font-weight: 900;
+    color: #0f172a;
+    font-size: 0.98rem;
+  }
+
+  .reception-daily-calendar__nav {
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.55);
+    background: #ffffff;
+    color: #0f172a;
+    padding: 0.3rem 0.65rem;
+    cursor: pointer;
+    font-weight: 800;
+    font-size: 0.85rem;
+  }
+
+  .reception-daily-calendar__nav:hover {
+    background: #f1f5f9;
+  }
+
+  .reception-daily-calendar__weekdays {
+    margin-top: 0.65rem;
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 900;
+    color: #64748b;
+    text-align: center;
+  }
+
+  .reception-daily-calendar__days {
+    margin-top: 0.35rem;
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.25rem;
+  }
+
+  .reception-daily-calendar__day {
+    border-radius: 12px;
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 0.5rem 0;
+    font-weight: 900;
+    cursor: pointer;
+    color: rgba(100, 116, 139, 0.7);
+  }
+
+  .reception-daily-calendar__day.is-enabled {
+    color: #0f172a;
+    border-color: rgba(37, 99, 235, 0.22);
+    background: rgba(239, 246, 255, 0.65);
+  }
+
+  .reception-daily-calendar__day.is-enabled:hover {
+    background: rgba(219, 234, 254, 0.85);
+    border-color: rgba(37, 99, 235, 0.4);
+  }
+
+  .reception-daily-calendar__day.is-selected {
+    background: #1d4ed8;
+    border-color: #1d4ed8;
+    color: #ffffff;
+  }
+
+  .reception-daily-calendar__day.is-outside:not(.is-selected) {
+    opacity: 0.5;
+  }
+
+  .reception-daily-calendar__day:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+    background: transparent;
+    border-color: transparent;
+  }
+
+  .reception-daily-calendar__day:focus-visible {
+    outline: 3px solid rgba(37, 99, 235, 0.45);
+    outline-offset: 2px;
+  }
+
+  .reception-daily-calendar__legend {
+    margin-top: 0.65rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    font-size: 0.78rem;
+    color: #475569;
+    font-weight: 700;
+  }
+
+  .reception-daily-calendar__legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .reception-daily-calendar__legend-dot {
+    width: 0.65rem;
+    height: 0.65rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.55);
+    background: rgba(148, 163, 184, 0.18);
+  }
+
+  .reception-daily-calendar__legend-dot[data-kind='enabled'] {
+    border-color: rgba(37, 99, 235, 0.35);
+    background: rgba(219, 234, 254, 0.95);
+  }
+
+  .reception-daily-calendar__legend-dot[data-kind='selected'] {
+    border-color: rgba(37, 99, 235, 0.95);
+    background: rgba(29, 78, 216, 0.95);
   }
 
   .order-console {
@@ -1025,6 +1173,35 @@ export const receptionStyles = css`
     display: flex;
     gap: 0.5rem;
     align-items: center;
+  }
+
+  .reception-accept__quick-open {
+    display: inline-flex;
+    gap: 0.45rem;
+    align-items: center;
+  }
+
+  .reception-accept__quick-open input {
+    width: 8.25rem;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    padding: 0.45rem 0.7rem;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.9rem;
+    font-weight: 800;
+    background: #ffffff;
+    color: #0f172a;
+  }
+
+  .reception-accept__quick-open input:focus-visible {
+    outline: 3px solid rgba(37, 99, 235, 0.45);
+    outline-offset: 2px;
+  }
+
+  .reception-accept__quick-open .reception-search__button {
+    padding: 0.45rem 0.85rem;
+    font-size: 0.85rem;
+    font-weight: 900;
   }
 
   .reception-selection__button.danger {
@@ -1993,7 +2170,7 @@ export const receptionStyles = css`
   .reception-board {
     display: flex;
     gap: 1rem;
-    align-items: flex-start;
+    align-items: stretch;
     overflow-x: auto;
     padding-bottom: 0.75rem;
     scroll-snap-type: x proximity;
@@ -2003,6 +2180,7 @@ export const receptionStyles = css`
     flex: 0 0 360px;
     max-width: 420px;
     min-height: 240px;
+    max-height: clamp(420px, calc(100vh - 24rem), 860px);
     border-radius: 20px;
     border: 1px solid rgba(148, 163, 184, 0.3);
     background: #ffffff;
@@ -2088,6 +2266,9 @@ export const receptionStyles = css`
     display: flex;
     flex-direction: column;
     gap: 0.65rem;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .reception-board__empty {
@@ -2144,6 +2325,58 @@ export const receptionStyles = css`
   .reception-card:focus-visible {
     outline: 3px solid rgba(37, 99, 235, 0.45);
     outline-offset: 2px;
+  }
+
+  .reception-card__summary {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+    min-width: 0;
+  }
+
+  .reception-card__identity {
+    display: flex;
+    flex-direction: column;
+    gap: 0.18rem;
+    min-width: 0;
+  }
+
+  .reception-card__kana {
+    font-size: 0.78rem;
+    color: #64748b;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+  }
+
+  .reception-card__display-name {
+    font-size: 1.08rem;
+    font-weight: 900;
+    color: #0f172a;
+    line-height: 1.15;
+    letter-spacing: 0.01em;
+  }
+
+  .reception-card__patient-id {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-weight: 900;
+    font-size: 0.9rem;
+    color: #0f172a;
+    white-space: nowrap;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    background: rgba(15, 23, 42, 0.06);
+    padding: 0.18rem 0.55rem;
+  }
+
+  .reception-card__expand {
+    margin-top: 0.35rem;
+    padding-top: 0.65rem;
+    border-top: 1px dashed rgba(148, 163, 184, 0.35);
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
   }
 
   .reception-card__head {
@@ -2387,6 +2620,17 @@ export const receptionStyles = css`
     background: #fffbeb;
   }
 
+  .reception-card__submenu-item.primary {
+    border-color: #1d4ed8;
+    background: #1d4ed8;
+    color: #ffffff;
+  }
+
+  .reception-card__submenu-item.primary:hover {
+    background: #1e40af;
+    border-color: #1e40af;
+  }
+
   .reception-card__submenu-item.danger {
     border-color: #ef4444;
     color: #b91c1c;
@@ -2401,6 +2645,13 @@ export const receptionStyles = css`
     opacity: 0.5;
     cursor: not-allowed;
     background: #f8fafc;
+  }
+
+  .reception-card__submenu-item.primary:disabled {
+    background: #bfdbfe;
+    border-color: #93c5fd;
+    color: #1e3a8a;
+    opacity: 0.75;
   }
 
   .reception-card__action.warning {

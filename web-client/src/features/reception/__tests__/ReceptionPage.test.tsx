@@ -372,7 +372,7 @@ describe('ReceptionPage accept UX', () => {
     expect(paymentSelect).toHaveValue('self');
   });
 
-  it('enables cancel button only when a cancellable entry is selected', async () => {
+  it('enables cancel action only when entry has a receptionId', async () => {
     mockAppointmentData.entries = [
       {
         id: 'row-1',
@@ -401,13 +401,14 @@ describe('ReceptionPage accept UX', () => {
     const user = userEvent.setup();
     renderReceptionPage();
 
-    const cancelButton = screen.getByRole('button', { name: '受付取消' });
-    expect(cancelButton).toBeDisabled();
+    const card1 = screen.getByRole('button', { name: /受付IDなし患者/ });
+    await user.click(within(card1).getByRole('button', { name: 'カード操作を開く' }));
+    expect(screen.getByRole('menuitem', { name: '受付取消（カード）' })).toBeDisabled();
+    await user.click(document.body);
 
     const card2 = screen.getByRole('button', { name: /取消可能患者/ });
-    await user.click(card2);
-
-    expect(cancelButton).toBeEnabled();
+    await user.click(within(card2).getByRole('button', { name: 'カード操作を開く' }));
+    expect(screen.getByRole('menuitem', { name: '受付取消（カード）' })).toBeEnabled();
   });
 
   it('shows Api_Result and duration in the result area after submit', async () => {
@@ -461,7 +462,7 @@ describe('ReceptionPage section collapse defaults', () => {
 });
 
 describe('ReceptionPage list and side pane guidance', () => {
-  it('highlights selected row and shows double-click/Enter guidance', async () => {
+  it('highlights selected row and expands details on selection', async () => {
     mockAppointmentData.entries = [
       {
         id: 'row-1',
@@ -490,19 +491,20 @@ describe('ReceptionPage list and side pane guidance', () => {
     const user = userEvent.setup();
     renderReceptionPage();
 
-    const guidance = screen.getByText(/行クリックで右ペイン更新/);
-    expect(guidance).toBeInTheDocument();
-
     const card1 = screen.getByRole('button', { name: /山田太郎/ });
     const card2 = screen.getByRole('button', { name: /佐藤花子/ });
 
     expect(card1).toHaveClass('is-selected');
     expect(card2).not.toHaveClass('is-selected');
+    expect(within(card1).getByLabelText('カード詳細')).toBeInTheDocument();
+    expect(within(card2).queryByLabelText('カード詳細')).toBeNull();
 
     await user.click(card2);
 
     expect(card1).not.toHaveClass('is-selected');
     expect(card2).toHaveClass('is-selected');
+    expect(within(card1).queryByLabelText('カード詳細')).toBeNull();
+    expect(within(card2).getByLabelText('カード詳細')).toBeInTheDocument();
   });
 
   it('shows patient search and accept form in the right column; medical record preview opens in a modal (debug panels hidden by default)', async () => {
@@ -529,12 +531,12 @@ describe('ReceptionPage list and side pane guidance', () => {
 
     const acceptSection = screen.getByRole('region', { name: '当日受付' });
     await waitFor(() => {
-      expect(within(acceptSection).getByLabelText(/患者ID/)).toHaveValue('P-010');
+      expect(within(acceptSection).getByLabelText('患者ID')).toHaveValue('P-010');
     });
 
     // Preview medical records in a modal (no new tab).
-    const recordsButton = screen.getByRole('button', { name: '過去カルテ' });
-    await user.click(recordsButton);
+    await user.click(screen.getByRole('button', { name: 'カード操作を開く' }));
+    await user.click(screen.getByRole('menuitem', { name: '過去カルテ（カード）' }));
     const dialog = (await screen.findByRole('dialog', { name: /過去カルテ/ })) as HTMLElement;
     expect(within(dialog).getByText(/患者ID:\s*P-010/)).toBeInTheDocument();
     await waitFor(() => {
@@ -631,11 +633,9 @@ describe('ReceptionPage status/date/card action UX', () => {
     const user = userEvent.setup();
     renderReceptionPage();
     const board = screen.getByRole('region', { name: 'ステータス別患者一覧' });
-
-    await user.click(screen.getByRole('tab', { name: /診察終了/ }));
-
-    expect(within(board).getByText('診察後患者')).toBeInTheDocument();
-    expect(within(board).queryByText('受付患者')).toBeNull();
+    const afterColumn = within(board).getByRole('region', { name: /診察終了/ });
+    expect(within(afterColumn).getByText('診察後患者')).toBeInTheDocument();
+    expect(within(afterColumn).queryByText('受付患者')).toBeNull();
   });
 
   it('shows 会計送信 button on 診察終了 cards and moves them to 会計済み on success', async () => {
@@ -656,9 +656,8 @@ describe('ReceptionPage status/date/card action UX', () => {
     const user = userEvent.setup();
     renderReceptionPage();
 
-    const board = screen.getByRole('region', { name: 'ステータス別患者一覧' });
-    const sendButton = within(board).getByRole('button', { name: '会計送信（カード）' });
-    await user.click(sendButton);
+    await user.click(screen.getByRole('button', { name: 'カード操作を開く' }));
+    await user.click(screen.getByRole('menuitem', { name: '会計送信（カード）' }));
 
     await waitFor(() => expect(vi.mocked(postOrcaMedicalModV2Xml)).toHaveBeenCalled());
 
