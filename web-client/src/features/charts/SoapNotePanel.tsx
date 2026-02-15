@@ -21,6 +21,7 @@ import { postChartSubjectiveEntry, type ChartSubjectiveEntryRequest } from './so
 import { RevisionHistoryDrawer } from './revisions/RevisionHistoryDrawer';
 import type { RpHistoryEntry } from './karteExtrasApi';
 import type { OrderBundle } from './orderBundleApi';
+import { OrderDockPanel } from './OrderDockPanel';
 
 export type SoapNoteMeta = {
   runId?: string;
@@ -40,6 +41,20 @@ export type SoapNoteAuthor = {
   userId: string;
 };
 
+type PastOrderEntity =
+  | 'medOrder'
+  | 'generalOrder'
+  | 'injectionOrder'
+  | 'treatmentOrder'
+  | 'surgeryOrder'
+  | 'otherOrder'
+  | 'testOrder'
+  | 'physiologyOrder'
+  | 'bacteriaOrder'
+  | 'radiologyOrder'
+  | 'instractionChargeOrder'
+  | 'baseChargeOrder';
+
 type SoapNotePanelProps = {
   history: SoapEntry[];
   meta: SoapNoteMeta;
@@ -52,8 +67,10 @@ type SoapNotePanelProps = {
   orderBundles?: OrderBundle[];
   orderBundlesLoading?: boolean;
   orderBundlesError?: string;
-  onOpenPrescriptionEditor?: () => void;
-  onOpenOrderEditor?: (entity: string) => void;
+  orderDockOpenRequest?: { requestId: string; entity: PastOrderEntity } | null;
+  onOrderDockOpenConsumed?: (requestId: string) => void;
+  orderHistoryCopyRequest?: { requestId: string; entity: PastOrderEntity; bundle: OrderBundle } | null;
+  onOrderHistoryCopyConsumed?: (requestId: string) => void;
   onDraftSnapshot?: (draft: SoapDraft) => void;
   replaceDraftRequest?: { token: string; draft: SoapDraft; note?: string } | null;
   applyDraftPatch?: { token: string; section: SoapSectionKey; body: string; note?: string } | null;
@@ -108,8 +125,10 @@ export function SoapNotePanel({
   orderBundles,
   orderBundlesLoading = false,
   orderBundlesError,
-  onOpenPrescriptionEditor,
-  onOpenOrderEditor,
+  orderDockOpenRequest,
+  onOrderDockOpenConsumed,
+  orderHistoryCopyRequest,
+  onOrderHistoryCopyConsumed,
   onDraftSnapshot,
   replaceDraftRequest,
   applyDraftPatch,
@@ -222,52 +241,16 @@ export function SoapNotePanel({
     });
     return { first, last };
   }, [history]);
-  const latestPrescription = useMemo(() => {
-    const entries = (rpHistory ?? []).filter(Boolean);
-    if (entries.length === 0) return null;
-    const sorted = entries.slice().sort((a, b) => (b.issuedDate ?? '').localeCompare(a.issuedDate ?? ''));
-    return sorted[0] ?? null;
-  }, [rpHistory]);
-  const prescriptionDrugs = useMemo(() => latestPrescription?.rpList ?? [], [latestPrescription]);
-  const prescriptionIssuedDate = latestPrescription?.issuedDate?.trim() ?? '';
-  const prescriptionMemo = latestPrescription?.memo?.trim() ?? '';
-  const orderVisitDate = meta.visitDate?.slice(0, 10) ?? '';
 
-  const orderBundlesByEntity = useMemo(() => {
-    const map = new Map<string, OrderBundle[]>();
-    const list = (orderBundles ?? []).filter(Boolean);
-    list.forEach((bundle) => {
-      const started = bundle.started?.slice(0, 10);
-      if (orderVisitDate && started && started !== orderVisitDate) return;
-      const entity = bundle.entity?.trim() || 'unknown';
-      const current = map.get(entity) ?? [];
-      current.push(bundle);
-      map.set(entity, current);
-    });
-    return map;
-  }, [orderBundles, orderVisitDate]);
-
-  const orderGroupSpecs = useMemo(
-    () => [
-      { key: 'prescription', label: '処方', entities: ['medOrder'], defaultEditorEntity: 'medOrder' },
-      { key: 'injection', label: '注射', entities: ['injectionOrder'], defaultEditorEntity: 'injectionOrder' },
-      { key: 'treatment', label: '処置', entities: ['treatmentOrder', 'generalOrder', 'surgeryOrder', 'otherOrder'], defaultEditorEntity: 'treatmentOrder' },
-      { key: 'test', label: '検査', entities: ['testOrder', 'physiologyOrder', 'bacteriaOrder', 'radiologyOrder'], defaultEditorEntity: 'testOrder' },
-      { key: 'charge', label: '算定', entities: ['baseChargeOrder', 'instractionChargeOrder'], defaultEditorEntity: 'baseChargeOrder' },
-    ],
-    [],
+  const orderEditorMeta = useMemo(
+    () => ({
+      ...meta,
+      actorRole: author.role,
+      readOnly,
+      readOnlyReason,
+    }),
+    [author.role, meta, readOnly, readOnlyReason],
   );
-
-  const orderGroups = useMemo(() => {
-    return orderGroupSpecs.map((spec) => {
-      const bundles = spec.entities.flatMap((entity) => orderBundlesByEntity.get(entity) ?? []);
-      const entityCounts = spec.entities
-        .map((entity) => ({ entity, count: (orderBundlesByEntity.get(entity) ?? []).length }))
-        .filter((x) => x.count > 0);
-      return { ...spec, bundles, entityCounts };
-    });
-  }, [orderBundlesByEntity, orderGroupSpecs]);
-  const hasOrderBundles = orderGroups.some((group) => group.bundles.length > 0);
 
   const historySignature = useMemo(
     () => history.map((entry) => entry.id ?? entry.authoredAt ?? '').join('|'),
@@ -1037,188 +1020,28 @@ export function SoapNotePanel({
         </div>
         <aside
           className="soap-note__paper"
-          aria-label="オーダー情報"
+          id="charts-order-pane"
+          tabIndex={-1}
+          data-focus-anchor="true"
+          aria-label="オーダー入力"
           data-loading={orderBundlesLoading || rpHistoryLoading ? '1' : '0'}
           data-error={orderBundlesError || rpHistoryError ? '1' : '0'}
         >
-          <header className="soap-note__paper-header">
-            <div>
-              <strong>オーダー情報</strong>
-              <span className="soap-note__paper-meta">
-                診療日:{orderVisitDate || '—'}
-                {hasOrderBundles ? ` / bundles:${orderGroups.reduce((acc, group) => acc + group.bundles.length, 0)}` : ''}
-              </span>
-            </div>
-          </header>
-
-          {orderBundlesLoading ? (
-            <p className="soap-note__paper-empty" role="status">
-              オーダー情報を取得しています...
-            </p>
-          ) : orderBundlesError ? (
-            <p className="soap-note__paper-empty" role="status">
-              オーダー情報の取得に失敗しました: {orderBundlesError}
-            </p>
-          ) : hasOrderBundles ? (
-            <div className="soap-note__order-groups" aria-label="当日オーダー一覧">
-              {orderGroups
-                .filter((group) => group.bundles.length > 0)
-                .map((group) => {
-                  const canEdit = Boolean(meta.patientId && (group.key === 'prescription' ? onOpenPrescriptionEditor : onOpenOrderEditor));
-                  const editLabel = group.key === 'prescription' ? '処方編集' : `${group.label}編集`;
-                  const handleEdit = () => {
-                    if (!meta.patientId) return;
-                    if (group.key === 'prescription') {
-                      onOpenPrescriptionEditor?.();
-                      return;
-                    }
-                    onOpenOrderEditor?.(group.defaultEditorEntity);
-                  };
-                  const resolveEntityLabel = (entity: string): string => {
-                    switch (entity) {
-                      case 'treatmentOrder':
-                        return '処置';
-                      case 'generalOrder':
-                        return '一般';
-                      case 'surgeryOrder':
-                        return '手術';
-                      case 'otherOrder':
-                        return 'その他';
-                      case 'testOrder':
-                        return '検査';
-                      case 'physiologyOrder':
-                        return '生理';
-                      case 'bacteriaOrder':
-                        return '細菌';
-                      case 'radiologyOrder':
-                        return '放射線';
-                      case 'instractionChargeOrder':
-                        return '指導料';
-                      case 'baseChargeOrder':
-                        return '基本料';
-                      case 'injectionOrder':
-                        return '注射';
-                      case 'medOrder':
-                        return '処方';
-                      default:
-                        return entity;
-                    }
-                  };
-                  const submeta = group.entityCounts
-                    .map((x) => `${resolveEntityLabel(x.entity)}:${x.count}`)
-                    .slice(0, 6)
-                    .join(' / ');
-                  return (
-                    <section key={group.key} className="soap-note__order-group" data-group={group.key}>
-                      <header className="soap-note__order-group-header">
-                        <div>
-                          <strong>{group.label}</strong>
-                          <span className="soap-note__order-group-meta">{group.bundles.length}件</span>
-                        </div>
-                        <button
-                          type="button"
-                          className="soap-note__paper-action"
-                          onClick={handleEdit}
-                          disabled={!canEdit}
-                          title={!meta.patientId ? '患者未選択のため開けません。' : !canEdit ? '編集UIが未接続です。' : undefined}
-                        >
-                          {editLabel}
-                        </button>
-                      </header>
-                      {submeta && group.entityCounts.length > 1 ? <p className="soap-note__order-group-submeta">内訳: {submeta}</p> : null}
-                      <ul className="soap-note__order-list" aria-label={`${group.label}オーダー`}>
-                        {group.bundles.slice(0, 8).map((bundle, index) => {
-                          const items = (bundle.items ?? []).filter(Boolean);
-                          const itemLabels = items
-                            .map((item) => {
-                              const name = item.name?.trim();
-                              if (!name) return null;
-                              const quantity = item.quantity?.trim();
-                              const unit = item.unit?.trim();
-                              const qty = [quantity, unit].filter(Boolean).join('');
-                              return qty ? `${name}(${qty})` : name;
-                            })
-                            .filter((v): v is string => Boolean(v));
-                          const itemInline = itemLabels.slice(0, 4).join(' / ');
-                          const itemMore = itemLabels.length > 4 ? ` 他${itemLabels.length - 4}` : '';
-                          const itemSummary = itemInline ? `${itemInline}${itemMore}` : '項目なし';
-                          const title = itemLabels.length > 0 ? itemLabels.join(' / ') : undefined;
-                          const bundleName = bundle.bundleName?.trim() || bundle.className?.trim() || '名称未設定';
-                          return (
-                            <li key={`${group.key}-${bundle.documentId ?? 'doc'}-${bundle.moduleId ?? 'mod'}-${index}`} className="soap-note__order-item">
-                              <strong className="soap-note__order-bundle">{bundleName}</strong>
-                              <span className="soap-note__order-items" title={title}>
-                                {itemSummary}
-                              </span>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                      {group.bundles.length > 8 ? <p className="soap-note__paper-empty">他 {group.bundles.length - 8} 件</p> : null}
-                    </section>
-                  );
-                })}
-            </div>
-          ) : (
-            <p className="soap-note__paper-empty" role="status">
-              当日のオーダーはありません。
-            </p>
-          )}
-
-          {rpHistoryLoading || rpHistoryError || prescriptionDrugs.length > 0 || prescriptionMemo ? (
-            <div className="soap-note__rx-history" aria-label="処方履歴（直近）">
-              <header className="soap-note__paper-header">
-                <div>
-                  <strong>処方履歴（直近）</strong>
-                  <span className="soap-note__paper-meta">発行:{prescriptionIssuedDate || '—'}</span>
-                </div>
-                {onOpenPrescriptionEditor ? (
-                  <button
-                    type="button"
-                    className="soap-note__paper-action"
-                    onClick={onOpenPrescriptionEditor}
-                    disabled={!meta.patientId}
-                    title={!meta.patientId ? '患者未選択のため開けません。' : undefined}
-                  >
-                    処方編集
-                  </button>
-                ) : null}
-              </header>
-              {rpHistoryLoading ? (
-                <p className="soap-note__paper-empty" role="status">
-                  処方履歴を取得しています...
-                </p>
-              ) : rpHistoryError ? (
-                <p className="soap-note__paper-empty" role="status">
-                  処方履歴の取得に失敗しました: {rpHistoryError}
-                </p>
-              ) : prescriptionDrugs.length === 0 ? (
-                <p className="soap-note__paper-empty" role="status">
-                  直近の処方履歴はありません。
-                </p>
-              ) : (
-                <ol className="soap-note__paper-list" aria-label="処方薬剤一覧">
-                  {prescriptionDrugs.slice(0, 40).map((drug, index) => {
-                    const name = drug.name?.trim() || '薬剤名不明';
-                    const dose = drug.dose?.trim();
-                    const amount = drug.amount?.trim();
-                    const usage = drug.usage?.trim();
-                    const days = drug.days?.trim();
-                    const line = [dose, amount].filter(Boolean).join(' ');
-                    const metaLine = [usage, days ? `日数:${days}` : null].filter(Boolean).join(' / ');
-                    return (
-                      <li key={`${name}-${index}`} className="soap-note__paper-item">
-                        <strong className="soap-note__paper-drug">{name}</strong>
-                        {line ? <span className="soap-note__paper-dose">{line}</span> : null}
-                        {metaLine ? <span className="soap-note__paper-sub">{metaLine}</span> : null}
-                      </li>
-                    );
-                  })}
-                </ol>
-              )}
-              {prescriptionMemo ? <p className="soap-note__paper-memo">メモ: {prescriptionMemo}</p> : null}
-            </div>
-          ) : null}
+          <OrderDockPanel
+            patientId={meta.patientId}
+            meta={orderEditorMeta}
+            visitDate={meta.visitDate}
+            orderBundles={orderBundles}
+            orderBundlesLoading={orderBundlesLoading}
+            orderBundlesError={orderBundlesError}
+            rpHistory={rpHistory}
+            rpHistoryLoading={rpHistoryLoading}
+            rpHistoryError={rpHistoryError}
+            openRequest={orderDockOpenRequest}
+            onOpenRequestConsumed={onOrderDockOpenConsumed}
+            historyCopyRequest={orderHistoryCopyRequest}
+            onHistoryCopyConsumed={onOrderHistoryCopyConsumed}
+          />
         </aside>
       </div>
     </section>

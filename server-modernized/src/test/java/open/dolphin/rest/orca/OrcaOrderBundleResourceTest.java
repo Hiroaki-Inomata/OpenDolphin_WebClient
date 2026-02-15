@@ -102,6 +102,7 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         assertEquals(2, response.getRecordsScanned());
         assertEquals(1, response.getRecommendations().size());
         var entry = response.getRecommendations().get(0);
+        assertEquals("medOrder", entry.getEntity());
         assertEquals("patient", entry.getSource());
         assertEquals(2, entry.getCount());
         assertEquals("降圧薬セット", entry.getTemplate().getBundleName());

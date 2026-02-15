@@ -39,6 +39,12 @@ export type OrderBundleEditPanelMeta = {
   readOnlyReason?: string;
 };
 
+export type OrderBundleEditPanelRequest =
+  | { requestId: string; kind: 'new' }
+  | { requestId: string; kind: 'edit'; bundle: OrderBundle }
+  | { requestId: string; kind: 'copy'; bundle: OrderBundle }
+  | { requestId: string; kind: 'recommendation'; candidate: OrderRecommendationCandidate };
+
 export type OrderBundleEditPanelProps = {
   patientId?: string;
   entity: string;
@@ -46,9 +52,12 @@ export type OrderBundleEditPanelProps = {
   bundleLabel: string;
   itemQuantityLabel: string;
   meta: OrderBundleEditPanelMeta;
+  variant?: 'utility' | 'embedded';
   onOpenDocument?: (request: DocumentOpenRequest) => void;
   historyCopyRequest?: { requestId: string; bundle: OrderBundle } | null;
   onHistoryCopyConsumed?: (requestId: string) => void;
+  request?: OrderBundleEditPanelRequest | null;
+  onRequestConsumed?: (requestId: string) => void;
 };
 
 type PrescriptionLocation = 'in' | 'out';
@@ -647,9 +656,12 @@ export function OrderBundleEditPanel({
   bundleLabel,
   itemQuantityLabel,
   meta,
+  variant = 'utility',
   onOpenDocument,
   historyCopyRequest,
   onHistoryCopyConsumed,
+  request,
+  onRequestConsumed,
 }: OrderBundleEditPanelProps) {
   const queryClient = useQueryClient();
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -675,6 +687,23 @@ export function OrderBundleEditPanel({
     memo: '',
   });
   const orderUiProfile = useMemo(() => resolveOrderEntityUiProfile(entity), [entity]);
+
+  const resetEditorForm = useCallback(() => {
+    setForm(buildEmptyForm(today));
+    setNotice(null);
+    setContraNotice(null);
+    setContraDetails([]);
+    setMaterialKeyword('');
+    setBodyPartKeyword('');
+    setMasterSearchType(resolveDefaultMasterSearchType(entity));
+    setCommentDraft({
+      code: '',
+      name: '',
+      quantity: '',
+      unit: '',
+      memo: '',
+    });
+  }, [entity, today]);
   const isMedOrder = entity === 'medOrder';
   const isInjectionOrder = entity === 'injectionOrder';
   const isRadiologyOrder = entity === 'radiologyOrder';
@@ -854,13 +883,15 @@ export function OrderBundleEditPanel({
         scanLimit: 800,
       });
     },
-    enabled: Boolean(patientId),
+    enabled: Boolean(patientId) && variant === 'utility',
     staleTime: 60 * 1000,
   });
   const recommendationCandidates = useMemo<OrderRecommendationCandidate[]>(
     () => recommendationQuery.data?.recommendations ?? [],
     [recommendationQuery.data],
   );
+  const showRecommendationSidebar = variant === 'utility';
+  const showBundleList = variant === 'utility';
 
   const queryKey = ['charts-order-bundles', patientId, entity];
   const bundleQuery = useQuery({
@@ -1437,6 +1468,49 @@ export function OrderBundleEditPanel({
     onHistoryCopyConsumed?.(historyCopyRequest.requestId);
   }, [copyFromHistory, historyCopyRequest, onHistoryCopyConsumed]);
 
+  const lastExternalRequestIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!request) return;
+    if (request.requestId === lastExternalRequestIdRef.current) return;
+    lastExternalRequestIdRef.current = request.requestId;
+    switch (request.kind) {
+      case 'new': {
+        resetEditorForm();
+        break;
+      }
+      case 'edit': {
+        setForm(toFormState(request.bundle, today));
+        setNotice(null);
+        setContraNotice(null);
+        setContraDetails([]);
+        setMaterialKeyword('');
+        setBodyPartKeyword('');
+        setMasterSearchType(resolveDefaultMasterSearchType(entity));
+        break;
+      }
+      case 'copy': {
+        copyFromHistory(request.bundle);
+        break;
+      }
+      case 'recommendation': {
+        applyRecommendation(request.candidate);
+        break;
+      }
+      default: {
+        // exhaustive
+      }
+    }
+    onRequestConsumed?.(request.requestId);
+  }, [
+    applyRecommendation,
+    copyFromHistory,
+    entity,
+    onRequestConsumed,
+    request,
+    resetEditorForm,
+    today,
+  ]);
+
   const isNoProcedureCharge = isInjectionOrder && form.memo === NO_PROCEDURE_CHARGE_TEXT;
   const isDaysBasedPrescription =
     isMedOrder && (form.prescriptionTiming === 'regular' || form.prescriptionTiming === 'gaiyo');
@@ -1714,6 +1788,10 @@ export function OrderBundleEditPanel({
           );
         }
         queryClient.invalidateQueries({ queryKey });
+        if (patientId) {
+          // Also refresh same-day summary queries (they use visitDate as key part, not entity).
+          queryClient.invalidateQueries({ queryKey: ['charts-order-bundles', patientId] });
+        }
         if (payload.action !== 'expand_continue') {
           setForm(buildEmptyForm(today));
         }
@@ -1807,6 +1885,9 @@ export function OrderBundleEditPanel({
           setOptimisticBundles((prev) => prev.filter((entry) => entry.documentId !== bundle.documentId));
         }
         queryClient.invalidateQueries({ queryKey });
+        if (patientId) {
+          queryClient.invalidateQueries({ queryKey: ['charts-order-bundles', patientId] });
+        }
       }
     },
     onError: (error: unknown, bundle) => {
@@ -2102,22 +2183,7 @@ export function OrderBundleEditPanel({
         <button
           type="button"
           className="charts-side-panel__ghost charts-side-panel__ghost--reset"
-          onClick={() => {
-            setForm(buildEmptyForm(today));
-            setNotice(null);
-            setContraNotice(null);
-            setContraDetails([]);
-            setMaterialKeyword('');
-            setBodyPartKeyword('');
-            setMasterSearchType(resolveDefaultMasterSearchType(entity));
-            setCommentDraft({
-              code: '',
-              name: '',
-              quantity: '',
-              unit: '',
-              memo: '',
-            });
-          }}
+          onClick={resetEditorForm}
           disabled={isBlocked}
         >
           新規入力
@@ -2232,39 +2298,43 @@ export function OrderBundleEditPanel({
           )}
         </div>
       )}
-      <div className="charts-side-panel__workspace">
-        <aside className="charts-side-panel__workspace-left" aria-label="頻用オーダー">
-          <div className="charts-side-panel__subsection">
-            <div className="charts-side-panel__subheader">
-              <strong>頻用オーダー（患者優先）</strong>
-              <span className="charts-side-panel__search-count">{recommendationCandidates.length}件</span>
-            </div>
-            {recommendationCandidates.length === 0 ? (
-              <p className="charts-side-panel__empty">
-                まだ学習データがありません。保存済みオーダーから候補ボタンを自動生成します。
-              </p>
-            ) : (
-              <div className="charts-side-panel__template-actions" aria-label="頻用オーダー候補">
-                {recommendationCandidates.map((candidate) => (
-                  <button
-                    key={candidate.key}
-                    type="button"
-                    className="charts-side-panel__chip-button charts-side-panel__chip-button--recommend"
-                    onClick={() => applyRecommendation(candidate)}
-                    disabled={isBlocked}
-                    title={`${resolveRecommendationLabel(candidate)} / ${candidate.source === 'patient' ? '患者傾向' : '施設傾向'} / ${candidate.count}回`}
-                  >
-                    {resolveRecommendationLabel(candidate)}
-                    {` (${candidate.source === 'patient' ? '患者' : '施設'}:${candidate.count})`}
-                  </button>
-                ))}
+      <div className="charts-side-panel__workspace" data-variant={variant}>
+        {showRecommendationSidebar ? (
+          <aside className="charts-side-panel__workspace-left" aria-label="頻用オーダー">
+            <div className="charts-side-panel__subsection">
+              <div className="charts-side-panel__subheader">
+                <strong>頻用オーダー（患者優先）</strong>
+                <span className="charts-side-panel__search-count">{recommendationCandidates.length}件</span>
               </div>
-            )}
-            <p className="charts-side-panel__help">患者個別候補を優先し、不足分のみ施設候補で補完します。</p>
-          </div>
-        </aside>
+              {recommendationCandidates.length === 0 ? (
+                <p className="charts-side-panel__empty">
+                  まだ学習データがありません。保存済みオーダーから候補ボタンを自動生成します。
+                </p>
+              ) : (
+                <div className="charts-side-panel__template-actions" aria-label="頻用オーダー候補">
+                  {recommendationCandidates.map((candidate) => (
+                    <button
+                      key={candidate.key}
+                      type="button"
+                      className="charts-side-panel__chip-button charts-side-panel__chip-button--recommend"
+                      onClick={() => applyRecommendation(candidate)}
+                      disabled={isBlocked}
+                      title={`${resolveRecommendationLabel(candidate)} / ${candidate.source === 'patient' ? '患者傾向' : '施設傾向'} / ${candidate.count}回`}
+                    >
+                      {resolveRecommendationLabel(candidate)}
+                      {` (${candidate.source === 'patient' ? '患者' : '施設'}:${candidate.count})`}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="charts-side-panel__help">患者個別候補を優先し、不足分のみ施設候補で補完します。</p>
+            </div>
+          </aside>
+        ) : null}
 
-        <div className="charts-side-panel__workspace-right">
+        <div
+          className={`charts-side-panel__workspace-right${showRecommendationSidebar ? '' : ' charts-side-panel__workspace-right--full'}`}
+        >
           <form
             className="charts-side-panel__form"
             onSubmit={(event) => {
@@ -2662,9 +2732,11 @@ export function OrderBundleEditPanel({
         )}
 
         <div className="charts-side-panel__subsection">
-          <div className="charts-side-panel__subheader">
-            <strong>{orderUiProfile.mainItemLabel}</strong>
-            <div className="charts-side-panel__subheader-actions">
+          <div className="charts-side-panel__two-table-layout">
+            <div className="charts-side-panel__two-table-fixed" data-testid="order-bundle-confirmed-table">
+              <div className="charts-side-panel__subheader">
+                <strong>{orderUiProfile.mainItemLabel}</strong>
+                <div className="charts-side-panel__subheader-actions">
               <button
                 type="button"
                 className="charts-side-panel__ghost charts-side-panel__ghost--add"
@@ -2912,7 +2984,20 @@ export function OrderBundleEditPanel({
               </button>
             </div>
           ))}
-          {itemPredictiveCandidates.length > 0 && (
+            </div>
+
+            <div className="charts-side-panel__two-table-scroll" data-testid="order-bundle-candidate-table" aria-label="候補">
+              <div className="charts-side-panel__subheader">
+                <strong>候補</strong>
+                <span className="charts-side-panel__search-count">
+                  {selectedItemPredictionKeyword
+                    ? itemPredictiveQuery.isFetching
+                      ? '検索中...'
+                      : `${itemPredictiveCandidates.length}件`
+                    : ''}
+                </span>
+              </div>
+              {itemPredictiveCandidates.length > 0 && (
             <div className="charts-side-panel__search-table">
               <div className="charts-side-panel__search-header">
                 <span>コード</span>
@@ -2982,6 +3067,8 @@ export function OrderBundleEditPanel({
               </div>
             </div>
           )}
+            </div>
+          </div>
         </div>
 
         {supportsMaterials && (
@@ -3378,80 +3465,82 @@ export function OrderBundleEditPanel({
         </div>
       </form>
 
-          <div className="charts-side-panel__list" aria-live={resolveAriaLive('info')}>
-            <div className="charts-side-panel__list-header">
-              <span>登録済み{title}</span>
-              <span>{bundleQuery.isFetching ? '更新中' : `${bundles.length}件`}</span>
-            </div>
-            {bundleQuery.isError && <p className="charts-side-panel__empty">オーダーの取得に失敗しました。</p>}
-            {bundles.length === 0 && !bundleQuery.isFetching && <p className="charts-side-panel__empty">登録はまだありません。</p>}
-            {bundles.length > 0 && (
-              <ul className="charts-side-panel__items">
-                {bundles.map((bundle) => (
-                  <li key={bundle.documentId ?? `${bundle.bundleName}-${bundle.started}`}>
-                    <div>
-                      <strong>{formatBundleName(bundle)}</strong>
-                      <span>{bundle.admin ? ` / ${bundle.admin}` : ''}</span>
-                      <span>{bundle.started ? ` / ${bundle.started}` : ''}</span>
-                    </div>
-                    <div className="charts-side-panel__bundle-items">
-                      {bundle.items.map((item, idx) => {
-                        const itemLabel = `${item.name}${item.quantity ? ` ${item.quantity}` : ''}${item.unit ?? ''}`;
-                        const openRequest = onOpenDocument ? resolveDocumentOpenRequest(bundle, item) : null;
-                        if (openRequest && onOpenDocument) {
+          {showBundleList ? (
+            <div className="charts-side-panel__list" aria-live={resolveAriaLive('info')}>
+              <div className="charts-side-panel__list-header">
+                <span>登録済み{title}</span>
+                <span>{bundleQuery.isFetching ? '更新中' : `${bundles.length}件`}</span>
+              </div>
+              {bundleQuery.isError && <p className="charts-side-panel__empty">オーダーの取得に失敗しました。</p>}
+              {bundles.length === 0 && !bundleQuery.isFetching && <p className="charts-side-panel__empty">登録はまだありません。</p>}
+              {bundles.length > 0 && (
+                <ul className="charts-side-panel__items">
+                  {bundles.map((bundle) => (
+                    <li key={bundle.documentId ?? `${bundle.bundleName}-${bundle.started}`}>
+                      <div>
+                        <strong>{formatBundleName(bundle)}</strong>
+                        <span>{bundle.admin ? ` / ${bundle.admin}` : ''}</span>
+                        <span>{bundle.started ? ` / ${bundle.started}` : ''}</span>
+                      </div>
+                      <div className="charts-side-panel__bundle-items">
+                        {bundle.items.map((item, idx) => {
+                          const itemLabel = `${item.name}${item.quantity ? ` ${item.quantity}` : ''}${item.unit ?? ''}`;
+                          const openRequest = onOpenDocument ? resolveDocumentOpenRequest(bundle, item) : null;
+                          if (openRequest && onOpenDocument) {
+                            return (
+                              <button
+                                key={`${bundle.documentId}-${idx}`}
+                                type="button"
+                                className="charts-side-panel__bundle-item charts-side-panel__bundle-item--document"
+                                onClick={() => onOpenDocument(openRequest)}
+                                aria-label={`文書を開く: ${item.name}`}
+                              >
+                                {itemLabel}
+                              </button>
+                            );
+                          }
                           return (
-                            <button
-                              key={`${bundle.documentId}-${idx}`}
-                              type="button"
-                              className="charts-side-panel__bundle-item charts-side-panel__bundle-item--document"
-                              onClick={() => onOpenDocument(openRequest)}
-                              aria-label={`文書を開く: ${item.name}`}
-                            >
+                            <span key={`${bundle.documentId}-${idx}`} className="charts-side-panel__bundle-item">
                               {itemLabel}
-                            </button>
+                            </span>
                           );
-                        }
-                        return (
-                          <span key={`${bundle.documentId}-${idx}`} className="charts-side-panel__bundle-item">
-                            {itemLabel}
-                          </span>
-                        );
-                      })}
-                    </div>
-                    <div className="charts-side-panel__item-actions">
-                      <button
-                        type="button"
-                        className="charts-side-panel__history-action charts-side-panel__history-action--copy"
-                        onClick={() => copyFromHistory(bundle)}
-                        disabled={isBlocked}
-                      >
-                        コピー
-                      </button>
-                      <button
-                        type="button"
-                        className="charts-side-panel__history-action charts-side-panel__history-action--edit"
-                        onClick={() => {
-                          setForm(toFormState(bundle, today));
-                          setNotice(null);
-                        }}
-                        disabled={isBlocked}
-                      >
-                        編集
-                      </button>
-                      <button
-                        type="button"
-                        className="charts-side-panel__history-action charts-side-panel__history-action--delete"
-                        onClick={() => deleteMutation.mutate(bundle)}
-                        disabled={deleteMutation.isPending || isBlocked}
-                      >
-                        削除
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                        })}
+                      </div>
+                      <div className="charts-side-panel__item-actions">
+                        <button
+                          type="button"
+                          className="charts-side-panel__history-action charts-side-panel__history-action--copy"
+                          onClick={() => copyFromHistory(bundle)}
+                          disabled={isBlocked}
+                        >
+                          コピー
+                        </button>
+                        <button
+                          type="button"
+                          className="charts-side-panel__history-action charts-side-panel__history-action--edit"
+                          onClick={() => {
+                            setForm(toFormState(bundle, today));
+                            setNotice(null);
+                          }}
+                          disabled={isBlocked}
+                        >
+                          編集
+                        </button>
+                        <button
+                          type="button"
+                          className="charts-side-panel__history-action charts-side-panel__history-action--delete"
+                          onClick={() => deleteMutation.mutate(bundle)}
+                          disabled={deleteMutation.isPending || isBlocked}
+                        >
+                          削除
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
     </section>

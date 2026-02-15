@@ -20,6 +20,9 @@ export type OrderRecommendationTemplate = {
 
 export type OrderRecommendationCandidate = {
   key: string;
+  // Present when the server returns cross-category recommendations.
+  // When fetching with `entity` query param, this may be omitted.
+  entity?: string;
   source: OrderRecommendationSource;
   count: number;
   lastUsedAt: string;

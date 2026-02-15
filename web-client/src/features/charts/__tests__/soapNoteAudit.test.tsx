@@ -1,6 +1,8 @@
+import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { clearAuditEventLog, getAuditEventLog } from '../../../libs/audit/auditLogger';
 import { updateObservabilityMeta } from '../../../libs/observability/observability';
@@ -8,6 +10,16 @@ import { AuthServiceProvider } from '../authService';
 import { DocumentTimeline } from '../DocumentTimeline';
 import { SoapNotePanel } from '../SoapNotePanel';
 import type { SoapEntry } from '../soapNote';
+
+const renderWithQueryClient = (ui: ReactNode) => {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+};
 
 afterEach(() => {
   cleanup();
@@ -19,7 +31,7 @@ describe('SOAP note audit', () => {
     updateObservabilityMeta({ runId: 'RUN-SOAP', traceId: 'TRACE-SOAP' });
 
     const user = userEvent.setup();
-    render(
+    renderWithQueryClient(
       <SoapNotePanel
         history={[]}
         meta={{
@@ -75,7 +87,7 @@ describe('SOAP note audit', () => {
     const user = userEvent.setup();
     const captured: SoapEntry[] = [];
 
-    render(
+    renderWithQueryClient(
       <SoapNotePanel
         history={[]}
         meta={{
@@ -116,7 +128,7 @@ describe('SOAP note audit', () => {
   });
 
   it('画像貼付は指定した SOAP セクションへ挿入される', () => {
-    render(
+    renderWithQueryClient(
       <SoapNotePanel
         history={[]}
         meta={{
