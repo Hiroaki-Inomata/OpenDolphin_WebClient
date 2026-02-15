@@ -908,6 +908,7 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         OrderBundleRecommendationResponse.OrderRecommendationEntry entry =
                 new OrderBundleRecommendationResponse.OrderRecommendationEntry();
         entry.setKey(aggregate.key());
+        entry.setEntity(aggregate.entity());
         entry.setSource(source);
         entry.setCount(aggregate.count());
         entry.setLastUsedAt(formatDate(aggregate.lastUsedAt()));

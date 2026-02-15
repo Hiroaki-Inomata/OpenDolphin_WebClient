@@ -13,12 +13,11 @@ import { PatientsTab } from '../PatientsTab';
 import { TelemetryFunnelPanel } from '../TelemetryFunnelPanel';
 import { ChartsActionBar } from '../ChartsActionBar';
 import { ChartsPatientSummaryBar } from '../ChartsPatientSummaryBar';
-import { DiagnosisEditPanel } from '../DiagnosisEditPanel';
-import { DocumentCreatePanel } from '../DocumentCreatePanel';
-import { OrderBundleEditPanel } from '../OrderBundleEditPanel';
-import { PastHubPanel } from '../PastHubPanel';
-import { PatientSummaryPanel } from '../PatientSummaryPanel';
-import { StampLibraryPanel } from '../StampLibraryPanel';
+	import { DiagnosisEditPanel } from '../DiagnosisEditPanel';
+	import { DocumentCreatePanel } from '../DocumentCreatePanel';
+	import { PastHubPanel } from '../PastHubPanel';
+	import { PatientSummaryPanel } from '../PatientSummaryPanel';
+	import { StampLibraryPanel } from '../StampLibraryPanel';
 import { normalizeAuditEventLog, normalizeAuditEventPayload, recordChartsAuditEvent } from '../audit';
 import { SoapNotePanel } from '../SoapNotePanel';
 import { DoCopyDialog, type DoCopyDialogState } from '../DoCopyDialog';
@@ -279,34 +278,20 @@ type SoapHistoryStorage = {
   >;
 };
 
-type DockedUtilityAction =
-  | 'prescription-edit'
-  | 'order-injection'
-  | 'order-treatment'
-  | 'order-test'
-  | 'order-charge'
-  | 'order-set'
-  | 'document'
-  | 'imaging';
+	type DockedUtilityAction =
+	  | 'order-set'
+	  | 'document'
+	  | 'imaging';
 
-type UtilityVisualKind = 'order' | 'stamp' | 'document' | 'imaging' | 'none';
+	type UtilityVisualKind = 'stamp' | 'document' | 'imaging' | 'none';
 
-const resolveUtilityVisualKind = (action: DockedUtilityAction | null): UtilityVisualKind => {
-  if (!action) return 'none';
-  if (
-    action === 'prescription-edit' ||
-    action === 'order-injection' ||
-    action === 'order-treatment' ||
-    action === 'order-test' ||
-    action === 'order-charge'
-  ) {
-    return 'order';
-  }
-  if (action === 'order-set') return 'stamp';
-  if (action === 'document') return 'document';
-  if (action === 'imaging') return 'imaging';
-  return 'none';
-};
+	const resolveUtilityVisualKind = (action: DockedUtilityAction | null): UtilityVisualKind => {
+	  if (!action) return 'none';
+	  if (action === 'order-set') return 'stamp';
+	  if (action === 'document') return 'document';
+	  if (action === 'imaging') return 'imaging';
+	  return 'none';
+	};
 
 type ChartsPatientTab = {
   key: string;
@@ -535,72 +520,20 @@ function ChartsContent() {
     [session.facilityId, session.userId],
   );
 
-  type PastOrderEntity =
-    | 'medOrder'
-    | 'generalOrder'
-    | 'injectionOrder'
-    | 'treatmentOrder'
-    | 'surgeryOrder'
-    | 'otherOrder'
-    | 'testOrder'
-    | 'physiologyOrder'
-    | 'bacteriaOrder'
-    | 'radiologyOrder'
-    | 'instractionChargeOrder'
-    | 'baseChargeOrder'
-    ;
-
-  type TreatmentOrderEntity = 'treatmentOrder' | 'generalOrder' | 'surgeryOrder' | 'otherOrder';
-  type TestOrderEntity = 'testOrder' | 'physiologyOrder' | 'bacteriaOrder' | 'radiologyOrder';
-  type ChargeOrderEntity = 'baseChargeOrder' | 'instractionChargeOrder';
-
-  const [treatmentOrderEntity, setTreatmentOrderEntity] = useState<TreatmentOrderEntity>('treatmentOrder');
-  const [testOrderEntity, setTestOrderEntity] = useState<TestOrderEntity>('testOrder');
-  const [chargeOrderEntity, setChargeOrderEntity] = useState<ChargeOrderEntity>('baseChargeOrder');
-
-  const treatmentOrderEntityOptions = useMemo<Array<{ value: TreatmentOrderEntity; label: string }>>(
-    () => [
-      { value: 'treatmentOrder', label: '処置' },
-      { value: 'generalOrder', label: '一般' },
-      { value: 'surgeryOrder', label: '手術' },
-      { value: 'otherOrder', label: 'その他' },
-    ],
-    [],
-  );
-  const testOrderEntityOptions = useMemo<Array<{ value: TestOrderEntity; label: string }>>(
-    () => [
-      { value: 'testOrder', label: '検査' },
-      { value: 'physiologyOrder', label: '生理検査' },
-      { value: 'bacteriaOrder', label: '細菌検査' },
-      { value: 'radiologyOrder', label: '放射線' },
-    ],
-    [],
-  );
-  const chargeOrderEntityOptions = useMemo<Array<{ value: ChargeOrderEntity; label: string }>>(
-    () => [
-      { value: 'baseChargeOrder', label: '基本料' },
-      { value: 'instractionChargeOrder', label: '指導料' },
-    ],
-    [],
-  );
-
-  const orderEditEntityMeta = useMemo(() => {
-    const meta: Record<Exclude<PastOrderEntity, 'medOrder'>, { title: string; bundleLabel: string; itemQuantityLabel: string }> = {
-      generalOrder: { title: '一般オーダー', bundleLabel: 'オーダー名', itemQuantityLabel: '数量' },
-      injectionOrder: { title: '注射', bundleLabel: '注射名', itemQuantityLabel: '数量' },
-      treatmentOrder: { title: '処置', bundleLabel: '処置名', itemQuantityLabel: '数量' },
-      surgeryOrder: { title: '手術', bundleLabel: '手技', itemQuantityLabel: '数量' },
-      otherOrder: { title: 'その他', bundleLabel: '項目', itemQuantityLabel: '数量' },
-      testOrder: { title: '検査', bundleLabel: '検査名', itemQuantityLabel: '数量' },
-      physiologyOrder: { title: '生理検査', bundleLabel: '検査名', itemQuantityLabel: '数量' },
-      bacteriaOrder: { title: '細菌検査', bundleLabel: '検査名', itemQuantityLabel: '数量' },
-      radiologyOrder: { title: '放射線', bundleLabel: '検査名', itemQuantityLabel: '数量' },
-      instractionChargeOrder: { title: '指導料', bundleLabel: '算定', itemQuantityLabel: '数量' },
-      baseChargeOrder: { title: '基本料', bundleLabel: '算定', itemQuantityLabel: '数量' },
-    };
-    return meta;
-  }, []);
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+	  type PastOrderEntity =
+	    | 'medOrder'
+	    | 'generalOrder'
+	    | 'injectionOrder'
+	    | 'treatmentOrder'
+	    | 'surgeryOrder'
+	    | 'otherOrder'
+	    | 'testOrder'
+	    | 'physiologyOrder'
+	    | 'bacteriaOrder'
+	    | 'radiologyOrder'
+	    | 'instractionChargeOrder'
+	    | 'baseChargeOrder';
+	  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [encounterContext, setEncounterContext] = useState<OutpatientEncounterContext>(() => {
     const urlContext = parseChartsEncounterContext(location.search);
     if (hasEncounterContext(urlContext)) return urlContext;
@@ -758,6 +691,10 @@ function ChartsContent() {
     requestId: string;
     entity: PastOrderEntity;
     bundle: OrderBundle;
+  } | null>(null);
+  const [orderDockOpenRequest, setOrderDockOpenRequest] = useState<{
+    requestId: string;
+    entity: PastOrderEntity;
   } | null>(null);
   const [documentHistoryCopyRequest, setDocumentHistoryCopyRequest] = useState<{
     requestId: string;
@@ -3094,29 +3031,19 @@ function ChartsContent() {
     },
   });
 
-  const utilityPanelTitles: Record<DockedUtilityAction, string> = {
-    'prescription-edit': '処方',
-    'order-injection': '注射',
-    'order-treatment': '処置',
-    'order-test': '検査',
-    'order-charge': '算定',
-    'order-set': 'スタンプ',
-    document: '文書',
-    imaging: '画像',
-  };
+	  const utilityPanelTitles: Record<DockedUtilityAction, string> = {
+	    'order-set': 'スタンプ',
+	    document: '文書',
+	    imaging: '画像',
+	  };
   const utilityItems = useMemo<
     Array<{ id: DockedUtilityAction; label: string; shortLabel: string; requiresEdit: boolean; shortcut: string }>
   >(
-    () => {
-      const base: Array<{ id: DockedUtilityAction; label: string; shortLabel: string; requiresEdit: boolean }> = [
-        { id: 'prescription-edit', label: '処方', shortLabel: 'Rx', requiresEdit: true },
-        { id: 'order-injection', label: '注射', shortLabel: '注', requiresEdit: true },
-        { id: 'order-treatment', label: '処置', shortLabel: '処', requiresEdit: true },
-        { id: 'order-test', label: '検査', shortLabel: '検', requiresEdit: true },
-        { id: 'order-charge', label: '算定', shortLabel: '算', requiresEdit: true },
-        { id: 'order-set', label: 'スタンプ', shortLabel: '★', requiresEdit: false },
-        { id: 'document', label: '文書', shortLabel: '文', requiresEdit: true },
-      ];
+	    () => {
+	      const base: Array<{ id: DockedUtilityAction; label: string; shortLabel: string; requiresEdit: boolean }> = [
+	        { id: 'order-set', label: 'スタンプ', shortLabel: '★', requiresEdit: false },
+	        { id: 'document', label: '文書', shortLabel: '文', requiresEdit: true },
+	      ];
       if (isPatientImagesMvpEnabled) {
         base.push({ id: 'imaging', label: '画像', shortLabel: '画', requiresEdit: false });
       }
@@ -3240,99 +3167,64 @@ function ChartsContent() {
     [patientSelected, sidePanelMeta.readOnly, utilityEditActions],
   );
 
-  const openUtilityPanel = useCallback(
-    (action: DockedUtilityAction, trigger?: HTMLButtonElement | null) => {
-      if (!canOpenUtilityAction(action)) return;
-      utilityLastActionRef.current = action;
-      utilityTriggerRef.current = trigger ?? resolveUtilityTrigger(action) ?? utilityTriggerRef.current;
-      setUtilityPanelAction(action);
-    },
-    [canOpenUtilityAction, resolveUtilityTrigger],
-  );
+	  const openUtilityPanel = useCallback(
+	    (action: DockedUtilityAction, trigger?: HTMLButtonElement | null) => {
+	      if (!canOpenUtilityAction(action)) return;
+	      utilityLastActionRef.current = action;
+	      utilityTriggerRef.current = trigger ?? resolveUtilityTrigger(action) ?? utilityTriggerRef.current;
+	      setUtilityPanelAction(action);
+	    },
+	    [canOpenUtilityAction, resolveUtilityTrigger],
+	  );
 
-  const openOrderEditor = useCallback(
-    (entity: PastOrderEntity, trigger?: HTMLButtonElement | null) => {
-      switch (entity) {
-        case 'medOrder':
-          openUtilityPanel('prescription-edit', trigger);
-          return;
-        case 'injectionOrder':
-          openUtilityPanel('order-injection', trigger);
-          return;
-        case 'treatmentOrder':
-        case 'generalOrder':
-        case 'surgeryOrder':
-        case 'otherOrder':
-          setTreatmentOrderEntity(entity);
-          openUtilityPanel('order-treatment', trigger);
-          return;
-        case 'testOrder':
-        case 'physiologyOrder':
-        case 'bacteriaOrder':
-        case 'radiologyOrder':
-          setTestOrderEntity(entity);
-          openUtilityPanel('order-test', trigger);
-          return;
-        case 'baseChargeOrder':
-        case 'instractionChargeOrder':
-          setChargeOrderEntity(entity);
-          openUtilityPanel('order-charge', trigger);
-          return;
-      }
-    },
-    [openUtilityPanel],
-  );
+	  const createCopyRequestId = useCallback(
+	    () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+	    [],
+	  );
 
-  const handleOpenOrderEditorFromEntity = useCallback(
-    (entity: string) => {
-      switch (entity) {
-        case 'medOrder':
-        case 'generalOrder':
-        case 'injectionOrder':
-        case 'treatmentOrder':
-        case 'surgeryOrder':
-        case 'otherOrder':
-        case 'testOrder':
-        case 'physiologyOrder':
-        case 'bacteriaOrder':
-        case 'radiologyOrder':
-        case 'instractionChargeOrder':
-        case 'baseChargeOrder':
-          openOrderEditor(entity);
-          return;
-        default:
-          return;
-      }
-    },
-    [openOrderEditor],
-  );
+	  const canDoFromPast = useMemo(() => {
+	    if (!patientSelected) return { ok: false, reason: '患者が未選択のためDoできません。' };
+	    if (sidePanelMeta.readOnly) {
+	      return { ok: false, reason: sidePanelMeta.readOnlyReason ?? '閲覧専用のためDoできません。' };
+	    }
+	    if (sidePanelMeta.missingMaster) return { ok: false, reason: 'マスター未同期のためDoできません。' };
+	    if (sidePanelMeta.fallbackUsed) return { ok: false, reason: 'フォールバックデータのためDoできません。' };
+	    return { ok: true, reason: undefined };
+	  }, [
+	    patientSelected,
+	    sidePanelMeta.fallbackUsed,
+	    sidePanelMeta.missingMaster,
+	    sidePanelMeta.readOnly,
+	    sidePanelMeta.readOnlyReason,
+	  ]);
 
-  const closeUtilityPanel = useCallback((restoreFocus: boolean) => {
-    if (restoreFocus) {
-      utilityFocusRestoreRef.current = true;
-    }
-    setUtilityPanelAction(null);
-  }, []);
+	  const openOrderEditor = useCallback(
+	    (entity: PastOrderEntity) => {
+	      if (!canDoFromPast.ok) return;
+	      const requestId = createCopyRequestId();
+	      setOrderDockOpenRequest({ requestId, entity });
+      // Close the utility panel if it was used as an entry point (legacy flow).
+      setUtilityPanelAction(null);
+      if (typeof document === 'undefined') return;
+      requestAnimationFrame(() => {
+        const el = document.getElementById('charts-order-pane');
+        if (el && typeof (el as any).focus === 'function') (el as HTMLElement).focus();
+      });
+	    },
+	    [canDoFromPast.ok, createCopyRequestId],
+	  );
 
-  const createCopyRequestId = useCallback(
-    () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
-    [],
-  );
+	  const closeUtilityPanel = useCallback((restoreFocus: boolean) => {
+	    if (restoreFocus) {
+	      utilityFocusRestoreRef.current = true;
+	    }
+	    setUtilityPanelAction(null);
+	  }, []);
 
-  const canDoFromPast = useMemo(() => {
-    if (!patientSelected) return { ok: false, reason: '患者が未選択のためDoできません。' };
-    if (sidePanelMeta.readOnly) {
-      return { ok: false, reason: sidePanelMeta.readOnlyReason ?? '閲覧専用のためDoできません。' };
-    }
-    if (sidePanelMeta.missingMaster) return { ok: false, reason: 'マスター未同期のためDoできません。' };
-    if (sidePanelMeta.fallbackUsed) return { ok: false, reason: 'フォールバックデータのためDoできません。' };
-    return { ok: true, reason: undefined };
-  }, [patientSelected, sidePanelMeta.fallbackUsed, sidePanelMeta.missingMaster, sidePanelMeta.readOnly, sidePanelMeta.readOnlyReason]);
-
-  const handlePastOrderDo = useCallback(
-    (payload: { entity: PastOrderEntity; bundle: OrderBundle }) => {
-      if (!canDoFromPast.ok) return;
-      const requestId = createCopyRequestId();
+	  const handlePastOrderDo = useCallback(
+	    (payload: { entity: PastOrderEntity; bundle: OrderBundle }) => {
+	      if (!canDoFromPast.ok) return;
+	      const requestId = createCopyRequestId();
       setOrderHistoryCopyRequest({ requestId, entity: payload.entity, bundle: payload.bundle });
       openOrderEditor(payload.entity);
     },
@@ -3353,6 +3245,10 @@ function ChartsContent() {
 
   const handleOrderHistoryCopyConsumed = useCallback((requestId: string) => {
     setOrderHistoryCopyRequest((prev) => (prev?.requestId === requestId ? null : prev));
+  }, []);
+
+  const handleOrderDockOpenConsumed = useCallback((requestId: string) => {
+    setOrderDockOpenRequest((prev) => (prev?.requestId === requestId ? null : prev));
   }, []);
 
   const handleDocumentHistoryCopyConsumed = useCallback((requestId: string) => {
@@ -3606,22 +3502,13 @@ function ChartsContent() {
         return;
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [closeUtilityPanel, openUtilityPanel, utilityItems]);
+	    window.addEventListener('keydown', handleKeyDown);
+	    return () => window.removeEventListener('keydown', handleKeyDown);
+	  }, [closeUtilityPanel, openUtilityPanel, utilityItems]);
 
-  const isOrderUtilityAction = useMemo(
-    () =>
-      utilityPanelAction === 'prescription-edit' ||
-      utilityPanelAction === 'order-injection' ||
-      utilityPanelAction === 'order-treatment' ||
-      utilityPanelAction === 'order-test' ||
-      utilityPanelAction === 'order-charge',
-    [utilityPanelAction],
-  );
-  const activeUtilityKind = useMemo(() => resolveUtilityVisualKind(utilityPanelAction), [utilityPanelAction]);
-  const utilityPanelInlineStyle = useMemo(() => {
-    return {
+	  const activeUtilityKind = useMemo(() => resolveUtilityVisualKind(utilityPanelAction), [utilityPanelAction]);
+	  const utilityPanelInlineStyle = useMemo(() => {
+	    return {
       '--charts-utility-expanded-width': `${utilityPanelLayout.width}px`,
       '--charts-utility-expanded-height': `${utilityPanelLayout.height}px`,
       '--charts-utility-left': `${utilityPanelLayout.left}px`,
@@ -4179,23 +4066,25 @@ function ChartsContent() {
                     <span className="charts-column-header__meta">SOAP / 履歴 / オーダー</span>
                   </div>
                   <div className="charts-card" id="charts-soap-note" tabIndex={-1} data-focus-anchor="true">
-		                    <SoapNotePanel
-		                      history={soapHistory}
-		                      meta={soapNoteMeta}
-		                      author={soapNoteAuthor}
-		                      readOnly={tabLock.isReadOnly || approvalLocked}
-		                      readOnlyReason={approvalLocked ? approvalReason : tabLock.readOnlyReason}
-		                      rpHistory={rpEntries}
-		                      rpHistoryLoading={rpHistoryQuery.isFetching}
-		                      rpHistoryError={rpError}
-		                      orderBundles={orderBundles}
-		                      orderBundlesLoading={orderBundleSummaryQuery.isFetching}
-		                      orderBundlesError={orderBundlesError}
-		                      onOpenPrescriptionEditor={() => openUtilityPanel('prescription-edit')}
-		                      onOpenOrderEditor={handleOpenOrderEditorFromEntity}
-		                      onDraftSnapshot={setSoapDraftSnapshot}
-		                      replaceDraftRequest={replaceSoapDraftRequest}
-		                      applyDraftPatch={applySoapDraftPatch}
+			                    <SoapNotePanel
+			                      history={soapHistory}
+			                      meta={soapNoteMeta}
+			                      author={soapNoteAuthor}
+			                      readOnly={sidePanelMeta.readOnly}
+			                      readOnlyReason={sidePanelMeta.readOnlyReason}
+			                      rpHistory={rpEntries}
+			                      rpHistoryLoading={rpHistoryQuery.isFetching}
+			                      rpHistoryError={rpError}
+			                      orderBundles={orderBundles}
+			                      orderBundlesLoading={orderBundleSummaryQuery.isFetching}
+			                      orderBundlesError={orderBundlesError}
+			                      orderDockOpenRequest={orderDockOpenRequest}
+			                      onOrderDockOpenConsumed={handleOrderDockOpenConsumed}
+			                      orderHistoryCopyRequest={orderHistoryCopyRequest}
+			                      onOrderHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
+			                      onDraftSnapshot={setSoapDraftSnapshot}
+			                      replaceDraftRequest={replaceSoapDraftRequest}
+			                      applyDraftPatch={applySoapDraftPatch}
 		                      attachmentInsert={pendingSoapAttachment}
 		                      onAttachmentInserted={() => setPendingSoapAttachment(null)}
 		                      onAppendHistory={appendSoapHistory}
@@ -4315,15 +4204,14 @@ function ChartsContent() {
                 </div>
 
               </div>
-              <aside
-                className="charts-workbench__side"
-                id="charts-order-pane"
-                tabIndex={-1}
-                data-focus-anchor="true"
-                aria-label="オーダー入力（ユーティリティ）"
-                data-panel-open={utilityPanelAction ? 'true' : 'false'}
-                data-order-mode={isOrderUtilityAction ? 'true' : 'false'}
-              >
+	              <aside
+	                className="charts-workbench__side"
+	                id="charts-utility-pane"
+	                tabIndex={-1}
+	                data-focus-anchor="true"
+	                aria-label="ユーティリティ"
+	                data-panel-open={utilityPanelAction ? 'true' : 'false'}
+	              >
                 <div className="charts-docked-panel">
                   <div className="charts-docked-panel__footer">
                     <div className="charts-docked-panel__tabs" role="tablist" aria-label="ユーティリティ">
@@ -4377,12 +4265,12 @@ function ChartsContent() {
                       </button>
                     </div>
                   </div>
-                  <div
-                    id="charts-docked-panel"
-                    className={`charts-docked-panel__drawer${isOrderUtilityAction ? ' charts-docked-panel__drawer--order' : ''}`}
-                    role="tabpanel"
-                    aria-live={infoLive}
-                    aria-hidden={!utilityPanelAction}
+	                  <div
+	                    id="charts-docked-panel"
+	                    className="charts-docked-panel__drawer"
+	                    role="tabpanel"
+	                    aria-live={infoLive}
+	                    aria-hidden={!utilityPanelAction}
                     aria-labelledby={utilityPanelAction ? `charts-docked-tab-${utilityPanelAction}` : undefined}
                     data-open={utilityPanelAction ? 'true' : 'false'}
                     data-utility-kind={activeUtilityKind}
@@ -4396,10 +4284,10 @@ function ChartsContent() {
                         <p className="charts-docked-panel__eyebrow">ユーティリティ</p>
                         <h2 id="charts-docked-panel-title" ref={utilityHeadingRef} tabIndex={-1}>
                           {utilityPanelAction ? utilityPanelTitles[utilityPanelAction] : 'ユーティリティ'}
-                        </h2>
-                        <p id="charts-docked-panel-desc" className="charts-docked-panel__desc">
-                          オーダー・文書・画像入力をまとめて呼び出します。
-                        </p>
+	                        </h2>
+	                        <p id="charts-docked-panel-desc" className="charts-docked-panel__desc">
+	                          スタンプ・文書・画像入力をまとめて呼び出します。
+	                        </p>
                         <p className="charts-docked-panel__shortcut">
                           Ctrl+Shift+U: 開閉 / Ctrl+Shift+1〜{utilityItems.length}: タブ切替 / Esc: 閉じる
                         </p>
@@ -4408,163 +4296,8 @@ function ChartsContent() {
                         閉じる
                       </button>
                     </div>
-                    {(utilityPanelAction === 'prescription-edit' ||
-                      utilityPanelAction === 'order-injection' ||
-                      utilityPanelAction === 'order-treatment' ||
-                      utilityPanelAction === 'order-test' ||
-                      utilityPanelAction === 'order-charge') && (
-                      <div className="charts-side-panel__content charts-side-panel__content--order">
-                        {utilityPanelAction === 'prescription-edit' && (
-                          <OrderBundleEditPanel
-                            patientId={encounterContext.patientId}
-                            entity="medOrder"
-                            title="処方"
-                            bundleLabel="RP名"
-                            itemQuantityLabel="用量"
-                            meta={sidePanelMeta}
-                            historyCopyRequest={
-                              orderHistoryCopyRequest?.entity === 'medOrder'
-                                ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
-                                : null
-                            }
-                            onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
-                          />
-                        )}
-                        {utilityPanelAction === 'order-injection' ? (
-                          <OrderBundleEditPanel
-                            patientId={encounterContext.patientId}
-                            key="order-injection"
-                            entity="injectionOrder"
-                            title={orderEditEntityMeta.injectionOrder.title}
-                            bundleLabel={orderEditEntityMeta.injectionOrder.bundleLabel}
-                            itemQuantityLabel={orderEditEntityMeta.injectionOrder.itemQuantityLabel}
-                            meta={sidePanelMeta}
-                            historyCopyRequest={
-                              orderHistoryCopyRequest?.entity === 'injectionOrder'
-                                ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
-                                : null
-                            }
-                            onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
-                          />
-                        ) : null}
-                        {utilityPanelAction === 'order-treatment' ? (
-                          <>
-                            <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
-                              <div className="charts-side-panel__subheader">
-                                <strong>処置カテゴリ</strong>
-                              </div>
-                              <div className="charts-side-panel__field">
-                                <label htmlFor="charts-order-treatment-entity">種類</label>
-                                <select
-                                  id="charts-order-treatment-entity"
-                                  value={treatmentOrderEntity}
-                                  onChange={(event) => setTreatmentOrderEntity(event.target.value as TreatmentOrderEntity)}
-                                >
-                                  {treatmentOrderEntityOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-                            <OrderBundleEditPanel
-                              patientId={encounterContext.patientId}
-                              key={`order-treatment-${treatmentOrderEntity}`}
-                              entity={treatmentOrderEntity}
-                              title={orderEditEntityMeta[treatmentOrderEntity].title}
-                              bundleLabel={orderEditEntityMeta[treatmentOrderEntity].bundleLabel}
-                              itemQuantityLabel={orderEditEntityMeta[treatmentOrderEntity].itemQuantityLabel}
-                              meta={sidePanelMeta}
-                              historyCopyRequest={
-                                orderHistoryCopyRequest?.entity === treatmentOrderEntity
-                                  ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
-                                  : null
-                              }
-                              onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
-                            />
-                          </>
-                        ) : null}
-                        {utilityPanelAction === 'order-test' ? (
-                          <>
-                            <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
-                              <div className="charts-side-panel__subheader">
-                                <strong>検査カテゴリ</strong>
-                              </div>
-                              <div className="charts-side-panel__field">
-                                <label htmlFor="charts-order-test-entity">種類</label>
-                                <select
-                                  id="charts-order-test-entity"
-                                  value={testOrderEntity}
-                                  onChange={(event) => setTestOrderEntity(event.target.value as TestOrderEntity)}
-                                >
-                                  {testOrderEntityOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-                            <OrderBundleEditPanel
-                              patientId={encounterContext.patientId}
-                              key={`order-test-${testOrderEntity}`}
-                              entity={testOrderEntity}
-                              title={orderEditEntityMeta[testOrderEntity].title}
-                              bundleLabel={orderEditEntityMeta[testOrderEntity].bundleLabel}
-                              itemQuantityLabel={orderEditEntityMeta[testOrderEntity].itemQuantityLabel}
-                              meta={sidePanelMeta}
-                              historyCopyRequest={
-                                orderHistoryCopyRequest?.entity === testOrderEntity
-                                  ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
-                                  : null
-                              }
-                              onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
-                            />
-                          </>
-                        ) : null}
-                        {utilityPanelAction === 'order-charge' ? (
-                          <>
-                            <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
-                              <div className="charts-side-panel__subheader">
-                                <strong>算定カテゴリ</strong>
-                              </div>
-                              <div className="charts-side-panel__field">
-                                <label htmlFor="charts-order-charge-entity">種類</label>
-                                <select
-                                  id="charts-order-charge-entity"
-                                  value={chargeOrderEntity}
-                                  onChange={(event) => setChargeOrderEntity(event.target.value as ChargeOrderEntity)}
-                                >
-                                  {chargeOrderEntityOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-                            <OrderBundleEditPanel
-                              patientId={encounterContext.patientId}
-                              key={`order-charge-${chargeOrderEntity}`}
-                              entity={chargeOrderEntity}
-                              title={orderEditEntityMeta[chargeOrderEntity].title}
-                              bundleLabel={orderEditEntityMeta[chargeOrderEntity].bundleLabel}
-                              itemQuantityLabel={orderEditEntityMeta[chargeOrderEntity].itemQuantityLabel}
-                              meta={sidePanelMeta}
-                              historyCopyRequest={
-                                orderHistoryCopyRequest?.entity === chargeOrderEntity
-                                  ? { requestId: orderHistoryCopyRequest.requestId, bundle: orderHistoryCopyRequest.bundle }
-                                  : null
-                              }
-                              onHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
-                            />
-                          </>
-                        ) : null}
-                      </div>
-                    )}
-                    {utilityPanelAction === 'order-set' && (
-                      <div className="charts-side-panel__content">
+	                    {utilityPanelAction === 'order-set' && (
+	                      <div className="charts-side-panel__content">
                         {orderSetNotice ? (
                           <div className={`charts-side-panel__notice charts-side-panel__notice--${orderSetNotice.tone}`}>
                             {orderSetNotice.message}
