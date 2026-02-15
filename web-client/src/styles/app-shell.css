@@ -9,7 +9,8 @@
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
-  padding: 1rem clamp(1rem, 4vw, 2.5rem) 0.5rem;
+  padding: 1rem clamp(1rem, 4vw, 2.5rem) 0.75rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
 }
 
 .app-shell__brand {
@@ -111,6 +112,49 @@
   box-shadow: 0 14px 36px rgba(37, 99, 235, 0.28);
   outline: none;
   transform: translateY(-1px);
+}
+
+.app-shell__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-shell__tool {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(255, 255, 255, 0.85);
+  color: #0f172a;
+  padding: 0.5rem 0.85rem;
+  border-radius: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.06);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.app-shell__tool:hover,
+.app-shell__tool:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.12);
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+.app-shell__tool-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.app-shell__tool--reception {
+  background: rgba(236, 253, 245, 0.85);
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.app-shell__tool--patients {
+  background: rgba(255, 247, 237, 0.85);
+  border-color: rgba(245, 158, 11, 0.45);
 }
 
 .app-shell__nav {

@@ -32,6 +32,8 @@ export type OrderBundleFetchResult = {
   recordsReturned?: number;
   bundles: OrderBundle[];
   message?: string;
+  status?: number;
+  errorCode?: string;
 };
 
 export type OrderBundleOperation = {
@@ -73,6 +75,7 @@ export async function fetchOrderBundles(params: {
   if (params.entity) query.set('entity', params.entity);
   if (params.from) query.set('from', params.from);
   const response = await httpFetch(`/orca/order/bundles?patientId=${encodeURIComponent(params.patientId)}${query.toString() ? `&${query.toString()}` : ''}`);
+  const status = response.status;
   const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   const message =
     typeof json.message === 'string'
@@ -80,6 +83,14 @@ export async function fetchOrderBundles(params: {
       : typeof json.apiResultMessage === 'string'
         ? (json.apiResultMessage as string)
         : undefined;
+  const errorCode =
+    typeof json.errorCode === 'string'
+      ? (json.errorCode as string)
+      : typeof json.code === 'string'
+        ? (json.code as string)
+        : typeof json.error === 'string'
+          ? (json.error as string)
+          : undefined;
   return {
     ok: response.ok,
     runId: typeof json.runId === 'string' ? (json.runId as string) : runId,
@@ -87,6 +98,8 @@ export async function fetchOrderBundles(params: {
     recordsReturned: typeof json.recordsReturned === 'number' ? (json.recordsReturned as number) : undefined,
     bundles: Array.isArray(json.bundles) ? (json.bundles as OrderBundle[]) : [],
     message,
+    status,
+    errorCode: response.ok ? undefined : errorCode,
   };
 }
 

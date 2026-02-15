@@ -444,14 +444,14 @@ BEGIN
     IF to_regclass('opendolphin.d_patient_seq') IS NOT NULL THEN
         PERFORM setval(
             'opendolphin.d_patient_seq',
-            GREATEST(COALESCE((SELECT MAX(id) FROM d_patient), 1), 1),
+            GREATEST(COALESCE((SELECT MAX(id) FROM opendolphin.d_patient), 1), 1),
             true
         );
     END IF;
     IF to_regclass('opendolphin.d_karte_seq') IS NOT NULL THEN
         PERFORM setval(
             'opendolphin.d_karte_seq',
-            GREATEST(COALESCE((SELECT MAX(id) FROM d_karte), 1), 1),
+            GREATEST(COALESCE((SELECT MAX(id) FROM opendolphin.d_karte), 1), 1),
             true
         );
     END IF;

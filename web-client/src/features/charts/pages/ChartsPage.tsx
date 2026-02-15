@@ -53,6 +53,7 @@ import { hasStoredAuth } from '../../../libs/http/httpClient';
 import { isSystemAdminRole } from '../../../libs/auth/roles';
 import { fetchOrcaPushEvents, fetchOrcaQueue } from '../../outpatient/orcaQueueApi';
 import { resolveOrcaSendStatus, toClaimQueueEntryFromOrcaQueueEntry } from '../../outpatient/orcaQueueStatus';
+import { importPatientsFromOrca } from '../../outpatient/orcaPatientImportApi';
 import { fetchRpHistory, fetchSafetySummary } from '../karteExtrasApi';
 import {
   buildChartsEncounterSearch,
@@ -2093,7 +2094,22 @@ function ChartsContent() {
     queryFn: async () => {
       if (!patientId) return { ok: false, bundles: [] as OrderBundle[], message: 'patientId is missing' };
       try {
-        return await fetchOrderBundles({ patientId, from: actionVisitDate });
+        const result = await fetchOrderBundles({ patientId, from: actionVisitDate });
+        if (result.ok) return result;
+
+        if (result.status === 404 && result.errorCode === 'patient_not_found' && /^\d+$/.test(patientId)) {
+          const importResult = await importPatientsFromOrca({ patientIds: [patientId], runId: result.runId });
+          if (!importResult.ok) {
+            return {
+              ok: false,
+              bundles: [] as OrderBundle[],
+              message: importResult.error ?? '患者情報の取り込みに失敗しました。',
+            };
+          }
+          return await fetchOrderBundles({ patientId, from: actionVisitDate });
+        }
+
+        return result;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return { ok: false, bundles: [] as OrderBundle[], message };
