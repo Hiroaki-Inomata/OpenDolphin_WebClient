@@ -8,14 +8,12 @@ import {
   useContext,
   lazy,
   Suspense,
-  type MouseEvent,
 } from 'react';
 import {
   BrowserRouter,
   Routes,
   Route,
   Navigate,
-  NavLink,
   Outlet,
   useLocation,
   useNavigate,
@@ -43,7 +41,6 @@ import { PatientsPage } from './features/patients/PatientsPage';
 import { AdministrationPage } from './features/administration/AdministrationPage';
 import { AppToastProvider, type AppToast, type AppToastInput } from './libs/ui/appToast';
 import { logAuditEvent } from './libs/audit/auditLogger';
-import { RunIdNavBadge } from './features/shared/RunIdNavBadge';
 import { ChartEventStreamBridge } from './features/shared/ChartEventStreamBridge';
 import { MockModeBanner } from './features/shared/MockModeBanner';
 import {
@@ -191,13 +188,6 @@ export function useSession() {
 export function useOptionalSession() {
   return useContext(SessionContext);
 }
-
-const NAV_LINKS: Array<{ to: string; label: string; roles?: string[] }> = [
-  { to: '/reception', label: 'Reception' },
-  { to: '/charts', label: 'Charts' },
-  { to: '/patients', label: 'Patients' },
-  { to: '/administration', label: 'Administration', roles: ['system_admin'] },
-];
 
 const TOAST_MAX_STACK = 3;
 const DEFAULT_TOAST_DURATION_MS = 4200;
@@ -1197,61 +1187,6 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
     return `${orcaTopStatus.detail} / 最終確認: ${checkedAt}`;
   }, [orcaTopStatus.checkedAt, orcaTopStatus.detail]);
 
-  const navItems = useMemo(
-    () =>
-      NAV_LINKS.map((link) => {
-        const allowed = !link.roles
-          ? true
-          : link.roles.includes('system_admin')
-            ? isSystemAdminRole(session.role)
-            : link.roles.includes(session.role);
-        const linkPath = buildFacilityPath(session.facilityId, link.to);
-        const className = ({ isActive }: { isActive: boolean }) =>
-          `app-shell__nav-link${isActive || location.pathname.startsWith(linkPath) ? ' is-active' : ''}${
-            allowed ? '' : ' is-disabled'
-          }`;
-        const handleClick = (event: MouseEvent) => {
-          if (!allowed) {
-            event.preventDefault();
-            enqueueToast({
-              tone: 'warning',
-              message: 'アクセス権限がありません',
-              detail: `必要ロール: ${link.roles?.join(', ') ?? '指定なし'} / 現在: ${session.role} / 管理者へ依頼・再ログインで解消`,
-            });
-            logAuditEvent({
-              runId: resolvedRunId,
-              source: 'authz',
-              note: 'navigation access denied',
-              payload: {
-                operation: 'navigate',
-                target: link.to,
-                requiredRoles: link.roles,
-                role: session.role,
-                actor: `${session.facilityId}:${session.userId}`,
-                screen: 'navigation',
-              },
-            });
-          }
-        };
-        return (
-          <NavLink
-            key={link.to}
-            to={allowed ? linkPath : '#'}
-            className={className}
-            aria-disabled={!allowed}
-            tabIndex={allowed ? 0 : -1}
-            onClick={handleClick}
-            data-tooltip={
-              allowed ? undefined : `権限がありません（必要ロール: ${link.roles?.join(', ') ?? '指定なし'}）`
-            }
-          >
-            {link.label}
-          </NavLink>
-        );
-      }),
-    [enqueueToast, location.pathname, resolvedRunId, session.facilityId, session.role, session.userId],
-  );
-
   const handleCopyRunId = async () => {
     const runId = resolvedRunId;
     if (!runId) {
@@ -1292,6 +1227,14 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
     navigate('/login', { state: { from: location, switchContext }, replace: true });
   };
 
+  const handleOpenReception = () => {
+    navigate(buildFacilityPath(session.facilityId, '/reception'));
+  };
+
+  const handleOpenPatients = () => {
+    navigate(buildFacilityPath(session.facilityId, '/patients'));
+  };
+
   const handleOpenAdministration = () => {
     navigate(buildFacilityPath(session.facilityId, '/administration'));
   };
@@ -1326,6 +1269,46 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
               RUN_ID: {resolvedRunId}
               <span className="app-shell__pill-note">クリックでコピー</span>
             </button>
+            <div className="app-shell__tools" role="group" aria-label="画面ショートカット">
+              <button type="button" className="app-shell__tool app-shell__tool--reception" onClick={handleOpenReception}>
+                <svg
+                  className="app-shell__tool-icon"
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M8 6V4" />
+                  <path d="M16 6V4" />
+                  <path d="M4 9h16" />
+                  <path d="M6 20h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2z" />
+                  <path d="M8 13h4" />
+                  <path d="M8 16h6" />
+                </svg>
+                受付
+              </button>
+              <button type="button" className="app-shell__tool app-shell__tool--patients" onClick={handleOpenPatients}>
+                <svg
+                  className="app-shell__tool-icon"
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="8" r="4" />
+                  <path d="M22 20v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+                患者管理
+              </button>
+            </div>
             {isSystemAdmin ? (
               <>
                 <span
@@ -1354,11 +1337,6 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
             </button>
           </div>
         </header>
-
-        <nav className="app-shell__nav" aria-label="画面ナビゲーション" role="status" aria-live={resolveAriaLive('info')} data-run-id={resolvedRunId}>
-          {navItems}
-          <RunIdNavBadge runId={resolvedRunId} onCopy={handleCopyRunId} />
-        </nav>
 
         <MockModeBanner />
 

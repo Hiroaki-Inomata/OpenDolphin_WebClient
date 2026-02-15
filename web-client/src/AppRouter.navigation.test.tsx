@@ -37,7 +37,7 @@ describe('AppRouter navigation guard', () => {
     localStorage.clear();
   });
 
-  it('non system_admin は管理リンクが無効化されトーストが出る', async () => {
+  it('non system_admin は管理画面ボタン/ORCAステータスが表示されず、受付/患者管理へ遷移できる', async () => {
     prepareSession('doctor');
     const user = userEvent.setup();
     const queryClient = new QueryClient();
@@ -48,18 +48,21 @@ describe('AppRouter navigation guard', () => {
       </QueryClientProvider>,
     );
 
-    const adminLink = await screen.findByRole('link', { name: 'Administration' });
-    expect(adminLink).toHaveAttribute('aria-disabled', 'true');
-    expect(adminLink.className).toContain('is-disabled');
-
-    await user.click(adminLink);
-
-    expect(window.location.pathname).toBe('/f/0001/reception');
-    expect(await screen.findByText('アクセス権限がありません')).toBeInTheDocument();
+    expect(screen.queryByLabelText('画面ナビゲーション')).not.toBeInTheDocument();
     expect(screen.queryByText(/^ORCA:/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '管理画面を開く' })).not.toBeInTheDocument();
+
+    const patientsButton = await screen.findByRole('button', { name: '患者管理' });
+    const receptionButton = await screen.findByRole('button', { name: '受付' });
+
+    await user.click(patientsButton);
+    expect(window.location.pathname).toBe('/f/0001/patients');
+
+    await user.click(receptionButton);
+    expect(window.location.pathname).toBe('/f/0001/reception');
   });
 
-  it('system_admin は管理リンクが有効で遷移できる', async () => {
+  it('system_admin は管理画面ボタンが表示され遷移できる', async () => {
     prepareSession('system_admin');
     const user = userEvent.setup();
     const queryClient = new QueryClient();
@@ -70,12 +73,11 @@ describe('AppRouter navigation guard', () => {
       </QueryClientProvider>,
     );
 
-    const adminLink = await screen.findByRole('link', { name: 'Administration' });
-    expect(adminLink).toHaveAttribute('aria-disabled', 'false');
-    expect(adminLink.className).not.toContain('is-disabled');
+    expect(screen.queryByLabelText('画面ナビゲーション')).not.toBeInTheDocument();
     expect(screen.getByText(/^ORCA:/)).toBeInTheDocument();
 
-    await user.click(adminLink);
+    const adminButton = await screen.findByRole('button', { name: '管理画面を開く' });
+    await user.click(adminButton);
 
     expect(window.location.pathname).toBe('/f/0001/administration');
   });
