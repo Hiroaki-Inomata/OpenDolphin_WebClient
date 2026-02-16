@@ -117,6 +117,49 @@ describe('ChartsActionBar', () => {
     );
   });
 
+  it('ORCA送信確認ダイアログに患者情報と送信対象サマリを表示する', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ChartsActionBar
+          {...baseProps}
+          patientId="P-777"
+          visitDate="2026-01-08"
+          selectedEntry={{ patientId: 'P-777', department: '01 内科' } as any}
+          sendConfirmSummary={{
+            patientName: '山田太郎',
+            patientId: 'P-777',
+            birthDate: '1980-05-20',
+            age: '45歳',
+            visitDate: '2026-01-08',
+            receptionId: 'R-777',
+            appointmentId: 'A-777',
+            diagnosisCount: 3,
+            orderCount: 5,
+            soap: {
+              subjective: true,
+              objective: true,
+              assessment: false,
+              plan: true,
+            },
+            imageAttachmentCount: 2,
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'ORCA 送信' }));
+    expect(screen.getByRole('heading', { name: '患者確認' })).toBeInTheDocument();
+    expect(screen.getByText('山田太郎（P-777）')).toBeInTheDocument();
+    expect(screen.getByText('1980-05-20 / 45歳')).toBeInTheDocument();
+    expect(screen.getByText('R-777')).toBeInTheDocument();
+    expect(screen.getByText('A-777')).toBeInTheDocument();
+    expect(screen.getByText('3件')).toBeInTheDocument();
+    expect(screen.getByText('5件')).toBeInTheDocument();
+    expect(screen.getByText('S:あり / O:あり / A:なし / P:あり')).toBeInTheDocument();
+    expect(screen.getByText('2件')).toBeInTheDocument();
+  });
+
   it('診察終了の失敗を明示し監査ログにapiResultを残す', async () => {
     const user = userEvent.setup();
     vi.mocked(httpFetch).mockResolvedValue({
