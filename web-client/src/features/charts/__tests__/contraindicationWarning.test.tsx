@@ -158,8 +158,8 @@ describe('OrderBundleEditPanel contraindication warning', () => {
     await waitFor(() => expect(fetchContraindicationCheckXml).toHaveBeenCalled());
 
     expect(screen.getByText(/禁忌チェックで警告があります/)).toBeInTheDocument();
-    expect(screen.getByText(/アムロジピン × ContraSample/)).toBeInTheDocument();
-    expect(screen.getByText(/症状: S001 Headache/)).toBeInTheDocument();
+    expect(screen.getAllByText(/アムロジピン × ContraSample/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/症状: S001 Headache/).length).toBeGreaterThan(0);
   });
 
   it('症状情報がない場合は症状表示を出さない', async () => {
@@ -242,7 +242,7 @@ describe('OrderBundleEditPanel contraindication warning', () => {
     await waitFor(() => expect(fetchContraindicationCheckXml).toHaveBeenCalled());
 
     expect(screen.getByText(/禁忌チェックで警告があります/)).toBeInTheDocument();
-    expect(screen.getByText(/ロサルタン × ContraOther/)).toBeInTheDocument();
+    expect(screen.getAllByText(/ロサルタン × ContraOther/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/症状:/)).not.toBeInTheDocument();
   });
 });

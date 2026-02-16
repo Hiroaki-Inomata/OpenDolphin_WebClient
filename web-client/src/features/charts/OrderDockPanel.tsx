@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
-import { mutateOrderBundles, type OrderBundle } from './orderBundleApi';
+import { useOptionalSession } from '../../AppRouter';
+import { mutateOrderBundles, type OrderBundle, type OrderBundleItem } from './orderBundleApi';
 import { OrderBundleEditPanel, type OrderBundleEditPanelMeta, type OrderBundleEditPanelRequest } from './OrderBundleEditPanel';
 import type { OrderRecommendationCandidate } from './orderRecommendationApi';
 import { OrderRecommendationModal } from './OrderRecommendationModal';
 import type { RpHistoryEntry } from './karteExtrasApi';
+import { getOrcaClaimSendEntry, type OrcaMedicalWarningUi } from './orcaClaimSendCache';
 
 type PastOrderEntity =
   | 'medOrder'
@@ -100,22 +102,77 @@ const resolveGroupKeyByEntity = (entity: string): OrderGroupKey | null => {
 
 const formatBundleName = (bundle: OrderBundle) => bundle.bundleName?.trim() || bundle.className?.trim() || '名称未設定';
 
-const formatBundleItemsInline = (bundle: OrderBundle) => {
-  const items = (bundle.items ?? []).filter(Boolean);
-  const labels = items
-    .map((item) => {
-      const name = item.name?.trim();
-      if (!name) return null;
-      const quantity = item.quantity?.trim();
-      const unit = item.unit?.trim();
-      const qty = [quantity, unit].filter(Boolean).join('');
-      return qty ? `${name}(${qty})` : name;
-    })
-    .filter((v): v is string => Boolean(v));
-  if (labels.length === 0) return '項目なし';
-  const inline = labels.slice(0, 4).join(' / ');
-  const more = labels.length > 4 ? ` 他${labels.length - 4}` : '';
-  return `${inline}${more}`;
+const normalizeInline = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+const stripLeadingCode = (value: string) => {
+  const normalized = normalizeInline(value);
+  if (!normalized) return '';
+  const tokens = normalized.split(' ');
+  if (tokens.length >= 2 && /^[A-Za-z0-9]{4,}$/.test(tokens[0] ?? '')) {
+    return tokens.slice(1).join(' ');
+  }
+  return normalized;
+};
+
+const formatBundleItemChip = (item: OrderBundleItem) => {
+  const name = stripLeadingCode(item.name ?? '');
+  if (!name) return '';
+  const quantity = item.quantity?.trim();
+  const unit = item.unit?.trim();
+  const qty = [quantity, unit].filter(Boolean).join('');
+  return qty ? `${name} ${qty}` : name;
+};
+
+type BundleCardSummary = {
+  metaLine?: string;
+  chips: string[];
+  moreLabel?: string;
+};
+
+const summarizeBundleForCard = (bundle: OrderBundle, entity: PastOrderEntity): BundleCardSummary => {
+  const items = (bundle.items ?? []).filter((item) => Boolean(item?.name?.trim?.()));
+  const chipsAll = items.map(formatBundleItemChip).filter((chip) => chip.trim().length > 0);
+  const usage = normalizeInline(bundle.admin ?? '');
+  const bundleNumber = normalizeInline(bundle.bundleNumber ?? '');
+  const memo = normalizeInline(bundle.memo ?? '');
+
+  if (entity === 'medOrder') {
+    const metaParts = [usage || null, bundleNumber ? `日数:${bundleNumber}` : null].filter(Boolean) as string[];
+    return {
+      metaLine: metaParts.length > 0 ? metaParts.join(' / ') : undefined,
+      chips: chipsAll.slice(0, 6),
+      moreLabel: chipsAll.length > 6 ? `他${chipsAll.length - 6}` : undefined,
+    };
+  }
+
+  if (entity === 'baseChargeOrder' || entity === 'instractionChargeOrder') {
+    const metaParts = [bundleNumber ? `回数:${bundleNumber}` : null, memo ? `メモ:${memo}` : null].filter(Boolean) as string[];
+    return {
+      metaLine: metaParts.length > 0 ? metaParts.join(' / ') : undefined,
+      chips: chipsAll.slice(0, 4),
+      moreLabel: chipsAll.length > 4 ? `他${chipsAll.length - 4}` : undefined,
+    };
+  }
+
+  const metaParts = [usage || null, memo ? `メモ:${memo}` : null].filter(Boolean) as string[];
+  return {
+    metaLine: metaParts.length > 0 ? metaParts.join(' / ') : undefined,
+    chips: chipsAll.slice(0, 5),
+    moreLabel: chipsAll.length > 5 ? `他${chipsAll.length - 5}` : undefined,
+  };
+};
+
+type BundleWarningBadge = { tone: 'warn' | 'contra'; label: string; count: number };
+
+const resolveWarningBadge = (warnings: OrcaMedicalWarningUi[]): BundleWarningBadge | null => {
+  if (warnings.length === 0) return null;
+  const combined = warnings
+    .map((warning) =>
+      [warning.medicalWarning, warning.message, warning.medicalClass, warning.code].filter(Boolean).join(' '),
+    )
+    .join(' ');
+  const hasContra = /禁忌/.test(combined);
+  return hasContra ? { tone: 'contra', label: '禁忌', count: warnings.length } : { tone: 'warn', label: '警告', count: warnings.length };
 };
 
 const buildRequestId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -151,8 +208,39 @@ export function OrderDockPanel(props: {
     onHistoryCopyConsumed,
   } = props;
   const queryClient = useQueryClient();
+  const session = useOptionalSession();
+  const storageScope = useMemo(
+    () => ({ facilityId: session?.facilityId, userId: session?.userId }),
+    [session?.facilityId, session?.userId],
+  );
 
   const orderVisitDate = (visitDate ?? meta.visitDate ?? '').slice(0, 10);
+  const [orcaSendEntry, setOrcaSendEntry] = useState<ReturnType<typeof getOrcaClaimSendEntry> | null>(() =>
+    getOrcaClaimSendEntry(storageScope, patientId),
+  );
+  useEffect(() => {
+    setOrcaSendEntry(getOrcaClaimSendEntry(storageScope, patientId));
+  }, [patientId, storageScope]);
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ patientId?: string }>).detail;
+      if (detail?.patientId && detail.patientId !== patientId) return;
+      setOrcaSendEntry(getOrcaClaimSendEntry(storageScope, patientId));
+    };
+    window.addEventListener('orca-claim-send-cache-update', handler);
+    return () => {
+      window.removeEventListener('orca-claim-send-cache-update', handler);
+    };
+  }, [patientId, storageScope]);
+
+  const orcaMedicalWarnings = useMemo<OrcaMedicalWarningUi[]>(() => {
+    const warnings = orcaSendEntry?.medicalWarnings ?? [];
+    const sentDate = orcaSendEntry?.performDate?.slice(0, 10);
+    if (!sentDate || !orderVisitDate || sentDate !== orderVisitDate) return [];
+    return warnings;
+  }, [orcaSendEntry?.medicalWarnings, orcaSendEntry?.performDate, orderVisitDate]);
+
   const bundlesByEntity = useMemo(() => {
     const map = new Map<string, OrderBundle[]>();
     for (const bundle of (orderBundles ?? []).filter(Boolean)) {
@@ -197,11 +285,13 @@ export function OrderDockPanel(props: {
   const [treatmentEntity, setTreatmentEntity] = useState<TreatmentOrderEntity>('treatmentOrder');
   const [testEntity, setTestEntity] = useState<TestOrderEntity>('testOrder');
   const [chargeEntity, setChargeEntity] = useState<ChargeOrderEntity>('baseChargeOrder');
+  const [treatmentShowAll, setTreatmentShowAll] = useState(false);
+  const [testShowAll, setTestShowAll] = useState(false);
+  const [chargeShowAll, setChargeShowAll] = useState(false);
 
   const [activeEntity, setActiveEntity] = useState<PastOrderEntity | null>(null);
   const [activeRequest, setActiveRequest] = useState<OrderBundleEditPanelRequest | null>(null);
 
-  const activeGroupKey = useMemo(() => (activeEntity ? resolveGroupKeyByEntity(activeEntity) : null), [activeEntity]);
   const activeTitleMeta = useMemo(() => {
     if (!activeEntity) return null;
     switch (activeEntity) {
@@ -303,6 +393,7 @@ export function OrderDockPanel(props: {
     if (!el) return;
     requestAnimationFrame(() => {
       el.scrollIntoView({ block: 'nearest' });
+      (el as HTMLElement).scrollTop = 0;
       el.focus();
     });
   }, [activeEntity]);
@@ -362,6 +453,36 @@ export function OrderDockPanel(props: {
   const prescriptionDrugs = useMemo(() => latestPrescription?.rpList ?? [], [latestPrescription]);
   const prescriptionIssuedDate = latestPrescription?.issuedDate?.trim() ?? '';
   const prescriptionMemo = latestPrescription?.memo?.trim() ?? '';
+  const latestPrescriptionBundle = useMemo<OrderBundle | null>(() => {
+    const drugs = (latestPrescription?.rpList ?? []).filter(Boolean);
+    if (drugs.length === 0) return null;
+    const items = drugs
+      .map((drug) => {
+        const code = normalizeInline(drug.srycd ?? '');
+        const rawName = normalizeInline(drug.name ?? '');
+        const name = normalizeInline([code, rawName].filter(Boolean).join(' '));
+        if (!name) return null;
+        return {
+          code: code || undefined,
+          name,
+          quantity: normalizeInline(drug.dose ?? ''),
+          unit: normalizeInline(drug.amount ?? ''),
+          memo: normalizeInline(drug.memo ?? ''),
+        } satisfies OrderBundleItem;
+      })
+      .filter((item): item is OrderBundleItem => Boolean(item && item.name.trim().length > 0));
+    if (items.length === 0) return null;
+    const usage = normalizeInline(drugs[0]?.usage ?? '');
+    const days = normalizeInline(drugs[0]?.days ?? '');
+    return {
+      entity: 'medOrder',
+      bundleName: stripLeadingCode(items[0]?.name ?? '') || '前回処方',
+      admin: usage,
+      bundleNumber: days || '1',
+      started: orderVisitDate,
+      items,
+    };
+  }, [latestPrescription?.rpList, orderVisitDate]);
 
   const renderQuickAdds = () => (
     <div className="order-dock__quick-add" role="group" aria-label="オーダー追加">
@@ -398,7 +519,6 @@ export function OrderDockPanel(props: {
   );
 
   const renderGroup = (group: (typeof groupBundles)[number]) => {
-    const isActive = activeGroupKey === group.key;
     const defaultEntity = (() => {
       switch (group.key) {
         case 'prescription':
@@ -415,13 +535,47 @@ export function OrderDockPanel(props: {
     })();
     const canOpenEditor = canEdit;
     const canOpenRecommendation = Boolean(patientId);
+    const selectionMeta = (() => {
+      switch (group.key) {
+        case 'treatment':
+          return { showAll: treatmentShowAll, label: resolveEntityLabel(treatmentEntity) };
+        case 'test':
+          return { showAll: testShowAll, label: resolveEntityLabel(testEntity) };
+        case 'charge':
+          return { showAll: chargeShowAll, label: resolveEntityLabel(chargeEntity) };
+        default:
+          return { showAll: false, label: '' };
+      }
+    })();
+    const visibleBundles = (() => {
+      if (group.bundles.length === 0) return [];
+      if (group.key === 'treatment' && !treatmentShowAll) {
+        return group.bundles.filter((bundle) => (bundle.entity?.trim() || defaultEntity) === treatmentEntity);
+      }
+      if (group.key === 'test' && !testShowAll) {
+        return group.bundles.filter((bundle) => (bundle.entity?.trim() || defaultEntity) === testEntity);
+      }
+      if (group.key === 'charge' && !chargeShowAll) {
+        return group.bundles.filter((bundle) => (bundle.entity?.trim() || defaultEntity) === chargeEntity);
+      }
+      return group.bundles;
+    })();
+    const showEntityBadge = Boolean(
+      (group.key === 'treatment' && treatmentShowAll) ||
+        (group.key === 'test' && testShowAll) ||
+        (group.key === 'charge' && chargeShowAll),
+    );
 
     return (
       <section key={group.key} className="order-dock__group" data-group={group.key}>
         <header className="order-dock__group-header">
           <div className="order-dock__group-title">
             <strong>{group.label}</strong>
-            <span className="order-dock__group-count">{group.bundles.length}件</span>
+            <span className="order-dock__group-count">
+              {visibleBundles.length}
+              {visibleBundles.length !== group.bundles.length ? `/${group.bundles.length}` : ''}件
+              {selectionMeta.label && !selectionMeta.showAll ? `(${selectionMeta.label})` : ''}
+            </span>
           </div>
           <div className="order-dock__group-actions" role="group" aria-label={`${group.label}操作`}>
             <button
@@ -433,69 +587,130 @@ export function OrderDockPanel(props: {
             >
               頻用
             </button>
-            {isActive ? (
-              <button type="button" className="order-dock__group-action" onClick={closeEditor}>
-                編集を閉じる
-              </button>
-            ) : null}
           </div>
         </header>
 
         {group.key === 'treatment' ? (
-          <div className="order-dock__subtype">
-            <label htmlFor="order-dock-treatment-entity">種類</label>
-            <select
-              id="order-dock-treatment-entity"
-              value={treatmentEntity}
-              onChange={(event) => setTreatmentEntity(event.target.value as TreatmentOrderEntity)}
-              disabled={!canEdit}
+          <div className="order-dock__subtype-tabs" role="tablist" aria-label="処置種類">
+            {(
+              [
+                { key: 'treatmentOrder' as const, label: '処置' },
+                { key: 'generalOrder' as const, label: '一般' },
+                { key: 'surgeryOrder' as const, label: '手術' },
+                { key: 'otherOrder' as const, label: 'その他' },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={`treatment-tab-${tab.key}`}
+                type="button"
+                className="order-dock__subtype-tab"
+                data-active={!treatmentShowAll && treatmentEntity === tab.key ? 'true' : 'false'}
+                aria-pressed={!treatmentShowAll && treatmentEntity === tab.key}
+                onClick={() => {
+                  setTreatmentEntity(tab.key);
+                  setTreatmentShowAll(false);
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="order-dock__subtype-tab"
+              data-active={treatmentShowAll ? 'true' : 'false'}
+              aria-pressed={treatmentShowAll}
+              onClick={() => setTreatmentShowAll(true)}
             >
-              <option value="treatmentOrder">処置</option>
-              <option value="generalOrder">一般</option>
-              <option value="surgeryOrder">手術</option>
-              <option value="otherOrder">その他</option>
-            </select>
+              すべて
+            </button>
           </div>
         ) : null}
         {group.key === 'test' ? (
-          <div className="order-dock__subtype">
-            <label htmlFor="order-dock-test-entity">種類</label>
-            <select
-              id="order-dock-test-entity"
-              value={testEntity}
-              onChange={(event) => setTestEntity(event.target.value as TestOrderEntity)}
-              disabled={!canEdit}
+          <div className="order-dock__subtype-tabs" role="tablist" aria-label="検査種類">
+            {(
+              [
+                { key: 'testOrder' as const, label: '検査' },
+                { key: 'physiologyOrder' as const, label: '生理' },
+                { key: 'bacteriaOrder' as const, label: '細菌' },
+                { key: 'radiologyOrder' as const, label: '放射線' },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={`test-tab-${tab.key}`}
+                type="button"
+                className="order-dock__subtype-tab"
+                data-active={!testShowAll && testEntity === tab.key ? 'true' : 'false'}
+                aria-pressed={!testShowAll && testEntity === tab.key}
+                onClick={() => {
+                  setTestEntity(tab.key);
+                  setTestShowAll(false);
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="order-dock__subtype-tab"
+              data-active={testShowAll ? 'true' : 'false'}
+              aria-pressed={testShowAll}
+              onClick={() => setTestShowAll(true)}
             >
-              <option value="testOrder">検査</option>
-              <option value="physiologyOrder">生理検査</option>
-              <option value="bacteriaOrder">細菌検査</option>
-              <option value="radiologyOrder">放射線</option>
-            </select>
+              すべて
+            </button>
           </div>
         ) : null}
         {group.key === 'charge' ? (
-          <div className="order-dock__subtype">
-            <label htmlFor="order-dock-charge-entity">種類</label>
-            <select
-              id="order-dock-charge-entity"
-              value={chargeEntity}
-              onChange={(event) => setChargeEntity(event.target.value as ChargeOrderEntity)}
-              disabled={!canEdit}
+          <div className="order-dock__subtype-tabs" role="tablist" aria-label="算定種類">
+            {(
+              [
+                { key: 'baseChargeOrder' as const, label: '基本料' },
+                { key: 'instractionChargeOrder' as const, label: '指導料' },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={`charge-tab-${tab.key}`}
+                type="button"
+                className="order-dock__subtype-tab"
+                data-active={!chargeShowAll && chargeEntity === tab.key ? 'true' : 'false'}
+                aria-pressed={!chargeShowAll && chargeEntity === tab.key}
+                onClick={() => {
+                  setChargeEntity(tab.key);
+                  setChargeShowAll(false);
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="order-dock__subtype-tab"
+              data-active={chargeShowAll ? 'true' : 'false'}
+              aria-pressed={chargeShowAll}
+              onClick={() => setChargeShowAll(true)}
             >
-              <option value="baseChargeOrder">基本料</option>
-              <option value="instractionChargeOrder">指導料</option>
-            </select>
+              すべて
+            </button>
           </div>
         ) : null}
 
         <div className="order-dock__bundle-list" role="list" aria-label={`${group.label}オーダー一覧`}>
           {group.bundles.length === 0 ? (
             <p className="order-dock__empty">まだありません。</p>
+          ) : visibleBundles.length === 0 ? (
+            <p className="order-dock__empty">この種類のオーダーはまだありません。</p>
           ) : (
-            group.bundles.map((bundle, index) => {
+            visibleBundles.map((bundle, index) => {
               const bundleEntity = (bundle.entity?.trim() || defaultEntity) as PastOrderEntity;
               const bundleLabel = formatBundleName(bundle);
-              const itemSummary = formatBundleItemsInline(bundle);
+              const summary = summarizeBundleForCard(bundle, bundleEntity);
+              const warnings = bundle.documentId
+                ? orcaMedicalWarnings.filter(
+                    (warning) =>
+                      warning.documentId === bundle.documentId && (warning.entity?.trim() ?? '') === bundleEntity,
+                  )
+                : [];
+              const warningBadge = resolveWarningBadge(warnings);
               const canMutate = canEdit;
               return (
                 <div
@@ -504,10 +719,35 @@ export function OrderDockPanel(props: {
                   role="listitem"
                 >
                   <div className="order-dock__bundle-main">
-                    <strong className="order-dock__bundle-name">{bundleLabel}</strong>
-                    <span className="order-dock__bundle-items" title={itemSummary}>
-                      {itemSummary}
-                    </span>
+                    <div className="order-dock__bundle-head">
+                      <strong className="order-dock__bundle-name">{bundleLabel}</strong>
+                      <div className="order-dock__bundle-badges" role="group" aria-label="バッジ">
+                        {showEntityBadge ? (
+                          <span className="order-dock__badge order-dock__badge--entity">{resolveEntityLabel(bundleEntity)}</span>
+                        ) : null}
+                        {warningBadge ? (
+                          <span className={`order-dock__badge order-dock__badge--${warningBadge.tone}`}>
+                            {warningBadge.label}
+                            {warningBadge.count > 1 ? `×${warningBadge.count}` : ''}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    {summary.metaLine ? <span className="order-dock__bundle-meta">{summary.metaLine}</span> : null}
+                    {summary.chips.length > 0 ? (
+                      <div className="order-dock__chips" aria-label="項目">
+                        {summary.chips.map((chip, chipIndex) => (
+                          <span key={`${chip}-${chipIndex}`} className="order-dock__chip" title={chip}>
+                            {chip}
+                          </span>
+                        ))}
+                        {summary.moreLabel ? (
+                          <span className="order-dock__chip order-dock__chip--more">{summary.moreLabel}</span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="order-dock__bundle-items">項目なし</span>
+                    )}
                   </div>
                   <div className="order-dock__bundle-actions" role="group" aria-label={`${group.label}束操作`}>
                     <button
@@ -518,6 +758,15 @@ export function OrderDockPanel(props: {
                       title={!canMutate ? editDisabledReason : undefined}
                     >
                       編集
+                    </button>
+                    <button
+                      type="button"
+                      className="order-dock__bundle-action"
+                      onClick={() => openEditor(bundleEntity, { requestId: buildRequestId(), kind: 'copy', bundle })}
+                      disabled={!canMutate}
+                      title={!canMutate ? editDisabledReason : undefined}
+                    >
+                      コピー
                     </button>
                     <button
                       type="button"
@@ -550,31 +799,69 @@ export function OrderDockPanel(props: {
             ＋
           </button>
         </div>
-
-        {isActive && activeEntity && activeTitleMeta ? (
-          <div className="order-dock__editor" aria-label={`${resolveEntityLabel(activeEntity)}入力`}>
-            <OrderBundleEditPanel
-              patientId={patientId}
-              entity={activeEntity}
-              title={activeTitleMeta.title}
-              bundleLabel={activeTitleMeta.bundleLabel}
-              itemQuantityLabel={activeTitleMeta.itemQuantityLabel}
-              meta={meta}
-              variant="embedded"
-              request={activeRequest}
-              onRequestConsumed={(requestId) => {
-                setActiveRequest((prev) => (prev?.requestId === requestId ? null : prev));
-              }}
-              historyCopyRequest={
-                historyCopyRequest?.entity === activeEntity ? { requestId: historyCopyRequest.requestId, bundle: historyCopyRequest.bundle } : null
-              }
-              onHistoryCopyConsumed={(requestId) => onHistoryCopyConsumed?.(requestId)}
-            />
-          </div>
-        ) : null}
       </section>
     );
   };
+
+  if (activeEntity && activeTitleMeta) {
+    const bundlesOverride = bundlesByEntity.get(activeEntity) ?? [];
+    return (
+      <div className="order-dock order-dock--editing" data-has-orders={hasAnyOrders ? '1' : '0'}>
+        <header className="order-dock__edit-header" aria-label="オーダー編集">
+          <button type="button" className="order-dock__edit-back" onClick={closeEditor}>
+            一覧へ
+          </button>
+          <div className="order-dock__edit-title">
+            <strong>{activeTitleMeta.title}</strong>
+            <span className="order-dock__meta">診療日:{orderVisitDate || '—'}</span>
+          </div>
+          <button type="button" className="order-dock__edit-close" onClick={closeEditor}>
+            閉じる
+          </button>
+        </header>
+
+        {notice ? <div className={`order-dock__notice order-dock__notice--${notice.tone}`}>{notice.message}</div> : null}
+
+        <div className="order-dock__editor order-dock__editor--full" aria-label={`${resolveEntityLabel(activeEntity)}入力`}>
+          <OrderBundleEditPanel
+            patientId={patientId}
+            entity={activeEntity}
+            title={activeTitleMeta.title}
+            bundleLabel={activeTitleMeta.bundleLabel}
+            itemQuantityLabel={activeTitleMeta.itemQuantityLabel}
+            meta={meta}
+            variant="embedded"
+            bundlesOverride={bundlesOverride}
+            request={activeRequest}
+            onRequestConsumed={(requestId) => {
+              setActiveRequest((prev) => (prev?.requestId === requestId ? null : prev));
+            }}
+            historyCopyRequest={
+              historyCopyRequest?.entity === activeEntity
+                ? { requestId: historyCopyRequest.requestId, bundle: historyCopyRequest.bundle }
+                : null
+            }
+            onHistoryCopyConsumed={(requestId) => onHistoryCopyConsumed?.(requestId)}
+            onClose={closeEditor}
+          />
+        </div>
+
+        <details className="order-dock__today-fold" aria-label="当日一覧">
+          <summary className="order-dock__today-summary">当日一覧</summary>
+          <div className="order-dock__groups">{groupBundles.map(renderGroup)}</div>
+        </details>
+
+        <OrderRecommendationModal
+          open={recommendModalOpen}
+          patientId={patientId}
+          defaultEntity={recommendModalEntity || undefined}
+          defaultScope={recommendModalEntity ? 'category' : 'all'}
+          onClose={() => setRecommendModalOpen(false)}
+          onApply={handleApplyRecommendation}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="order-dock" data-has-orders={hasAnyOrders ? '1' : '0'}>
@@ -639,7 +926,7 @@ export function OrderDockPanel(props: {
                 })}
               </ol>
               {prescriptionMemo ? <p className="order-dock__rx-memo">メモ: {prescriptionMemo}</p> : null}
-              <div className="order-dock__rx-actions">
+              <div className="order-dock__rx-actions" role="group" aria-label="処方取り込み">
                 <button
                   type="button"
                   className="order-dock__rx-action"
@@ -647,7 +934,25 @@ export function OrderDockPanel(props: {
                   disabled={!canEdit}
                   title={!canEdit ? editDisabledReason : undefined}
                 >
-                  処方を入力
+                  新規（空）
+                </button>
+                <button
+                  type="button"
+                  className="order-dock__rx-action"
+                  onClick={() => {
+                    if (!latestPrescriptionBundle) return;
+                    openEditor('medOrder', { requestId: buildRequestId(), kind: 'copy', bundle: latestPrescriptionBundle });
+                  }}
+                  disabled={!canEdit || !latestPrescriptionBundle}
+                  title={
+                    !latestPrescriptionBundle
+                      ? '直近処方がないためコピーできません。'
+                      : !canEdit
+                        ? editDisabledReason
+                        : '直近処方をコピーして開始します。'
+                  }
+                >
+                  直近処方をコピーして開始
                 </button>
               </div>
             </>
