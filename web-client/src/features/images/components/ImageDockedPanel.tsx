@@ -54,6 +54,7 @@ export function ImageDockedPanel({
   soapTargetOptions,
   soapTargetSection,
   onSoapTargetChange,
+  onStateChange,
 }: {
   patientId?: string;
   appointmentId?: string;
@@ -64,6 +65,11 @@ export function ImageDockedPanel({
   soapTargetOptions?: Array<{ value: string; label: string }>;
   soapTargetSection?: string;
   onSoapTargetChange?: (value: string) => void;
+  onStateChange?: (next: {
+    queueCount: number;
+    uploadingCount: number;
+    hasError: boolean;
+  }) => void;
 }) {
   const meta = ensureObservabilityMeta();
   const resolvedRunId = resolveRunId(runId) ?? meta.runId;
@@ -371,6 +377,21 @@ export function ImageDockedPanel({
     ? resolveAriaLive(statusMessage.tone === 'info' ? 'info' : statusMessage.tone === 'error' ? 'error' : 'success')
     : resolveAriaLive('info');
   const statusRole = statusMessage?.tone === 'error' ? 'alert' : 'status';
+  const uploadingCount = useMemo(() => uploadItems.filter((item) => item.status === 'uploading').length, [uploadItems]);
+  const hasErrorState = Boolean(
+    statusMessage?.tone === 'error' ||
+      uploadItems.some((item) => item.status === 'error') ||
+      imageListQuery.isError ||
+      (imageListQuery.data && !imageListQuery.data.ok),
+  );
+
+  useEffect(() => {
+    onStateChange?.({
+      queueCount: uploadItems.length,
+      uploadingCount,
+      hasError: hasErrorState,
+    });
+  }, [hasErrorState, onStateChange, uploadItems.length, uploadingCount]);
 
   return (
     <section className="charts-image-panel" data-test-id="charts-image-panel" data-run-id={resolvedRunId}>
@@ -390,7 +411,7 @@ export function ImageDockedPanel({
       {soapTargetOptions && soapTargetOptions.length > 0 ? (
         <div className="charts-image-panel__target">
           <label>
-            SOAP貼付先
+            SOAP挿入先
             <select
               id="image-soap-target"
               name="imageSoapTarget"
@@ -562,7 +583,7 @@ export function ImageDockedPanel({
                     disabled={!patientId}
                     data-test-id="image-attach-document"
                   >
-                    {selectedIdSet.has(item.id) ? '文書から外す' : '文書に追加'}
+                    {selectedIdSet.has(item.id) ? '文書添付を解除' : '文書に添付'}
                   </button>
                   <button
                     type="button"
@@ -573,7 +594,7 @@ export function ImageDockedPanel({
                     disabled={!patientId}
                     data-test-id="image-attach-soap"
                   >
-                    SOAPへ貼付
+                    SOAPに挿入
                   </button>
                 </div>
               </li>

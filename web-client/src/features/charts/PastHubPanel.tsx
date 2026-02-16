@@ -101,6 +101,7 @@ export type PastHubPanelProps = {
   soapHistory?: SoapEntry[];
   doCopyEnabled?: boolean;
   onRequestDoCopy?: (payload: { section: SoapSectionKey; entry: SoapEntry }) => void;
+  onRequestDoCopyBatch?: (payload: { sections: Array<{ section: SoapSectionKey; entry: SoapEntry }>; sourceDate?: string }) => void;
   doOrderEnabled?: boolean;
   doOrderDisabledReason?: string;
   onRequestOrderDo?: (payload: { entity: PastHubOrderEntity; bundle: OrderBundle }) => void;
@@ -120,6 +121,7 @@ export function PastHubPanel({
   soapHistory = [],
   doCopyEnabled = false,
   onRequestDoCopy,
+  onRequestDoCopyBatch,
   doOrderEnabled = false,
   doOrderDisabledReason,
   onRequestOrderDo,
@@ -149,9 +151,11 @@ export function PastHubPanel({
   }, [historyEntries]);
 
   const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
+  const [doFeedback, setDoFeedback] = useState<string | null>(null);
   useEffect(() => {
     // Patient switch: reset "initially open last 2" behavior.
     setOpenDays({});
+    setDoFeedback(null);
   }, [patientId]);
   useEffect(() => {
     if (!patientId) return;
@@ -203,6 +207,15 @@ export function PastHubPanel({
 
   const soapLatestBySection = useMemo(() => getLatestSoapEntries(soapHistory), [soapHistory]);
   const canDoCopy = Boolean(doCopyEnabled && onRequestDoCopy);
+  const doCopySections = useMemo(
+    () =>
+      DO_COPY_SECTIONS.flatMap((section) => {
+        const entry = soapLatestBySection.get(section);
+        return entry ? [{ section, entry }] : [];
+      }),
+    [soapLatestBySection],
+  );
+  const canDoCopyBatch = Boolean(canDoCopy && onRequestDoCopyBatch && doCopySections.length > 0);
   const activeDate = normalizeVisitDate(selectedContext.visitDate) ?? '';
 
   if (!patientId) {
@@ -231,6 +244,11 @@ export function PastHubPanel({
       </header>
 
       <div className="charts-past-hub__content" aria-label="過去カルテ一覧">
+        {doFeedback ? (
+          <p className="charts-past-hub__feedback" role="status">
+            {doFeedback}
+          </p>
+        ) : null}
         {switchLocked ? (
           <p className="charts-past-hub__guard" role="status">
             患者切替はロック中です: {switchLockedReason ?? '処理中/閲覧専用'}
@@ -332,6 +350,22 @@ export function PastHubPanel({
                             <div className="charts-past-hub__col-header">
                               <strong>記載（表示中）</strong>
                               <span className="charts-past-hub__col-meta">SOAP 最新</span>
+                              {onRequestDoCopyBatch ? (
+                                <button
+                                  type="button"
+                                  className="charts-past-hub__do charts-past-hub__do--batch"
+                                  disabled={!canDoCopyBatch}
+                                  title={!canDoCopyBatch ? '転記可能なSOAPがありません。' : undefined}
+                                  onClick={() => {
+                                    onRequestDoCopyBatch({
+                                      sections: doCopySections,
+                                      sourceDate: group.date,
+                                    });
+                                  }}
+                                >
+                                  この日のSOAPをまとめてDo
+                                </button>
+                              ) : null}
                             </div>
                             <div className="charts-past-hub__notes-grid" role="list">
                               {DO_COPY_SECTIONS.map((section) => {
@@ -408,7 +442,10 @@ export function PastHubPanel({
                                               className="charts-past-hub__do"
                                               disabled={!doOrderEnabled}
                                               title={!doOrderEnabled ? doOrderDisabledReason ?? 'Doできません。' : undefined}
-                                              onClick={() => onRequestOrderDo({ entity, bundle })}
+                                              onClick={() => {
+                                                setDoFeedback(`${label}のDoコピーをオーダー入力へ送信しました。`);
+                                                onRequestOrderDo({ entity, bundle });
+                                              }}
                                             >
                                               Do
                                             </button>

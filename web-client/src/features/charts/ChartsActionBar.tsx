@@ -64,6 +64,25 @@ type GuardReason = {
   next: string[];
 };
 
+type SendConfirmSummary = {
+  patientName?: string;
+  patientId?: string;
+  birthDate?: string;
+  age?: string;
+  visitDate?: string;
+  receptionId?: string;
+  appointmentId?: string;
+  diagnosisCount?: number;
+  orderCount?: number;
+  soap?: {
+    subjective?: boolean;
+    objective?: boolean;
+    assessment?: boolean;
+    plan?: boolean;
+  };
+  imageAttachmentCount?: number;
+};
+
 const ACTION_LABEL: Record<ChartAction, string> = {
   start: '診察開始',
   pause: '診察中断',
@@ -197,7 +216,7 @@ const toMedicalModV2InformationWithSource = (
         : bundle.admin.trim()
       : undefined;
   const usageMedication: MedicalModV2MedicationRow | null =
-    usageCode && !hasUsageAlready ? { code: usageCode, name: usageName, number: '', unit: undefined } : null;
+    usageCode && !hasUsageAlready ? { code: usageCode, name: usageName, number: '', unit: undefined, genericFlg: undefined } : null;
   const usageRow = usageMedication ? ({ medication: usageMedication, source: { kind: 'usage' } as const } satisfies { medication: MedicalModV2MedicationRow; source: MedicalModV2RowSource }) : null;
 
   const isCommentMedication = (code: string) => COMMENT_CODE_PATTERN.test(code.trim());
@@ -326,6 +345,7 @@ export interface ChartsActionBarProps {
   onLockChange?: (locked: boolean, reason?: string) => void;
   onApprovalConfirmed?: (meta: { action: 'send'; actor?: string }) => void;
   onApprovalUnlock?: () => void;
+  sendConfirmSummary?: SendConfirmSummary;
 }
 
 export function ChartsActionBar({
@@ -365,6 +385,7 @@ export function ChartsActionBar({
   onLockChange,
   onApprovalConfirmed,
   onApprovalUnlock,
+  sendConfirmSummary,
 }: ChartsActionBarProps) {
   const session = useOptionalSession();
   const storageScope = useMemo(
@@ -765,6 +786,15 @@ export function ChartsActionBar({
   }, [approvalLocked, approvalReason, isRunning, readOnly, readOnlyReason, resolvedLockReason, uiLocked]);
 
   const sendDisabled = isRunning || approvalLocked || sendPrecheckReasons.length > 0;
+  const primaryAction = useMemo<ChartAction | 'sending'>(() => {
+    if (isRunning && runningAction === 'send') return 'sending';
+    const status = (selectedEntry?.status ?? '').trim();
+    if (/受付|予約/.test(status)) return 'start';
+    if (/診療中|診察中/.test(status)) return 'finish';
+    if (/終了|会計|送信待ち|送信済/.test(status)) return 'send';
+    if (!status) return 'finish';
+    return 'send';
+  }, [isRunning, runningAction, selectedEntry?.status]);
 
   const printPrecheckReasons: GuardReason[] = useMemo(() => {
     const reasons: GuardReason[] = [];
@@ -958,6 +988,45 @@ export function ChartsActionBar({
     readOnly,
     resolvedLockReason,
     sendPrecheckReasons.length,
+  ]);
+
+  const sendDialogSummary = useMemo(() => {
+    const patientName = sendConfirmSummary?.patientName?.trim() || selectedEntry?.name?.trim() || '—';
+    const patientLabel = sendConfirmSummary?.patientId?.trim() || resolvedPatientId?.trim() || '—';
+    const selectedBirthDate = (selectedEntry as Partial<{ birthDate?: string }> | undefined)?.birthDate;
+    const birthDate = sendConfirmSummary?.birthDate?.trim() || selectedBirthDate?.trim() || '—';
+    const ageLabel = sendConfirmSummary?.age?.trim() || '';
+    const visitLabel = sendConfirmSummary?.visitDate?.trim() || resolvedVisitDate?.trim() || '—';
+    const receptionLabel = sendConfirmSummary?.receptionId?.trim() || resolvedReceptionId?.trim() || '—';
+    const appointmentLabel = sendConfirmSummary?.appointmentId?.trim() || resolvedAppointmentId?.trim() || '—';
+    const diagnosisCount = typeof sendConfirmSummary?.diagnosisCount === 'number' ? `${sendConfirmSummary.diagnosisCount}件` : '—';
+    const orderCount = typeof sendConfirmSummary?.orderCount === 'number' ? `${sendConfirmSummary.orderCount}件` : '—';
+    const imageCount = typeof sendConfirmSummary?.imageAttachmentCount === 'number' ? `${sendConfirmSummary.imageAttachmentCount}件` : '—';
+    const soap = sendConfirmSummary?.soap ?? {};
+    const soapState = `${soap.subjective ? 'S:あり' : 'S:なし'} / ${soap.objective ? 'O:あり' : 'O:なし'} / ${
+      soap.assessment ? 'A:あり' : 'A:なし'
+    } / ${soap.plan ? 'P:あり' : 'P:なし'}`;
+
+    return {
+      patientName,
+      patientLabel,
+      birthDate,
+      ageLabel,
+      visitLabel,
+      receptionLabel,
+      appointmentLabel,
+      diagnosisCount,
+      orderCount,
+      imageCount,
+      soapState,
+    };
+  }, [
+    resolvedAppointmentId,
+    resolvedPatientId,
+    resolvedReceptionId,
+    resolvedVisitDate,
+    selectedEntry,
+    sendConfirmSummary,
   ]);
 
   const logTelemetry = (
@@ -2276,9 +2345,9 @@ export function ChartsActionBar({
         throw new Error(result.error);
       }
       const previewState = result.previewState;
-      const navState = { ...previewState, from: 'charts', returnTo: appNav.currentUrl } as Record<string, unknown>;
-      appNav.openPrintDocument({ state: navState });
-      saveReportPrintPreview(navState, { facilityId: session?.facilityId, userId: session?.userId });
+      const navState = { ...previewState, from: 'charts', returnTo: appNav.currentUrl };
+      appNav.openPrintDocument({ state: navState as Record<string, unknown> });
+      saveReportPrintPreview(previewState, { facilityId: session?.facilityId, userId: session?.userId });
       setToast({
         tone: 'success',
         message: '帳票プレビューを開きました',
@@ -2581,7 +2650,57 @@ export function ChartsActionBar({
         }}
         testId="charts-send-dialog"
       >
-        <div role="group" aria-label="ORCA送信の確認">
+        <div className="charts-actions__send-confirm" role="group" aria-label="ORCA送信の確認">
+          <section className="charts-actions__send-confirm-section" aria-label="患者確認">
+            <h3>患者確認</h3>
+            <p className="charts-actions__send-confirm-identity">
+              <strong>
+                {sendDialogSummary.patientName}（{sendDialogSummary.patientLabel}）
+              </strong>
+            </p>
+            <dl className="charts-actions__send-confirm-list">
+              <div>
+                <dt>生年月日 / 年齢</dt>
+                <dd>
+                  {sendDialogSummary.birthDate}
+                  {sendDialogSummary.ageLabel ? ` / ${sendDialogSummary.ageLabel}` : ''}
+                </dd>
+              </div>
+              <div>
+                <dt>診療日</dt>
+                <dd>{sendDialogSummary.visitLabel}</dd>
+              </div>
+              <div>
+                <dt>受付ID</dt>
+                <dd>{sendDialogSummary.receptionLabel}</dd>
+              </div>
+              <div>
+                <dt>予約ID</dt>
+                <dd>{sendDialogSummary.appointmentLabel}</dd>
+              </div>
+            </dl>
+          </section>
+          <section className="charts-actions__send-confirm-section" aria-label="送信対象サマリ">
+            <h3>送信対象サマリ</h3>
+            <dl className="charts-actions__send-confirm-list">
+              <div>
+                <dt>病名</dt>
+                <dd>{sendDialogSummary.diagnosisCount}</dd>
+              </div>
+              <div>
+                <dt>オーダー</dt>
+                <dd>{sendDialogSummary.orderCount}</dd>
+              </div>
+              <div>
+                <dt>SOAP</dt>
+                <dd>{sendDialogSummary.soapState}</dd>
+              </div>
+              <div>
+                <dt>画像添付</dt>
+                <dd>{sendDialogSummary.imageCount}</dd>
+              </div>
+            </dl>
+          </section>
           <button
             type="button"
             onClick={() => {
@@ -2722,7 +2841,7 @@ export function ChartsActionBar({
           <button
             type="button"
             id="charts-action-start"
-            className="charts-actions__button charts-actions__button--encounter-start"
+            className={`charts-actions__button charts-actions__button--encounter-start${primaryAction === 'start' ? ' charts-actions__button--primary-route' : ''}`}
             disabled={otherBlocked || !resolvedPatientId}
             data-disabled-reason={
               otherBlocked
@@ -2731,6 +2850,7 @@ export function ChartsActionBar({
                   ? 'patient_not_selected'
                   : undefined
             }
+            title={!resolvedPatientId ? '患者未選択のため開始できません。' : otherBlocked ? statusLine : undefined}
             onClick={() => handleAction('start')}
           >
             診察開始
@@ -2754,20 +2874,23 @@ export function ChartsActionBar({
           <button
             type="button"
             id="charts-action-finish"
-            className="charts-actions__button charts-actions__button--encounter-finish"
+            className={`charts-actions__button charts-actions__button--encounter-finish${primaryAction === 'finish' ? ' charts-actions__button--primary-route' : ''}`}
             disabled={otherBlocked}
             data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
+            title={otherBlocked ? statusLine : undefined}
             onClick={() => handleAction('finish')}
             aria-keyshortcuts="Alt+E"
           >
             診察終了
           </button>
         </div>
-        <div className="charts-actions__group" data-group="send" role="group" aria-label="送信と保存">
+        <div className="charts-actions__group" data-group="send" role="group" aria-label="主要送信操作">
           <button
             type="button"
             id="charts-action-send"
-            className="charts-actions__button charts-actions__button--send"
+            className={`charts-actions__button charts-actions__button--send${
+              primaryAction === 'send' || primaryAction === 'sending' ? ' charts-actions__button--primary-route' : ''
+            }`}
             disabled={sendDisabled}
             onClick={() => {
               setConfirmAction('send');
@@ -2781,10 +2904,16 @@ export function ChartsActionBar({
                 ? (isRunning ? 'running' : sendPrecheckReasons.map((reason) => reason.key).join(','))
                 : undefined
             }
+            title={sendDisabled ? `送信不可: ${sendPrecheckReasons.map((reason) => reason.summary).join(' / ')}` : undefined}
             aria-keyshortcuts="Alt+S"
           >
-            ORCA 送信
+            {primaryAction === 'sending' ? '送信中…' : 'ORCA 送信'}
           </button>
+        </div>
+      </div>
+      <details className="charts-actions__more">
+        <summary className="charts-actions__more-summary">その他</summary>
+        <div className="charts-actions__more-actions" role="group" aria-label="補助操作">
           {compactHeader && isHeaderCollapsed ? null : draftSaveButton}
           <button
             type="button"
@@ -2795,17 +2924,17 @@ export function ChartsActionBar({
             onClick={openPrintDialog}
             aria-describedby={!isRunning && printPrecheckReasons.length > 0 ? 'charts-actions-print-guard' : undefined}
             data-disabled-reason={printDisabled ? printPrecheckReasons.map((reason) => reason.key).join(',') : undefined}
+            title={printDisabled ? `印刷不可: ${printPrecheckReasons.map((reason) => reason.summary).join(' / ')}` : undefined}
             aria-keyshortcuts="Alt+I"
           >
             印刷/エクスポート
           </button>
-        </div>
-        <div className="charts-actions__group" data-group="support" role="group" aria-label="補助操作">
           <button
             type="button"
             className="charts-actions__button charts-actions__button--cancel"
             disabled={otherBlocked}
             data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
+            title={otherBlocked ? statusLine : undefined}
             onClick={() => handleAction('cancel')}
           >
             キャンセル
@@ -2819,11 +2948,11 @@ export function ChartsActionBar({
             ロック解除
           </button>
         </div>
-      </div>
+      </details>
 
       {!isRunning && sendPrecheckReasons.length > 0 && (
-        <div id="charts-actions-send-guard" className="charts-actions__guard" role="note" aria-live="off">
-          <strong>送信前チェック: ORCA送信をブロック</strong>
+        <details id="charts-actions-send-guard" className="charts-actions__guard" role="note" aria-live="off">
+          <summary>送信不可（{sendPrecheckReasons.length}件）</summary>
           <ul>
             {sendPrecheckReasons.map((reason) => (
               <li key={reason.key}>
@@ -2831,12 +2960,12 @@ export function ChartsActionBar({
               </li>
             ))}
           </ul>
-        </div>
+        </details>
       )}
 
       {!isRunning && printPrecheckReasons.length > 0 && (
-        <div id="charts-actions-print-guard" className="charts-actions__guard" role="note" aria-live="off">
-          <strong>印刷前チェック: 印刷/エクスポートをブロック</strong>
+        <details id="charts-actions-print-guard" className="charts-actions__guard" role="note" aria-live="off">
+          <summary>印刷不可（{printPrecheckReasons.length}件）</summary>
           <ul>
             {printPrecheckReasons.map((reason) => (
               <li key={reason.key}>
@@ -2844,7 +2973,7 @@ export function ChartsActionBar({
               </li>
             ))}
           </ul>
-        </div>
+        </details>
       )}
 
       {isRunning && (

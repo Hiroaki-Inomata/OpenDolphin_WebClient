@@ -22,6 +22,7 @@ import { RevisionHistoryDrawer } from './revisions/RevisionHistoryDrawer';
 import type { RpHistoryEntry } from './karteExtrasApi';
 import type { OrderBundle } from './orderBundleApi';
 import { OrderDockPanel } from './OrderDockPanel';
+import { resolveAriaLive } from '../../libs/observability/observability';
 
 export type SoapNoteMeta = {
   runId?: string;
@@ -85,6 +86,13 @@ type SoapNotePanelProps = {
     visitDate?: string;
     dirtySources?: DraftDirtySource[];
   }) => void;
+  onSyncStateChange?: (next: {
+    localSaved: boolean;
+    serverSynced: boolean;
+    isSaving: boolean;
+    error?: string | null;
+    savedAt?: string;
+  }) => void;
   onClearHistory?: () => void;
   onAuditLogged?: () => void;
 };
@@ -136,6 +144,7 @@ export function SoapNotePanel({
   onAttachmentInserted,
   onAppendHistory,
   onDraftDirtyChange,
+  onSyncStateChange,
   onClearHistory,
   onAuditLogged,
 }: SoapNotePanelProps) {
@@ -183,6 +192,18 @@ export function SoapNotePanel({
   const [selectedTemplate, setSelectedTemplate] = useState<Partial<Record<SoapSectionKey, string>>>({});
   const [pendingTemplate, setPendingTemplate] = useState<Partial<Record<SoapSectionKey, string>>>({});
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [syncState, setSyncState] = useState<{
+    localSaved: boolean;
+    serverSynced: boolean;
+    isSaving: boolean;
+    error?: string | null;
+    savedAt?: string;
+  }>({
+    localSaved: false,
+    serverSynced: true,
+    isSaving: false,
+    error: undefined,
+  });
   const [revisionDrawerOpen, setRevisionDrawerOpen] = useState(false);
   const [subjectivesOpen, setSubjectivesOpen] = useState(false);
 
@@ -262,6 +283,13 @@ export function SoapNotePanel({
     setSelectedTemplate({});
     setPendingTemplate({});
     setFeedback(null);
+    setSyncState({
+      localSaved: false,
+      serverSynced: true,
+      isSaving: false,
+      error: undefined,
+      savedAt: undefined,
+    });
     setSubjectivesOpen(false);
   }, [historySignature]);
 
@@ -270,11 +298,26 @@ export function SoapNotePanel({
   }, [draft, onDraftSnapshot]);
 
   useEffect(() => {
+    onSyncStateChange?.(syncState);
+  }, [onSyncStateChange, syncState]);
+
+  const markDirtyPendingSync = useCallback(() => {
+    setSyncState({
+      localSaved: false,
+      serverSynced: false,
+      isSaving: false,
+      error: undefined,
+      savedAt: undefined,
+    });
+  }, []);
+
+  useEffect(() => {
     if (!replaceDraftRequest) return;
     if (readOnly) {
       setFeedback(readOnlyReason ?? '読み取り専用のためセット反映できません。');
       return;
     }
+    markDirtyPendingSync();
     setDraft(replaceDraftRequest.draft);
     setFeedback(replaceDraftRequest.note ?? 'SOAPドラフトをオーダーセットから反映しました。');
     onDraftDirtyChange?.({
@@ -290,6 +333,7 @@ export function SoapNotePanel({
     meta.patientId,
     meta.receptionId,
     meta.visitDate,
+    markDirtyPendingSync,
     onDraftDirtyChange,
     readOnly,
     readOnlyReason,
@@ -302,6 +346,7 @@ export function SoapNotePanel({
       setFeedback(readOnlyReason ?? '読み取り専用のため転記できません。');
       return;
     }
+    markDirtyPendingSync();
     setDraft((prev) => ({ ...prev, [applyDraftPatch.section]: applyDraftPatch.body }));
     setFeedback(applyDraftPatch.note ?? `${SOAP_SECTION_LABELS[applyDraftPatch.section]} を転記しました。`);
     onDraftDirtyChange?.({
@@ -312,7 +357,17 @@ export function SoapNotePanel({
       visitDate: meta.visitDate,
       dirtySources: ['soap'],
     });
-  }, [applyDraftPatch?.token, readOnly, readOnlyReason, onDraftDirtyChange, meta.patientId, meta.appointmentId, meta.receptionId, meta.visitDate]);
+  }, [
+    applyDraftPatch?.token,
+    markDirtyPendingSync,
+    meta.appointmentId,
+    meta.patientId,
+    meta.receptionId,
+    meta.visitDate,
+    onDraftDirtyChange,
+    readOnly,
+    readOnlyReason,
+  ]);
 
   useEffect(() => {
     if (!isRevisionHistoryEnabled) setRevisionDrawerOpen(false);
@@ -325,6 +380,7 @@ export function SoapNotePanel({
       onAttachmentInserted?.();
       return;
     }
+    markDirtyPendingSync();
     const targetSection = attachmentInsert.section ?? 'free';
     setDraft((prev) => ({
       ...prev,
@@ -347,6 +403,7 @@ export function SoapNotePanel({
     meta.patientId,
     meta.receptionId,
     meta.visitDate,
+    markDirtyPendingSync,
     onAttachmentInserted,
     onDraftDirtyChange,
     readOnly,
@@ -355,6 +412,7 @@ export function SoapNotePanel({
 
   const updateDraft = useCallback(
     (section: SoapSectionKey, value: string) => {
+      markDirtyPendingSync();
       setDraft((prev) => ({ ...prev, [section]: value }));
       setFeedback(null);
       onDraftDirtyChange?.({
@@ -366,7 +424,7 @@ export function SoapNotePanel({
         dirtySources: ['soap'],
       });
     },
-    [meta.appointmentId, meta.patientId, meta.receptionId, meta.visitDate, onDraftDirtyChange],
+    [markDirtyPendingSync, meta.appointmentId, meta.patientId, meta.receptionId, meta.visitDate, onDraftDirtyChange],
   );
 
   const handleTemplateInsert = useCallback(
@@ -389,6 +447,7 @@ export function SoapNotePanel({
       });
       setPendingTemplate((prev) => ({ ...prev, [section]: templateId }));
       setSelectedTemplate((prev) => ({ ...prev, [section]: '' }));
+      markDirtyPendingSync();
       const authoredAt = new Date().toISOString();
       recordChartsAuditEvent({
         action: 'SOAP_TEMPLATE_APPLY',
@@ -424,10 +483,29 @@ export function SoapNotePanel({
         dirtySources: ['soap'],
       });
     },
-    [author, meta.appointmentId, meta.cacheHit, meta.dataSourceTransition, meta.fallbackUsed, meta.missingMaster, meta.patientId, meta.receptionId, meta.runId, meta.visitDate, onDraftDirtyChange, selectedTemplate],
+    [
+      author,
+      markDirtyPendingSync,
+      meta.appointmentId,
+      meta.cacheHit,
+      meta.dataSourceTransition,
+      meta.fallbackUsed,
+      meta.missingMaster,
+      meta.patientId,
+      meta.receptionId,
+      meta.runId,
+      meta.visitDate,
+      onDraftDirtyChange,
+      selectedTemplate,
+    ],
   );
 
   const handleSave = useCallback(async () => {
+    if (readOnly) {
+      setFeedback(readOnlyReason ?? '読み取り専用のため保存できません。');
+      return;
+    }
+
     const authoredAt = new Date().toISOString();
     const entries: SoapEntry[] = [];
     const emptyClears: SoapSectionKey[] = [];
@@ -492,39 +570,61 @@ export function SoapNotePanel({
       });
     });
 
+    if (emptyClears.length > 0) {
+      const targets = emptyClears.map((section) => SOAP_SECTION_LABELS[section]).join(', ');
+      setFeedback(`保存前確認: 既存記載を空欄にする削除操作は未対応です。対象: ${targets}`);
+      setSyncState({
+        localSaved: false,
+        serverSynced: false,
+        isSaving: false,
+        error: 'clear_not_supported',
+        savedAt: undefined,
+      });
+      onDraftDirtyChange?.({
+        dirty: true,
+        patientId: meta.patientId,
+        appointmentId: meta.appointmentId,
+        receptionId: meta.receptionId,
+        visitDate: meta.visitDate,
+        dirtySources: ['soap'],
+      });
+      return;
+    }
+
     if (entries.length === 0) {
-      if (emptyClears.length > 0) {
-        const targets = emptyClears.map((section) => SOAP_SECTION_LABELS[section]).join(', ');
-        setFeedback(`空欄へのクリアは保存できません（未対応）: ${targets}`);
-        return;
-      }
       setFeedback('変更がないため保存できません。');
       return;
     }
 
-    onAppendHistory?.(entries);
-    onAuditLogged?.();
-    setPendingTemplate({});
-    if (emptyClears.length > 0) {
-      const targets = emptyClears.map((section) => SOAP_SECTION_LABELS[section]).join(', ');
-      setFeedback(`${entries.length} セクションを保存しました（空欄クリア未対応: ${targets}）`);
-    } else {
-      setFeedback(`${entries.length} セクションを保存しました。`);
-    }
+    setSyncState({
+      localSaved: false,
+      serverSynced: false,
+      isSaving: true,
+      error: undefined,
+      savedAt: authoredAt,
+    });
+    setFeedback(`${entries.length} セクションを保存中です...`);
     onDraftDirtyChange?.({
-      dirty: emptyClears.length > 0,
+      dirty: true,
       patientId: meta.patientId,
       appointmentId: meta.appointmentId,
       receptionId: meta.receptionId,
       visitDate: meta.visitDate,
-      dirtySources: emptyClears.length > 0 ? (['soap'] satisfies DraftDirtySource[]) : [],
+      dirtySources: ['soap'],
     });
 
     if (!meta.patientId) {
-      setFeedback((prev) => {
-        const suffix = '患者未選択のため server 保存をスキップしました。';
-        if (!prev) return suffix;
-        return `${prev} / ${suffix}`;
+      onAppendHistory?.(entries);
+      onAuditLogged?.();
+      setPendingTemplate({});
+      const detail = '患者未選択のためサーバ保存を実行できません。患者選択後に再確認してください。';
+      setFeedback(`${entries.length} セクションをローカル保存しました。${detail}`);
+      setSyncState({
+        localSaved: true,
+        serverSynced: false,
+        isSaving: false,
+        error: detail,
+        savedAt: authoredAt,
       });
       return;
     }
@@ -543,26 +643,98 @@ export function SoapNotePanel({
     }, []);
 
     if (requests.length === 0) {
-      setFeedback('SOAP server 保存対象がありません。');
+      onAppendHistory?.(entries);
+      onAuditLogged?.();
+      setPendingTemplate({});
+      setFeedback(`SOAP保存完了（ローカル保存のみ: ${entries.length} セクション）`);
+      setSyncState({
+        localSaved: true,
+        serverSynced: true,
+        isSaving: false,
+        error: undefined,
+        savedAt: authoredAt,
+      });
+      onDraftDirtyChange?.({
+        dirty: false,
+        patientId: meta.patientId,
+        appointmentId: meta.appointmentId,
+        receptionId: meta.receptionId,
+        visitDate: meta.visitDate,
+        dirtySources: [],
+      });
       return;
     }
 
-    const results = await Promise.all(
-      requests.map(async (payload) => {
-        try {
-          return await postChartSubjectiveEntry(payload);
-        } catch (error) {
-          return { ok: false, status: 0, apiResultMessage: String(error) };
-        }
-      }),
-    );
-    const failures = results.filter((result) => !result.ok || (result.apiResult && result.apiResult !== '00'));
-    if (failures.length > 0) {
-      const detail = failures[0]?.apiResultMessage ?? failures[0]?.apiResult ?? 'unknown';
-      setFeedback(`SOAP server 保存に失敗/警告: ${detail}`);
-      return;
+    try {
+      const results = await Promise.all(
+        requests.map(async (payload) => {
+          try {
+            return await postChartSubjectiveEntry(payload);
+          } catch (error) {
+            return { ok: false, status: 0, apiResultMessage: String(error) };
+          }
+        }),
+      );
+      const failures = results.filter((result) => !result.ok || (result.apiResult && result.apiResult !== '00'));
+      if (failures.length > 0) {
+        const detail = failures[0]?.apiResultMessage ?? failures[0]?.apiResult ?? 'unknown';
+        setFeedback(`SOAPサーバ保存に失敗しました: ${detail}（再試行してください）`);
+        setSyncState({
+          localSaved: false,
+          serverSynced: false,
+          isSaving: false,
+          error: detail,
+          savedAt: authoredAt,
+        });
+        onDraftDirtyChange?.({
+          dirty: true,
+          patientId: meta.patientId,
+          appointmentId: meta.appointmentId,
+          receptionId: meta.receptionId,
+          visitDate: meta.visitDate,
+          dirtySources: ['soap'],
+        });
+        return;
+      }
+
+      onAppendHistory?.(entries);
+      onAuditLogged?.();
+      setPendingTemplate({});
+      setFeedback(`SOAP保存完了（ローカル+サーバ ${results.length} 件）`);
+      setSyncState({
+        localSaved: true,
+        serverSynced: true,
+        isSaving: false,
+        error: undefined,
+        savedAt: authoredAt,
+      });
+      onDraftDirtyChange?.({
+        dirty: false,
+        patientId: meta.patientId,
+        appointmentId: meta.appointmentId,
+        receptionId: meta.receptionId,
+        visitDate: meta.visitDate,
+        dirtySources: [],
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setFeedback(`SOAPサーバ保存に失敗しました: ${detail}（再試行してください）`);
+      setSyncState({
+        localSaved: false,
+        serverSynced: false,
+        isSaving: false,
+        error: detail,
+        savedAt: authoredAt,
+      });
+      onDraftDirtyChange?.({
+        dirty: true,
+        patientId: meta.patientId,
+        appointmentId: meta.appointmentId,
+        receptionId: meta.receptionId,
+        visitDate: meta.visitDate,
+        dirtySources: ['soap'],
+      });
     }
-    setFeedback(`SOAP server 保存 OK（${results.length} 件）`);
   }, [
     author,
     draft,
@@ -580,9 +752,12 @@ export function SoapNotePanel({
     onAuditLogged,
     onDraftDirtyChange,
     pendingTemplate,
+    readOnly,
+    readOnlyReason,
   ]);
 
   const handleClear = useCallback(() => {
+    markDirtyPendingSync();
     setDraft({
       free: '',
       subjective: '',
@@ -600,7 +775,7 @@ export function SoapNotePanel({
       visitDate: meta.visitDate,
       dirtySources: ['soap'],
     });
-  }, [meta.appointmentId, meta.patientId, meta.receptionId, meta.visitDate, onDraftDirtyChange]);
+  }, [markDirtyPendingSync, meta.appointmentId, meta.patientId, meta.receptionId, meta.visitDate, onDraftDirtyChange]);
 
   const handleClearHistory = useCallback(() => {
     if (!onClearHistory) return;
@@ -616,6 +791,13 @@ export function SoapNotePanel({
     });
     setPendingTemplate({});
     setSelectedTemplate({});
+    setSyncState({
+      localSaved: false,
+      serverSynced: true,
+      isSaving: false,
+      error: undefined,
+      savedAt: undefined,
+    });
     setFeedback('SOAP履歴をクリアしました。');
   }, [onClearHistory]);
 
@@ -758,6 +940,22 @@ export function SoapNotePanel({
             記載者: {resolveAuthorLabel(author)} ／ role: {author.role} ／ 受付: {meta.receptionId ?? '—'}
           </p>
           {authoredSummary ? <p className="soap-note__subtitle soap-note__subtitle--meta">{authoredSummary}</p> : null}
+          <div className="soap-note__sync" role="status" aria-live={resolveAriaLive(syncState.error ? 'error' : 'info')}>
+            <span
+              className={`soap-note__sync-badge${
+                syncState.serverSynced ? ' soap-note__sync-badge--synced' : syncState.localSaved ? ' soap-note__sync-badge--local' : ''
+              }${syncState.error ? ' soap-note__sync-badge--error' : ''}`}
+            >
+              {syncState.isSaving
+                ? '保存中'
+                : syncState.serverSynced
+                  ? 'サーバ反映済'
+                  : syncState.localSaved
+                    ? 'ローカル保存済 / サーバ未反映'
+                    : '未保存'}
+            </span>
+            {syncState.savedAt ? <span className="soap-note__sync-meta">保存時刻: {formatSoapAuthoredAt(syncState.savedAt)}</span> : null}
+          </div>
         </div>
         <div className="soap-note__actions">
           <button
@@ -766,56 +964,62 @@ export function SoapNotePanel({
             className="soap-note__ghost"
             title={historyView ? 'SOAP入力へ戻ります。' : '訂正履歴を表示します（取り消し線で差分を可視化）。'}
           >
-            {historyView ? '編集へ戻る' : '履歴表示'}
+            {historyView ? '履歴終了' : '履歴'}
           </button>
-          {!historyView ? (
           <button
             type="button"
             onClick={cycleViewMode}
             className="soap-note__ghost"
-            title="表示モードを切り替えます（SOAPのみ / FREEのみ / 両方）"
+            disabled={historyView}
+            title={historyView ? '履歴表示中は変更できません。' : '表示モードを切り替えます（SOAPのみ / FREEのみ / 両方）'}
           >
             表示:{viewModeLabel}
           </button>
-          ) : null}
-          {isRevisionHistoryEnabled ? (
-            <button
-              type="button"
-              onClick={() => setRevisionDrawerOpen(true)}
-              className="soap-note__ghost"
-              aria-haspopup="dialog"
-              aria-expanded={revisionDrawerOpen}
-            >
-              版履歴
-            </button>
-          ) : null}
-          {!historyView ? (
           <button
             type="button"
             onClick={handleSave}
-            disabled={readOnly}
+            disabled={readOnly || historyView || syncState.isSaving}
             className="soap-note__primary"
-            title={readOnly ? readOnlyReason ?? '読み取り専用のため保存できません。' : undefined}
+            title={
+              readOnly
+                ? readOnlyReason ?? '読み取り専用のため保存できません。'
+                : historyView
+                  ? '履歴表示中は保存できません。'
+                  : undefined
+            }
           >
-            {history.length === 0 ? '保存' : '更新'}
+            {syncState.isSaving ? '保存中...' : history.length === 0 ? '保存' : '更新'}
           </button>
-          ) : null}
-          {!historyView ? (
-          <button
-            type="button"
-            onClick={handleClear}
-            disabled={readOnly}
-            className="soap-note__ghost"
-            title={readOnly ? readOnlyReason ?? '読み取り専用のためクリアできません。' : undefined}
-          >
-            クリア
-          </button>
-          ) : null}
-          {!historyView && onClearHistory ? (
-            <button type="button" onClick={handleClearHistory} className="soap-note__ghost">
-              履歴クリア
-            </button>
-          ) : null}
+          <details className="soap-note__menu">
+            <summary className="soap-note__ghost">その他</summary>
+            <div className="soap-note__menu-items" role="menu" aria-label="SOAP追加操作">
+              {isRevisionHistoryEnabled ? (
+                <button
+                  type="button"
+                  onClick={() => setRevisionDrawerOpen(true)}
+                  className="soap-note__ghost"
+                  aria-haspopup="dialog"
+                  aria-expanded={revisionDrawerOpen}
+                >
+                  版履歴
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleClear}
+                disabled={readOnly || historyView}
+                className="soap-note__ghost"
+                title={readOnly ? readOnlyReason ?? '読み取り専用のためクリアできません。' : undefined}
+              >
+                クリア
+              </button>
+              {onClearHistory ? (
+                <button type="button" onClick={handleClearHistory} className="soap-note__ghost" disabled={historyView}>
+                  履歴クリア
+                </button>
+              ) : null}
+            </div>
+          </details>
         </div>
       </header>
       {isRevisionHistoryEnabled ? (

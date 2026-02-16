@@ -163,6 +163,13 @@ const summarizeBundleForCard = (bundle: OrderBundle, entity: PastOrderEntity): B
 };
 
 type BundleWarningBadge = { tone: 'warn' | 'contra'; label: string; count: number };
+type SearchCandidate = {
+  id: string;
+  entity: PastOrderEntity;
+  label: string;
+  detail?: string;
+  bundle?: OrderBundle;
+};
 
 const resolveWarningBadge = (warnings: OrcaMedicalWarningUi[]): BundleWarningBadge | null => {
   if (warnings.length === 0) return null;
@@ -288,6 +295,8 @@ export function OrderDockPanel(props: {
   const [treatmentShowAll, setTreatmentShowAll] = useState(false);
   const [testShowAll, setTestShowAll] = useState(false);
   const [chargeShowAll, setChargeShowAll] = useState(false);
+  const [quickSearch, setQuickSearch] = useState('');
+  const [quickSearchGroup, setQuickSearchGroup] = useState<OrderGroupKey | 'all'>('all');
 
   const [activeEntity, setActiveEntity] = useState<PastOrderEntity | null>(null);
   const [activeRequest, setActiveRequest] = useState<OrderBundleEditPanelRequest | null>(null);
@@ -332,6 +341,56 @@ export function OrderDockPanel(props: {
         : meta.fallbackUsed
           ? 'フォールバックデータのため操作できません。'
           : undefined;
+
+  const quickSearchCandidates = useMemo<SearchCandidate[]>(() => {
+    const keyword = quickSearch.trim().toLowerCase();
+    const matches = groupBundles.flatMap((group) => {
+      if (quickSearchGroup !== 'all' && group.key !== quickSearchGroup) return [];
+      return group.bundles.flatMap((bundle, index) => {
+        const rawEntity = (bundle.entity?.trim() || group.entities[0]) as string;
+        if (!isPastOrderEntity(rawEntity)) return [];
+        const entity = rawEntity as PastOrderEntity;
+        const summary = summarizeBundleForCard(bundle, entity);
+        const label = formatBundleName(bundle);
+        const detail = [resolveEntityLabel(entity), summary.metaLine].filter(Boolean).join(' / ');
+        const haystack = [label, detail, summary.chips.join(' ')].join(' ').toLowerCase();
+        if (keyword && !haystack.includes(keyword)) return [];
+        return [
+          {
+            id: `bundle-${group.key}-${bundle.documentId ?? 'doc'}-${bundle.moduleId ?? 'mod'}-${index}`,
+            entity,
+            label,
+            detail,
+            bundle,
+          } satisfies SearchCandidate,
+        ];
+      });
+    });
+    if (matches.length > 0) return matches.slice(0, 8);
+
+    if (!keyword) return [];
+    const fallbackEntities: PastOrderEntity[] =
+      quickSearchGroup === 'prescription'
+        ? ['medOrder']
+        : quickSearchGroup === 'injection'
+          ? ['injectionOrder']
+          : quickSearchGroup === 'treatment'
+            ? ['treatmentOrder', 'generalOrder', 'surgeryOrder', 'otherOrder']
+            : quickSearchGroup === 'test'
+              ? ['testOrder', 'physiologyOrder', 'bacteriaOrder', 'radiologyOrder']
+              : quickSearchGroup === 'charge'
+                ? ['baseChargeOrder', 'instractionChargeOrder']
+                : ['medOrder', 'injectionOrder', 'treatmentOrder', 'testOrder', 'baseChargeOrder'];
+    const fallback = fallbackEntities
+      .filter((entity) => resolveEntityLabel(entity).toLowerCase().includes(keyword))
+      .map((entity) => ({
+        id: `new-${entity}`,
+        entity,
+        label: `${resolveEntityLabel(entity)}を新規追加`,
+        detail: '新規作成',
+      }));
+    return fallback.slice(0, 8);
+  }, [groupBundles, quickSearch, quickSearchGroup]);
 
   const openEditor = useCallback(
     (entity: PastOrderEntity, request: OrderBundleEditPanelRequest) => {
@@ -434,6 +493,25 @@ export function OrderDockPanel(props: {
     setRecommendModalOpen(true);
   }, []);
 
+  const handleQuickSearchApply = useCallback(
+    (candidate: SearchCandidate) => {
+      if (!canEdit) {
+        setNotice({ tone: 'error', message: editDisabledReason ?? '編集不可のため追加できません。' });
+        return;
+      }
+      const requestId = buildRequestId();
+      if (candidate.bundle) {
+        openEditor(candidate.entity, { requestId, kind: 'copy', bundle: candidate.bundle });
+        setNotice({ tone: 'info', message: `「${candidate.label}」をコピーして編集を開始しました。` });
+      } else {
+        openEditor(candidate.entity, { requestId, kind: 'new' });
+        setNotice({ tone: 'info', message: `${resolveEntityLabel(candidate.entity)}の新規入力を開始しました。` });
+      }
+      setQuickSearch('');
+    },
+    [canEdit, editDisabledReason, openEditor],
+  );
+
   const handleApplyRecommendation = useCallback(
     (candidate: OrderRecommendationCandidate, entity: string) => {
       const resolved = entity.trim();
@@ -456,21 +534,23 @@ export function OrderDockPanel(props: {
   const latestPrescriptionBundle = useMemo<OrderBundle | null>(() => {
     const drugs = (latestPrescription?.rpList ?? []).filter(Boolean);
     if (drugs.length === 0) return null;
-    const items = drugs
-      .map((drug) => {
-        const code = normalizeInline(drug.srycd ?? '');
-        const rawName = normalizeInline(drug.name ?? '');
-        const name = normalizeInline([code, rawName].filter(Boolean).join(' '));
-        if (!name) return null;
-        return {
-          code: code || undefined,
-          name,
-          quantity: normalizeInline(drug.dose ?? ''),
-          unit: normalizeInline(drug.amount ?? ''),
-          memo: normalizeInline(drug.memo ?? ''),
-        } satisfies OrderBundleItem;
-      })
-      .filter((item): item is OrderBundleItem => Boolean(item && item.name.trim().length > 0));
+    const items = drugs.reduce<OrderBundleItem[]>((acc, drug) => {
+      const code = normalizeInline(drug.srycd ?? '');
+      const rawName = normalizeInline(drug.name ?? '');
+      const name = normalizeInline([code, rawName].filter(Boolean).join(' '));
+      if (!name) return acc;
+      const item: OrderBundleItem = {
+        name,
+        quantity: normalizeInline(drug.dose ?? ''),
+        unit: normalizeInline(drug.amount ?? ''),
+        memo: normalizeInline(drug.memo ?? ''),
+      };
+      if (code) {
+        item.code = code;
+      }
+      acc.push(item);
+      return acc;
+    }, []);
     if (items.length === 0) return null;
     const usage = normalizeInline(drugs[0]?.usage ?? '');
     const days = normalizeInline(drugs[0]?.days ?? '');
@@ -885,6 +965,53 @@ export function OrderDockPanel(props: {
           </button>
         </div>
       </header>
+      <div className="order-dock__search" aria-label="検索して追加">
+        <div className="order-dock__search-row">
+          <label htmlFor="order-dock-search-input">検索して追加</label>
+          <input
+            id="order-dock-search-input"
+            type="search"
+            value={quickSearch}
+            onChange={(event) => setQuickSearch(event.target.value)}
+            placeholder="オーダー名・薬剤名・コード"
+            disabled={!patientId || !canEdit}
+            aria-label="オーダー検索"
+          />
+          <select
+            value={quickSearchGroup}
+            onChange={(event) => setQuickSearchGroup(event.target.value as OrderGroupKey | 'all')}
+            disabled={!patientId || !canEdit}
+            aria-label="カテゴリ選択"
+          >
+            <option value="all">全カテゴリ</option>
+            <option value="prescription">処方</option>
+            <option value="injection">注射</option>
+            <option value="treatment">処置</option>
+            <option value="test">検査</option>
+            <option value="charge">算定</option>
+          </select>
+        </div>
+        {quickSearchCandidates.length > 0 ? (
+          <ul className="order-dock__search-results" role="listbox" aria-label="検索候補">
+            {quickSearchCandidates.map((candidate) => (
+              <li key={candidate.id}>
+                <button
+                  type="button"
+                  className="order-dock__search-result"
+                  onClick={() => handleQuickSearchApply(candidate)}
+                  disabled={!canEdit}
+                  title={!canEdit ? editDisabledReason : candidate.detail}
+                >
+                  <strong>{candidate.label}</strong>
+                  <span>{candidate.detail ?? '候補'}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : quickSearch.trim().length > 0 ? (
+          <p className="order-dock__search-empty">候補が見つかりません。カテゴリを変えて検索してください。</p>
+        ) : null}
+      </div>
 
       {notice ? <div className={`order-dock__notice order-dock__notice--${notice.tone}`}>{notice.message}</div> : null}
       {orderBundlesLoading ? <p className="order-dock__empty">オーダー情報を取得しています...</p> : null}

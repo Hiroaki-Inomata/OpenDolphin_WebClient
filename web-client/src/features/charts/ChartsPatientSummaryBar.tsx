@@ -222,17 +222,31 @@ export function ChartsPatientSummaryBar({
             <span className="charts-patient-summary__fact">
               診療日:{formatVisitDate(patientDisplay.visitDate, patientDisplay.appointmentTime)}
             </span>
-            <button
-              type="button"
-              className="charts-patient-summary__fact-button"
-              aria-expanded={allergyOpen}
-              aria-controls="charts-patient-summary-allergies"
-              disabled={Boolean(allergiesError) || allergyCount === 0}
-              title={allergiesError ? `アレルギー取得失敗: ${allergiesError}` : allergyCount === 0 ? 'アレルギーなし' : undefined}
-              onClick={() => setAllergyOpen((prev) => !prev)}
-            >
-              {allergiesLoading ? 'アレルギー…' : `アレルギー:${allergyCount}`}
-            </button>
+          </div>
+          <div className="charts-patient-summary__clinical-alerts" aria-label="臨床注意">
+            {allergiesLoading ? (
+              <span className="charts-patient-summary__clinical-chip charts-patient-summary__clinical-chip--neutral">
+                アレルギー確認中…
+              </span>
+            ) : allergiesError ? (
+              <span className="charts-patient-summary__clinical-chip charts-patient-summary__clinical-chip--warning" title={allergiesError}>
+                アレルギー取得失敗
+              </span>
+            ) : allergyCount > 0 ? (
+              <button
+                type="button"
+                className="charts-patient-summary__clinical-chip charts-patient-summary__clinical-chip--alert"
+                aria-expanded={allergyOpen}
+                aria-controls="charts-patient-summary-allergies"
+                onClick={() => setAllergyOpen((prev) => !prev)}
+              >
+                アレルギーあり（{allergyCount}）
+              </button>
+            ) : (
+              <span className="charts-patient-summary__clinical-chip charts-patient-summary__clinical-chip--neutral">
+                アレルギーなし
+              </span>
+            )}
           </div>
           {hasQuickSwitch ? (
             <form
@@ -313,7 +327,7 @@ export function ChartsPatientSummaryBar({
             role="status"
             aria-live={ariaLive}
           >
-            <span className="charts-patient-summary__safety-label">安全</span>
+            <span className="charts-patient-summary__safety-label">データ状態</span>
             <span className="charts-patient-summary__safety-state">{safetyLabel}</span>
           </div>
           <RunIdBadge runId={runId} className="charts-patient-summary__runid" />
@@ -385,7 +399,7 @@ export function ChartsPatientSummaryBar({
               <p className="charts-patient-summary__memo-full">{memo ?? 'メモなし'}</p>
             </div>
           </div>
-          <div className="charts-patient-summary__detail-block" aria-label="安全表示詳細">
+          <div className="charts-patient-summary__detail-block" aria-label="データ状態詳細">
             <div className="charts-patient-summary__safety-detail" aria-live={resolveAriaLive('info')}>
               {detailRows.length > 0 ? (
                 detailRows.map((row) => (

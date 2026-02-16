@@ -31,9 +31,10 @@ const normalizeConfirmedLabel = (confirmed?: number | string): string | null => 
 
 export function PatientSummaryPanel({ patientId, readOnly = false, readOnlyReason }: PatientSummaryPanelProps) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [draft, setDraft] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [statusNotice, setStatusNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
   const patientIdRef = useRef<string | undefined>(patientId);
   const autoOpenPendingRef = useRef(true);
 
@@ -67,7 +68,8 @@ export function PatientSummaryPanel({ patientId, readOnly = false, readOnlyReaso
     patientIdRef.current = patientId;
     setDraft('');
     setDirty(false);
-    setOpen(false);
+    setStatusNotice(null);
+    setOpen(true);
     autoOpenPendingRef.current = true;
   }, [patientId]);
 
@@ -79,7 +81,7 @@ export function PatientSummaryPanel({ patientId, readOnly = false, readOnlyReaso
     if (dirty) return;
     setDraft(storedComment);
     if (autoOpenPendingRef.current) {
-      setOpen(Boolean(storedComment.trim()));
+      setOpen(true);
       autoOpenPendingRef.current = false;
     }
   }, [dirty, freeDocQuery.data, freeDocQuery.isFetching, patientId, storedComment, supported]);
@@ -99,8 +101,15 @@ export function PatientSummaryPanel({ patientId, readOnly = false, readOnlyReaso
     onSuccess: (result) => {
       if (result.ok) {
         setDirty(false);
+        setStatusNotice({ tone: 'success', message: '患者サマリを保存しました。' });
         void queryClient.invalidateQueries({ queryKey: ['charts-free-document', patientId] });
+        return;
       }
+      setStatusNotice({ tone: 'error', message: `患者サマリの保存に失敗しました: ${result.error ?? 'unknown error'}` });
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatusNotice({ tone: 'error', message: `患者サマリの保存に失敗しました: ${message}` });
     },
   });
 
@@ -127,10 +136,19 @@ export function PatientSummaryPanel({ patientId, readOnly = false, readOnlyReaso
       <summary className="charts-fold__summary">
         患者サマリ
         <span className="charts-free-doc__meta" aria-hidden="true">
-          {dirty ? '未保存' : confirmedLabel ? `更新:${confirmedLabel.slice(0, 10)}` : '未登録'}
+          {dirty ? '未保存' : confirmedLabel ? `更新:${confirmedLabel.replace('T', ' ').slice(0, 16)}` : '未登録'}
         </span>
       </summary>
       <div className="charts-fold__content">
+        <div className="charts-free-doc__statusline" role="status" aria-live={ariaLive}>
+          <span>{dirty ? '状態: 未保存（保存が必要です）' : '状態: 保存済み'}</span>
+          <span>更新日時: {confirmedLabel ? confirmedLabel.replace('T', ' ').slice(0, 19) : '—'}</span>
+        </div>
+        {statusNotice ? (
+          <div className={`charts-side-panel__notice charts-side-panel__notice--${statusNotice.tone}`} role="status" aria-live={ariaLive}>
+            {statusNotice.message}
+          </div>
+        ) : null}
         {loadError ? (
           <p className="charts-free-doc__error" role="status" aria-live={ariaLive}>
             取得に失敗しました: {loadError}
@@ -154,7 +172,10 @@ export function PatientSummaryPanel({ patientId, readOnly = false, readOnlyReaso
             className="charts-free-doc__save"
             disabled={!canSave}
             title={readOnly ? readOnlyReason ?? '読み取り専用のため保存できません。' : dirty ? undefined : '変更がありません'}
-            onClick={() => void saveMutation.mutate()}
+            onClick={() => {
+              setStatusNotice({ tone: 'info', message: '患者サマリを保存中です。' });
+              void saveMutation.mutate();
+            }}
           >
             保存
           </button>
@@ -165,6 +186,7 @@ export function PatientSummaryPanel({ patientId, readOnly = false, readOnlyReaso
             onClick={() => {
               setDraft(storedComment);
               setDirty(false);
+              setStatusNotice({ tone: 'info', message: '編集中の変更を取り消しました。' });
             }}
           >
             取り消し
@@ -181,4 +203,3 @@ export function PatientSummaryPanel({ patientId, readOnly = false, readOnlyReaso
     </details>
   );
 }
-

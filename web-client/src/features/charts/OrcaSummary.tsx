@@ -569,6 +569,20 @@ export function OrcaSummary({
     return () => window.removeEventListener('keydown', handler);
   }, [handleNavigate, handleRefresh]);
 
+  const summaryUpdatedAt = summary?.fetchedAt ?? effectiveClaim?.fetchedAt ?? lastSendCache?.savedAt ?? '—';
+  const sendStatusLabel = lastSendCache?.sendStatus
+    ? lastSendCache.sendStatus === 'success'
+      ? '送信成功'
+      : '送信失敗'
+    : displayClaimStatus ?? '未送信';
+  const warningStateLabel = sendWarnings.length > 0 ? `警告 ${sendWarnings.length} 件` : '警告なし';
+  const hasRecoveryIssue =
+    resolvedMissingMaster ||
+    resolvedFallbackUsed ||
+    sendWarnings.length > 0 ||
+    incomeInfoNotice?.tone === 'error';
+  const recoveryTraceId = summary?.traceId ?? effectiveClaim?.traceId ?? lastSendCache?.traceId ?? '—';
+
   return (
     <section
       className="orca-summary"
@@ -594,6 +608,26 @@ export function OrcaSummary({
           onOpenReception={handleOpenReception}
         />
       )}
+      <div className="orca-summary__headline" role="status" aria-live={resolveAriaLive('info')}>
+        <span>送信状況: {sendStatusLabel}</span>
+        <span>{warningStateLabel}</span>
+        <span>最終更新: {summaryUpdatedAt}</span>
+      </div>
+      {hasRecoveryIssue ? (
+        <div className="orca-summary__recovery" role="group" aria-label="エラー時の再取得とログ">
+          <button type="button" onClick={handleRefresh} disabled={isRefreshing}>
+            {isRefreshing ? '再取得中…' : '再取得'}
+          </button>
+          <button type="button" onClick={handleOpenReception}>
+            Receptionを開く
+          </button>
+          <span>runId: {resolvedRunId ?? '—'}</span>
+          <span>traceId: {recoveryTraceId}</span>
+        </div>
+      ) : null}
+      <details className="orca-summary__details-fold">
+        <summary className="orca-summary__details-summary">詳細を表示</summary>
+        <div className="orca-summary__details-body">
       {showOperationalMeta ? (
         <div className="orca-summary__details">
           <div className="orca-summary__meta">
@@ -841,6 +875,14 @@ export function OrcaSummary({
           </div>
         )}
       </div>
+      {showOperationalMeta && payloadPreview && (
+        <div className="orca-summary__payload" aria-live="off">
+          <strong>応答プレビュー</strong>
+          <p>{payloadPreview}</p>
+        </div>
+      )}
+        </div>
+      </details>
       <div className="orca-summary__cta" role="group" aria-label="OrcaSummary アクション">
         <button
           type="button"
@@ -865,12 +907,6 @@ export function OrcaSummary({
           新規予約
         </button>
       </div>
-      {showOperationalMeta && payloadPreview && (
-        <div className="orca-summary__payload" aria-live="off">
-          <strong>応答プレビュー</strong>
-          <p>{payloadPreview}</p>
-        </div>
-      )}
     </section>
   );
 }
