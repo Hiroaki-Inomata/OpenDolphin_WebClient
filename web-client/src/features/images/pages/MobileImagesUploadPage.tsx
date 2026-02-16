@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 
 import { resolveAriaLive, resolveRunId } from '../../../libs/observability/observability';
+import { useOptionalSession } from '../../../AppRouter';
+import { buildFacilityPath } from '../../../routes/facilityRoutes';
 import { useAuthService } from '../../charts/authService';
+import { useAppNavigation } from '../../../routes/useAppNavigation';
 import { MobilePatientPicker } from '../components/MobilePatientPicker';
 import { fetchPatientImageList, uploadPatientImageViaXhr, type PatientImageListItem, type UploadProgressEvent } from '../mobileApi';
+import { ReturnToBar } from '../../shared/ReturnToBar';
 
 type UploadStage = 'idle' | 'ready' | 'uploading' | 'success' | 'error';
 
@@ -29,11 +34,25 @@ const buildErrorMessage = (status: number, error?: string) => {
 };
 
 export function MobileImagesUploadPage() {
+  const session = useOptionalSession();
+  const location = useLocation();
   const { flags } = useAuthService();
   const resolvedRunId = resolveRunId(flags.runId);
+  const appNav = useAppNavigation({ facilityId: session?.facilityId, userId: session?.userId });
+  const queryParams = useMemo(
+    () => new URLSearchParams(location.search.startsWith('?') ? location.search.slice(1) : location.search),
+    [location.search],
+  );
+  const patientIdParam = useMemo(() => queryParams.get('patientId') ?? undefined, [queryParams]);
+  const fallbackUrl = useMemo(() => {
+    const facilityId = session?.facilityId;
+    if (appNav.fromCandidate === 'reception') return buildFacilityPath(facilityId, '/reception');
+    if (appNav.fromCandidate === 'patients') return buildFacilityPath(facilityId, '/patients');
+    return buildFacilityPath(facilityId, '/charts');
+  }, [appNav.fromCandidate, session?.facilityId]);
   const infoLive = resolveAriaLive('info');
   const errorLive = resolveAriaLive('error');
-  const [patientId, setPatientId] = useState<string | undefined>(undefined);
+  const [patientId, setPatientId] = useState<string | undefined>(() => patientIdParam);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [stage, setStage] = useState<UploadStage>('idle');
@@ -44,6 +63,11 @@ export function MobileImagesUploadPage() {
   });
   const [listItems, setListItems] = useState<PatientImageListItem[]>([]);
   const lastAttemptRef = useRef<{ patientId: string; file: File } | null>(null);
+
+  useEffect(() => {
+    if (!patientIdParam) return;
+    setPatientId((prev) => (prev ? prev : patientIdParam));
+  }, [patientIdParam]);
 
   useEffect(() => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -172,6 +196,12 @@ export function MobileImagesUploadPage() {
         gap: '1rem',
       }}
     >
+      <ReturnToBar
+        scope={{ facilityId: session?.facilityId, userId: session?.userId }}
+        returnTo={appNav.returnToCandidate}
+        from={appNav.fromCandidate}
+        fallbackUrl={fallbackUrl}
+      />
       {header}
 
       <div

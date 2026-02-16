@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { axe } from 'vitest-axe';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -8,6 +8,26 @@ import { ChartsActionBar } from '../ChartsActionBar';
 import { ToneBanner } from '../../reception/components/ToneBanner';
 
 afterEach(cleanup);
+
+vi.mock('../../../routes/useAppNavigation', () => ({
+  useAppNavigation: () => ({
+    currentUrl: '/f/F-1/charts',
+    currentScreen: 'charts',
+    fromCandidate: undefined,
+    returnToCandidate: undefined,
+    safeReturnToCandidate: undefined,
+    carryover: {},
+    external: {},
+    encounter: {},
+    openReception: vi.fn(),
+    openPatients: vi.fn(),
+    openCharts: vi.fn(),
+    openOrderSets: vi.fn(),
+    openPrintOutpatient: vi.fn(),
+    openPrintDocument: vi.fn(),
+    openMobileImages: vi.fn(),
+  }),
+}));
 
 const baseActionBarProps = {
   runId: 'RUN-A11Y',

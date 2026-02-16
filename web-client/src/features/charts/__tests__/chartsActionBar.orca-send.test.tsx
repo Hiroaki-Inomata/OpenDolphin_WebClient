@@ -6,6 +6,26 @@ import { MemoryRouter } from 'react-router-dom';
 import { ChartsActionBar } from '../ChartsActionBar';
 import { postOrcaMedicalModV2Xml } from '../orcaClaimApi';
 
+vi.mock('../../../routes/useAppNavigation', () => ({
+  useAppNavigation: () => ({
+    currentUrl: '/f/F-1/charts',
+    currentScreen: 'charts',
+    fromCandidate: undefined,
+    returnToCandidate: undefined,
+    safeReturnToCandidate: undefined,
+    carryover: {},
+    external: {},
+    encounter: {},
+    openReception: vi.fn(),
+    openPatients: vi.fn(),
+    openCharts: vi.fn(),
+    openOrderSets: vi.fn(),
+    openPrintOutpatient: vi.fn(),
+    openPrintDocument: vi.fn(),
+    openMobileImages: vi.fn(),
+  }),
+}));
+
 vi.mock('../orcaClaimApi', () => ({
   postOrcaMedicalModV2Xml: vi.fn(),
   buildMedicalModV2RequestXml: vi.fn().mockReturnValue('<data></data>'),

@@ -5,6 +5,7 @@ import { render, waitFor } from '@testing-library/react';
 
 import { AuthServiceProvider } from '../authService';
 import { ChartsPage } from '../pages/ChartsPage';
+import { NavigationGuardProvider } from '../../../routes/NavigationGuardProvider';
 
 type MasterPolicy = 'auto' | 'server' | 'mock' | 'snapshot' | 'fallback';
 
@@ -206,7 +207,9 @@ describe('Charts masterSource cache refresh', () => {
       <QueryClientProvider client={queryClient}>
         <AuthServiceProvider initialFlags={{ runId: 'RUN-AUTH', cacheHit: false, missingMaster: true, dataSourceTransition: 'snapshot' }}>
           <MemoryRouter initialEntries={['/f/facility/charts']}>
-            <ChartsPage />
+            <NavigationGuardProvider>
+              <ChartsPage />
+            </NavigationGuardProvider>
           </MemoryRouter>
         </AuthServiceProvider>
       </QueryClientProvider>,

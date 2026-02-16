@@ -1,7 +1,7 @@
 import { Global } from '@emotion/react';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 
 import { getAuditEventLog, logAuditEvent, logUiState } from '../../../libs/audit/auditLogger';
 import { resolveAriaLive, resolveRunId } from '../../../libs/observability/observability';
@@ -38,6 +38,7 @@ import { useAdminBroadcast } from '../../../libs/admin/useAdminBroadcast';
 import { AdminBroadcastBanner } from '../../shared/AdminBroadcastBanner';
 import { ApiFailureBanner } from '../../shared/ApiFailureBanner';
 import { AuditSummaryInline } from '../../shared/AuditSummaryInline';
+import { ReturnToBar } from '../../shared/ReturnToBar';
 import { RunIdBadge } from '../../shared/RunIdBadge';
 import { StatusPill } from '../../shared/StatusPill';
 import { resolveCacheHitTone, resolveMetaFlagTone, resolveTransitionTone } from '../../shared/metaPillRules';
@@ -56,6 +57,8 @@ import {
 } from '../../charts/encounterContext';
 import { useSession } from '../../../AppRouter';
 import { buildFacilityPath } from '../../../routes/facilityRoutes';
+import { applyExternalParams, isSafeReturnTo, pickExternalParams } from '../../../routes/appNavigation';
+import { useAppNavigation } from '../../../routes/useAppNavigation';
 import type { ClaimBundle, ClaimQueueEntry, ClaimQueuePhase } from '../../outpatient/types';
 import { countAppointmentDataIntegrity, getAppointmentDataBanner } from '../../outpatient/appointmentDataBanner';
 import type { OrcaQueueEntry } from '../../outpatient/orcaQueueApi';
@@ -632,9 +635,9 @@ export function ReceptionPage({
   description = '受付一覧の状態と更新時刻をひと目で確認し、例外対応とカルテ起動の優先度を判断します。選択した患者は右ペインで詳細を確認できます。',
 }: ReceptionPageProps) {
   const session = useSession();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
   const { enqueue } = useAppToast();
   const { broadcast } = useAdminBroadcast({ facilityId: session.facilityId, userId: session.userId });
   const { flags, setCacheHit, setMissingMaster, setDataSourceTransition, setFallbackUsed, bumpRunId } = useAuthService();
@@ -642,6 +645,11 @@ export function ReceptionPage({
     () => ({ facilityId: session.facilityId, userId: session.userId }),
     [session.facilityId, session.userId],
   );
+  const fallbackUrl = useMemo(() => {
+    if (appNav.fromCandidate === 'patients') return buildFacilityPath(session.facilityId, '/patients');
+    if (appNav.fromCandidate === 'reception') return buildFacilityPath(session.facilityId, '/reception');
+    return buildFacilityPath(session.facilityId, '/charts');
+  }, [appNav.fromCandidate, session.facilityId]);
   const claimOutpatientEnabled = isClaimOutpatientEnabled();
   const [selectedDate, setSelectedDate] = useState(() => {
     const fromDate = searchParams.get('date');
@@ -673,6 +681,55 @@ export function ReceptionPage({
   const [acceptDetailsCollapsed, setAcceptDetailsCollapsed] = useState(() =>
     loadCollapsedPanel(ACCEPT_DETAILS_COLLAPSE_KEY, true),
   );
+  const landingSection = searchParams.get('section') ?? undefined;
+  const landingCreate = searchParams.get('create') === '1';
+  const landingHandledRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!landingSection && !landingCreate) return;
+    const signature = `${landingSection ?? ''}|${landingCreate ? '1' : '0'}`;
+    if (landingHandledRef.current === signature) return;
+    landingHandledRef.current = signature;
+
+    const scrollTo = (id: string) => {
+      const tryScroll = () => {
+        const el = document.getElementById(id);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+      window.setTimeout(tryScroll, 0);
+      window.setTimeout(tryScroll, 80);
+    };
+
+    if (landingSection === 'filters') {
+      setFiltersCollapsed(false);
+      window.setTimeout(() => {
+        const el = document.getElementById('reception-search-keyword');
+        if (el instanceof HTMLInputElement) {
+          el.focus();
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 0);
+      return;
+    }
+    if (landingSection === 'appointment') {
+      scrollTo('reception-section-appointment');
+      return;
+    }
+    if (landingSection === 'billing') {
+      scrollTo('reception-section-billing');
+      return;
+    }
+    if (landingSection === 'accept' || landingCreate) {
+      setAcceptDetailsCollapsed(false);
+      window.setTimeout(() => {
+        scrollTo('reception-accept');
+        const el = document.getElementById('reception-accept-quick-open-patient-id');
+        if (el instanceof HTMLInputElement) {
+          el.focus();
+        }
+      }, 0);
+    }
+  }, [landingCreate, landingSection, setAcceptDetailsCollapsed, setFiltersCollapsed]);
   const [exceptionsModalOpen, setExceptionsModalOpen] = useState(false);
   const [recordsModalPatient, setRecordsModalPatient] = useState<{ patientId: string; name?: string } | null>(null);
   const [missingMasterNote, setMissingMasterNote] = useState('');
@@ -1187,8 +1244,8 @@ export function ReceptionPage({
   }, [intent]);
 
   useEffect(() => {
-    // Preserve external flags (?msw=1 / ?debug=1 / section=...) while keeping filter params canonical.
-    const params = new URLSearchParams(searchParams);
+    // Canonicalize filter params while preserving only the navigation contract keys + allowlisted external flags.
+    const params = new URLSearchParams();
     const setOrDelete = (key: string, value?: string) => {
       if (value && value.trim()) {
         params.set(key, value);
@@ -1201,12 +1258,23 @@ export function ReceptionPage({
     setOrDelete('phys', physicianFilter);
     if (paymentMode !== 'all') {
       params.set('pay', paymentMode);
-    } else {
-      params.delete('pay');
     }
     setOrDelete('sort', sortKey);
     setOrDelete('date', selectedDate);
     setOrDelete('intent', intentParam);
+    const from = searchParams.get('from');
+    if (from) params.set('from', from);
+    const runIdFromUrl = searchParams.get('runId');
+    if (runIdFromUrl) params.set('runId', runIdFromUrl);
+    const visitDate = searchParams.get('visitDate');
+    if (visitDate) params.set('visitDate', visitDate);
+    const section = searchParams.get('section');
+    if (section) params.set('section', section);
+    const create = searchParams.get('create');
+    if (create === '1') params.set('create', '1');
+    const returnTo = searchParams.get('returnTo');
+    if (isSafeReturnTo(returnTo, session.facilityId)) params.set('returnTo', returnTo as string);
+    applyExternalParams(params, pickExternalParams(searchParams));
     const nextQuery = params.toString();
     const currentQuery = searchParams.toString();
     if (nextQuery !== currentQuery) {
@@ -1233,6 +1301,7 @@ export function ReceptionPage({
     selectedDate,
     setSearchParams,
     sortKey,
+    session.facilityId,
   ]);
 
   const mergedMeta = useMemo(() => {
@@ -2985,28 +3054,36 @@ export function ReceptionPage({
         missingMaster: mergedMeta.missingMaster,
         patientId: entry.patientId,
       });
-      const url = buildChartsUrlForEntry(entry, nextRunId);
-      navigate(url, {
-        state: {
-          runId: nextRunId,
+      appNav.openCharts({
+        encounter: {
           patientId: entry.patientId,
           appointmentId: entry.appointmentId,
           receptionId: entry.receptionId,
           visitDate: entry.visitDate,
         },
+        carryover: receptionCarryover,
+        runId: nextRunId,
+        navigate: {
+          state: {
+            runId: nextRunId,
+            patientId: entry.patientId,
+            appointmentId: entry.appointmentId,
+            receptionId: entry.receptionId,
+            visitDate: entry.visitDate,
+          },
+        },
       });
     },
     [
+      appNav,
       bumpRunId,
-      buildChartsUrlForEntry,
-      enqueue,
       flags.runId,
       initialRunId,
       mergedMeta.cacheHit,
       mergedMeta.dataSourceTransition,
       mergedMeta.missingMaster,
       mergedMeta.runId,
-      navigate,
+      receptionCarryover,
     ],
   );
 
@@ -3344,7 +3421,7 @@ export function ReceptionPage({
   );
 
   const handleOpenCharts = useCallback(
-    (entry: ReceptionEntry, urlOverride?: string) => {
+    (entry: ReceptionEntry, _urlOverride?: string) => {
       const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
       if (!entry.patientId) {
         enqueue({
@@ -3386,14 +3463,23 @@ export function ReceptionPage({
       }
       const nextRunId = guardRunId;
       if (nextRunId) bumpRunId(nextRunId);
-      const url = urlOverride ?? buildChartsUrlForEntry(entry, nextRunId);
-      navigate(url, {
-        state: {
-          runId: nextRunId,
+      appNav.openCharts({
+        encounter: {
           patientId: entry.patientId,
           appointmentId: entry.appointmentId,
           receptionId: entry.receptionId,
           visitDate: entry.visitDate,
+        },
+        carryover: receptionCarryover,
+        runId: nextRunId,
+        navigate: {
+          state: {
+            runId: nextRunId,
+            patientId: entry.patientId,
+            appointmentId: entry.appointmentId,
+            receptionId: entry.receptionId,
+            visitDate: entry.visitDate,
+          },
         },
       });
       logUiState({
@@ -3408,15 +3494,15 @@ export function ReceptionPage({
       });
     },
     [
+      appNav,
       bumpRunId,
-      buildChartsUrlForEntry,
-      navigate,
       flags.runId,
       initialRunId,
       mergedMeta.cacheHit,
       mergedMeta.dataSourceTransition,
       mergedMeta.missingMaster,
       mergedMeta.runId,
+      receptionCarryover,
     ],
   );
 
@@ -3456,17 +3542,16 @@ export function ReceptionPage({
           return;
         }
         const visitDate = matched?.lastVisit?.trim() || undefined;
-        const url = buildChartsUrl(
-          { patientId, visitDate },
-          receptionCarryover,
-          { runId: guardRunId },
-          buildFacilityPath(session.facilityId, '/charts'),
-        );
-        navigate(url, {
-          state: {
-            runId: guardRunId,
-            patientId,
-            visitDate,
+        appNav.openCharts({
+          encounter: { patientId, visitDate },
+          carryover: receptionCarryover,
+          runId: guardRunId,
+          navigate: {
+            state: {
+              runId: guardRunId,
+              patientId,
+              visitDate,
+            },
           },
         });
       } catch (error) {
@@ -3477,17 +3562,15 @@ export function ReceptionPage({
       }
     },
     [
+      appNav,
       bumpRunId,
-      buildFacilityPath,
       enqueue,
       flags.runId,
       handleOpenCharts,
       initialRunId,
       mergedMeta.runId,
-      navigate,
       quickOpenPatientId,
       receptionCarryover,
-      session.facilityId,
       sortedEntries,
     ],
   );
@@ -3565,6 +3648,12 @@ export function ReceptionPage({
         <a className="skip-link" href="#reception-sidepane">
           右ペインへスキップ
         </a>
+        <ReturnToBar
+          scope={{ facilityId: session.facilityId, userId: session.userId }}
+          returnTo={appNav.returnToCandidate}
+          from={appNav.fromCandidate}
+          fallbackUrl={fallbackUrl}
+        />
         <section className="reception-page__header">
           <div className="reception-page__title">
             <div className="reception-page__title-main">
@@ -3890,15 +3979,7 @@ export function ReceptionPage({
                       type="button"
                       className="reception-search__button ghost"
                       onClick={() => {
-                        const params = new URLSearchParams();
-                        if (keyword) params.set('kw', keyword);
-                        if (departmentFilter) params.set('dept', departmentFilter);
-                        if (physicianFilter) params.set('phys', physicianFilter);
-                        if (paymentMode !== 'all') params.set('pay', paymentMode);
-                        if (sortKey) params.set('sort', sortKey);
-                        if (selectedDate) params.set('date', selectedDate);
-                        params.set('from', 'reception');
-                        navigate(`${buildFacilityPath(session.facilityId, '/patients')}?${params.toString()}`);
+                        appNav.openPatients({ carryover: receptionCarryover });
                       }}
                     >
                       Patients へ
@@ -4247,6 +4328,7 @@ export function ReceptionPage({
                 <section
                   key={status}
                   className="reception-board__column"
+                  id={status === '予約' ? 'reception-section-appointment' : status === '会計待ち' ? 'reception-section-billing' : undefined}
                   data-status={status}
                   aria-label={`${SECTION_LABEL[status]} ${items.length}件`}
                 >
@@ -5077,17 +5159,16 @@ export function ReceptionPage({
                                 const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
                                 if (guardRunId) bumpRunId(guardRunId);
                                 const visitDate = patient.lastVisit?.trim() || undefined;
-                                const url = buildChartsUrl(
-                                  { patientId: resolvedPatientId, visitDate },
-                                  receptionCarryover,
-                                  { runId: guardRunId },
-                                  buildFacilityPath(session.facilityId, '/charts'),
-                                );
-                                navigate(url, {
-                                  state: {
-                                    runId: guardRunId,
-                                    patientId: resolvedPatientId,
-                                    visitDate,
+                                appNav.openCharts({
+                                  encounter: { patientId: resolvedPatientId, visitDate },
+                                  carryover: receptionCarryover,
+                                  runId: guardRunId,
+                                  navigate: {
+                                    state: {
+                                      runId: guardRunId,
+                                      patientId: resolvedPatientId,
+                                      visitDate,
+                                    },
                                   },
                                 });
                               }}

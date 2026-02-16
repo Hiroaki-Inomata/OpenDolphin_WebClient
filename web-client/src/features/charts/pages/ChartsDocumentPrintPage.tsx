@@ -6,6 +6,7 @@ import { FocusTrapDialog } from '../../../components/modals/FocusTrapDialog';
 import { hasStoredAuth } from '../../../libs/http/httpClient';
 import { ToneBanner } from '../../reception/components/ToneBanner';
 import { receptionStyles } from '../../reception/styles';
+import { ReturnToBar } from '../../shared/ReturnToBar';
 import { recordChartsAuditEvent } from '../audit';
 import { chartsPrintStyles } from '../print/printStyles';
 import { DocumentClinicalDocument } from '../print/documentClinicalDocument';
@@ -20,6 +21,8 @@ import { clearReportPrintPreview, loadReportPrintPreview, type ReportPrintPrevie
 import { DOCUMENT_TYPE_LABELS } from '../documentTemplates';
 import { useOptionalSession } from '../../../AppRouter';
 import { buildFacilityPath } from '../../../routes/facilityRoutes';
+import { isSafeReturnTo } from '../../../routes/appNavigation';
+import { useAppNavigation } from '../../../routes/useAppNavigation';
 import { getObservabilityMeta } from '../../../libs/observability/observability';
 import { fetchOrcaReportPdf } from '../orcaReportApi';
 import { MISSING_MASTER_RECOVERY_NEXT_STEPS } from '../../shared/missingMasterRecovery';
@@ -61,6 +64,26 @@ function ChartsDocumentPrintContent() {
   const session = useOptionalSession();
   const navigate = useNavigate();
   const location = useLocation();
+  const appNav = useAppNavigation({ facilityId: session?.facilityId, userId: session?.userId });
+  const queryParams = useMemo(
+    () => new URLSearchParams(location.search.startsWith('?') ? location.search.slice(1) : location.search),
+    [location.search],
+  );
+  const from = useMemo(() => {
+    const state = location.state as Record<string, unknown> | null;
+    const fromState = state && typeof state.from === 'string' ? state.from : undefined;
+    return fromState ?? queryParams.get('from') ?? undefined;
+  }, [location.state, queryParams]);
+  const returnTo = useMemo(() => {
+    const state = location.state as Record<string, unknown> | null;
+    const returnToState = state && typeof state.returnTo === 'string' ? state.returnTo : undefined;
+    return returnToState ?? queryParams.get('returnTo') ?? undefined;
+  }, [location.state, queryParams]);
+  const fallbackUrl = useMemo(() => buildFacilityPath(session?.facilityId, '/charts'), [session?.facilityId]);
+  const safeReturnTo = useMemo(
+    () => (isSafeReturnTo(returnTo, session?.facilityId) ? returnTo : undefined),
+    [returnTo, session?.facilityId],
+  );
   const storageScope = useMemo(
     () => ({ facilityId: session?.facilityId, userId: session?.userId }),
     [session?.facilityId, session?.userId],
@@ -357,13 +380,19 @@ function ChartsDocumentPrintContent() {
   const handleClose = () => {
     clearDocumentPrintPreview(storageScope);
     clearReportPrintPreview(storageScope);
-    navigate(buildFacilityPath(session?.facilityId, '/charts'));
+    navigate(safeReturnTo ?? fallbackUrl);
   };
 
   if (!state) {
     return (
       <main className="charts-print">
         <div className="charts-print__screen-only">
+          <ReturnToBar
+            scope={{ facilityId: session?.facilityId, userId: session?.userId }}
+            returnTo={returnTo}
+            from={from}
+            fallbackUrl={fallbackUrl}
+          />
           <ToneBanner
             tone="error"
             message="文書プレビューの状態が見つかりません（画面をリロードした可能性があります）"
@@ -392,6 +421,10 @@ function ChartsDocumentPrintContent() {
         restoredAt={restoredAt}
         restoredFromSession={restoredFromSession}
         onClose={handleClose}
+        scope={{ facilityId: session?.facilityId, userId: session?.userId }}
+        returnTo={returnTo}
+        from={from}
+        fallbackUrl={fallbackUrl}
       />
     );
   }
@@ -405,6 +438,12 @@ function ChartsDocumentPrintContent() {
   return (
     <main className="charts-print">
       <div className="charts-print__screen-only">
+        <ReturnToBar
+          scope={{ facilityId: session?.facilityId, userId: session?.userId }}
+          returnTo={returnTo}
+          from={from}
+          fallbackUrl={fallbackUrl}
+        />
         {restoredFromSession && (
           <ToneBanner
             tone="info"
@@ -465,7 +504,7 @@ function ChartsDocumentPrintContent() {
             <button
               type="button"
               className="charts-print__button"
-              onClick={() => navigate(buildFacilityPath(session?.facilityId, '/reception'))}
+              onClick={() => appNav.openReception()}
             >
               Receptionへ戻る
             </button>
@@ -504,7 +543,7 @@ function ChartsDocumentPrintContent() {
             <button
               type="button"
               className="charts-print__button"
-              onClick={() => navigate(buildFacilityPath(session?.facilityId, '/reception'))}
+              onClick={() => appNav.openReception()}
             >
               Receptionへ戻る
             </button>
@@ -628,9 +667,13 @@ type ChartsReportPrintProps = {
   restoredAt?: string;
   restoredFromSession: boolean;
   onClose: () => void;
+  scope: { facilityId: string | undefined; userId?: string };
+  returnTo?: string;
+  from?: string;
+  fallbackUrl: string;
 };
 
-function ChartsReportPrintContent({ state, restoredAt, restoredFromSession, onClose }: ChartsReportPrintProps) {
+function ChartsReportPrintContent({ state, restoredAt, restoredFromSession, onClose, scope, returnTo, from, fallbackUrl }: ChartsReportPrintProps) {
   const [pdfStatus, setPdfStatus] = useState<ReportStatus>('idle');
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -764,6 +807,7 @@ function ChartsReportPrintContent({ state, restoredAt, restoredFromSession, onCl
   return (
     <main className="charts-print">
       <div className="charts-print__screen-only">
+        <ReturnToBar scope={scope} returnTo={returnTo} from={from} fallbackUrl={fallbackUrl} />
         {restoredFromSession && restoredAt && (
           <ToneBanner
             tone="info"

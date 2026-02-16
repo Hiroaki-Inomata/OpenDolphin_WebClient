@@ -64,6 +64,8 @@ import { addRecentFacility } from './features/login/recentFacilityStore';
 import { resolveSwitchContext, type LoginSwitchContext } from './features/login/loginRouteState';
 import { isSystemAdminRole } from './libs/auth/roles';
 import { testOrcaConnection, type OrcaConnectionTestResponse } from './features/administration/orcaConnectionApi';
+import { NavigationGuardProvider } from './routes/NavigationGuardProvider';
+import { useAppNavigation } from './routes/useAppNavigation';
 
 type Session = LoginResult;
 const AUTH_STORAGE_KEY = 'opendolphin:web-client:auth';
@@ -451,7 +453,9 @@ function FacilityGate({ session, onLogout }: { session: Session | null; onLogout
         }}
         sessionKey={`${session.facilityId}:${session.userId}`}
       >
-        <AppLayout onLogout={onLogout} />
+        <NavigationGuardProvider>
+          <AppLayout onLogout={onLogout} />
+        </NavigationGuardProvider>
       </AuthServiceProvider>
     </SessionContext.Provider>
   );
@@ -1058,6 +1062,7 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
   const navigate = useNavigate();
   const session = useSession();
   const { flags } = useAuthService();
+  const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
   const isSystemAdmin = isSystemAdminRole(session.role);
   const resolvedRunId = flags.runId || session.runId;
   const [toasts, setToasts] = useState<AppToast[]>([]);
@@ -1228,11 +1233,15 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
   };
 
   const handleOpenReception = () => {
-    navigate(buildFacilityPath(session.facilityId, '/reception'));
+    appNav.openReception();
   };
 
   const handleOpenPatients = () => {
-    navigate(buildFacilityPath(session.facilityId, '/patients'));
+    appNav.openPatients();
+  };
+
+  const handleOpenCharts = () => {
+    appNav.openCharts();
   };
 
   const handleOpenAdministration = () => {
@@ -1270,7 +1279,12 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
               <span className="app-shell__pill-note">クリックでコピー</span>
             </button>
             <div className="app-shell__tools" role="group" aria-label="画面ショートカット">
-              <button type="button" className="app-shell__tool app-shell__tool--reception" onClick={handleOpenReception}>
+              <button
+                type="button"
+                className="app-shell__tool app-shell__tool--reception"
+                onClick={handleOpenReception}
+                aria-current={appNav.currentScreen === 'reception' ? 'page' : undefined}
+              >
                 <svg
                   className="app-shell__tool-icon"
                   aria-hidden="true"
@@ -1290,7 +1304,37 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
                 </svg>
                 受付
               </button>
-              <button type="button" className="app-shell__tool app-shell__tool--patients" onClick={handleOpenPatients}>
+              <button
+                type="button"
+                className="app-shell__tool app-shell__tool--charts"
+                onClick={handleOpenCharts}
+                aria-current={['charts', 'print', 'orderSets'].includes(appNav.currentScreen) ? 'page' : undefined}
+              >
+                <svg
+                  className="app-shell__tool-icon"
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M4 19a2 2 0 0 0 2 2h12" />
+                  <path d="M6 2h12a2 2 0 0 1 2 2v16" />
+                  <path d="M6 2a2 2 0 0 0-2 2v15" />
+                  <path d="M8 6h8" />
+                  <path d="M8 10h8" />
+                  <path d="M8 14h6" />
+                </svg>
+                カルテ
+              </button>
+              <button
+                type="button"
+                className="app-shell__tool app-shell__tool--patients"
+                onClick={handleOpenPatients}
+                aria-current={appNav.currentScreen === 'patients' ? 'page' : undefined}
+              >
                 <svg
                   className="app-shell__tool-icon"
                   aria-hidden="true"

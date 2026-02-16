@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
@@ -22,7 +21,8 @@ import {
 } from './print/printPreviewStorage';
 import { isNetworkError } from '../shared/apiError';
 import { useOptionalSession } from '../../AppRouter';
-import { buildFacilityPath } from '../../routes/facilityRoutes';
+import { buildPrintUrl } from '../../routes/appNavigation';
+import { useAppNavigation } from '../../routes/useAppNavigation';
 import { buildMedicalModV23RequestXml, postOrcaMedicalModV23Xml } from './orcaMedicalModApi';
 import { buildMedicalModV2RequestXml, postOrcaMedicalModV2Xml, type MedicalModV2Information } from './orcaClaimApi';
 import { getOrcaClaimSendEntry, saveOrcaClaimSendCache, type OrcaMedicalWarningUi } from './orcaClaimSendCache';
@@ -371,7 +371,7 @@ export function ChartsActionBar({
     () => ({ facilityId: session?.facilityId, userId: session?.userId }),
     [session?.facilityId, session?.userId],
   );
-  const navigate = useNavigate();
+  const appNav = useAppNavigation({ facilityId: session?.facilityId, userId: session?.userId });
   const [lockReason, setLockReason] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [banner, setBanner] = useState<BannerState | null>(null);
@@ -2143,7 +2143,12 @@ export function ChartsActionBar({
       },
     });
 
-    const printPath = buildFacilityPath(session?.facilityId, '/charts/print/outpatient');
+    const printPath = buildPrintUrl({
+      facilityId: session?.facilityId,
+      kind: 'outpatient',
+      from: 'charts',
+      external: appNav.external,
+    });
     logUiState({
       action: 'print',
       screen: 'charts/action-bar',
@@ -2161,23 +2166,16 @@ export function ChartsActionBar({
       },
     });
 
-    navigate(printPath, {
-      state: {
-        entry: selectedEntry,
-        meta: { runId, cacheHit, missingMaster, fallbackUsed, dataSourceTransition },
-        actor,
-        facilityId,
-      },
-    });
-    saveOutpatientPrintPreview(
-      {
-        entry: selectedEntry,
-        meta: { runId, cacheHit, missingMaster, fallbackUsed, dataSourceTransition },
-        actor,
-        facilityId,
-      },
-      { facilityId: session?.facilityId, userId: session?.userId },
-    );
+    const navState = {
+      entry: selectedEntry,
+      meta: { runId, cacheHit, missingMaster, fallbackUsed, dataSourceTransition },
+      actor,
+      facilityId,
+      from: 'charts',
+      returnTo: appNav.currentUrl,
+    };
+    appNav.openPrintOutpatient({ state: navState });
+    saveOutpatientPrintPreview(navState, { facilityId: session?.facilityId, userId: session?.userId });
   };
 
   const openPrintDialog = () => {
@@ -2278,9 +2276,9 @@ export function ChartsActionBar({
         throw new Error(result.error);
       }
       const previewState = result.previewState;
-      const printPath = buildFacilityPath(session?.facilityId, '/charts/print/document');
-      navigate(printPath, { state: previewState });
-      saveReportPrintPreview(previewState, { facilityId: session?.facilityId, userId: session?.userId });
+      const navState = { ...previewState, from: 'charts', returnTo: appNav.currentUrl } as Record<string, unknown>;
+      appNav.openPrintDocument({ state: navState });
+      saveReportPrintPreview(navState, { facilityId: session?.facilityId, userId: session?.userId });
       setToast({
         tone: 'success',
         message: '帳票プレビューを開きました',

@@ -71,6 +71,30 @@ vi.mock('../../charts/authService', () => ({
   }),
 }));
 
+vi.mock('../../../routes/useAppNavigation', () => ({
+  useAppNavigation: () => ({
+    currentUrl: '/f/FAC-TEST/reception',
+    currentScreen: 'reception',
+    fromCandidate: null,
+    returnToCandidate: null,
+    safeReturnToCandidate: null,
+    carryover: {},
+    external: {},
+    encounter: {},
+    openReception: vi.fn(),
+    openPatients: vi.fn(),
+    openCharts: vi.fn(),
+    openOrderSets: vi.fn(),
+    openPrintOutpatient: vi.fn(),
+    openPrintDocument: vi.fn(),
+    openMobileImages: vi.fn(),
+  }),
+}));
+
+vi.mock('../../shared/ReturnToBar', () => ({
+  ReturnToBar: () => null,
+}));
+
 vi.mock('../../../libs/admin/useAdminBroadcast', () => ({
   useAdminBroadcast: () => ({ broadcast: null }),
 }));

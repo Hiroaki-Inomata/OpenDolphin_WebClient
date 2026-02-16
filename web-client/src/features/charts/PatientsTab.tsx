@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 
 import { ToneBanner } from '../reception/components/ToneBanner';
@@ -16,20 +15,14 @@ import { getChartToneDetails, type ChartTonePayload } from '../../ux/charts/tone
 import type { ReceptionEntry } from '../reception/api';
 import type { AppointmentDataBanner } from '../outpatient/appointmentDataBanner';
 import {
-  buildChartsUrl,
   normalizeVisitDate,
   type OutpatientEncounterContext,
   type ReceptionCarryoverParams,
 } from './encounterContext';
-import { buildFacilityPath } from '../../routes/facilityRoutes';
 import { useSession } from '../../AppRouter';
+import { useAppNavigation } from '../../routes/useAppNavigation';
 import { fetchPatients, type PatientRecord } from '../patients/api';
 import { PatientInfoEditDialog } from './PatientInfoEditDialog';
-import { buildScopedStorageKey } from '../../libs/session/storageScope';
-
-const RETURN_TO_STORAGE_BASE = 'opendolphin:web-client:patients:returnTo';
-const RETURN_TO_VERSION = 'v2';
-const RETURN_TO_LEGACY_KEY = `${RETURN_TO_STORAGE_BASE}:v1`;
 
 const resolveEntryPatientId = (entry?: Pick<ReceptionEntry, 'patientId' | 'id'>): string | undefined => {
   if (!entry) return undefined;
@@ -81,11 +74,7 @@ export function PatientsTab({
   const resolvedRunId = resolveRunId(flags.runId);
   const infoLive = resolveAriaLive('info');
   const session = useSession();
-  const storageScope = useMemo(
-    () => ({ facilityId: session.facilityId, userId: session.userId }),
-    [session.facilityId, session.userId],
-  );
-  const navigate = useNavigate();
+  const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
   const tonePayload: ChartTonePayload = {
     missingMaster: flags.missingMaster,
     cacheHit: flags.cacheHit,
@@ -679,15 +668,15 @@ export function PatientsTab({
     const keywordValue = selected?.appointmentId ?? selected?.patientId ?? selected?.receptionId ?? '';
     const receptionDate =
       normalizeVisitDate(selected?.visitDate) ?? normalizeVisitDate(selectedContext?.visitDate) ?? undefined;
-    const params = new URLSearchParams();
-    params.set('from', 'charts');
-    if (keywordValue) params.set('kw', keywordValue);
-    if (receptionDate) {
-      params.set('date', receptionDate);
-      params.set('visitDate', receptionDate);
-    }
-    params.set('intent', intent);
-    navigate(`${buildFacilityPath(session.facilityId, '/reception')}?${params.toString()}`);
+    const carryover: ReceptionCarryoverParams = { ...(receptionCarryover ?? {}) };
+    if (keywordValue) carryover.kw = keywordValue;
+    if (receptionDate) carryover.date = receptionDate;
+    appNav.openReception({
+      intent,
+      section: 'appointment',
+      carryover,
+      visitDate: receptionDate,
+    });
     recordChartsAuditEvent({
       action: 'CHARTS_NAVIGATE_RECEPTION',
       outcome: 'success',
@@ -703,47 +692,16 @@ export function PatientsTab({
   };
 
   const navigateToPatients = (intent: 'basic' | 'insurance') => {
-    const params = new URLSearchParams();
-    const kwCandidate = receptionCarryover?.kw ?? selectedPatientId;
-    if (kwCandidate) params.set('kw', kwCandidate);
-    if (selectedPatientId) params.set('patientId', selectedPatientId);
-    params.set('from', 'charts');
-    params.set('intent', intent);
-    params.set('runId', flags.runId);
-    if (selectedContext?.appointmentId) params.set('appointmentId', selectedContext.appointmentId);
-    if (selectedContext?.receptionId) params.set('receptionId', selectedContext.receptionId);
-    if (selectedContext?.visitDate) params.set('visitDate', selectedContext.visitDate);
-    if (receptionCarryover?.kw) params.set('kw', receptionCarryover.kw);
-    if (receptionCarryover?.dept) params.set('dept', receptionCarryover.dept);
-    if (receptionCarryover?.phys) params.set('phys', receptionCarryover.phys);
-    if (receptionCarryover?.pay) params.set('pay', receptionCarryover.pay);
-    if (receptionCarryover?.sort) params.set('sort', receptionCarryover.sort);
-    if (receptionCarryover?.date) params.set('date', receptionCarryover.date);
-    const returnTo = buildChartsUrl(
-      {
-        patientId: selectedPatientId ?? selectedContext?.patientId,
-        appointmentId: selectedContext?.appointmentId,
-        receptionId: selectedContext?.receptionId,
-        visitDate: selectedContext?.visitDate,
-      },
-      receptionCarryover,
-      { runId: flags.runId },
-      buildFacilityPath(session.facilityId, '/charts'),
-    );
-    if (returnTo) params.set('returnTo', returnTo);
-    if (typeof sessionStorage !== 'undefined') {
-      try {
-        const scopedKey =
-          buildScopedStorageKey(RETURN_TO_STORAGE_BASE, RETURN_TO_VERSION, storageScope) ?? RETURN_TO_LEGACY_KEY;
-        sessionStorage.setItem(scopedKey, returnTo);
-        if (scopedKey !== RETURN_TO_LEGACY_KEY) {
-          sessionStorage.removeItem(RETURN_TO_LEGACY_KEY);
-        }
-      } catch {
-        // storage が使えない環境ではスキップ
-      }
-    }
-    navigate(`${buildFacilityPath(session.facilityId, '/patients')}?${params.toString()}`);
+    const kwCandidate = receptionCarryover?.kw ?? selectedPatientId ?? selectedContext?.patientId;
+    const carryover: ReceptionCarryoverParams = { ...(receptionCarryover ?? {}) };
+    if (kwCandidate) carryover.kw = kwCandidate;
+    appNav.openPatients({
+      intent,
+      runId: flags.runId,
+      patientId: selectedPatientId ?? selectedContext?.patientId,
+      encounter: selectedContext ?? undefined,
+      carryover,
+    });
 
     recordOutpatientFunnel('charts_patient_sidepane', {
       runId: flags.runId,

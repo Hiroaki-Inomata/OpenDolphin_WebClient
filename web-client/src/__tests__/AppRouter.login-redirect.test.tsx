@@ -43,6 +43,9 @@ vi.mock('../libs/ui/appToast', () => ({
 vi.mock('../features/shared/RunIdNavBadge', () => ({
   RunIdNavBadge: ({ runId }: { runId?: string }) => <div data-testid="runid-nav-badge">{runId}</div>,
 }));
+vi.mock('../features/shared/ChartEventStreamBridge', () => ({
+  ChartEventStreamBridge: () => null,
+}));
 vi.mock('../features/charts/authService', async () => {
   const ReactModule = await import('react');
   const AuthContext = ReactModule.createContext({ flags: {} });

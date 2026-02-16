@@ -10,6 +10,35 @@ import { hasStoredAuth } from '../../../libs/http/httpClient';
 
 vi.setConfig({ testTimeout: 15000 });
 
+vi.mock('../../../routes/useAppNavigation', () => ({
+  useAppNavigation: () => ({
+    currentUrl: '/f/FAC-001/charts/print/outpatient',
+    currentScreen: 'print',
+    fromCandidate: undefined,
+    returnToCandidate: undefined,
+    safeReturnToCandidate: undefined,
+    carryover: {},
+    external: {},
+    encounter: {},
+    openReception: vi.fn(),
+    openPatients: vi.fn(),
+    openCharts: vi.fn(),
+    openOrderSets: vi.fn(),
+    openPrintOutpatient: vi.fn(),
+    openPrintDocument: vi.fn(),
+    openMobileImages: vi.fn(),
+  }),
+}));
+
+vi.mock('../../../routes/NavigationGuardProvider', () => ({
+  useNavigationGuard: () => ({
+    registerDirty: vi.fn(),
+    isDirty: false,
+    dirtySources: [],
+    guardedNavigate: vi.fn(),
+  }),
+}));
+
 vi.mock('../../../libs/http/httpClient', () => ({
   hasStoredAuth: vi.fn(),
 }));
