@@ -29,6 +29,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-02-16: Administration 設定配信タブを運用向けに再構成（RUN_ID=20260216T122953Z）。
+  - 内容: `delivery` タブに `section` サブナビ（概要/接続/配信設定/配信キュー/マスタ・ヘルス/診療セット/診断・デバッグ）を追加し、`?tab=delivery&section=...` の deep link と履歴遷移に対応。`AdministrationPage` の巨大UIを `web-client/src/features/administration/delivery/*` / `web-client/src/features/administration/components/*` へ分割（WebORCA接続カード、配信設定カード、差分テーブル、キュー監視カード、ConfirmDialog 等）。
+  - UX改善: ヘッダを「運用KPI/識別子/詳細フラグ」に整理、`syncMismatch` を「不整合あり」単一導線へ集約。非 `system_admin` は入力欄を原則 `readOnly` でコピー可能にし、依頼テンプレのコピー導線を追加。WebORCA 接続カードに「接続テストは保存済み設定」を固定表示し、保存済み/編集中（Dirty）と mTLS バリデーション（port範囲/p12必須）を可視化。配信操作とキュー破棄に ConfirmDialog を必須化。
+  - 運用カード改善: rawConfig/rawDelivery を差分テーブル化（項目/config/delivery/状態/推奨アクション）、ORCA queue に status フィルタ/集計/error 列/絶対+相対時刻/遅延ハイライトを追加。medicalset ラベル typo を `End_Date` に修正し、日付バリデーションと Charts 導線を追加。診断系（XMLプロキシ/内製ラッパー/Legacy/Touch）は debug セクションへ隔離し、一括疎通ボタンと成功/失敗サマリーを追加。
+  - 成果物: `web-client/src/features/administration/AdministrationPage.tsx` / `web-client/src/features/administration/administration.css` / `web-client/src/features/administration/components/*` / `web-client/src/features/administration/delivery/*` / `web-client/src/features/administration/__tests__/ConfirmDialog.test.tsx` / `web-client/src/features/administration/__tests__/DirtyStateBar.test.tsx` / `web-client/src/features/administration/__tests__/OrcaQueueCard.test.tsx`。
+  - 検証: `npm -C web-client run typecheck`、`npm -C web-client run test -- --run src/features/administration/__tests__/ConfirmDialog.test.tsx src/features/administration/__tests__/DirtyStateBar.test.tsx src/features/administration/__tests__/OrcaQueueCard.test.tsx src/features/administration/__tests__/LegacyRestPanel.test.tsx src/features/administration/__tests__/TouchAdmPhrPanel.test.tsx src/features/administration/__tests__/AccessManagementPanel.linkedOnly.test.tsx --silent=true` PASS。
 - 2026-02-16: Webクライアント 画面間導線ブラッシュアップ（RUN_ID=20260216T012704Z）。
   - 内容: `appNavigation.ts` / `useAppNavigation.ts` に URL 生成と遷移 API を集約し、ReturnToBar（戻り導線）と NavigationGuardProvider（未保存ガード）を追加。Topbar/Charts/Reception/Patients/Print/OrderSet/MobileImages を統一遷移に置換し、returnTo の allowlist 安全判定で open redirect を防止。
   - QA: 受付↔カルテ↔患者管理の往復で carryover/encounter/runId を保持し、returnTo が常に明示されることを確認。未保存（Charts SOAP / Patients ORCAメモ）での画面間遷移は確認ダイアログで必ずブロック。外部/不正 returnTo は無視され、安全な fallback へ遷移することを確認。
