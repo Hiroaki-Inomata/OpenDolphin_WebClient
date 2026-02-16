@@ -3,8 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { ToneBanner } from '../reception/components/ToneBanner';
 import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
-import { PatientMetaRow } from '../shared/PatientMetaRow';
-import { StatusPill } from '../shared/StatusPill';
+import { StatusPill, type StatusPillTone } from '../shared/StatusPill';
 import { logUiState, getAuditEventLog, type AuditEventRecord } from '../../libs/audit/auditLogger';
 import { recordOutpatientFunnel } from '../../libs/telemetry/telemetryClient';
 import { resolveAriaLive, resolveRunId } from '../../libs/observability/observability';
@@ -12,7 +11,7 @@ import { useAuthService } from './authService';
 import { recordChartsAuditEvent, type ChartsOperationPhase } from './audit';
 import { draftSourceLabels, type DraftDirtySource } from './draftSources';
 import { getChartToneDetails, type ChartTonePayload } from '../../ux/charts/tones';
-import type { ReceptionEntry } from '../reception/api';
+import type { ReceptionEntry, ReceptionStatus } from '../reception/api';
 import type { AppointmentDataBanner } from '../outpatient/appointmentDataBanner';
 import {
   normalizeVisitDate,
@@ -33,8 +32,85 @@ const resolveEntryPatientId = (entry?: Pick<ReceptionEntry, 'patientId' | 'id'>)
   return /^\d+$/.test(fallback) ? fallback : undefined;
 };
 
+type PatientListSortKey = 'time' | 'status' | 'name' | 'id';
+
+const STATUS_SORT_RANK: Record<ReceptionStatus, number> = {
+  予約: 0,
+  受付中: 1,
+  診療中: 2,
+  会計待ち: 3,
+  会計済み: 4,
+};
+
+const resolveStatusTone = (status?: ReceptionStatus): StatusPillTone => {
+  switch (status) {
+    case '診療中':
+      return 'success';
+    case '会計待ち':
+      return 'warning';
+    case '受付中':
+      return 'info';
+    case '予約':
+      return 'neutral';
+    case '会計済み':
+      return 'neutral';
+    default:
+      return 'neutral';
+  }
+};
+
+const parseDisplayTimeToMinutes = (value?: string): number | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (hours < 0 || hours > 23) return null;
+  if (minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+};
+
+const resolveEntrySortMinutes = (entry: ReceptionEntry): number => {
+  const candidate =
+    entry.acceptanceTime?.trim() ||
+    entry.appointmentTime?.trim() ||
+    entry.reservationTime?.trim() ||
+    '';
+  const parsed = parseDisplayTimeToMinutes(candidate);
+  return parsed ?? Number.POSITIVE_INFINITY;
+};
+
+const resolveEntryTimeBadge = (entry: ReceptionEntry): { label: string; time: string } | null => {
+  const acceptance = entry.acceptanceTime?.trim();
+  if (acceptance) return { label: '受付', time: acceptance };
+  const appointment = entry.appointmentTime?.trim();
+  if (appointment) return { label: '予約', time: appointment };
+  const reservation = entry.reservationTime?.trim();
+  if (reservation) return { label: '予', time: reservation };
+  return null;
+};
+
+const formatFetchedAt = (value?: string): string => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (num: number) => String(num).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(
+    date.getMinutes(),
+  )}:${pad(date.getSeconds())}`;
+};
+
 export interface PatientsTabProps {
   entries?: ReceptionEntry[];
+  listFetchedAt?: string;
+  onRefetchList?: () => void;
+  isRefetchingList?: boolean;
+  hasNextPage?: boolean;
+  onLoadMore?: () => void;
+  isLoadingMore?: boolean;
   appointmentBanner?: AppointmentDataBanner | null;
   auditEvent?: Record<string, unknown>;
   selectedContext?: OutpatientEncounterContext;
@@ -58,6 +134,12 @@ export interface PatientsTabProps {
 
 export function PatientsTab({
   entries = [],
+  listFetchedAt,
+  onRefetchList,
+  isRefetchingList = false,
+  hasNextPage,
+  onLoadMore,
+  isLoadingMore = false,
   appointmentBanner,
   auditEvent,
   selectedContext,
@@ -82,6 +164,10 @@ export function PatientsTab({
   };
   const { tone, message: toneMessage, transitionMeta } = getChartToneDetails(tonePayload);
   const [keyword, setKeyword] = useState('');
+  const [statusFilter, setStatusFilter] = useState<ReceptionStatus[]>([]);
+  const [deptFilter, setDeptFilter] = useState('');
+  const [physFilter, setPhysFilter] = useState('');
+  const [sortKey, setSortKey] = useState<PatientListSortKey>('time');
   const [localSelectedKey, setLocalSelectedKey] = useState<string | undefined>(
     selectedContext?.receptionId ?? selectedContext?.appointmentId ?? selectedContext?.patientId,
   );
@@ -99,6 +185,15 @@ export function PatientsTab({
     entry?: ReceptionEntry;
     currentPatientId?: string;
     currentName?: string;
+    controlId?: string;
+    trigger?: string;
+    note?: string;
+  }>({ open: false });
+  const [confirmSwitchDialog, setConfirmSwitchDialog] = useState<{
+    open: boolean;
+    entry?: ReceptionEntry;
+    current?: ReceptionEntry;
+    currentPatientId?: string;
     controlId?: string;
     trigger?: string;
     note?: string;
@@ -174,37 +269,141 @@ export function PatientsTab({
     flags.runId,
   ]);
 
-  const filteredEntries = useMemo(() => {
+  const departmentOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const entry of entries) {
+      const value = (entry.department ?? '').trim();
+      if (value) set.add(value);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [entries]);
+
+  const physicianOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const entry of entries) {
+      const value = (entry.physician ?? '').trim();
+      if (value) set.add(value);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [entries]);
+
+  const baseCandidates = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
-    if (!kw) return entries;
-    return entries.filter((entry) =>
-      [entry.patientId, entry.name, entry.kana, entry.appointmentId, entry.receptionId].some((field) =>
-        field?.toLowerCase().includes(kw),
-      ),
-    );
-  }, [entries, keyword]);
+    const dept = deptFilter.trim();
+    const phys = physFilter.trim();
+    return entries.filter((entry) => {
+      if (dept && (entry.department ?? '') !== dept) return false;
+      if (phys && (entry.physician ?? '') !== phys) return false;
+      if (!kw) return true;
+      const values = [
+        resolveEntryPatientId(entry),
+        entry.patientId,
+        entry.id,
+        entry.name,
+        entry.kana,
+        entry.appointmentId,
+        entry.receptionId,
+      ]
+        .filter(Boolean)
+        .map((field) => String(field).toLowerCase());
+      return values.some((field) => field.includes(kw));
+    });
+  }, [deptFilter, entries, keyword, physFilter]);
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<ReceptionStatus, number> = {
+      予約: 0,
+      受付中: 0,
+      診療中: 0,
+      会計待ち: 0,
+      会計済み: 0,
+    };
+    for (const entry of baseCandidates) {
+      counts[entry.status] += 1;
+    }
+    return counts;
+  }, [baseCandidates]);
+
+  const candidateEntries = useMemo(() => {
+    const activeStatuses = statusFilter.length > 0 ? new Set(statusFilter) : null;
+    const filtered = activeStatuses ? baseCandidates.filter((entry) => activeStatuses.has(entry.status)) : baseCandidates;
+    const sorted = [...filtered];
+    const resolveName = (entry: ReceptionEntry) => (entry.kana ?? entry.name ?? '').trim();
+    const resolveId = (entry: ReceptionEntry) => (resolveEntryPatientId(entry) ?? '').trim();
+    const compareByName = (a: ReceptionEntry, b: ReceptionEntry) => {
+      const left = resolveName(a);
+      const right = resolveName(b);
+      const diff = left.localeCompare(right);
+      if (diff !== 0) return diff;
+      return resolveId(a).localeCompare(resolveId(b));
+    };
+    const compareById = (a: ReceptionEntry, b: ReceptionEntry) => {
+      const left = resolveId(a);
+      const right = resolveId(b);
+      const leftNum = /^\d+$/.test(left) ? Number(left) : Number.NaN;
+      const rightNum = /^\d+$/.test(right) ? Number(right) : Number.NaN;
+      const bothNumeric = Number.isFinite(leftNum) && Number.isFinite(rightNum);
+      if (bothNumeric && leftNum !== rightNum) return leftNum - rightNum;
+      const diff = left.localeCompare(right);
+      if (diff !== 0) return diff;
+      return compareByName(a, b);
+    };
+
+    sorted.sort((a, b) => {
+      if (sortKey === 'status') {
+        const rankDiff = (STATUS_SORT_RANK[a.status] ?? 999) - (STATUS_SORT_RANK[b.status] ?? 999);
+        if (rankDiff !== 0) return rankDiff;
+        const timeDiff = resolveEntrySortMinutes(a) - resolveEntrySortMinutes(b);
+        if (timeDiff !== 0) return timeDiff;
+        return compareByName(a, b);
+      }
+      if (sortKey === 'name') {
+        const nameDiff = compareByName(a, b);
+        if (nameDiff !== 0) return nameDiff;
+        const timeDiff = resolveEntrySortMinutes(a) - resolveEntrySortMinutes(b);
+        if (timeDiff !== 0) return timeDiff;
+        return (STATUS_SORT_RANK[a.status] ?? 999) - (STATUS_SORT_RANK[b.status] ?? 999);
+      }
+      if (sortKey === 'id') {
+        const idDiff = compareById(a, b);
+        if (idDiff !== 0) return idDiff;
+        const timeDiff = resolveEntrySortMinutes(a) - resolveEntrySortMinutes(b);
+        if (timeDiff !== 0) return timeDiff;
+        return (STATUS_SORT_RANK[a.status] ?? 999) - (STATUS_SORT_RANK[b.status] ?? 999);
+      }
+      const timeDiff = resolveEntrySortMinutes(a) - resolveEntrySortMinutes(b);
+      if (timeDiff !== 0) return timeDiff;
+      const rankDiff = (STATUS_SORT_RANK[a.status] ?? 999) - (STATUS_SORT_RANK[b.status] ?? 999);
+      if (rankDiff !== 0) return rankDiff;
+      return compareByName(a, b);
+    });
+    return sorted;
+  }, [baseCandidates, sortKey, statusFilter]);
 
   const selected = useMemo(() => {
     if (selectedContext?.receptionId) {
-      return filteredEntries.find((entry) => entry.receptionId === selectedContext.receptionId) ?? filteredEntries[0];
+      return entries.find((entry) => entry.receptionId === selectedContext.receptionId);
     }
     if (selectedContext?.appointmentId) {
-      return filteredEntries.find((entry) => entry.appointmentId === selectedContext.appointmentId) ?? filteredEntries[0];
+      return entries.find((entry) => entry.appointmentId === selectedContext.appointmentId);
     }
     if (selectedContext?.patientId) {
-      return filteredEntries.find((entry) => resolveEntryPatientId(entry) === selectedContext.patientId) ?? filteredEntries[0];
+      return entries.find((entry) => resolveEntryPatientId(entry) === selectedContext.patientId);
     }
     if (localSelectedKey) {
-      return filteredEntries.find(
-        (entry) =>
+      return entries.find((entry) => {
+        const entryPid = resolveEntryPatientId(entry);
+        return (
           entry.receptionId === localSelectedKey ||
           entry.appointmentId === localSelectedKey ||
           entry.patientId === localSelectedKey ||
-          entry.id === localSelectedKey,
-      );
+          entryPid === localSelectedKey ||
+          entry.id === localSelectedKey
+        );
+      });
     }
-    return filteredEntries[0];
-  }, [filteredEntries, localSelectedKey, selectedContext?.appointmentId, selectedContext?.patientId, selectedContext?.receptionId]);
+    return entries[0];
+  }, [entries, localSelectedKey, selectedContext?.appointmentId, selectedContext?.patientId, selectedContext?.receptionId]);
 
   const selectedPatientId = resolveEntryPatientId(selected) ?? selectedContext?.patientId ?? undefined;
 
@@ -383,11 +582,11 @@ export function PatientsTab({
     const hasSelection =
       Boolean(selectedContext?.receptionId || selectedContext?.appointmentId || selectedContext?.patientId) ||
       Boolean(localSelectedKey);
-    if (hasSelection || filteredEntries.length === 0) {
+    if (hasSelection || entries.length === 0) {
       lastAutoSelectSignature.current = null;
       return;
     }
-    const head = filteredEntries[0];
+    const head = entries[0];
     const fallbackId = resolveEntryPatientId(head);
     if (!fallbackId) return;
     const nextKey = head.receptionId ?? head.appointmentId ?? fallbackId;
@@ -422,7 +621,7 @@ export function PatientsTab({
     });
     lastAuditPatientId.current = fallbackId;
   }, [
-    filteredEntries,
+    entries,
     localSelectedKey,
     logPatientSwitch,
     onDraftDirtyChange,
@@ -511,6 +710,7 @@ export function PatientsTab({
         trigger: string;
         note?: string;
       },
+      requestOptions?: { ignoreDraft?: boolean },
     ) => {
       if (switchLocked) {
         const reason = switchLockedReason ?? 'chart switch locked';
@@ -536,7 +736,7 @@ export function PatientsTab({
       const isSwitchingKey = Boolean(currentKey && nextKey && currentKey !== nextKey);
       const currentPatientId = resolveEntryPatientId(selected) ?? selectedContext?.patientId ?? undefined;
       const isSwitchingPatient = Boolean(currentPatientId && nextId && currentPatientId !== nextId);
-      if (draftDirty && isSwitchingKey) {
+      if (!requestOptions?.ignoreDraft && draftDirty && isSwitchingKey) {
         const message = '未保存ドラフトがあるため患者切替を保留しています。保存または破棄を選択してください。';
         setDraftSwitchDialog({
           open: true,
@@ -563,24 +763,16 @@ export function PatientsTab({
         return false;
       }
       if (isSwitchingPatient && isSwitchingKey) {
-        const message = `患者が切り替わります（現在: ${currentPatientId ?? '不明'} → 次: ${nextId}）。切り替えますか？`;
-        const confirmed = typeof window === 'undefined' ? true : window.confirm(message);
-        if (!confirmed) {
-          logPatientSwitch({
-            phase: 'approval',
-            outcome: 'blocked',
-            patientId: nextId,
-            appointmentId: entry.appointmentId,
-            note: 'user_cancelled',
-            controlId: `${options.controlId}-cancelled`,
-            details: {
-              trigger: 'confirm',
-              currentPatientId,
-              blockedReasons: ['user_cancelled'],
-            },
-          });
-          return false;
-        }
+        setConfirmSwitchDialog({
+          open: true,
+          entry,
+          current: selected,
+          currentPatientId,
+          controlId: options.controlId,
+          trigger: options.trigger,
+          note: options.note,
+        });
+        return false;
       }
       return commitPatientSwitch(entry, {
         controlId: options.controlId,
@@ -595,6 +787,7 @@ export function PatientsTab({
       localSelectedKey,
       logPatientSwitch,
       selected?.name,
+      selected,
       selectedContext?.appointmentId,
       selectedContext?.patientId,
       selectedContext?.receptionId,
@@ -608,13 +801,16 @@ export function PatientsTab({
     if (draftDirty) return;
     const pending = pendingSwitchRef.current;
     pendingSwitchRef.current = null;
-    commitPatientSwitch(pending.entry, {
-      controlId: pending.controlId,
-      trigger: pending.trigger,
-      currentPatientId: pending.currentPatientId ?? resolveEntryPatientId(selected) ?? selectedContext?.patientId,
-      note: pending.note ?? 'draft_saved_switch',
-    });
-  }, [commitPatientSwitch, draftDirty, selectedContext?.patientId]);
+    requestPatientSwitch(
+      pending.entry,
+      {
+        controlId: pending.controlId,
+        trigger: pending.trigger,
+        note: pending.note ?? 'draft_saved_switch',
+      },
+      { ignoreDraft: true },
+    );
+  }, [draftDirty, requestPatientSwitch]);
 
   useEffect(() => {
     const currentPatientId = resolveEntryPatientId(selected) ?? selectedContext?.patientId ?? undefined;
@@ -902,12 +1098,15 @@ export function PatientsTab({
     }
     const entry = draftSwitchDialog.entry;
     setDraftSwitchDialog({ open: false });
-    commitPatientSwitch(entry, {
-      controlId: `${draftSwitchDialog.controlId ?? 'patient-switch'}-discard`,
-      trigger: 'draft_discard',
-      currentPatientId: draftSwitchDialog.currentPatientId ?? selected?.patientId ?? selectedContext?.patientId,
-      note: 'draft_discarded_switch',
-    });
+    requestPatientSwitch(
+      entry,
+      {
+        controlId: `${draftSwitchDialog.controlId ?? 'patient-switch'}-discard`,
+        trigger: 'draft_discard',
+        note: 'draft_discarded_switch',
+      },
+      { ignoreDraft: true },
+    );
   };
 
   const draftReasonLines = useMemo(() => {
@@ -918,6 +1117,82 @@ export function PatientsTab({
     }
     return labels.slice(0, 2);
   }, [draftDirty, draftDirtySources]);
+
+  const confirmSwitchCurrentInfo = useMemo(() => {
+    const entry = confirmSwitchDialog.current;
+    const id =
+      resolveEntryPatientId(entry) ??
+      confirmSwitchDialog.currentPatientId ??
+      resolveEntryPatientId(selected) ??
+      selectedContext?.patientId ??
+      '不明';
+    const name = entry?.name ?? selected?.name ?? '患者未選択';
+    const time = entry ? resolveEntryTimeBadge(entry) : null;
+    return {
+      name,
+      id,
+      birthDate: entry?.birthDate ?? '—',
+      sex: entry?.sex ?? '—',
+      status: entry?.status ?? '—',
+      receptionId: entry?.receptionId ?? '—',
+      department: entry?.department ?? '—',
+      physician: entry?.physician ?? '—',
+      timeLabel: time ? `${time.label}${time.time}` : '—',
+    };
+  }, [confirmSwitchDialog.current, confirmSwitchDialog.currentPatientId, selected, selectedContext?.patientId]);
+
+  const confirmSwitchNextInfo = useMemo(() => {
+    const entry = confirmSwitchDialog.entry;
+    const id = resolveEntryPatientId(entry) ?? '不明';
+    const time = entry ? resolveEntryTimeBadge(entry) : null;
+    return {
+      name: entry?.name ?? '患者未登録',
+      id,
+      birthDate: entry?.birthDate ?? '—',
+      sex: entry?.sex ?? '—',
+      status: entry?.status ?? '—',
+      receptionId: entry?.receptionId ?? '—',
+      department: entry?.department ?? '—',
+      physician: entry?.physician ?? '—',
+      timeLabel: time ? `${time.label}${time.time}` : '—',
+    };
+  }, [confirmSwitchDialog.entry]);
+
+  const handleConfirmSwitchDialogClose = () => {
+    const entry = confirmSwitchDialog.entry;
+    const nextId = entry ? resolveEntryPatientId(entry) : undefined;
+    if (entry && nextId) {
+      logPatientSwitch({
+        phase: 'approval',
+        outcome: 'blocked',
+        patientId: nextId,
+        appointmentId: entry.appointmentId,
+        note: 'user_cancelled',
+        controlId: `${confirmSwitchDialog.controlId ?? 'patient-switch'}-cancelled`,
+        details: {
+          trigger: 'confirm',
+          currentPatientId: confirmSwitchDialog.currentPatientId,
+          blockedReasons: ['user_cancelled'],
+        },
+      });
+    }
+    setConfirmSwitchDialog({ open: false });
+  };
+
+  const handleConfirmSwitchCommit = () => {
+    const entry = confirmSwitchDialog.entry;
+    if (!entry) {
+      setConfirmSwitchDialog({ open: false });
+      return;
+    }
+    setConfirmSwitchDialog({ open: false });
+    commitPatientSwitch(entry, {
+      controlId: confirmSwitchDialog.controlId ?? 'patient-switch',
+      trigger: confirmSwitchDialog.trigger ?? 'confirm',
+      currentPatientId: confirmSwitchDialog.currentPatientId,
+      note: confirmSwitchDialog.note ?? 'manual switch',
+    });
+  };
 
   const openAudit = () => {
     setAuditSnapshot(getAuditEventLog());
@@ -967,6 +1242,25 @@ export function PatientsTab({
     return { action, outcome, runId, traceId, changedText };
   };
 
+  const statusOptions: ReceptionStatus[] = ['予約', '受付中', '診療中', '会計待ち', '会計済み'];
+
+  const toggleStatusFilter = useCallback((status: ReceptionStatus) => {
+    setStatusFilter((prev) => (prev.includes(status) ? prev.filter((item) => item !== status) : [...prev, status]));
+  }, []);
+
+  const hasCandidateFilters = Boolean(
+    keyword.trim() || statusFilter.length > 0 || deptFilter.trim() || physFilter.trim(),
+  );
+  const isCurrentInCandidates = Boolean(selected && candidateEntries.some((entry) => entry.id === selected.id));
+  const showCurrentHiddenNotice = Boolean(selected && hasCandidateFilters && !isCurrentInCandidates);
+
+  const clearCandidateFilters = useCallback(() => {
+    setKeyword('');
+    setStatusFilter([]);
+    setDeptFilter('');
+    setPhysFilter('');
+  }, []);
+
   return (
     <section
       className="patients-tab"
@@ -993,11 +1287,11 @@ export function PatientsTab({
       <div className="patients-tab__important">
         <button
           type="button"
-          className="patients-tab__important-main"
+        className="patients-tab__important-main"
           onClick={() => scrollTo('basic')}
           aria-label="患者基本情報へ移動"
         >
-          <strong className="patients-tab__important-title">{selected?.name ?? '患者未選択'}</strong>
+          <strong className="patients-tab__important-title">{patientBaseline?.name ?? selected?.name ?? '患者未選択'}</strong>
           <span className="patients-tab__important-sub">{importantLabel}</span>
         </button>
         <div className="patients-tab__important-actions" role="group" aria-label="患者サイドペイン操作">
@@ -1013,59 +1307,182 @@ export function PatientsTab({
         </div>
       </div>
 
-      <div className="patients-tab__header">
-        <div>
-          <p className="patients-tab__header-label">dataSourceTransition</p>
-          <strong>{transitionMeta.label}</strong>
-          <p className="patients-tab__header-description">{transitionMeta.description}</p>
+      <details className="patients-tab__meta" data-run-id={resolvedRunId}>
+        <summary className="patients-tab__meta-summary">運用メタ（dataSourceTransition / master / cache）</summary>
+        <div className="patients-tab__meta-body">
+          <div className="patients-tab__meta-transition">
+            <p className="patients-tab__meta-label">dataSourceTransition</p>
+            <strong>{transitionMeta.label}</strong>
+            <p className="patients-tab__meta-desc">{transitionMeta.description}</p>
+          </div>
+          <div className="patients-tab__badges">
+            <StatusPill
+              className="patients-tab__badge"
+              label="missingMaster"
+              value={flags.missingMaster ? 'true' : 'false'}
+              tone={flags.missingMaster ? 'warning' : 'success'}
+              ariaLive={flags.missingMaster ? 'assertive' : 'polite'}
+              runId={flags.runId}
+            />
+            <StatusPill
+              className="patients-tab__badge"
+              label="cacheHit"
+              value={flags.cacheHit ? 'true' : 'false'}
+              tone={flags.cacheHit ? 'success' : 'warning'}
+              runId={flags.runId}
+            />
+            <StatusPill
+              className="patients-tab__badge"
+              label="fallbackUsed"
+              value={flags.fallbackUsed ? 'true' : 'false'}
+              tone={flags.fallbackUsed ? 'warning' : 'info'}
+              ariaLive={flags.fallbackUsed ? 'assertive' : 'polite'}
+              runId={flags.runId}
+            />
+            <StatusPill className="patients-tab__badge" label="role" value={session.role} tone="info" runId={flags.runId} />
+          </div>
+          {auditEvent ? (
+            <div className="patients-tab__meta-audit" aria-label="監査イベント要約">
+              <p className="patients-tab__meta-label">auditEvent</p>
+              <p className="patients-tab__meta-desc">
+                {Object.entries(auditEvent)
+                  .map(([key, value]) => `${key}: ${String(value)}`)
+                  .join(' ｜ ')}
+              </p>
+            </div>
+          ) : null}
         </div>
-        <div className="patients-tab__badges">
-          <StatusPill
-            className="patients-tab__badge"
-            label="missingMaster"
-            value={flags.missingMaster ? 'true' : 'false'}
-            tone={flags.missingMaster ? 'warning' : 'success'}
-            ariaLive={flags.missingMaster ? 'assertive' : 'polite'}
-            runId={flags.runId}
-          />
-          <StatusPill
-            className="patients-tab__badge"
-            label="cacheHit"
-            value={flags.cacheHit ? 'true' : 'false'}
-            tone={flags.cacheHit ? 'success' : 'warning'}
-            runId={flags.runId}
-          />
-          <StatusPill
-            className="patients-tab__badge"
-            label="fallbackUsed"
-            value={flags.fallbackUsed ? 'true' : 'false'}
-            tone={flags.fallbackUsed ? 'warning' : 'info'}
-            ariaLive={flags.fallbackUsed ? 'assertive' : 'polite'}
-            runId={flags.runId}
-          />
-          <StatusPill className="patients-tab__badge" label="role" value={session.role} tone="info" runId={flags.runId} />
+      </details>
+
+      <div className="patients-tab__list-controls">
+        <div className="patients-tab__list-head">
+          <div className="patients-tab__list-meta" aria-label="外来一覧の更新時刻と件数">
+            <span className="patients-tab__list-fetched">
+              最終更新: <strong>{formatFetchedAt(listFetchedAt)}</strong>
+            </span>
+            <span className="patients-tab__list-count">
+              表示: <strong>{candidateEntries.length}</strong>件 / 取得: <strong>{entries.length}</strong>件
+            </span>
+          </div>
+          <div className="patients-tab__list-actions" role="group" aria-label="外来一覧操作">
+            <button
+              type="button"
+              className="patients-tab__ghost"
+              onClick={() => onRefetchList?.()}
+              disabled={!onRefetchList || isRefetchingList}
+            >
+              {isRefetchingList ? '更新中…' : '更新'}
+            </button>
+            <button
+              type="button"
+              className="patients-tab__ghost"
+              onClick={() => onLoadMore?.()}
+              disabled={!onLoadMore || !hasNextPage || isLoadingMore}
+            >
+              {isLoadingMore ? '読み込み中…' : 'さらに読み込む'}
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="patients-tab__controls">
-        <label className="patients-tab__search">
-          <span>患者検索（外来一覧）</span>
-          <input
-            id="charts-patient-search"
-            type="search"
-            placeholder="氏名 / カナ / ID"
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-            aria-label="患者検索キーワード"
-          />
-        </label>
-        <div className="patients-tab__edit-guard" aria-live={infoLive}>
-          {guardMessage}
+
+        <div className="patients-tab__filters" aria-label="外来一覧フィルタ">
+          <label className="patients-tab__search">
+            <span>検索（氏名/カナ/ID）</span>
+            <input
+              id="charts-patient-search"
+              type="search"
+              placeholder="氏名 / カナ / ID"
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+              aria-label="患者検索キーワード"
+            />
+          </label>
+
+          <div className="patients-tab__filter-row">
+            <div className="patients-tab__chips" role="group" aria-label="ステータスフィルタ">
+              <button
+                type="button"
+                className={`patients-tab__chip${statusFilter.length === 0 ? ' is-active' : ''}`}
+                onClick={() => setStatusFilter([])}
+              >
+                すべて
+                <span className="patients-tab__chip-count">{baseCandidates.length}</span>
+              </button>
+              {statusOptions.map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  className={`patients-tab__chip${statusFilter.includes(status) ? ' is-active' : ''}`}
+                  onClick={() => toggleStatusFilter(status)}
+                >
+                  {status}
+                  <span className="patients-tab__chip-count">{statusCounts[status]}</span>
+                </button>
+              ))}
+            </div>
+
+            <label className="patients-tab__select">
+              <span>診療科</span>
+              <select value={deptFilter} onChange={(event) => setDeptFilter(event.target.value)}>
+                <option value="">すべて</option>
+                {departmentOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="patients-tab__select">
+              <span>担当</span>
+              <select value={physFilter} onChange={(event) => setPhysFilter(event.target.value)}>
+                <option value="">すべて</option>
+                {physicianOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="patients-tab__select">
+              <span>並び替え</span>
+              <select
+                value={sortKey}
+                onChange={(event) => setSortKey(event.target.value as PatientListSortKey)}
+              >
+                <option value="time">時刻順</option>
+                <option value="status">ステータス順</option>
+                <option value="name">氏名</option>
+                <option value="id">ID</option>
+              </select>
+            </label>
+
+            <button
+              type="button"
+              className="patients-tab__ghost patients-tab__clear"
+              onClick={clearCandidateFilters}
+              disabled={!hasCandidateFilters}
+            >
+              クリア
+            </button>
+          </div>
+
+          <div className="patients-tab__edit-guard" aria-live={infoLive}>
+            {guardMessage}
+          </div>
         </div>
       </div>
 
       <div className="patients-tab__body">
         <div className="patients-tab__table" role="list" aria-label="外来一覧（患者切替）">
-          {filteredEntries.length === 0 && (
+          {showCurrentHiddenNotice ? (
+            <div className="patients-tab__filter-notice" role="status" aria-live={infoLive}>
+              <span>現在の患者は検索結果に含まれていません（フィルタ中）</span>
+              <button type="button" className="patients-tab__ghost" onClick={clearCandidateFilters}>
+                検索をクリア
+              </button>
+            </div>
+          ) : null}
+
+          {entries.length === 0 && (
             <article className="patients-tab__row" data-run-id={resolvedRunId}>
               <div className="patients-tab__row-meta">
                 <span className="patients-tab__row-id">患者データなし</span>
@@ -1075,16 +1492,29 @@ export function PatientsTab({
               <span className="patients-tab__row-status">tone={tone}</span>
             </article>
           )}
-          {filteredEntries.slice(0, 8).map((patient) => {
-            const isSelected =
-              (selectedContext?.receptionId && patient.receptionId === selectedContext.receptionId) ||
-              (selectedContext?.appointmentId && patient.appointmentId === selectedContext.appointmentId) ||
-              (selectedContext?.patientId && (patient.patientId === selectedContext.patientId || patient.id === selectedContext.patientId)) ||
-              localSelectedKey === patient.receptionId ||
-              localSelectedKey === patient.appointmentId ||
-              localSelectedKey === patient.patientId ||
-              localSelectedKey === patient.id;
-            const rowPatientId = resolveEntryPatientId(patient) ?? patient.appointmentId ?? (patient.id ? String(patient.id) : undefined);
+          {entries.length > 0 && candidateEntries.length === 0 ? (
+            <article className="patients-tab__row" data-run-id={resolvedRunId}>
+              <div className="patients-tab__row-meta">
+                <span className="patients-tab__row-id">該当なし</span>
+                <strong>条件に一致する患者がいません</strong>
+              </div>
+              <p className="patients-tab__row-detail">
+                検索/フィルタ条件を見直してください。
+              </p>
+              <span className="patients-tab__row-status">
+                <button type="button" className="patients-tab__ghost" onClick={clearCandidateFilters}>
+                  条件をクリア
+                </button>
+              </span>
+            </article>
+          ) : null}
+
+          {candidateEntries.map((patient) => {
+            const isSelected = Boolean(selected && patient.id === selected.id);
+            const rowPatientId = resolveEntryPatientId(patient) ?? '不明';
+            const time = resolveEntryTimeBadge(patient);
+            const memo = (patient.note ?? '').trim();
+            const insurance = (patient.insurance ?? '').trim();
             return (
               <button
                 key={patient.id}
@@ -1094,25 +1524,38 @@ export function PatientsTab({
                 disabled={switchLocked}
                 onClick={() => handleSelect(patient)}
               >
-                <div className="patients-tab__row-meta">
-                  <PatientMetaRow
-                    as="span"
-                    className="patients-tab__row-id"
-                    patientId={rowPatientId}
-                    showLabels={false}
-                    showEmpty
-                    separator="none"
-                    runId={resolvedRunId}
-                  />
-                  <strong>{patient.name ?? '患者未登録'}</strong>
+                <div className="patients-tab__row-top">
+                  <div className="patients-tab__row-time" aria-label="時刻">
+                    {time ? (
+                      <>
+                        <span className="patients-tab__row-time-label">{time.label}</span>
+                        <strong className="patients-tab__row-time-value">{time.time}</strong>
+                      </>
+                    ) : (
+                      <span className="patients-tab__row-time-missing">—</span>
+                    )}
+                  </div>
+                  <div className="patients-tab__row-pills" aria-label="状態">
+                    <StatusPill tone={resolveStatusTone(patient.status)} size="xs" className="patients-tab__row-pill">
+                      {patient.status}
+                    </StatusPill>
+                    {isSelected ? (
+                      <StatusPill tone="info" size="xs" className="patients-tab__row-pill patients-tab__row-pill--current">
+                        現在
+                      </StatusPill>
+                    ) : null}
+                  </div>
                 </div>
-                <p className="patients-tab__row-detail">
-                  {patient.insurance ?? patient.source} | {patient.note ?? 'メモなし'}
-                  {patient.receptionId ? ` | 受付ID: ${patient.receptionId}` : ''}
-                </p>
-                <span className="patients-tab__row-status">
-                  {flags.missingMaster ? 'missingMaster 警告' : flags.cacheHit ? 'cacheHit 命中' : 'server route'}
-                </span>
+                <div className="patients-tab__row-main">
+                  <strong className="patients-tab__row-name">{patient.name ?? '患者未登録'}</strong>
+                  <span className="patients-tab__row-patientid">ID:{rowPatientId}</span>
+                </div>
+                <div className="patients-tab__row-sub">
+                  <span className="patients-tab__row-subitem">{patient.department ?? '診療科不明'}</span>
+                  <span className="patients-tab__row-subitem">{patient.physician ?? '医師不明'}</span>
+                  {insurance ? <span className="patients-tab__row-subitem">保険:{insurance}</span> : null}
+                  <span className={`patients-tab__row-memo${memo ? '' : ' is-empty'}`}>{memo || 'メモなし'}</span>
+                </div>
               </button>
             );
           })}
@@ -1520,16 +1963,58 @@ export function PatientsTab({
         </div>
       </div>
 
-      {auditEvent && (
-        <div className="patients-tab__audit" role="alert" aria-live={resolveAriaLive('warning')}>
-          <strong>auditEvent</strong>
-          <p>
-            {Object.entries(auditEvent)
-              .map(([key, value]) => `${key}: ${String(value)}`)
-              .join(' ｜ ')}
-          </p>
+      <FocusTrapDialog
+        open={confirmSwitchDialog.open}
+        role="alertdialog"
+        title="患者切替の確認"
+        description="現在の患者から別の患者へ切り替わります。誤患者防止のため内容を確認してください。"
+        onClose={handleConfirmSwitchDialogClose}
+        testId="charts-patient-switch-confirm-dialog"
+      >
+        <div className="patients-tab__switch-dialog" role="group" aria-label="患者切替の確認">
+          <div className="patients-tab__switch-summary">
+            <div className="patients-tab__switch-block">
+              <span className="patients-tab__draft-label">現在の患者</span>
+              <strong className="patients-tab__switch-title">
+                {confirmSwitchCurrentInfo.name}（患者ID:{confirmSwitchCurrentInfo.id}）
+              </strong>
+              <div className="patients-tab__switch-lines" aria-label="現在の患者情報">
+                <span>生年月日:{confirmSwitchCurrentInfo.birthDate}</span>
+                <span>性別:{confirmSwitchCurrentInfo.sex}</span>
+                <span>時刻:{confirmSwitchCurrentInfo.timeLabel}</span>
+                <span>状態:{confirmSwitchCurrentInfo.status}</span>
+                <span>診療科:{confirmSwitchCurrentInfo.department}</span>
+                <span>担当:{confirmSwitchCurrentInfo.physician}</span>
+                <span>受付ID:{confirmSwitchCurrentInfo.receptionId}</span>
+              </div>
+            </div>
+            <div className="patients-tab__switch-block">
+              <span className="patients-tab__draft-label">切替先</span>
+              <strong className="patients-tab__switch-title">
+                {confirmSwitchNextInfo.name}（患者ID:{confirmSwitchNextInfo.id}）
+              </strong>
+              <div className="patients-tab__switch-lines" aria-label="切替先の患者情報">
+                <span>生年月日:{confirmSwitchNextInfo.birthDate}</span>
+                <span>性別:{confirmSwitchNextInfo.sex}</span>
+                <span>時刻:{confirmSwitchNextInfo.timeLabel}</span>
+                <span>状態:{confirmSwitchNextInfo.status}</span>
+                <span>診療科:{confirmSwitchNextInfo.department}</span>
+                <span>担当:{confirmSwitchNextInfo.physician}</span>
+                <span>受付ID:{confirmSwitchNextInfo.receptionId}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="patients-tab__switch-actions" role="group" aria-label="患者切替の操作">
+            <button type="button" className="patients-tab__ghost" onClick={handleConfirmSwitchDialogClose}>
+              キャンセル
+            </button>
+            <button type="button" className="patients-tab__primary" onClick={handleConfirmSwitchCommit}>
+              切り替える
+            </button>
+          </div>
         </div>
-      )}
+      </FocusTrapDialog>
 
       <FocusTrapDialog
         open={draftSwitchDialog.open}

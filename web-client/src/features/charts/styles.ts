@@ -8343,6 +8343,186 @@ export const chartsStyles = css`
     box-shadow: none;
   }
 
+  .patients-tab__meta {
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: #ffffff;
+    padding: var(--charts-space-xs) var(--charts-space-sm);
+  }
+
+  .patients-tab__meta-summary {
+    cursor: pointer;
+    list-style: none;
+    font-weight: 900;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--charts-space-sm);
+  }
+
+  .patients-tab__meta-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .patients-tab__meta-summary::after {
+    content: '>';
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    color: #64748b;
+    transition: transform 120ms ease;
+  }
+
+  .patients-tab__meta[open] > .patients-tab__meta-summary::after {
+    transform: rotate(90deg);
+  }
+
+  .patients-tab__meta-body {
+    margin-top: var(--charts-space-xs);
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-sm);
+  }
+
+  .patients-tab__meta-transition {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .patients-tab__meta-label {
+    margin: 0;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #64748b;
+  }
+
+  .patients-tab__meta-desc {
+    margin: 0;
+    color: #475569;
+    line-height: 1.35;
+  }
+
+  .patients-tab__list-controls {
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-sm);
+  }
+
+  .patients-tab__list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--charts-space-sm);
+    flex-wrap: wrap;
+  }
+
+  .patients-tab__list-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--charts-space-sm);
+    align-items: baseline;
+    color: #475569;
+    font-size: 0.88rem;
+  }
+
+  .patients-tab__list-meta strong {
+    color: #0f172a;
+    font-weight: 900;
+  }
+
+  .patients-tab__list-actions {
+    display: flex;
+    gap: var(--charts-space-xs);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .patients-tab__filters {
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-sm);
+  }
+
+  .patients-tab__filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--charts-space-sm);
+    align-items: flex-end;
+  }
+
+  .patients-tab__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--charts-space-xs);
+    align-items: center;
+  }
+
+  .patients-tab__chip {
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    background: #f8fafc;
+    padding: 0.32rem 0.65rem;
+    font-weight: 800;
+    cursor: pointer;
+    color: #0f172a;
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+    white-space: nowrap;
+  }
+
+  .patients-tab__chip:hover {
+    background: #ffffff;
+  }
+
+  .patients-tab__chip.is-active {
+    background: #1d4ed8;
+    border-color: transparent;
+    color: #ffffff;
+  }
+
+  .patients-tab__chip-count {
+    font-size: 0.78rem;
+    font-weight: 900;
+    color: inherit;
+    opacity: 0.85;
+  }
+
+  .patients-tab__select {
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-2xs);
+    font-size: 0.88rem;
+    color: #475569;
+    min-width: 160px;
+  }
+
+  .patients-tab__select select {
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid #cbd5f5;
+    padding: 0.45rem 0.6rem;
+    background: #ffffff;
+    font-family: inherit;
+  }
+
+  .patients-tab__clear {
+    white-space: nowrap;
+  }
+
+  .patients-tab__filter-notice {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--charts-space-sm);
+    flex-wrap: wrap;
+    padding: var(--charts-space-xs) var(--charts-space-sm);
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    background: #eff6ff;
+    color: #0f172a;
+  }
+
   .patients-tab__controls {
     display: flex;
     justify-content: space-between;
@@ -8441,6 +8621,43 @@ export const chartsStyles = css`
     border-color: rgba(248, 113, 113, 0.5);
   }
 
+  .patients-tab__switch-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-sm);
+  }
+
+  .patients-tab__switch-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--charts-space-sm);
+    padding: var(--charts-space-xs);
+    border-radius: var(--charts-radius-sm);
+    background: #f8fafc;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+  }
+
+  .patients-tab__switch-title {
+    font-size: 0.95rem;
+    color: #0f172a;
+  }
+
+  .patients-tab__switch-lines {
+    margin-top: 4px;
+    display: grid;
+    gap: 2px;
+    color: #475569;
+    font-size: 0.88rem;
+    line-height: 1.35;
+  }
+
+  .patients-tab__switch-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--charts-space-xs);
+    flex-wrap: wrap;
+  }
+
   .patients-tab__header {
     display: flex;
     justify-content: space-between;
@@ -8463,6 +8680,9 @@ export const chartsStyles = css`
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-sm);
+    max-height: clamp(260px, 55vh, 720px);
+    overflow: auto;
+    padding-right: 2px;
   }
 
   .patients-tab__body {
@@ -8479,6 +8699,9 @@ export const chartsStyles = css`
     text-align: left;
     width: 100%;
     cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-xs);
   }
 
   .patients-tab__row--selected {
@@ -8520,6 +8743,107 @@ export const chartsStyles = css`
   .patients-tab__row-status {
     font-size: 0.9rem;
     color: #1d4ed8;
+  }
+
+  .patients-tab__row-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--charts-space-sm);
+    flex-wrap: wrap;
+  }
+
+  .patients-tab__row-time {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    min-width: 86px;
+  }
+
+  .patients-tab__row-time-label {
+    font-size: 0.75rem;
+    font-weight: 900;
+    color: #64748b;
+    letter-spacing: 0.06em;
+  }
+
+  .patients-tab__row-time-value {
+    font-size: 1rem;
+    font-weight: 900;
+    color: #0f172a;
+  }
+
+  .patients-tab__row-time-missing {
+    font-size: 0.92rem;
+    font-weight: 800;
+    color: #64748b;
+  }
+
+  .patients-tab__row-pills {
+    display: flex;
+    gap: var(--charts-space-xs);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .patients-tab__row-pill {
+    font-size: 0.82rem;
+  }
+
+  .patients-tab__row-pill--current {
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+  }
+
+  .patients-tab__row-main {
+    display: flex;
+    align-items: baseline;
+    gap: var(--charts-space-xs);
+    flex-wrap: wrap;
+  }
+
+  .patients-tab__row-name {
+    font-size: 1rem;
+    font-weight: 900;
+    color: #0f172a;
+  }
+
+  .patients-tab__row-patientid {
+    font-size: 0.82rem;
+    font-weight: 900;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    color: #0f172a;
+    background: rgba(219, 234, 254, 0.8);
+    border: 1px solid rgba(37, 99, 235, 0.25);
+    border-radius: 999px;
+    padding: 0.08rem 0.5rem;
+    white-space: nowrap;
+  }
+
+  .patients-tab__row-sub {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--charts-space-xs) var(--charts-space-sm);
+    color: #475569;
+    font-size: 0.85rem;
+    line-height: 1.35;
+  }
+
+  .patients-tab__row-subitem {
+    font-weight: 800;
+    color: #334155;
+    white-space: nowrap;
+  }
+
+  .patients-tab__row-memo {
+    flex: 1 1 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #475569;
+  }
+
+  .patients-tab__row-memo.is-empty {
+    color: #94a3b8;
   }
 
   .patients-tab__detail {
@@ -9168,6 +9492,29 @@ export const chartsStyles = css`
 
     .patients-tab__header {
       flex-direction: column;
+    }
+
+    .patients-tab__list-head {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .patients-tab__filter-row {
+      align-items: stretch;
+    }
+
+    .patients-tab__search input {
+      min-width: 0;
+      width: 100%;
+    }
+
+    .patients-tab__select {
+      min-width: 0;
+      flex: 1 1 220px;
+    }
+
+    .patients-tab__switch-summary {
+      grid-template-columns: 1fr;
     }
 
     .patients-tab__body {

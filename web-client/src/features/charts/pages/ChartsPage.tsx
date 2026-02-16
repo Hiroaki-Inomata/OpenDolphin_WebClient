@@ -3881,6 +3881,12 @@ function ChartsContent() {
           </div>
           <PatientsTab
             entries={patientEntries}
+            listFetchedAt={appointmentMeta?.fetchedAt}
+            onRefetchList={() => appointmentQuery.refetch()}
+            isRefetchingList={appointmentQuery.isFetching && !appointmentQuery.isLoading && !appointmentQuery.isFetchingNextPage}
+            hasNextPage={hasNextAppointments}
+            onLoadMore={() => appointmentQuery.fetchNextPage()}
+            isLoadingMore={appointmentQuery.isFetchingNextPage}
             appointmentBanner={appointmentBanner}
             auditEvent={latestAuditEvent as Record<string, unknown> | undefined}
             selectedContext={encounterContext}
