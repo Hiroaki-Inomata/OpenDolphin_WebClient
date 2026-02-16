@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { recordOutpatientFunnel } from '../../libs/telemetry/telemetryClient';
 import { getObservabilityMeta, resolveAriaLive } from '../../libs/observability/observability';
 import { useOptionalSession } from '../../AppRouter';
+import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 import { fetchOrderBundles, mutateOrderBundles, type OrderBundle, type OrderBundleItem } from './orderBundleApi';
 import { getOrcaClaimSendEntry, type OrcaMedicalWarningUi } from './orcaClaimSendCache';
 import {
@@ -53,11 +54,13 @@ export type OrderBundleEditPanelProps = {
   itemQuantityLabel: string;
   meta: OrderBundleEditPanelMeta;
   variant?: 'utility' | 'embedded';
+  bundlesOverride?: OrderBundle[];
   onOpenDocument?: (request: DocumentOpenRequest) => void;
   historyCopyRequest?: { requestId: string; bundle: OrderBundle } | null;
   onHistoryCopyConsumed?: (requestId: string) => void;
   request?: OrderBundleEditPanelRequest | null;
   onRequestConsumed?: (requestId: string) => void;
+  onClose?: () => void;
 };
 
 type PrescriptionLocation = 'in' | 'out';
@@ -116,6 +119,20 @@ const stripRowMeta = (item: OrderBundleItem): OrderBundleItem => {
 };
 
 const buildEmptyItem = (): OrderBundleItem => ensureRowId({ name: '', quantity: '', unit: '', memo: '' });
+
+const safeScrollIntoView = (el: HTMLElement, options?: ScrollIntoViewOptions) => {
+  if (typeof el.scrollIntoView !== 'function') return;
+  el.scrollIntoView(options);
+};
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const handle = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(handle);
+  }, [delayMs, value]);
+  return debounced;
+}
 
 const NO_PROCEDURE_CHARGE_TEXT = '手技料なし';
 const MATERIAL_CODE_PREFIX = '7';
@@ -657,11 +674,13 @@ export function OrderBundleEditPanel({
   itemQuantityLabel,
   meta,
   variant = 'utility',
+  bundlesOverride,
   onOpenDocument,
   historyCopyRequest,
   onHistoryCopyConsumed,
   request,
   onRequestConsumed,
+  onClose,
 }: OrderBundleEditPanelProps) {
   const queryClient = useQueryClient();
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -686,6 +705,23 @@ export function OrderBundleEditPanel({
     unit: '',
     memo: '',
   });
+  const bundleNameInputRef = useRef<HTMLInputElement | null>(null);
+  const editorScrollRef = useRef<HTMLDivElement | null>(null);
+  const [validationIssues, setValidationIssues] = useState<BundleValidationIssue[]>([]);
+  const [materialsFoldOpen, setMaterialsFoldOpen] = useState(false);
+  const [commentsFoldOpen, setCommentsFoldOpen] = useState(false);
+  const materialsAutoOpenedRef = useRef(false);
+  const commentsAutoOpenedRef = useRef(false);
+  const [itemCandidateCursor, setItemCandidateCursor] = useState(-1);
+  const [usageCandidateCursor, setUsageCandidateCursor] = useState(-1);
+  const contraConfirmResolveRef = useRef<((value: boolean) => void) | null>(null);
+  const [contraConfirmOpen, setContraConfirmOpen] = useState(false);
+  const [contraConfirmPayload, setContraConfirmPayload] = useState<{
+    summary: string;
+    details: string[];
+    apiResult?: string;
+    apiMessage?: string;
+  } | null>(null);
   const orderUiProfile = useMemo(() => resolveOrderEntityUiProfile(entity), [entity]);
 
   const resetEditorForm = useCallback(() => {
@@ -696,6 +732,7 @@ export function OrderBundleEditPanel({
     setMaterialKeyword('');
     setBodyPartKeyword('');
     setMasterSearchType(resolveDefaultMasterSearchType(entity));
+    setValidationIssues([]);
     setCommentDraft({
       code: '',
       name: '',
@@ -703,7 +740,41 @@ export function OrderBundleEditPanel({
       unit: '',
       memo: '',
     });
+    setMaterialsFoldOpen(false);
+    setCommentsFoldOpen(false);
+    materialsAutoOpenedRef.current = false;
+    commentsAutoOpenedRef.current = false;
+    setItemCandidateCursor(-1);
+    setUsageCandidateCursor(-1);
   }, [entity, today]);
+
+  const focusFirstField = useCallback(() => {
+    if (typeof document === 'undefined') return;
+    requestAnimationFrame(() => {
+      if (editorScrollRef.current) {
+        editorScrollRef.current.scrollTop = 0;
+      }
+      const el =
+        bundleNameInputRef.current ??
+        (document.getElementById(`${entity}-bundle-name`) as HTMLInputElement | null);
+      if (!el) return;
+      safeScrollIntoView(el, { block: 'nearest' });
+      el.focus();
+    });
+  }, [entity]);
+
+  const clearValidationByKeys = useCallback((keys: string[]) => {
+    if (keys.length === 0) return;
+    setValidationIssues((prev) => prev.filter((issue) => !keys.includes(issue.key)));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const resolve = contraConfirmResolveRef.current;
+      if (resolve) resolve(false);
+      contraConfirmResolveRef.current = null;
+    };
+  }, []);
   const isMedOrder = entity === 'medOrder';
   const isInjectionOrder = entity === 'injectionOrder';
   const isRadiologyOrder = entity === 'radiologyOrder';
@@ -733,6 +804,40 @@ export function OrderBundleEditPanel({
   const masterSearchPresets = orderUiProfile.masterSearchPresets;
   const selectedMasterPresetLabel =
     masterSearchPresets.find((preset) => preset.type === masterSearchType)?.label ?? masterSearchType;
+
+  const hasMaterialValues = useMemo(
+    () =>
+      form.materialItems.some((item) =>
+        Boolean(item.name?.trim() || item.code?.trim() || item.quantity?.trim() || item.unit?.trim() || item.memo?.trim()),
+      ),
+    [form.materialItems],
+  );
+  const hasCommentValues = useMemo(
+    () =>
+      form.commentItems.some((item) =>
+        Boolean(item.name?.trim() || item.code?.trim() || item.quantity?.trim() || item.unit?.trim() || item.memo?.trim()),
+      ),
+    [form.commentItems],
+  );
+
+  useEffect(() => {
+    if (!supportsMaterials) return;
+    if (materialsFoldOpen) return;
+    if (materialsAutoOpenedRef.current) return;
+    if (!hasMaterialValues) return;
+    setMaterialsFoldOpen(true);
+    materialsAutoOpenedRef.current = true;
+  }, [hasMaterialValues, materialsFoldOpen, supportsMaterials]);
+
+  useEffect(() => {
+    if (!supportsCommentCodes) return;
+    if (commentsFoldOpen) return;
+    if (commentsAutoOpenedRef.current) return;
+    if (!hasCommentValues) return;
+    setCommentsFoldOpen(true);
+    commentsAutoOpenedRef.current = true;
+  }, [commentsFoldOpen, hasCommentValues, supportsCommentCodes]);
+
   const blockReasons = useMemo(() => {
     const reasons: string[] = [];
     if (meta.readOnly) {
@@ -894,13 +999,15 @@ export function OrderBundleEditPanel({
   const showBundleList = variant === 'utility';
 
   const queryKey = ['charts-order-bundles', patientId, entity];
+  const canQueryBundles = Boolean(patientId) && !bundlesOverride;
   const bundleQuery = useQuery({
     queryKey,
     queryFn: () => {
       if (!patientId) throw new Error('patientId is required');
       return fetchOrderBundles({ patientId, entity });
     },
-    enabled: !!patientId,
+    enabled: canQueryBundles,
+    placeholderData: keepPreviousData,
   });
 
   const masterReferenceStatusQuery = useQuery({
@@ -932,9 +1039,9 @@ export function OrderBundleEditPanel({
       return ok ? 'オーダーを保存しました。' : 'オーダーの保存に失敗しました。';
     }
     if (action === 'expand') {
-      return ok ? 'オーダーを展開しました。' : 'オーダーの展開に失敗しました。';
+      return ok ? 'オーダーを保存し、編集を閉じました。' : '保存して閉じる操作に失敗しました。';
     }
-    return ok ? 'オーダーを展開し、編集を継続します。' : 'オーダーの展開継続に失敗しました。';
+    return ok ? 'オーダーを保存し、編集を継続します。' : '保存して継続する操作に失敗しました。';
   };
 
   useEffect(() => {
@@ -963,36 +1070,38 @@ export function OrderBundleEditPanel({
     return rows.find((row) => row.rowId === selectedItemRowId) ?? rows[0];
   }, [form.items, selectedItemRowId]);
   const selectedItemPredictionKeyword = selectedItemForPrediction?.name?.trim() ?? '';
+  const debouncedItemPredictionKeyword = useDebouncedValue(selectedItemPredictionKeyword, 260);
   const itemPredictiveSearchType = masterSearchType;
-  const isItemCodeSearch = isLikelyCodeSearch(selectedItemPredictionKeyword);
+  const isItemCodeSearch = isLikelyCodeSearch(debouncedItemPredictionKeyword);
   const itemPredictiveQuery = useQuery({
-    queryKey: ['charts-order-item-predictive', entity, itemPredictiveSearchType, selectedItemPredictionKeyword],
+    queryKey: ['charts-order-item-predictive', entity, itemPredictiveSearchType, debouncedItemPredictionKeyword],
     queryFn: () =>
       fetchOrderMasterSearch({
         type: itemPredictiveSearchType,
-        keyword: selectedItemPredictionKeyword,
+        keyword: debouncedItemPredictionKeyword,
         page: 1,
         size: DEFAULT_PREDICTIVE_LIMIT,
       }),
-    enabled: selectedItemPredictionKeyword.length > 0,
+    enabled: debouncedItemPredictionKeyword.length > 0,
     staleTime: 30 * 1000,
+    placeholderData: keepPreviousData,
   });
   const itemMasterCandidates = useMemo(
     () =>
       itemPredictiveQuery.data?.ok
         ? itemPredictiveQuery.data.items
-            .filter((item) => matchesMasterItemByPartial(item, selectedItemPredictionKeyword))
+            .filter((item) => matchesMasterItemByPartial(item, debouncedItemPredictionKeyword))
             .slice(0, DEFAULT_PREDICTIVE_LIMIT)
         : [],
-    [itemPredictiveQuery.data, selectedItemPredictionKeyword],
+    [debouncedItemPredictionKeyword, itemPredictiveQuery.data],
   );
   const correctionMeta = itemPredictiveQuery.data?.correctionMeta;
   const itemCorrectionCandidates = useMemo(
     () =>
       (itemPredictiveQuery.data?.correctionCandidates ?? []).filter((item) =>
-        matchesMasterItemByPartial(item, selectedItemPredictionKeyword),
+        matchesMasterItemByPartial(item, debouncedItemPredictionKeyword),
       ),
-    [itemPredictiveQuery.data?.correctionCandidates, selectedItemPredictionKeyword],
+    [debouncedItemPredictionKeyword, itemPredictiveQuery.data?.correctionCandidates],
   );
   const itemPredictiveItems = useMemo(() => {
     const merged = [...itemCorrectionCandidates, ...itemMasterCandidates];
@@ -1013,6 +1122,10 @@ export function OrderBundleEditPanel({
       })),
     [itemPredictiveItems],
   );
+
+  useEffect(() => {
+    setItemCandidateCursor(-1);
+  }, [debouncedItemPredictionKeyword, itemPredictiveCandidates.length, selectedItemRowId]);
   const selectedItemCode = selectedItemForPrediction?.code?.trim() ?? '';
   const selectionCommentQuery = useQuery({
     queryKey: ['charts-order-selection-comments', selectedItemCode, form.startDate],
@@ -1052,46 +1165,58 @@ export function OrderBundleEditPanel({
   }, [itemPredictiveQuery.data?.selectionComments, selectionCommentQuery.data?.selections]);
 
   const usageKeyword = form.admin.trim();
+  const debouncedUsageKeyword = useDebouncedValue(usageKeyword, 260);
   const usageSearchQuery = useQuery({
-    queryKey: ['charts-order-usage-search', usageKeyword],
+    queryKey: ['charts-order-usage-search', debouncedUsageKeyword],
     queryFn: () =>
       fetchOrderMasterSearch({
         type: 'youhou',
-        keyword: usageKeyword,
+        keyword: debouncedUsageKeyword,
       }),
-    enabled: supportsUsageSearch && usageKeyword.length > 0,
+    enabled: supportsUsageSearch && debouncedUsageKeyword.length > 0,
     staleTime: 30 * 1000,
+    placeholderData: keepPreviousData,
   });
   const usageItems = useMemo(
     () =>
       usageSearchQuery.data?.ok
         ? usageSearchQuery.data.items
-            .filter((item) => matchesMasterItemByPartial(item, usageKeyword))
+            .filter((item) => matchesMasterItemByPartial(item, debouncedUsageKeyword))
             .slice(0, DEFAULT_USAGE_SUGGESTION_LIMIT)
         : [],
-    [usageKeyword, usageSearchQuery.data],
+    [debouncedUsageKeyword, usageSearchQuery.data],
   );
 
+  useEffect(() => {
+    setUsageCandidateCursor(-1);
+  }, [debouncedUsageKeyword, usageItems.length]);
+
+  const debouncedMaterialKeyword = useDebouncedValue(materialKeyword, 260);
   const materialSearchQuery = useQuery({
-    queryKey: ['charts-order-material-search', materialKeyword],
-    queryFn: () => fetchOrderMasterSearch({ type: 'material', keyword: materialKeyword }),
-    enabled: supportsMaterials && materialKeyword.trim().length > 0,
+    queryKey: ['charts-order-material-search', debouncedMaterialKeyword],
+    queryFn: () => fetchOrderMasterSearch({ type: 'material', keyword: debouncedMaterialKeyword }),
+    enabled: supportsMaterials && debouncedMaterialKeyword.trim().length > 0,
     staleTime: 30 * 1000,
+    placeholderData: keepPreviousData,
   });
 
+  const debouncedBodyPartKeyword = useDebouncedValue(bodyPartKeyword, 260);
   const bodyPartSearchQuery = useQuery({
-    queryKey: ['charts-order-bodypart-search', bodyPartKeyword],
-    queryFn: () => fetchOrderMasterSearch({ type: 'bodypart', keyword: bodyPartKeyword }),
-    enabled: supportsBodyPartSearch && bodyPartKeyword.trim().length > 0,
+    queryKey: ['charts-order-bodypart-search', debouncedBodyPartKeyword],
+    queryFn: () => fetchOrderMasterSearch({ type: 'bodypart', keyword: debouncedBodyPartKeyword }),
+    enabled: supportsBodyPartSearch && debouncedBodyPartKeyword.trim().length > 0,
     staleTime: 30 * 1000,
+    placeholderData: keepPreviousData,
   });
 
   const commentKeyword = commentDraft.name?.trim() ?? '';
+  const debouncedCommentKeyword = useDebouncedValue(commentKeyword, 260);
   const commentSearchQuery = useQuery({
-    queryKey: ['charts-order-comment-search', commentKeyword],
-    queryFn: () => fetchOrderMasterSearch({ type: 'comment', keyword: commentKeyword }),
-    enabled: supportsCommentCodes && commentKeyword.trim().length > 0,
+    queryKey: ['charts-order-comment-search', debouncedCommentKeyword],
+    queryFn: () => fetchOrderMasterSearch({ type: 'comment', keyword: debouncedCommentKeyword }),
+    enabled: supportsCommentCodes && debouncedCommentKeyword.trim().length > 0,
     staleTime: 30 * 1000,
+    placeholderData: keepPreviousData,
   });
 
   const usageSelectOptions = useMemo(() => {
@@ -1115,7 +1240,7 @@ export function OrderBundleEditPanel({
     const map = new Map<string, OrderMasterSearchItem>();
     if (commentSearchQuery.data?.ok) {
       commentSearchQuery.data.items
-        .filter((item) => matchesMasterItemByPartial(item, commentKeyword))
+        .filter((item) => matchesMasterItemByPartial(item, debouncedCommentKeyword))
         .forEach((item) => {
           const code = item.code?.trim();
           const name = item.name.trim();
@@ -1160,7 +1285,7 @@ export function OrderBundleEditPanel({
     commentDraft.memo,
     commentDraft.name,
     commentDraft.unit,
-    commentKeyword,
+    debouncedCommentKeyword,
     commentSearchQuery.data,
     selectionCommentCandidates,
   ]);
@@ -1220,6 +1345,20 @@ export function OrderBundleEditPanel({
       memo: selected.note ?? prev.memo ?? '',
     }));
   };
+
+  useEffect(() => {
+    if (!supportsCommentCodes) return;
+    if (isBlocked) return;
+    if (commentDraft.code?.trim()) return;
+    const normalized = normalizePredictiveLabel(commentDraft.name);
+    if (!normalized) return;
+    const selected =
+      selectableCommentOptions.find((item) => normalizePredictiveLabel(item.name) === normalized) ??
+      selectableCommentOptions.find((item) => normalizePredictiveLabel(formatMasterLabel(item)) === normalized) ??
+      null;
+    if (!selected) return;
+    applyCommentDraftSelection(selected);
+  }, [applyCommentDraftSelection, commentDraft.code, commentDraft.name, isBlocked, selectableCommentOptions, supportsCommentCodes]);
 
   const applyRecommendation = (candidate: OrderRecommendationCandidate) => {
     if (isBlocked) return;
@@ -1465,8 +1604,10 @@ export function OrderBundleEditPanel({
     if (historyCopyRequest.requestId === lastExternalHistoryCopyRequestIdRef.current) return;
     lastExternalHistoryCopyRequestIdRef.current = historyCopyRequest.requestId;
     copyFromHistory(historyCopyRequest.bundle);
+    setValidationIssues([]);
+    focusFirstField();
     onHistoryCopyConsumed?.(historyCopyRequest.requestId);
-  }, [copyFromHistory, historyCopyRequest, onHistoryCopyConsumed]);
+  }, [copyFromHistory, focusFirstField, historyCopyRequest, onHistoryCopyConsumed]);
 
   const lastExternalRequestIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -1500,11 +1641,14 @@ export function OrderBundleEditPanel({
         // exhaustive
       }
     }
+    setValidationIssues([]);
+    focusFirstField();
     onRequestConsumed?.(request.requestId);
   }, [
     applyRecommendation,
     copyFromHistory,
     entity,
+    focusFirstField,
     onRequestConsumed,
     request,
     resetEditorForm,
@@ -1568,6 +1712,30 @@ export function OrderBundleEditPanel({
     return Array.from(new Set(details)).slice(0, 3);
   };
 
+  const requestContraConfirm = useCallback(
+    (payload: { summary: string; details: string[]; apiResult?: string; apiMessage?: string }) => {
+      if (typeof window === 'undefined') return Promise.resolve(false);
+      const existingResolve = contraConfirmResolveRef.current;
+      if (existingResolve) {
+        existingResolve(false);
+        contraConfirmResolveRef.current = null;
+      }
+      setContraConfirmPayload(payload);
+      setContraConfirmOpen(true);
+      return new Promise<boolean>((resolve) => {
+        contraConfirmResolveRef.current = resolve;
+      });
+    },
+    [],
+  );
+
+  const closeContraConfirm = useCallback((result: boolean) => {
+    setContraConfirmOpen(false);
+    const resolve = contraConfirmResolveRef.current;
+    contraConfirmResolveRef.current = null;
+    resolve?.(result);
+  }, []);
+
   const runContraindicationCheck = async (bundleForm: BundleFormState) => {
     if (!isMedOrder || !patientId) {
       setContraNotice(null);
@@ -1599,7 +1767,8 @@ export function OrderBundleEditPanel({
         result.results.some((entry) => entry.warnings.length > 0 || (entry.medicalResult && !/^0+$/.test(entry.medicalResult))) ||
         result.symptomInfo.length > 0 ||
         !apiOk;
-      setContraDetails(buildContraindicationDetails(result));
+      const nextContraDetails = buildContraindicationDetails(result);
+      setContraDetails(nextContraDetails);
       if (!result.ok) {
         setContraNotice({
           tone: 'error',
@@ -1639,15 +1808,18 @@ export function OrderBundleEditPanel({
           },
         },
       });
-      if (hasWarnings && typeof window !== 'undefined') {
+      if (hasWarnings) {
         const names = medications
           .map((item) => item.medicationName || item.medicationCode)
           .filter((name): name is string => Boolean(name));
         const uniqueNames = Array.from(new Set(names));
         const nameLabel = uniqueNames.length > 0 ? uniqueNames.join(' / ') : '対象薬剤';
-        return window.confirm(
-          `禁忌チェックで警告が検出されました。対象薬剤: ${nameLabel}（${medications.length}件）。保存を続行しますか？`,
-        );
+        return await requestContraConfirm({
+          summary: `禁忌チェックで警告が検出されました。対象薬剤: ${nameLabel}（${medications.length}件）`,
+          details: nextContraDetails,
+          apiResult: result.apiResult,
+          apiMessage: result.apiResultMessage,
+        });
       }
       return true;
     } catch (error) {
@@ -1795,6 +1967,10 @@ export function OrderBundleEditPanel({
         if (payload.action !== 'expand_continue') {
           setForm(buildEmptyForm(today));
         }
+        setValidationIssues([]);
+        if (payload.action === 'expand') {
+          onClose?.();
+        }
       }
     },
     onError: (error: unknown, payload: OrderBundleSubmitPayload) => {
@@ -1923,7 +2099,7 @@ export function OrderBundleEditPanel({
   });
 
   const isSaving = mutation.isPending || isContraChecking;
-  const fetchedBundles = bundleQuery.data?.bundles ?? [];
+  const fetchedBundles = bundlesOverride ?? bundleQuery.data?.bundles ?? [];
   useEffect(() => {
     if (optimisticBundles.length === 0 || fetchedBundles.length === 0) return;
     const fetchedIds = new Set(
@@ -2003,7 +2179,7 @@ export function OrderBundleEditPanel({
     requestAnimationFrame(() => {
       const el = document.getElementById(resolved.elementId);
       if (!el || !(el instanceof HTMLElement)) return;
-      el.scrollIntoView({ block: 'center' });
+      safeScrollIntoView(el, { block: 'center' });
       el.focus();
     });
   }, [
@@ -2032,6 +2208,57 @@ export function OrderBundleEditPanel({
       window.removeEventListener('orca-medical-warning-focus', handler);
     };
   }, [entity, patientId, requestWarningFocus]);
+
+  const focusFirstValidationIssue = useCallback(
+    (issues: BundleValidationIssue[], bundleForm: BundleFormState) => {
+      if (issues.length === 0) return;
+      if (typeof document === 'undefined') return;
+      const hasAnyValue = (item: OrderBundleItem) =>
+        Boolean(item.name?.trim() || item.code?.trim() || item.quantity?.trim() || item.unit?.trim() || item.memo?.trim());
+      const resolveTargetId = (key: string) => {
+        switch (key) {
+          case 'missing_bundle_name':
+            return `${entity}-bundle-name`;
+          case 'missing_usage':
+            return `${entity}-admin`;
+          case 'missing_body_part':
+            return `${entity}-bodypart`;
+          case 'missing_items':
+            return `${entity}-item-name-0`;
+          case 'invalid_material_item': {
+            const idx = bundleForm.materialItems.findIndex((item) => hasAnyValue(item) && !item.name?.trim());
+            return idx >= 0 ? `${entity}-material-name-${idx}` : `${entity}-material-keyword`;
+          }
+          case 'invalid_comment_item': {
+            const idx = bundleForm.commentItems.findIndex((item) => {
+              const hasCode = Boolean(item.code?.trim());
+              const hasName = Boolean(item.name?.trim());
+              return hasAnyValue(item) && (!hasCode || !hasName);
+            });
+            return idx >= 0 ? `${entity}-comment-name-${idx}` : `${entity}-comment-draft-name`;
+          }
+          case 'invalid_comment_code': {
+            const idx = bundleForm.commentItems.findIndex((item) => {
+              const code = item.code?.trim();
+              return Boolean(code && !COMMENT_CODE_PATTERN.test(code));
+            });
+            return idx >= 0 ? `${entity}-comment-name-${idx}` : `${entity}-comment-draft-name`;
+          }
+          default:
+            return null;
+        }
+      };
+      const targetId = issues.map((issue) => resolveTargetId(issue.key)).find((id): id is string => Boolean(id));
+      if (!targetId) return;
+      requestAnimationFrame(() => {
+        const el = document.getElementById(targetId);
+        if (!el || !(el instanceof HTMLElement)) return;
+        safeScrollIntoView(el, { block: 'center' });
+        el.focus();
+      });
+    },
+    [entity],
+  );
 
   const submitAction = (action: OrderBundleSubmitAction) => {
     if (isContraChecking) return;
@@ -2075,6 +2302,14 @@ export function OrderBundleEditPanel({
     const validationIssues = validateBundleForm({ form: normalizedForm, entity, bundleLabel });
     if (validationIssues.length > 0) {
       setNotice({ tone: 'error', message: validationIssues[0].message });
+      setValidationIssues(validationIssues);
+      if (validationIssues.some((issue) => issue.key === 'invalid_material_item')) {
+        setMaterialsFoldOpen(true);
+      }
+      if (validationIssues.some((issue) => issue.key === 'invalid_comment_item' || issue.key === 'invalid_comment_code')) {
+        setCommentsFoldOpen(true);
+      }
+      focusFirstValidationIssue(validationIssues, normalizedForm);
       logAuditEvent({
         runId: meta.runId,
         cacheHit: meta.cacheHit,
@@ -2108,6 +2343,7 @@ export function OrderBundleEditPanel({
     }
     const canContinue = await runContraindicationCheck(normalizedForm);
     if (!canContinue) return;
+    setValidationIssues([]);
     mutation.mutate({ form: normalizedForm, action });
     })();
   };
@@ -2157,12 +2393,100 @@ export function OrderBundleEditPanel({
     }
   }, [form.items, selectedItemRowId]);
 
+  const validationByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    validationIssues.forEach((issue) => {
+      if (!map.has(issue.key)) map.set(issue.key, issue.message);
+    });
+    return map;
+  }, [validationIssues]);
+  const bundleNameError = validationByKey.get('missing_bundle_name');
+  const usageError = validationByKey.get('missing_usage');
+  const itemsError = validationByKey.get('missing_items');
+  const bodyPartError = validationByKey.get('missing_body_part');
+  const materialError = validationByKey.get('invalid_material_item');
+  const commentError =
+    validationByKey.get('invalid_comment_item') ?? validationByKey.get('invalid_comment_code');
+
+  const invalidMaterialIndices = useMemo(() => {
+    if (!materialError) return new Set<number>();
+    const hasAnyValue = (item: OrderBundleItem) =>
+      Boolean(
+        item.name?.trim() ||
+          item.code?.trim() ||
+          item.quantity?.trim() ||
+          item.unit?.trim() ||
+          item.memo?.trim(),
+      );
+    const indices = new Set<number>();
+    form.materialItems.forEach((item, index) => {
+      if (!item.name?.trim() && hasAnyValue(item)) indices.add(index);
+    });
+    return indices;
+  }, [form.materialItems, materialError]);
+
+  const invalidCommentIndices = useMemo(() => {
+    if (!commentError) return new Set<number>();
+    const hasAnyValue = (item: OrderBundleItem) =>
+      Boolean(
+        item.name?.trim() ||
+          item.code?.trim() ||
+          item.quantity?.trim() ||
+          item.unit?.trim() ||
+          item.memo?.trim(),
+      );
+    const indices = new Set<number>();
+    form.commentItems.forEach((item, index) => {
+      const hasCode = Boolean(item.code?.trim());
+      const hasName = Boolean(item.name?.trim());
+      const hasValue = hasAnyValue(item);
+      const invalidCode = hasCode && !COMMENT_CODE_PATTERN.test(item.code!.trim());
+      if (invalidCode || (hasValue && (!hasCode || !hasName))) indices.add(index);
+    });
+    return indices;
+  }, [commentError, form.commentItems]);
+
   if (!patientId) {
     return <p className="charts-side-panel__empty">患者IDが未選択のため {title} を開始できません。</p>;
   }
 
   return (
     <section className="charts-side-panel__section" data-order-entity={entity} data-test-id={`${entity}-edit-panel`}>
+      <FocusTrapDialog
+        open={contraConfirmOpen}
+        title="禁忌チェックの警告"
+        description={contraConfirmPayload?.summary}
+        role="alertdialog"
+        onClose={() => closeContraConfirm(false)}
+        testId="contraindication-confirm"
+      >
+        <div className="charts-side-panel__confirm">
+          <p className="charts-side-panel__message">
+            禁忌チェックで警告が検出されました。確認のうえ、保存を続行するか編集に戻って修正してください。
+          </p>
+          {contraConfirmPayload?.apiResult ? (
+            <p className="charts-side-panel__help">
+              Api_Result: {contraConfirmPayload.apiResult}
+              {contraConfirmPayload.apiMessage ? ` / ${contraConfirmPayload.apiMessage}` : ''}
+            </p>
+          ) : null}
+          {contraConfirmPayload?.details?.length ? (
+            <ul className="charts-side-panel__confirm-list">
+              {contraConfirmPayload.details.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="charts-side-panel__actions charts-side-panel__actions--dialog" role="group" aria-label="禁忌チェックの確認">
+            <button type="button" className="charts-side-panel__action" onClick={() => closeContraConfirm(false)}>
+              編集に戻る
+            </button>
+            <button type="button" className="charts-side-panel__action charts-side-panel__action--save" onClick={() => closeContraConfirm(true)}>
+              今回だけ無視して保存
+            </button>
+          </div>
+        </div>
+      </FocusTrapDialog>
       <header className="charts-side-panel__section-header">
         <div className="charts-side-panel__section-header-main">
           <strong>{title}</strong>
@@ -2190,6 +2514,7 @@ export function OrderBundleEditPanel({
         </button>
       </header>
 
+      <div className="charts-side-panel__dock-body" ref={editorScrollRef}>
       {showMasterReferenceStatus ? (
         <section className="charts-side-panel__master-ref-panel" aria-label="参照マスタ状態">
           <div className="charts-side-panel__master-ref-header">
@@ -2341,16 +2666,39 @@ export function OrderBundleEditPanel({
               event.preventDefault();
               submitAction('save');
             }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              const target = event.target;
+              if (target instanceof HTMLSelectElement) return;
+              if (!(target instanceof HTMLInputElement)) return;
+              if (['checkbox', 'radio', 'button', 'submit'].includes(target.type)) return;
+              if (event.ctrlKey || event.metaKey) {
+                event.preventDefault();
+                submitAction('save');
+                return;
+              }
+              // Prevent accidental submit while editing fields.
+              event.preventDefault();
+            }}
           >
-        <div className="charts-side-panel__field">
+        <div className="charts-side-panel__field" data-invalid={bundleNameError ? 'true' : undefined}>
           <label htmlFor={`${entity}-bundle-name`}>{bundleLabel}</label>
           <input
             id={`${entity}-bundle-name`}
             value={form.bundleName}
-            onChange={(event) => setForm((prev) => ({ ...prev, bundleName: event.target.value }))}
+            aria-invalid={bundleNameError ? 'true' : undefined}
+            onChange={(event) => {
+              clearValidationByKeys(['missing_bundle_name']);
+              setForm((prev) => ({ ...prev, bundleName: event.target.value }));
+            }}
             placeholder={orderUiProfile.bundleNamePlaceholder}
             disabled={isBlocked}
           />
+          {bundleNameError ? (
+            <p className="charts-side-panel__field-error" role="alert">
+              {bundleNameError}
+            </p>
+          ) : null}
         </div>
         {isMedOrder && (
           <div className="charts-side-panel__field-row">
@@ -2454,7 +2802,7 @@ export function OrderBundleEditPanel({
           </div>
         )}
         <div className="charts-side-panel__field-row">
-          <div className="charts-side-panel__field">
+          <div className="charts-side-panel__field" data-invalid={usageError ? 'true' : undefined}>
             <label htmlFor={`${entity}-admin`}>{orderUiProfile.instructionLabel}</label>
             {supportsUsageSearch ? (
               <input
@@ -2462,13 +2810,51 @@ export function OrderBundleEditPanel({
                 value={form.admin}
                 data-orca-warning={orcaWarningTargets.usage ? 'true' : undefined}
                 list={usageSelectOptions.length > 0 ? `${entity}-usage-suggestion-list` : undefined}
-                onChange={(event) =>
+                aria-invalid={usageError ? 'true' : undefined}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  clearValidationByKeys(['missing_usage']);
                   setForm((prev) => ({
                     ...prev,
-                    admin: event.target.value,
+                    admin: nextValue,
                     adminMemo: '',
-                  }))
-                }
+                  }));
+                }}
+                onKeyDown={(event) => {
+                  if (isBlocked) return;
+                  if (usageItems.length === 0) return;
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setUsageCandidateCursor((prev) => {
+                      if (prev < 0) return 0;
+                      return Math.min(prev + 1, usageItems.length - 1);
+                    });
+                    return;
+                  }
+                  if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setUsageCandidateCursor((prev) => {
+                      if (prev < 0) return usageItems.length - 1;
+                      return Math.max(prev - 1, 0);
+                    });
+                    return;
+                  }
+                  if (event.key === 'Escape') {
+                    setUsageCandidateCursor(-1);
+                    return;
+                  }
+                  if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
+                    if (usageCandidateCursor < 0) return;
+                    const candidate = usageItems[usageCandidateCursor];
+                    if (!candidate) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    applyUsage(candidate);
+                    setUsageCandidateCursor(-1);
+                  }
+                }}
                 onBlur={(event) => {
                   const value = event.target.value;
                   const matched = applyUsageSelection(value);
@@ -2484,13 +2870,20 @@ export function OrderBundleEditPanel({
                 id={`${entity}-admin`}
                 value={form.admin}
                 data-orca-warning={orcaWarningTargets.usage ? 'true' : undefined}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, admin: event.target.value, adminMemo: '' }))
-                }
+                aria-invalid={usageError ? 'true' : undefined}
+                onChange={(event) => {
+                  clearValidationByKeys(['missing_usage']);
+                  setForm((prev) => ({ ...prev, admin: event.target.value, adminMemo: '' }));
+                }}
                 placeholder={orderUiProfile.instructionPlaceholder}
                 disabled={isBlocked}
               />
             )}
+            {usageError ? (
+              <p className="charts-side-panel__field-error" role="alert">
+                {usageError}
+              </p>
+            ) : null}
           </div>
           <div className="charts-side-panel__field">
             <label htmlFor={`${entity}-bundle-number`}>{bundleNumberLabel}</label>
@@ -2547,11 +2940,12 @@ export function OrderBundleEditPanel({
                   <span>分類</span>
                   <span>備考</span>
                 </div>
-                {usageItems.map((item) => (
+                {usageItems.map((item, index) => (
                   <button
                     key={`usage-${item.code ?? item.name}`}
                     type="button"
                     className="charts-side-panel__search-row"
+                    data-active={index === usageCandidateCursor ? 'true' : undefined}
                     onClick={() => applyUsage(item)}
                     disabled={isBlocked}
                   >
@@ -2632,27 +3026,35 @@ export function OrderBundleEditPanel({
               )}
             </div>
             <div className="charts-side-panel__field-row">
-              <div className="charts-side-panel__field">
+              <div className="charts-side-panel__field" data-invalid={bodyPartError ? 'true' : undefined}>
                 <label htmlFor={`${entity}-bodypart`}>部位</label>
                 <input
                   id={`${entity}-bodypart`}
                   value={form.bodyPart?.name ?? ''}
                   data-orca-warning={orcaWarningTargets.bodyPart ? 'true' : undefined}
-                  onChange={(event) =>
+                  aria-invalid={bodyPartError ? 'true' : undefined}
+                  onChange={(event) => {
+                    clearValidationByKeys(['missing_body_part']);
+                    const nextName = event.target.value;
                     setForm((prev) => ({
                       ...prev,
                       bodyPart: {
                         code: prev.bodyPart?.code,
-                        name: event.target.value,
+                        name: nextName,
                         quantity: prev.bodyPart?.quantity ?? '',
                         unit: prev.bodyPart?.unit ?? '',
                         memo: prev.bodyPart?.memo ?? '',
                       },
-                    }))
-                  }
+                    }));
+                  }}
                   placeholder={isRadiologyOrder ? '例: 胸部' : '例: 膝関節'}
                   disabled={isBlocked}
                 />
+                {bodyPartError ? (
+                  <p className="charts-side-panel__field-error" role="alert">
+                    {bodyPartError}
+                  </p>
+                ) : null}
               </div>
               <div className="charts-side-panel__field">
                 <label htmlFor={`${entity}-bodypart-keyword`}>部位検索</label>
@@ -2767,6 +3169,11 @@ export function OrderBundleEditPanel({
               </button>
             </div>
           </div>
+          {itemsError ? (
+            <p className="charts-side-panel__field-error" role="alert">
+              {itemsError}
+            </p>
+          ) : null}
           <div className="charts-side-panel__template-actions" aria-label="入力候補マスタ">
             {masterSearchPresets.map((preset) => (
               <button
@@ -2830,12 +3237,15 @@ export function OrderBundleEditPanel({
               }${
                 orcaWarningTargets.items.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
               }${
+                itemsError && index === 0 ? ' charts-side-panel__item-row--invalid' : ''
+              }${
                 dragOverIndex === index ? ' charts-side-panel__item-row--drag-over' : ''
               }${draggingIndex === index ? ' charts-side-panel__item-row--dragging' : ''}${
                 selectedItemRowId === (item as OrderBundleItemWithRowId).rowId
                   ? ' charts-side-panel__item-row--selected'
                   : ''
               }`}
+              data-invalid={itemsError && index === 0 ? 'true' : undefined}
               data-testid="order-bundle-item-row"
               data-rowid={(item as OrderBundleItemWithRowId).rowId ?? ''}
               onClick={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
@@ -2885,6 +3295,7 @@ export function OrderBundleEditPanel({
                 id={`${entity}-item-name-${index}`}
                 name={`${entity}-item-name-${index}`}
                 value={item.name}
+                aria-invalid={itemsError && index === 0 ? 'true' : undefined}
                 list={
                   (item as OrderBundleItemWithRowId).rowId === selectedItemRowId && itemPredictiveCandidates.length > 0
                     ? `${entity}-item-predictive-list`
@@ -2892,11 +3303,54 @@ export function OrderBundleEditPanel({
                 }
                 onChange={(event) => {
                   const value = event.target.value;
+                  clearValidationByKeys(['missing_items']);
                   setForm((prev) => {
                     const next = [...prev.items];
                     next[index] = { ...next[index], name: value };
                     return { ...prev, items: next };
                   });
+                }}
+                onKeyDown={(event) => {
+                  if (isBlocked) return;
+                  const rowId = (item as OrderBundleItemWithRowId).rowId;
+                  if (!rowId || rowId !== selectedItemRowId) return;
+                  if (itemPredictiveCandidates.length === 0) return;
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setItemCandidateCursor((prev) => {
+                      if (prev < 0) return 0;
+                      return Math.min(prev + 1, itemPredictiveCandidates.length - 1);
+                    });
+                    return;
+                  }
+                  if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setItemCandidateCursor((prev) => {
+                      if (prev < 0) return itemPredictiveCandidates.length - 1;
+                      return Math.max(prev - 1, 0);
+                    });
+                    return;
+                  }
+                  if (event.key === 'Escape') {
+                    setItemCandidateCursor(-1);
+                    return;
+                  }
+                  if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
+                    if (itemCandidateCursor < 0) return;
+                    const candidate = itemPredictiveCandidates[itemCandidateCursor];
+                    if (!candidate) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    applyPredictiveItemSelection(rowId, candidate.label);
+                    setItemCandidateCursor(-1);
+                    requestAnimationFrame(() => {
+                      const el = document.getElementById(`${entity}-item-quantity-${index}`);
+                      if (!el || !(el instanceof HTMLElement)) return;
+                      el.focus();
+                    });
+                  }
                 }}
                 onBlur={(event) =>
                   applyPredictiveItemSelection((item as OrderBundleItemWithRowId).rowId, event.target.value)
@@ -3013,6 +3467,7 @@ export function OrderBundleEditPanel({
                     key={`item-suggestion-${item.code ?? item.name}-${candidateIndex}`}
                     type="button"
                     className="charts-side-panel__search-row"
+                    data-active={candidateIndex === itemCandidateCursor ? 'true' : undefined}
                     onClick={() => applyPredictiveItemSelection(selectedItemRowId ?? undefined, candidate.label)}
                     disabled={isBlocked || !selectedItemRowId}
                   >
@@ -3072,147 +3527,192 @@ export function OrderBundleEditPanel({
         </div>
 
         {supportsMaterials && (
-          <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
-            <div className="charts-side-panel__subheader">
-              <strong>材料</strong>
-              <button
-                type="button"
-                className="charts-side-panel__ghost charts-side-panel__ghost--add"
-                onClick={() =>
-                  setForm((prev) => ({ ...prev, materialItems: [...prev.materialItems, buildEmptyItem()] }))
-                }
-                disabled={isBlocked}
-              >
-                材料追加
-              </button>
-            </div>
-            <div className="charts-side-panel__field">
-              <label htmlFor={`${entity}-material-keyword`}>材料キーワード</label>
-              <input
-                id={`${entity}-material-keyword`}
-                value={materialKeyword}
-                onChange={(event) => setMaterialKeyword(event.target.value)}
-                placeholder="例: ガーゼ"
-                disabled={isBlocked}
-              />
-            </div>
-            {materialSearchQuery.data && !materialSearchQuery.data.ok && (
-              <div className="charts-side-panel__notice charts-side-panel__notice--error">
-                {materialSearchQuery.data.message ?? '材料マスタの検索に失敗しました。'}
-              </div>
-            )}
-            {materialSearchQuery.data?.ok && materialSearchQuery.data.items.length > 0 && (
-              <div className="charts-side-panel__search-table">
-                <div className="charts-side-panel__search-header">
-                  <span>コード</span>
-                  <span>名称</span>
-                  <span>単位</span>
-                  <span>分類</span>
-                  <span>備考</span>
-                </div>
-                {materialSearchQuery.data.items.map((item) => (
+          <details
+            className="charts-side-panel__fold"
+            open={materialsFoldOpen}
+            onToggle={(event) => setMaterialsFoldOpen(event.currentTarget.open)}
+            data-invalid={materialError ? 'true' : undefined}
+          >
+            <summary className="charts-side-panel__fold-summary">
+              <span>材料</span>
+              <span className="charts-side-panel__fold-meta">
+                {materialError ? (
+                  <span className="charts-side-panel__fold-badge charts-side-panel__fold-badge--error">要修正</span>
+                ) : null}
+                <span className="charts-side-panel__fold-count">{countItems(form.materialItems)}件</span>
+              </span>
+            </summary>
+            <div className="charts-side-panel__fold-content">
+              <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
+                <div className="charts-side-panel__subheader">
+                  <strong>材料</strong>
                   <button
-                    key={`material-${item.code ?? item.name}`}
                     type="button"
-                    className="charts-side-panel__search-row"
+                    className="charts-side-panel__ghost charts-side-panel__ghost--add"
                     onClick={() =>
-                      appendMaterialItem({
-                        code: item.code,
-                        name: formatMasterLabel(item),
-                        quantity: '',
-                        unit: item.unit ?? '',
-                        memo: item.note ?? '',
-                      })
+                      setForm((prev) => ({ ...prev, materialItems: [...prev.materialItems, buildEmptyItem()] }))
                     }
                     disabled={isBlocked}
                   >
-                    <span>{item.code ?? '-'}</span>
-                    <span>{item.name}</span>
-                    <span>{item.unit ?? '-'}</span>
-                    <span>{item.category ?? '-'}</span>
-                    <span>{item.note ?? '-'}</span>
+                    材料追加
                   </button>
-                ))}
+                </div>
+                {materialError ? (
+                  <p className="charts-side-panel__field-error" role="alert">
+                    {materialError}
+                  </p>
+                ) : null}
+                <div className="charts-side-panel__field">
+                  <label htmlFor={`${entity}-material-keyword`}>材料キーワード</label>
+                  <input
+                    id={`${entity}-material-keyword`}
+                    value={materialKeyword}
+                    onChange={(event) => setMaterialKeyword(event.target.value)}
+                    placeholder="例: ガーゼ"
+                    disabled={isBlocked}
+                  />
+                </div>
+                {materialSearchQuery.data && !materialSearchQuery.data.ok && (
+                  <div className="charts-side-panel__notice charts-side-panel__notice--error">
+                    {materialSearchQuery.data.message ?? '材料マスタの検索に失敗しました。'}
+                  </div>
+                )}
+                {materialSearchQuery.data?.ok && materialSearchQuery.data.items.length > 0 && (
+                  <div className="charts-side-panel__search-table">
+                    <div className="charts-side-panel__search-header">
+                      <span>コード</span>
+                      <span>名称</span>
+                      <span>単位</span>
+                      <span>分類</span>
+                      <span>備考</span>
+                    </div>
+                    {materialSearchQuery.data.items.map((item) => (
+                      <button
+                        key={`material-${item.code ?? item.name}`}
+                        type="button"
+                        className="charts-side-panel__search-row"
+                        onClick={() =>
+                          appendMaterialItem({
+                            code: item.code,
+                            name: formatMasterLabel(item),
+                            quantity: '',
+                            unit: item.unit ?? '',
+                            memo: item.note ?? '',
+                          })
+                        }
+                        disabled={isBlocked}
+                      >
+                        <span>{item.code ?? '-'}</span>
+                        <span>{item.name}</span>
+                        <span>{item.unit ?? '-'}</span>
+                        <span>{item.category ?? '-'}</span>
+                        <span>{item.note ?? '-'}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {materialSearchQuery.data?.ok && materialSearchQuery.data.items.length === 0 && materialKeyword.trim() && (
+                  <p className="charts-side-panel__empty">該当する材料が見つかりません。</p>
+                )}
+                {form.materialItems.map((item, index) => {
+                  const invalid = invalidMaterialIndices.has(index);
+                  return (
+                    <div
+                      key={`${entity}-material-${index}`}
+                      className={`charts-side-panel__item-row${
+                        orcaWarningTargets.materialItems.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
+                      }${invalid ? ' charts-side-panel__item-row--invalid' : ''}`}
+                      data-invalid={invalid ? 'true' : undefined}
+                    >
+                      <input
+                        id={`${entity}-material-name-${index}`}
+                        name={`${entity}-material-name-${index}`}
+                        value={item.name}
+                        aria-invalid={invalid ? 'true' : undefined}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          clearValidationByKeys(['invalid_material_item']);
+                          setForm((prev) => {
+                            const next = [...prev.materialItems];
+                            next[index] = { ...next[index], name: value };
+                            return { ...prev, materialItems: next };
+                          });
+                        }}
+                        placeholder="材料名"
+                        disabled={isBlocked}
+                      />
+                      <input
+                        id={`${entity}-material-quantity-${index}`}
+                        name={`${entity}-material-quantity-${index}`}
+                        value={item.quantity ?? ''}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setForm((prev) => {
+                            const next = [...prev.materialItems];
+                            next[index] = { ...next[index], quantity: value };
+                            return { ...prev, materialItems: next };
+                          });
+                        }}
+                        placeholder={itemQuantityLabel}
+                        disabled={isBlocked}
+                      />
+                      <input
+                        id={`${entity}-material-unit-${index}`}
+                        name={`${entity}-material-unit-${index}`}
+                        value={item.unit ?? ''}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setForm((prev) => {
+                            const next = [...prev.materialItems];
+                            next[index] = { ...next[index], unit: value };
+                            return { ...prev, materialItems: next };
+                          });
+                        }}
+                        placeholder="単位"
+                        disabled={isBlocked}
+                      />
+                      <button
+                        type="button"
+                        className="charts-side-panel__icon"
+                        onClick={() => {
+                          setForm((prev) => ({
+                            ...prev,
+                            materialItems:
+                              prev.materialItems.length > 1
+                                ? prev.materialItems.filter((_, idx) => idx !== index)
+                                : [],
+                          }));
+                        }}
+                        disabled={isBlocked}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
-            )}
-            {materialSearchQuery.data?.ok && materialSearchQuery.data.items.length === 0 && materialKeyword.trim() && (
-              <p className="charts-side-panel__empty">該当する材料が見つかりません。</p>
-            )}
-            {form.materialItems.map((item, index) => (
-              <div
-                key={`${entity}-material-${index}`}
-                className={`charts-side-panel__item-row${
-                  orcaWarningTargets.materialItems.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
-                }`}
-              >
-                <input
-                  id={`${entity}-material-name-${index}`}
-                  name={`${entity}-material-name-${index}`}
-                  value={item.name}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setForm((prev) => {
-                      const next = [...prev.materialItems];
-                      next[index] = { ...next[index], name: value };
-                      return { ...prev, materialItems: next };
-                    });
-                  }}
-                  placeholder="材料名"
-                  disabled={isBlocked}
-                />
-                <input
-                  id={`${entity}-material-quantity-${index}`}
-                  name={`${entity}-material-quantity-${index}`}
-                  value={item.quantity ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setForm((prev) => {
-                      const next = [...prev.materialItems];
-                      next[index] = { ...next[index], quantity: value };
-                      return { ...prev, materialItems: next };
-                    });
-                  }}
-                  placeholder={itemQuantityLabel}
-                  disabled={isBlocked}
-                />
-                <input
-                  id={`${entity}-material-unit-${index}`}
-                  name={`${entity}-material-unit-${index}`}
-                  value={item.unit ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setForm((prev) => {
-                      const next = [...prev.materialItems];
-                      next[index] = { ...next[index], unit: value };
-                      return { ...prev, materialItems: next };
-                    });
-                  }}
-                  placeholder="単位"
-                  disabled={isBlocked}
-                />
-                <button
-                  type="button"
-                  className="charts-side-panel__icon"
-                  onClick={() => {
-                    setForm((prev) => ({
-                      ...prev,
-                      materialItems:
-                        prev.materialItems.length > 1
-                          ? prev.materialItems.filter((_, idx) => idx !== index)
-                          : [],
-                    }));
-                  }}
-                  disabled={isBlocked}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
+            </div>
+          </details>
         )}
 
         {supportsCommentCodes && (
-          <div className="charts-side-panel__subsection">
+          <details
+            className="charts-side-panel__fold"
+            open={commentsFoldOpen}
+            onToggle={(event) => setCommentsFoldOpen(event.currentTarget.open)}
+            data-invalid={commentError ? 'true' : undefined}
+          >
+            <summary className="charts-side-panel__fold-summary">
+              <span>コメントコード</span>
+              <span className="charts-side-panel__fold-meta">
+                {commentError ? (
+                  <span className="charts-side-panel__fold-badge charts-side-panel__fold-badge--error">要修正</span>
+                ) : null}
+                <span className="charts-side-panel__fold-count">{countItems(form.commentItems)}件</span>
+              </span>
+            </summary>
+            <div className="charts-side-panel__fold-content">
+              <div className="charts-side-panel__subsection">
             <div className="charts-side-panel__subheader">
               <strong>コメントコード</strong>
               <span className="charts-side-panel__search-count">
@@ -3223,6 +3723,11 @@ export function OrderBundleEditPanel({
                     : ''}
               </span>
             </div>
+            {commentError ? (
+              <p className="charts-side-panel__field-error" role="alert">
+                {commentError}
+              </p>
+            ) : null}
             <p className="charts-side-panel__message">
               コメント内容欄に入力した文字列で部分一致候補を表示します。候補選択でコードと名称を自動入力します。
             </p>
@@ -3348,13 +3853,16 @@ export function OrderBundleEditPanel({
             {(commentKeyword || isItemCodeSearch) && !commentSearchQuery.isFetching && selectableCommentOptions.length === 0 && (
               <p className="charts-side-panel__empty">該当するコメントコードが見つかりません。</p>
             )}
-            {form.commentItems.map((item, index) => (
-              <div
-                key={`${entity}-comment-${index}`}
-                className={`charts-side-panel__item-row charts-side-panel__item-row--comment${
-                  orcaWarningTargets.commentItems.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
-                }`}
-              >
+            {form.commentItems.map((item, index) => {
+              const invalid = invalidCommentIndices.has(index);
+              return (
+                <div
+                  key={`${entity}-comment-${index}`}
+                  className={`charts-side-panel__item-row charts-side-panel__item-row--comment${
+                    orcaWarningTargets.commentItems.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
+                  }${invalid ? ' charts-side-panel__item-row--invalid' : ''}`}
+                  data-invalid={invalid ? 'true' : undefined}
+                >
                 {/*
                  * Free comment (810...) used for gaiyo mixing needs to stay editable so users can adjust wording.
                  * We tag it via memo marker and keep other comment codes read-only.
@@ -3377,9 +3885,11 @@ export function OrderBundleEditPanel({
                   value={item.name}
                   placeholder="コメント内容"
                   readOnly={!isMixingItem}
+                  aria-invalid={invalid ? 'true' : undefined}
                   onChange={(event) => {
                     if (!isMixingItem) return;
                     const value = event.target.value;
+                    clearValidationByKeys(['invalid_comment_item', 'invalid_comment_code']);
                     setForm((prev) => {
                       const next = [...prev.commentItems];
                       next[index] = { ...next[index], name: value };
@@ -3424,45 +3934,25 @@ export function OrderBundleEditPanel({
                 <button
                   type="button"
                   className="charts-side-panel__icon"
-                  onClick={() =>
+                  onClick={() => {
+                    clearValidationByKeys(['invalid_comment_item', 'invalid_comment_code']);
                     setForm((prev) => ({
                       ...prev,
                       commentItems: prev.commentItems.filter((_, idx) => idx !== index),
-                    }))
-                  }
+                    }));
+                  }}
                   disabled={isBlocked}
                 >
                   ✕
                 </button>
               </div>
-            ))}
-          </div>
+              );
+            })}
+              </div>
+            </div>
+          </details>
         )}
 
-        <p className="charts-side-panel__message">
-          展開: カルテへ反映 / 展開継続: 反映後に入力を保持 / 保存: オーダー束を保存
-        </p>
-        <div className="charts-side-panel__actions">
-          <button
-            type="button"
-            className="charts-side-panel__action charts-side-panel__action--expand"
-            onClick={() => submitAction('expand')}
-            disabled={isSaving || isBlocked}
-          >
-            展開する
-          </button>
-          <button
-            type="button"
-            className="charts-side-panel__action charts-side-panel__action--expand-continue"
-            onClick={() => submitAction('expand_continue')}
-            disabled={isSaving || isBlocked}
-          >
-            展開継続する
-          </button>
-          <button type="submit" className="charts-side-panel__action charts-side-panel__action--save" disabled={isSaving || isBlocked}>
-            {form.documentId ? '保存して更新' : '保存して追加'}
-          </button>
-        </div>
       </form>
 
           {showBundleList ? (
@@ -3543,6 +4033,44 @@ export function OrderBundleEditPanel({
           ) : null}
         </div>
       </div>
+      </div>
+
+      <footer className="charts-side-panel__dock-footer" aria-label="保存操作">
+        <p className="charts-side-panel__message">
+          Ctrl+Enter: 保存 / 保存して閉じる: 保存後に一覧へ戻る / 保存して続ける: 入力を保持 / 保存して追加: 新規入力へ
+        </p>
+        <div className="charts-side-panel__actions charts-side-panel__actions--footer" role="group" aria-label="保存操作">
+          <button
+            type="button"
+            className="charts-side-panel__action charts-side-panel__action--expand"
+            onClick={() => submitAction('expand')}
+            disabled={isSaving || isBlocked}
+          >
+            保存して閉じる
+          </button>
+          <button
+            type="button"
+            className="charts-side-panel__action charts-side-panel__action--expand-continue"
+            onClick={() => submitAction('expand_continue')}
+            disabled={isSaving || isBlocked}
+          >
+            保存して続ける
+          </button>
+          <button
+            type="button"
+            className="charts-side-panel__action charts-side-panel__action--save"
+            onClick={() => submitAction('save')}
+            disabled={isSaving || isBlocked}
+          >
+            {form.documentId ? '保存して更新' : '保存して追加'}
+          </button>
+          {onClose ? (
+            <button type="button" className="charts-side-panel__action charts-side-panel__action--close" onClick={onClose} disabled={isSaving}>
+              閉じる
+            </button>
+          ) : null}
+        </div>
+      </footer>
     </section>
   );
 }
