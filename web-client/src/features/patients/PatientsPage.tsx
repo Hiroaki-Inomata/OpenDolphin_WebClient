@@ -22,12 +22,13 @@ import {
 import { MISSING_MASTER_RECOVERY_NEXT_ACTION } from '../shared/missingMasterRecovery';
 import { ToneBanner } from '../reception/components/ToneBanner';
 import { applyAuthServicePatch, useAuthService, type AuthServiceFlags, type DataSourceTransition } from '../charts/authService';
-import { normalizeVisitDate, parseReceptionCarryoverParams } from '../charts/encounterContext';
+import { normalizeVisitDate } from '../charts/encounterContext';
 import { useSession } from '../../AppRouter';
 import { buildFacilityPath } from '../../routes/facilityRoutes';
 import { applyExternalParams, isSafeReturnTo, pickExternalParams } from '../../routes/appNavigation';
 import { useNavigationGuard } from '../../routes/NavigationGuardProvider';
 import { useAppNavigation } from '../../routes/useAppNavigation';
+import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 import { PatientFormErrorAlert } from './PatientFormErrorAlert';
 import { useAppToast } from '../../libs/ui/appToast';
 import { useAdminBroadcast } from '../../libs/admin/useAdminBroadcast';
@@ -43,6 +44,7 @@ import { importPatientsFromOrca } from '../outpatient/orcaPatientImportApi';
 import { fetchPatientMemo, updatePatientMemo, type PatientMemoUpdateResult } from './patientMemoApi';
 import { fetchPatientOriginal, type PatientOriginalFormat, type PatientOriginalResponse } from './patientOriginalApi';
 import { fetchInsuranceList, type HealthInsuranceEntry, type InsuranceListResponse, type PublicInsuranceEntry } from './insuranceApi';
+import { PATIENT_FIELD_LABEL, diffPatientKeys } from './patientDiff';
 import { validatePatientMutation, type PatientOperation, type PatientValidationError } from './patientValidation';
 import {
   loadOutpatientSavedViews,
@@ -78,6 +80,12 @@ const toSearchParams = (filters: typeof DEFAULT_FILTER) => {
   if (filters.paymentMode && filters.paymentMode !== 'all') params.set('pay', filters.paymentMode);
   return params;
 };
+
+const isSameFilter = (left: typeof DEFAULT_FILTER, right: typeof DEFAULT_FILTER) =>
+  left.keyword === right.keyword &&
+  left.department === right.department &&
+  left.physician === right.physician &&
+  left.paymentMode === right.paymentMode;
 
 const pickString = (value: unknown): string | undefined => (typeof value === 'string' && value.length > 0 ? value : undefined);
 
@@ -173,6 +181,40 @@ const normalizePatientRecord = (record?: PatientRecord | null) => ({
   memo: record?.memo ?? '',
 });
 
+const resolveSexLabel = (sex?: string) => {
+  if (sex === 'M') return '男';
+  if (sex === 'F') return '女';
+  return '不明';
+};
+
+const resolveAgeLabel = (birthDate?: string) => {
+  if (!birthDate) return '年齢不明';
+  const parsed = new Date(`${birthDate}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return '年齢不明';
+  const now = new Date();
+  let age = now.getFullYear() - parsed.getFullYear();
+  const hasBirthdayPassed =
+    now.getMonth() > parsed.getMonth() || (now.getMonth() === parsed.getMonth() && now.getDate() >= parsed.getDate());
+  if (!hasBirthdayPassed) age -= 1;
+  if (!Number.isFinite(age) || age < 0) return '年齢不明';
+  return `${age}歳`;
+};
+
+const truncateText = (value: string, limit: number) => {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}…`;
+};
+
+type PatientsDetailTabKey = 'basic' | 'orcaTools' | 'insurance' | 'orcaMemo' | 'audit';
+
+const PATIENTS_DETAIL_TABS: Array<{ key: PatientsDetailTabKey; label: string }> = [
+  { key: 'basic', label: '基本情報' },
+  { key: 'orcaTools', label: 'ORCA更新/原本' },
+  { key: 'insurance', label: '保険' },
+  { key: 'orcaMemo', label: 'ORCAメモ' },
+  { key: 'audit', label: '監査/ログ' },
+];
+
 type ToastState = {
   tone: 'warning' | 'success' | 'error' | 'info';
   message: string;
@@ -215,7 +257,6 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   const { enqueue } = useAppToast();
   const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
   const { registerDirty } = useNavigationGuard();
-  const receptionCarryover = useMemo(() => parseReceptionCarryoverParams(location.search), [location.search]);
   const handleOpenReception = useCallback(() => {
     appNav.openReception();
   }, [appNav.openReception]);
@@ -255,12 +296,17 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     return buildFacilityPath(session.facilityId, '/charts');
   }, [fromCandidate, session.facilityId]);
   const initialFilters = useMemo(() => readFilters(searchParams), [searchParams]);
-  const [filters, setFilters] = useState(initialFilters);
+  const [draftFilters, setDraftFilters] = useState(initialFilters);
+  const [appliedFilters, setAppliedFilters] = useState(initialFilters);
+  const [orcaImportPatientId, setOrcaImportPatientId] = useState('');
+  const [activeDetailTab, setActiveDetailTab] = useState<PatientsDetailTabKey>('basic');
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [form, setForm] = useState<PatientRecord>({});
   const [baseline, setBaseline] = useState<PatientRecord | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<{ tone: 'info' | 'warning'; message: string } | null>(null);
   const [selectionLost, setSelectionLost] = useState(false);
+  const [pendingSelection, setPendingSelection] = useState<PatientRecord | null>(null);
+  const [switchingSelection, setSwitchingSelection] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [lastAuditEvent, setLastAuditEvent] = useState<Record<string, unknown> | undefined>();
   const [lastSaveResult, setLastSaveResult] = useState<PatientMutationResult | null>(null);
@@ -589,10 +635,8 @@ export function PatientsPage({ runId }: PatientsPageProps) {
 
   useEffect(() => {
     const merged = readFilters(searchParams);
-    setFilters((prev) => {
-      const next = { ...prev, ...merged };
-      return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
-    });
+    setDraftFilters((prev) => (isSameFilter(prev, merged) ? prev : merged));
+    setAppliedFilters((prev) => (isSameFilter(prev, merged) ? prev : merged));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.search]);
 
@@ -602,19 +646,19 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     const sortFromUrl = carryoverSource.get('sort');
     const dateFromUrl = carryoverSource.get('date');
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(filters));
+      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(appliedFilters));
       const receptionSnapshot = {
         ...(receptionStored ?? {}),
-        kw: filters.keyword,
-        dept: filters.department,
-        phys: filters.physician,
-        pay: filters.paymentMode,
+        kw: appliedFilters.keyword,
+        dept: appliedFilters.department,
+        phys: appliedFilters.physician,
+        pay: appliedFilters.paymentMode,
         sort: sortFromUrl ?? receptionStored?.sort,
         date: dateFromUrl ?? receptionStored?.date,
       };
       localStorage.setItem(RECEPTION_FILTER_STORAGE_KEY, JSON.stringify(receptionSnapshot));
     }
-    const params = toSearchParams(filters);
+    const params = toSearchParams(appliedFilters);
     const sort = sortFromUrl ?? pickString(receptionStored?.sort);
     const date = dateFromUrl ?? pickString(receptionStored?.date);
     const from = carryoverSource.get('from');
@@ -641,16 +685,16 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     if (nextSearch !== currentSearch) {
       setSearchParams(params, { replace: true });
     }
-  }, [filters, location.search, session.facilityId, setSearchParams]);
+  }, [appliedFilters, location.search, session.facilityId, setSearchParams]);
 
   const patientsQuery = useQuery({
-    queryKey: ['patients', filters],
+    queryKey: ['patients', appliedFilters],
     queryFn: () =>
       fetchPatients({
-        keyword: filters.keyword || undefined,
-        departmentCode: filters.department || undefined,
-        physicianCode: filters.physician || undefined,
-        paymentMode: filters.paymentMode,
+        keyword: appliedFilters.keyword || undefined,
+        departmentCode: appliedFilters.department || undefined,
+        physicianCode: appliedFilters.physician || undefined,
+        paymentMode: appliedFilters.paymentMode,
       }),
     staleTime: OUTPATIENT_AUTO_REFRESH_INTERVAL_MS,
     refetchInterval: OUTPATIENT_AUTO_REFRESH_INTERVAL_MS,
@@ -665,12 +709,31 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     onSuccess: async (result, patientId) => {
       if (result.ok) {
         enqueue({ tone: 'success', message: 'ORCAから患者を取り込みました', detail: `患者番号=${patientId}` });
-        await refetchPatients();
+        const refreshed = await refetchPatients();
+        const target = refreshed.data?.patients.find((item) => item.patientId === patientId);
+        if (target) {
+          setSelectedId(resolvePatientKey(target));
+          setForm(target);
+          setBaseline(target);
+          baselineRef.current = target;
+          setSelectionLost(false);
+          setSelectionNotice({ tone: 'info', message: `ORCA患者番号 ${patientId} を自動選択しました。` });
+          setActiveDetailTab('basic');
+        } else {
+          setSelectionNotice({
+            tone: 'warning',
+            message: `取り込みは完了しましたが、現在の検索条件では患者番号 ${patientId} が一覧に見つかりません。`,
+          });
+        }
       } else {
         enqueue({
           tone: 'error',
           message: 'ORCAからの取り込みに失敗しました',
           detail: result.error ?? `患者番号=${patientId}`,
+        });
+        setSelectionNotice({
+          tone: 'warning',
+          message: 'ORCA取り込みに失敗しました。患者番号を確認して再実行してください。',
         });
       }
     },
@@ -741,10 +804,10 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     if (patients.length > 0) return null;
     const status = patientsErrorContext?.httpStatus;
     const hasAnyFilter = Boolean(
-      (filters.keyword && filters.keyword.trim()) ||
-        filters.department ||
-        filters.physician ||
-        (filters.paymentMode && filters.paymentMode !== 'all'),
+      (appliedFilters.keyword && appliedFilters.keyword.trim()) ||
+        appliedFilters.department ||
+        appliedFilters.physician ||
+        (appliedFilters.paymentMode && appliedFilters.paymentMode !== 'all'),
     );
 
     if (status === 403) {
@@ -793,7 +856,14 @@ export function PatientsPage({ runId }: PatientsPageProps) {
       hint: 'ORCA で患者登録後に取り込み、Reception で受付登録してから再取得してください。',
       showReception: true,
     };
-  }, [filters.department, filters.keyword, filters.paymentMode, filters.physician, patients.length, patientsErrorContext]);
+  }, [
+    appliedFilters.department,
+    appliedFilters.keyword,
+    appliedFilters.paymentMode,
+    appliedFilters.physician,
+    patients.length,
+    patientsErrorContext,
+  ]);
 
   const resolvedRunId = resolveRunId(patientsQuery.data?.runId ?? flags.runId);
   const infoLive = resolveAriaLive('info');
@@ -808,13 +878,13 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   const resolvedApiResultMessage = patientsQuery.data?.apiResultMessage ?? lastMeta.apiResultMessage;
   const resolvedMissingTags = patientsQuery.data?.missingTags ?? lastMeta.missingTags ?? [];
   const masterOk = !resolvedMissingMaster && !resolvedFallbackUsed && (resolvedTransition ?? 'server') === 'server';
-  const importKeywordCandidate = (filters.keyword || '').trim();
-  const canImportByKeyword = Boolean(importKeywordCandidate && /^\d{1,16}$/.test(importKeywordCandidate));
+  const importPatientIdDraft = orcaImportPatientId.trim();
+  const canImportByPatientId = Boolean(importPatientIdDraft && /^\d{1,16}$/.test(importPatientIdDraft));
   const importSelectedPatientId = useMemo(() => {
     const pid = (form.patientId ?? '').trim();
     if (pid && /^[0-9]{1,16}$/.test(pid)) return pid;
-    return canImportByKeyword ? importKeywordCandidate : undefined;
-  }, [canImportByKeyword, form.patientId, importKeywordCandidate]);
+    return undefined;
+  }, [form.patientId]);
   const isUnlinkedStopNotice = resolvedMissingMaster || resolvedFallbackUsed;
   const unlinkedAlertLabel = isUnlinkedStopNotice ? '反映停止注意' : '未紐付警告';
   const unlinkedBadgeLabel = isUnlinkedStopNotice ? '反映停止' : '未紐付';
@@ -834,6 +904,14 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     }
     return JSON.stringify(normalizedForm) !== JSON.stringify(normalizePatientRecord(baseline));
   }, [baseline, form]);
+
+  useEffect(() => {
+    registerDirty('patients:patientForm', hasUnsavedChanges, '患者基本情報の未保存変更');
+  }, [hasUnsavedChanges, registerDirty]);
+
+  useEffect(() => {
+    return () => registerDirty('patients:patientForm', false);
+  }, [registerDirty]);
   const saveOperation: PatientOperation = 'update';
   const liveValidationErrors = useMemo(
     () => validatePatientMutation({ patient: form, operation: saveOperation, context: { masterOk } }),
@@ -845,6 +923,21 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     [liveValidationErrors, shouldShowLiveValidation, validationErrors],
   );
   const liveValidationCount = liveValidationErrors.length;
+  const basicChangedKeys = useMemo(
+    () => diffPatientKeys({ baseline, draft: form, section: 'basic' }),
+    [baseline, form],
+  );
+  const basicChangedRows = useMemo(
+    () =>
+      basicChangedKeys.map((key) => ({
+        key,
+        label: PATIENT_FIELD_LABEL[key],
+        before: String(baseline?.[key] ?? '—'),
+        after: String(form[key] ?? '—'),
+      })),
+    [baseline, basicChangedKeys, form],
+  );
+  const hasPendingFilterChanges = useMemo(() => !isSameFilter(draftFilters, appliedFilters), [appliedFilters, draftFilters]);
   const selectedSavedView = useMemo(
     () => savedViews.find((view) => view.id === selectedViewId) ?? null,
     [savedViews, selectedViewId],
@@ -900,6 +993,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     dataSourceTransition: resolvedTransition,
   };
   const { tone, message: toneMessage } = getChartToneDetails(tonePayload);
+  const operationalStatus = !patientsErrorContext && masterOk ? 'OK' : '要注意';
 
   const unlinkedCounts = useMemo(() => {
     return patients.reduce(
@@ -1010,7 +1104,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     const selectedPatient = patients.find((patient) => resolvePatientKey(patient) === selectedId);
     if (!selectedPatient) {
       setSelectionNotice({ tone: 'warning', message: '一覧更新で選択中の患者が見つかりません。検索条件を確認してください。' });
-      if (!hasUnsavedChanges) {
+      if (!hasUnsavedChanges && !orcaMemoDirty) {
         setSelectedId(undefined);
         setForm({});
         setBaseline(null);
@@ -1019,7 +1113,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
       }
       return;
     }
-    if (hasUnsavedChanges) {
+    if (hasUnsavedChanges || orcaMemoDirty) {
       setSelectionNotice({ tone: 'info', message: '一覧を更新しました。編集中の内容は保持しています。' });
       setSelectionLost(false);
       return;
@@ -1029,14 +1123,14 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     baselineRef.current = selectedPatient;
     setSelectionNotice({ tone: 'info', message: '一覧を更新しました。選択は保持されています。' });
     setSelectionLost(false);
-  }, [hasUnsavedChanges, patients, patientsQuery.dataUpdatedAt, selectedId]);
+  }, [hasUnsavedChanges, orcaMemoDirty, patients, patientsQuery.dataUpdatedAt, selectedId]);
 
   useEffect(() => {
     if (!lastAuditEvent) return;
     setAuditSnapshot(getAuditEventLog());
   }, [lastAuditEvent]);
 
-  const handleSelect = (patient: PatientRecord) => {
+  const applyPatientSelection = useCallback((patient: PatientRecord) => {
     setSelectedId(resolvePatientKey(patient));
     setForm(patient);
     setBaseline(patient);
@@ -1045,6 +1139,8 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     setLastAttempt(null);
     setSelectionNotice(null);
     setSelectionLost(false);
+    setPendingSelection(null);
+    setActiveDetailTab('basic');
     logUiState({
       action: 'tone_change',
       screen: 'patients',
@@ -1056,7 +1152,21 @@ export function PatientsPage({ runId }: PatientsPageProps) {
       fallbackUsed: resolvedFallbackUsed,
       details: { patientId: patient.patientId },
     });
-  };
+  }, [resolvedCacheHit, resolvedFallbackUsed, resolvedMissingMaster, resolvedRunId, resolvedTransition]);
+
+  const handleSelect = useCallback(
+    (patient: PatientRecord) => {
+      if (switchingSelection) return;
+      const nextKey = resolvePatientKey(patient);
+      if (selectedId === nextKey) return;
+      if (hasUnsavedChanges || orcaMemoDirty) {
+        setPendingSelection(patient);
+        return;
+      }
+      applyPatientSelection(patient);
+    },
+    [applyPatientSelection, hasUnsavedChanges, orcaMemoDirty, selectedId, switchingSelection],
+  );
 
   const mutation = useMutation({
     mutationFn: (payload: PatientMutationPayload) => savePatient(payload),
@@ -1328,107 +1438,135 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     if (el && typeof el.focus === 'function') el.focus();
   };
 
-  const save = (operation: 'create' | 'update' | 'delete') => {
-    if (blocking) {
-      setToast({
-        tone: 'warning',
-        message: '編集ブロック中のため保存できません',
-        detail: blockReasons.join(' / '),
-      });
-      logAuditEvent({
-        runId: resolvedRunId ?? flags.runId,
-        source: 'patient-save',
-        cacheHit: resolvedCacheHit,
-        missingMaster: missingMasterFlag,
-        dataSourceTransition: resolvedTransition,
-        fallbackUsed: fallbackUsedFlag,
-        patientId: form.patientId,
-        payload: {
-          action: 'PATIENT_SAVE_BLOCKED',
-          outcome: 'blocked',
+  const save = useCallback(
+    async (operation: 'create' | 'update' | 'delete') => {
+      if (blocking) {
+        setToast({
+          tone: 'warning',
+          message: '編集ブロック中のため保存できません',
+          detail: blockReasons.join(' / '),
+        });
+        logAuditEvent({
+          runId: resolvedRunId ?? flags.runId,
+          source: 'patient-save',
+          cacheHit: resolvedCacheHit,
+          missingMaster: missingMasterFlag,
+          dataSourceTransition: resolvedTransition,
+          fallbackUsed: fallbackUsedFlag,
+          patientId: form.patientId,
+          payload: {
+            action: 'PATIENT_SAVE_BLOCKED',
+            outcome: 'blocked',
+            details: {
+              operation,
+              patientId: form.patientId,
+              blockedReasons: blockReasonKeys,
+              message: blockReasons.join(' / '),
+            },
+          },
+        });
+        logUiState({
+          action: 'save',
+          screen: 'patients',
+          controlId: 'save-blocked',
+          runId: flags.runId,
+          cacheHit: flags.cacheHit,
+          missingMaster: missingMasterFlag,
+          dataSourceTransition: flags.dataSourceTransition,
+          fallbackUsed: fallbackUsedFlag,
           details: {
-            operation,
-            patientId: form.patientId,
             blockedReasons: blockReasonKeys,
             message: blockReasons.join(' / '),
           },
-        },
-      });
-      logUiState({
-        action: 'save',
-        screen: 'patients',
-        controlId: 'save-blocked',
-        runId: flags.runId,
-        cacheHit: flags.cacheHit,
-        missingMaster: missingMasterFlag,
-        dataSourceTransition: flags.dataSourceTransition,
-        fallbackUsed: fallbackUsedFlag,
-        details: {
-          blockedReasons: blockReasonKeys,
-          message: blockReasons.join(' / '),
-        },
-      });
-      return;
-    }
-
-    const validation = validatePatientMutation({ patient: form, operation, context: { masterOk } });
-    setValidationErrors(validation);
-    if (validation.length > 0) {
-      setToast({ tone: 'error', message: '入力エラーがあります（保存できません）。' });
-      const firstField = validation.find((e) => e.field && e.field !== 'form')?.field;
-      if (firstField && firstField !== 'form') {
-        focusField(firstField as keyof PatientRecord);
+        });
+        return false;
       }
-      return;
-    }
 
-    const base = baselineRef.current ?? baseline;
-    const editableKeys = ['name', 'kana', 'birthDate', 'sex', 'phone', 'zip', 'address'] as const;
-    const changedKeys = editableKeys.filter((key) => {
-      const next = String(form[key] ?? '').trim();
-      const prev = String(base?.[key] ?? '').trim();
-      return next !== prev;
-    });
+      if (!(form.patientId ?? '').trim()) {
+        setToast({
+          tone: 'warning',
+          message: '患者が未選択のため保存できません',
+          detail: 'ORCA で患者登録後、一覧検索または ORCA から取り込みしてください。',
+        });
+        return false;
+      }
 
-    const payload: PatientMutationPayload = {
-      patient: form,
-      operation,
-      runId: flags.runId,
-      auditMeta: {
-        source: 'patients',
-        changedKeys,
-        receptionId: receptionIdParam,
-        appointmentId: appointmentIdParam,
-        visitDate: visitDateParam,
-        actorRole: session.role,
-      },
-    };
-    setLastAttempt(payload);
-    mutation.mutate(payload);
-  };
+      const validation = validatePatientMutation({ patient: form, operation, context: { masterOk } });
+      setValidationErrors(validation);
+      if (validation.length > 0) {
+        setToast({ tone: 'error', message: '入力エラーがあります（保存できません）。' });
+        const firstField = validation.find((e) => e.field && e.field !== 'form')?.field;
+        if (firstField && firstField !== 'form') {
+          focusField(firstField as keyof PatientRecord);
+        }
+        return false;
+      }
+
+      const payload: PatientMutationPayload = {
+        patient: form,
+        operation,
+        runId: flags.runId,
+        auditMeta: {
+          source: 'patients',
+          changedKeys: basicChangedKeys,
+          receptionId: receptionIdParam,
+          appointmentId: appointmentIdParam,
+          visitDate: visitDateParam,
+          actorRole: session.role,
+        },
+      };
+      setLastAttempt(payload);
+      try {
+        const result = await mutation.mutateAsync(payload);
+        return Boolean(result?.ok);
+      } catch {
+        return false;
+      }
+    },
+    [
+      appointmentIdParam,
+      basicChangedKeys,
+      blockReasonKeys,
+      blockReasons,
+      blocking,
+      fallbackUsedFlag,
+      flags.cacheHit,
+      flags.dataSourceTransition,
+      flags.runId,
+      form,
+      masterOk,
+      missingMasterFlag,
+      mutation,
+      receptionIdParam,
+      resolvedCacheHit,
+      resolvedFallbackUsed,
+      resolvedMissingMaster,
+      resolvedRunId,
+      resolvedTransition,
+      session.role,
+      visitDateParam,
+    ],
+  );
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!(form.patientId ?? '').trim()) {
-      setToast({ tone: 'warning', message: '患者が未選択のため保存できません', detail: 'ORCA で患者登録後、一覧検索または ORCA から取り込みしてください。' });
-      return;
-    }
-    save('update');
+    void save('update');
   };
 
   const onFilterChange = (key: keyof typeof DEFAULT_FILTER, value: string) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
+    setDraftFilters((prev) => ({ ...prev, [key]: value }));
   };
 
   const applySavedView = (view: OutpatientSavedView) => {
-    setSelectedViewId(view.id);
-    setFilters({
+    const next = {
       keyword: view.filters.keyword ?? '',
       department: view.filters.department ?? '',
       physician: view.filters.physician ?? '',
       paymentMode: view.filters.paymentMode ?? 'all',
-    });
-    patientsQuery.refetch();
+    } satisfies typeof DEFAULT_FILTER;
+    setSelectedViewId(view.id);
+    setDraftFilters(next);
+    setAppliedFilters(next);
   };
 
   const handleSaveView = () => {
@@ -1436,10 +1574,10 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     const nextViews = upsertOutpatientSavedView({
       label,
       filters: {
-        keyword: filters.keyword.trim() || undefined,
-        department: filters.department || undefined,
-        physician: filters.physician || undefined,
-        paymentMode: filters.paymentMode,
+        keyword: draftFilters.keyword.trim() || undefined,
+        department: draftFilters.department || undefined,
+        physician: draftFilters.physician || undefined,
+        paymentMode: draftFilters.paymentMode,
       },
     });
     setSavedViews(nextViews);
@@ -1454,12 +1592,77 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     setSavedViews(nextViews);
     setSelectedViewId('');
   };
+
   const handleFilterSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    patientsQuery.refetch();
+    setAppliedFilters((prev) => (isSameFilter(prev, draftFilters) ? prev : draftFilters));
+    if (isSameFilter(appliedFilters, draftFilters)) {
+      void patientsQuery.refetch();
+    }
   };
+
   const handleClearFilters = () => {
-    setFilters(DEFAULT_FILTER);
+    setDraftFilters(DEFAULT_FILTER);
+  };
+
+  const handleImportByPatientId = () => {
+    if (!canImportByPatientId) {
+      setSelectionNotice({ tone: 'warning', message: 'ORCA患者番号を数字（最大16桁）で入力してください。' });
+      return;
+    }
+    importMutation.mutate(importPatientIdDraft);
+  };
+
+  const handleCancelSelectionSwitch = () => {
+    if (switchingSelection) return;
+    setPendingSelection(null);
+  };
+
+  const handleDiscardSelectionSwitch = () => {
+    if (switchingSelection) return;
+    if (!pendingSelection) return;
+    setPendingSelection(null);
+    setOrcaMemoDirty(false);
+    setValidationErrors([]);
+    setLastAttempt(null);
+    setToast({ tone: 'info', message: '未保存変更を破棄して患者を切り替えました。' });
+    applyPatientSelection(pendingSelection);
+  };
+
+  const handleSaveSelectionSwitch = async () => {
+    if (!pendingSelection || switchingSelection) return;
+    setSwitchingSelection(true);
+    let canSwitch = true;
+    if (hasUnsavedChanges) {
+      canSwitch = await save('update');
+    }
+    if (canSwitch && orcaMemoDirty) {
+      if (!canSaveMemo) {
+        setOrcaMemoNotice({
+          tone: 'warning',
+          message: 'ORCAメモに未保存エラーがあるため、患者切替前に保存できません。',
+          detail: memoValidationErrors.join(' / '),
+        });
+        canSwitch = false;
+      } else {
+        try {
+          const memoResult = await orcaMemoMutation.mutateAsync();
+          canSwitch = memoResult.ok;
+        } catch {
+          canSwitch = false;
+        }
+      }
+    }
+    if (canSwitch) {
+      applyPatientSelection(pendingSelection);
+      setPendingSelection(null);
+    } else {
+      setSelectionNotice({
+        tone: 'warning',
+        message: '保存に失敗したため患者切替を中止しました。内容を確認して再実行してください。',
+      });
+    }
+    setSwitchingSelection(false);
   };
 
   return (
@@ -1476,14 +1679,21 @@ export function PatientsPage({ runId }: PatientsPageProps) {
       />
       <header className="patients-page__header">
         <div>
-          <p className="patients-page__kicker">Patients 検索・取り込み</p>
-          <h1>患者一覧（ORCA取り込み）</h1>
+          <p className="patients-page__kicker">Patients 検索・管理</p>
+          <h1>患者管理</h1>
           <p className="patients-page__hint" role="status" aria-live={infoLive}>
-            Reception のフィルタを初期値として復元し、/orca/patients/local-search（ローカルDB）で閲覧します。
-            未取り込みの場合は /orca/patients/import で ORCA から取り込み（上書き更新）します。保存すると ORCA 患者マスタへ反映し、電子カルテ側は ORCA 原本で上書き同期します。
-            RUN_ID と dataSourceTransition/missingMaster/fallbackUsed/cacheHit はヘッダーで、検索結果メタは検索サマリで確認できます。
+            患者一覧から対象を選択し、右ペインのタブで目的別に操作してください。患者保存は「基本情報」タブのみです。
           </p>
         </div>
+        <div className="patients-page__ops-metrics" role="status" aria-live={infoLive}>
+          <span>患者件数: {resolvedRecordsReturned ?? patients.length}件</span>
+          <span>更新時刻: {patientsUpdatedAtLabel}</span>
+          <span className={`patients-page__ops-status${operationalStatus === 'OK' ? ' is-ok' : ' is-alert'}`}>状態: {operationalStatus}</span>
+        </div>
+      </header>
+
+      <details className="patients-page__network-details">
+        <summary>通信詳細を表示</summary>
         <div className="patients-page__badges" role="status" aria-live={infoLive}>
           <RunIdBadge runId={resolvedRunId} />
           <StatusPill
@@ -1522,7 +1732,14 @@ export function PatientsPage({ runId }: PatientsPageProps) {
             runId={resolvedRunId}
           />
         </div>
-      </header>
+        <div className="patients-page__network-meta">
+          <span>server fetchedAt: {resolvedFetchedAt ?? '—'}</span>
+          <span>endpoint: {patientsQuery.data?.sourcePath ?? 'orca/patients/local-search'}</span>
+          <span>Api_Result: {resolvedApiResult ?? '—'}</span>
+          <span>Api_Result_Message: {resolvedApiResultMessage ?? '—'}</span>
+          <span>不足タグ: {resolvedMissingTags.length ? resolvedMissingTags.join(', ') : 'なし'}</span>
+        </div>
+      </details>
 
       <AdminBroadcastBanner broadcast={broadcast} surface="patients" runId={resolvedRunId} />
       {patientsAutoRefreshNotice && (
@@ -1565,7 +1782,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
                 id="patients-filter-keyword"
                 name="patientsFilterKeyword"
                 type="search"
-                value={filters.keyword}
+                value={draftFilters.keyword}
                 onChange={(event) => onFilterChange('keyword', event.target.value)}
                 placeholder="氏名 / カナ / ID"
                 aria-label="患者検索キーワード"
@@ -1576,7 +1793,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
               <input
                 id="patients-filter-department"
                 name="patientsFilterDepartment"
-                value={filters.department}
+                value={draftFilters.department}
                 onChange={(event) => onFilterChange('department', event.target.value)}
                 placeholder="例: 内科"
               />
@@ -1586,7 +1803,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
               <input
                 id="patients-filter-physician"
                 name="patientsFilterPhysician"
-                value={filters.physician}
+                value={draftFilters.physician}
                 onChange={(event) => onFilterChange('physician', event.target.value)}
                 placeholder="例: 藤井"
               />
@@ -1596,7 +1813,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
               <select
                 id="patients-filter-payment-mode"
                 name="patientsFilterPaymentMode"
-                value={filters.paymentMode}
+                value={draftFilters.paymentMode}
                 onChange={(event) => onFilterChange('paymentMode', event.target.value)}
               >
                 <option value="all">すべて</option>
@@ -1617,6 +1834,32 @@ export function PatientsPage({ runId }: PatientsPageProps) {
             </button>
           </div>
         </form>
+        {hasPendingFilterChanges ? (
+          <div className="patients-search__pending" role="status" aria-live="polite">
+            未適用の検索条件があります。「検索を更新」で反映してください。
+          </div>
+        ) : null}
+        <section className="patients-search__import" aria-label="ORCA患者取り込み">
+          <label className="patients-search__field">
+            <span>ORCA患者番号で取り込み</span>
+            <input
+              id="patients-orca-import-patient-id"
+              name="patientsOrcaImportPatientId"
+              value={orcaImportPatientId}
+              onChange={(event) => setOrcaImportPatientId(event.target.value)}
+              placeholder="数字のみ（例: 00001234）"
+              inputMode="numeric"
+            />
+          </label>
+          <button
+            type="button"
+            className="patients-search__button primary"
+            onClick={handleImportByPatientId}
+            disabled={importMutation.isPending || !importPatientIdDraft}
+          >
+            {importMutation.isPending ? '取り込み中…' : 'ORCAから取り込み'}
+          </button>
+        </section>
         <div className="patients-search__saved" aria-label="保存ビュー">
           <div className="patients-search__saved-meta" role="status" aria-live={infoLive}>
             <span className="patients-search__saved-share">Reception ↔ Patients で共有</span>
@@ -1698,11 +1941,8 @@ export function PatientsPage({ runId }: PatientsPageProps) {
           <div className="patients-search__summary-meta">
             <span>更新完了: {patientsUpdatedAtLabel}</span>
             <span>自動更新: {autoRefreshIntervalLabel}</span>
-            <span>server fetchedAt: {resolvedFetchedAt ?? '—'}</span>
-            <span>endpoint: {patientsQuery.data?.sourcePath ?? 'orca/patients/local-search'}</span>
-            <span>Api_Result: {resolvedApiResult ?? '—'}</span>
-            <span>Api_Result_Message: {resolvedApiResultMessage ?? '—'}</span>
-            <span>不足タグ: {resolvedMissingTags.length ? resolvedMissingTags.join(', ') : 'なし'}</span>
+            <span>適用条件: {appliedFilters.keyword || 'キーワードなし'}</span>
+            <span>検索状態: {hasPendingFilterChanges ? '未適用あり' : '最新条件で表示中'}</span>
           </div>
           {selectionNotice && (
             <div
@@ -1733,12 +1973,12 @@ export function PatientsPage({ runId }: PatientsPageProps) {
                 <button type="button" className="ghost" onClick={() => void refetchPatients()}>
                   再取得
                 </button>
-                {canImportByKeyword ? (
+                {canImportByPatientId ? (
                   <button
                     type="button"
                     className="ghost"
                     disabled={importMutation.isPending}
-                    onClick={() => importMutation.mutate(importKeywordCandidate)}
+                    onClick={handleImportByPatientId}
                     title="ORCA患者番号（Patient_ID）を指定して取り込みます（ローカルDBへ反映）"
                   >
                     {importMutation.isPending ? 'ORCA取り込み中…' : 'ORCAから取り込み'}
@@ -1788,8 +2028,12 @@ export function PatientsPage({ runId }: PatientsPageProps) {
                   ) : null}
                 </div>
                 <div className="patients-page__row-meta">
-                  <span>{patient.birthDate ?? '生年月日未設定'}</span>
-                  <span>{patient.insurance ?? '保険未設定'}</span>
+                  <span>
+                    {resolveAgeLabel(patient.birthDate)} / {resolveSexLabel(patient.sex)}
+                  </span>
+                  <span className="patients-page__row-insurance" title={patient.insurance ?? '保険未設定'}>
+                    {patient.insurance ? truncateText(patient.insurance, 28) : '保険未設定'}
+                  </span>
                   <span>{patient.lastVisit ? `最終受診 ${patient.lastVisit}` : '受診履歴なし'}</span>
                   {unlinkedState.missingPatientId ? (
                     <span className={`patients-page__row-warning-detail${isUnlinkedStopNotice ? ' is-blocked' : ''}`}>患者ID欠損</span>
@@ -1803,8 +2047,34 @@ export function PatientsPage({ runId }: PatientsPageProps) {
           })}
         </div>
 
-        <form className="patients-page__form" onSubmit={handleSubmit} aria-live={resolveAriaLive(blocking ? 'warning' : 'info')}>
-          <div className="patients-page__form-header">
+        <div className="patients-page__form" aria-live={resolveAriaLive(blocking ? 'warning' : 'info')}>
+          <div className="patients-page__detail-tabs" role="tablist" aria-label="患者詳細タブ">
+            {PATIENTS_DETAIL_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                id={`patients-detail-tab-${tab.key}`}
+                type="button"
+                role="tab"
+                tabIndex={activeDetailTab === tab.key ? 0 : -1}
+                aria-selected={activeDetailTab === tab.key}
+                aria-controls={`patients-detail-panel-${tab.key}`}
+                className={`patients-page__detail-tab${activeDetailTab === tab.key ? ' is-active' : ''}`}
+                onClick={() => setActiveDetailTab(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <section
+            id="patients-detail-panel-basic"
+            role="tabpanel"
+            aria-labelledby="patients-detail-tab-basic"
+            className="patients-page__detail-panel"
+            hidden={activeDetailTab !== 'basic'}
+          >
+            <form className="patients-page__basic-form" onSubmit={handleSubmit}>
+          <div className="patients-page__form-header patients-page__sticky-bar">
             <div>
               <p className="patients-page__pill">患者情報（編集）</p>
               <div className="patients-page__form-title">
@@ -1843,6 +2113,33 @@ export function PatientsPage({ runId }: PatientsPageProps) {
                 {mutation.isPending ? '保存中…' : '保存（ORCAへ反映）'}
               </button>
             </div>
+          </div>
+
+          <div className="patients-page__change-summary" aria-live="polite">
+            <span className="patients-page__change-summary-label">変更点</span>
+            {basicChangedRows.length === 0 ? (
+              <span className="patients-page__change-empty">変更なし</span>
+            ) : (
+              <div className="patients-page__change-chips">
+                {basicChangedRows.map((row) => (
+                  <span key={row.key} className="patients-page__change-chip">
+                    {row.label}
+                  </span>
+                ))}
+              </div>
+            )}
+            {basicChangedRows.length > 0 ? (
+              <details className="patients-page__change-details">
+                <summary>差分を表示</summary>
+                <ul>
+                  {basicChangedRows.map((row) => (
+                    <li key={`diff-${row.key}`}>
+                      {row.label}: {row.before || '—'} → {row.after || '—'}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
           </div>
 
           {selectedUnlinked ? (
@@ -2122,8 +2419,19 @@ export function PatientsPage({ runId }: PatientsPageProps) {
             </div>
           )}
 
+            </form>
+          </section>
+
+          <section
+            id="patients-detail-panel-orcaTools"
+            role="tabpanel"
+            aria-labelledby="patients-detail-tab-orcaTools"
+            className="patients-page__detail-panel"
+            hidden={activeDetailTab !== 'orcaTools'}
+          >
+
           <section className="patients-page__orca-original" aria-live={resolveAriaLive(orcaOriginalNotice?.tone ?? 'info')}>
-            <header className="patients-page__orca-original-header">
+            <header className="patients-page__orca-original-header patients-page__sticky-bar">
               <div>
                 <p className="patients-page__orca-original-kicker">ORCA 原本</p>
                 <h3>patientgetv2 原本参照</h3>
@@ -2153,6 +2461,15 @@ export function PatientsPage({ runId }: PatientsPageProps) {
                     JSON
                   </label>
                 </div>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => importSelectedPatientId && importMutation.mutate(importSelectedPatientId)}
+                  disabled={!importSelectedPatientId || importMutation.isPending}
+                  title={importSelectedPatientId ? 'ORCA患者マスタから取り込み（上書き更新）' : 'Patient_ID を選択してください'}
+                >
+                  {importMutation.isPending ? 'ORCA更新中…' : 'ORCAから更新'}
+                </button>
                 <button
                   type="button"
                   className="ghost"
@@ -2222,8 +2539,17 @@ export function PatientsPage({ runId }: PatientsPageProps) {
             )}
           </section>
 
+          </section>
+
+          <section
+            id="patients-detail-panel-insurance"
+            role="tabpanel"
+            aria-labelledby="patients-detail-tab-insurance"
+            className="patients-page__detail-panel"
+            hidden={activeDetailTab !== 'insurance'}
+          >
           <section className="patients-page__insurance-helper" aria-live={resolveAriaLive(insuranceNotice?.tone ?? 'info')}>
-            <header className="patients-page__insurance-header">
+            <header className="patients-page__insurance-header patients-page__sticky-bar">
               <div>
                 <p className="patients-page__insurance-kicker">ORCA 保険</p>
                 <h3>保険者検索（insuranceinf1v2）</h3>
@@ -2399,8 +2725,17 @@ export function PatientsPage({ runId }: PatientsPageProps) {
             )}
           </section>
 
+          </section>
+
+          <section
+            id="patients-detail-panel-orcaMemo"
+            role="tabpanel"
+            aria-labelledby="patients-detail-tab-orcaMemo"
+            className="patients-page__detail-panel"
+            hidden={activeDetailTab !== 'orcaMemo'}
+          >
           <section className="patients-page__orca-memo" aria-live={resolveAriaLive(orcaMemoNotice?.tone ?? 'info')}>
-            <header className="patients-page__orca-memo-header">
+            <header className="patients-page__orca-memo-header patients-page__sticky-bar">
               <div>
                 <p className="patients-page__orca-memo-kicker">ORCA患者メモ</p>
                 <h3>ORCA メモ取得/更新</h3>
@@ -2605,8 +2940,17 @@ export function PatientsPage({ runId }: PatientsPageProps) {
             )}
           </section>
 
+          </section>
+
+          <section
+            id="patients-detail-panel-audit"
+            role="tabpanel"
+            aria-labelledby="patients-detail-tab-audit"
+            className="patients-page__detail-panel"
+            hidden={activeDetailTab !== 'audit'}
+          >
           <div id="patients-audit-log" className="patients-page__audit-view" role="status" aria-live={infoLive}>
-            <div className="patients-page__audit-head">
+            <div className="patients-page__audit-head patients-page__sticky-bar">
               <h3>監査ログビュー</h3>
               <div className="patients-page__audit-actions">
                 <button type="button" onClick={() => setAuditSnapshot(getAuditEventLog())}>
@@ -2816,8 +3160,39 @@ export function PatientsPage({ runId }: PatientsPageProps) {
             </div>
           </div>
 
-        </form>
+          </section>
+        </div>
       </section>
+
+      <FocusTrapDialog
+        open={Boolean(pendingSelection)}
+        role="alertdialog"
+        title="未保存の変更があります"
+        description="患者を切り替える前に、保存するか破棄するかを選択してください。"
+        onClose={handleCancelSelectionSwitch}
+        testId="patients-switch-dialog"
+      >
+        <div className="patients-page__switch-dialog" role="group" aria-label="患者切替確認">
+          <p>
+            現在の患者: {form.name ?? '未選択'}（{form.patientId ?? '—'}）
+          </p>
+          <p>
+            切替先: {pendingSelection?.name ?? '—'}（{pendingSelection?.patientId ?? '—'}）
+          </p>
+          <p className="patients-page__switch-dialog-note">未保存の変更があります。保存して切替または破棄して切替を選択してください。</p>
+          <div className="patients-page__switch-dialog-actions">
+            <button type="button" onClick={handleCancelSelectionSwitch} disabled={switchingSelection}>
+              キャンセル
+            </button>
+            <button type="button" onClick={() => void handleSaveSelectionSwitch()} disabled={switchingSelection}>
+              {switchingSelection ? '保存中…' : '保存して切り替え'}
+            </button>
+            <button type="button" onClick={handleDiscardSelectionSwitch} disabled={switchingSelection}>
+              破棄して切り替え
+            </button>
+          </div>
+        </div>
+      </FocusTrapDialog>
       </main>
     </>
   );

@@ -38,6 +38,7 @@ let mockQueryData: MockQueryData = {
 let mockMutationResult: any = null;
 let mockMutationError: any = null;
 let mockMutationPending = false;
+let mockMutationCallCount = 0;
 let mockSearchParams = new URLSearchParams();
 let mockLocationSearch = '';
 const mockSetSearchParams = vi.fn();
@@ -99,6 +100,7 @@ vi.mock('@tanstack/react-query', () => ({
   }),
   useMutation: (options?: { onSuccess?: (data: any) => void; onError?: (error: any) => void }) => ({
     mutate: vi.fn(() => {
+      mockMutationCallCount += 1;
       if (mockMutationError && options?.onError) {
         options.onError(mockMutationError);
         return;
@@ -106,6 +108,18 @@ vi.mock('@tanstack/react-query', () => ({
       if (mockMutationResult && options?.onSuccess) {
         options.onSuccess(mockMutationResult);
       }
+    }),
+    mutateAsync: vi.fn(async () => {
+      mockMutationCallCount += 1;
+      if (mockMutationError && options?.onError) {
+        options.onError(mockMutationError);
+        throw mockMutationError;
+      }
+      if (mockMutationResult && options?.onSuccess) {
+        options.onSuccess(mockMutationResult);
+        return mockMutationResult;
+      }
+      return { ok: true };
     }),
     isPending: mockMutationPending,
   }),
@@ -184,6 +198,7 @@ beforeEach(() => {
   mockMutationResult = null;
   mockMutationError = null;
   mockMutationPending = false;
+  mockMutationCallCount = 0;
   setRouterSearch('');
   mockSetSearchParams.mockClear();
   mockRegisterDirty.mockClear();
@@ -268,6 +283,7 @@ describe('PatientsPage audit filters', () => {
     renderPatientsPage();
     expect(screen.getByText('対象件数: 2')).toBeInTheDocument();
     const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: '監査/ログ' }));
 
     const auditGroup = screen.getByRole('group', { name: '監査検索' });
     const keywordInput = within(auditGroup).getByLabelText('キーワード');
@@ -297,6 +313,7 @@ describe('PatientsPage audit filters', () => {
 
     renderPatientsPage();
     const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: '監査/ログ' }));
 
     const list = screen.getByRole('list', { name: '保存履歴' });
     expect(await screen.findByText('対象件数: 12')).toBeInTheDocument();
@@ -330,13 +347,14 @@ describe('PatientsPage ORCA original UI', () => {
   it('patientgetv2 原本参照の取得形式を切り替えられる', async () => {
     mockPatients();
     renderPatientsPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: 'ORCA更新/原本' }));
 
     const xmlRadio = screen.getByLabelText('XML2') as HTMLInputElement;
     const jsonRadio = screen.getByLabelText('JSON') as HTMLInputElement;
     expect(xmlRadio.checked).toBe(true);
     expect(jsonRadio.checked).toBe(false);
 
-    const user = userEvent.setup();
     await user.click(jsonRadio);
     expect(jsonRadio.checked).toBe(true);
 
@@ -366,6 +384,7 @@ describe('PatientsPage ORCA original UI', () => {
 
     renderPatientsPage();
     const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: 'ORCA更新/原本' }));
 
     const fetchButton = screen.getByRole('button', { name: 'patientgetv2 取得' });
     await user.click(fetchButton);
@@ -469,6 +488,104 @@ describe('PatientsPage audit changedKeys', () => {
   });
 });
 
+describe('PatientsPage switch guard', () => {
+  beforeEach(() => {
+    clearAuditEventLog();
+    localStorage.clear();
+    sessionStorage.clear();
+    mockAuthFlags.missingMaster = false;
+    mockAuthFlags.fallbackUsed = false;
+  });
+
+  it('未保存変更があると患者切替ダイアログを表示する', async () => {
+    mockPatients({
+      patients: [
+        { patientId: 'P-001', name: '山田 花子', kana: 'ヤマダ ハナコ', birthDate: '1980-01-01' },
+        { patientId: 'P-002', name: '佐藤 次郎', kana: 'サトウ ジロウ', birthDate: '1985-05-20' },
+      ],
+      recordsReturned: 2,
+    });
+    renderPatientsPage();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: '基本情報' }));
+    const nameInput = screen.getByLabelText(/氏名/);
+    await user.clear(nameInput);
+    await user.type(nameInput, '山田 花子A');
+
+    const target = screen.getByText('佐藤 次郎').closest('button');
+    expect(target).not.toBeNull();
+    if (!target) return;
+    await user.click(target);
+
+    expect(screen.getByText('未保存の変更があります')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'キャンセル' }));
+    expect(screen.queryByText('未保存の変更があります')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /ORCA患者番号（Patient_ID） P-001/ })).toBeInTheDocument();
+  });
+
+  it('破棄して切り替えで次の患者へ移動する', async () => {
+    mockPatients({
+      patients: [
+        { patientId: 'P-001', name: '山田 花子', kana: 'ヤマダ ハナコ', birthDate: '1980-01-01' },
+        { patientId: 'P-002', name: '佐藤 次郎', kana: 'サトウ ジロウ', birthDate: '1985-05-20' },
+      ],
+      recordsReturned: 2,
+    });
+    renderPatientsPage();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: '基本情報' }));
+    const nameInput = screen.getByLabelText(/氏名/);
+    await user.type(nameInput, 'A');
+
+    const target = screen.getByText('佐藤 次郎').closest('button');
+    expect(target).not.toBeNull();
+    if (!target) return;
+    await user.click(target);
+
+    await user.click(screen.getByRole('button', { name: '破棄して切り替え' }));
+    expect(screen.getByRole('heading', { name: /ORCA患者番号（Patient_ID） P-002/ })).toBeInTheDocument();
+  });
+});
+
+describe('PatientsPage form safety', () => {
+  beforeEach(() => {
+    clearAuditEventLog();
+    localStorage.clear();
+    sessionStorage.clear();
+    mockAuthFlags.missingMaster = false;
+    mockAuthFlags.fallbackUsed = false;
+  });
+
+  it('非基本情報タブの Enter で患者保存 mutate が走らない', async () => {
+    mockPatients();
+    renderPatientsPage();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'ORCA更新/原本' }));
+    const originalClassInput = document.getElementById('patients-orca-original-class');
+    expect(originalClassInput).not.toBeNull();
+    if (!originalClassInput) return;
+    await user.type(originalClassInput, '{enter}');
+    expect(mockMutationCallCount).toBe(0);
+
+    await user.click(screen.getByRole('tab', { name: '保険' }));
+    const insuranceKeywordInput = document.getElementById('patients-insurance-keyword');
+    expect(insuranceKeywordInput).not.toBeNull();
+    if (!insuranceKeywordInput) return;
+    await user.type(insuranceKeywordInput, '{enter}');
+    expect(mockMutationCallCount).toBe(0);
+
+    await user.click(screen.getByRole('tab', { name: '監査/ログ' }));
+    const auditKeywordInput = document.getElementById('patients-audit-keyword');
+    expect(auditKeywordInput).not.toBeNull();
+    if (!auditKeywordInput) return;
+    await user.type(auditKeywordInput, '{enter}');
+    expect(mockMutationCallCount).toBe(0);
+  });
+});
+
 describe('PatientsPage return flow', () => {
   beforeEach(() => {
     clearAuditEventLog();
@@ -554,9 +671,14 @@ describe('PatientsPage search summary', () => {
     if (!summary) return;
     const summaryScope = within(summary as HTMLElement);
     expect(summaryScope.getByText('5件')).toBeInTheDocument();
-    expect(summaryScope.getByText('server fetchedAt: 2026-01-29T00:00:00Z')).toBeInTheDocument();
-    expect(summaryScope.getByText('Api_Result: 00')).toBeInTheDocument();
-    expect(summaryScope.getByText('Api_Result_Message: OK')).toBeInTheDocument();
-    expect(summaryScope.getByText('不足タグ: Patient_ID')).toBeInTheDocument();
+    const networkDetailsSummary = screen.getByText('通信詳細を表示');
+    const networkDetails = networkDetailsSummary.closest('details');
+    expect(networkDetails).not.toBeNull();
+    if (!networkDetails) return;
+    const networkScope = within(networkDetails);
+    expect(networkScope.getByText('server fetchedAt: 2026-01-29T00:00:00Z')).toBeInTheDocument();
+    expect(networkScope.getByText('Api_Result: 00')).toBeInTheDocument();
+    expect(networkScope.getByText('Api_Result_Message: OK')).toBeInTheDocument();
+    expect(networkScope.getByText('不足タグ: Patient_ID')).toBeInTheDocument();
   });
 });
