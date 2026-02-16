@@ -157,6 +157,17 @@
   border-color: rgba(245, 158, 11, 0.45);
 }
 
+.app-shell__tool--charts {
+  background: rgba(239, 246, 255, 0.85);
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+.app-shell__tool[aria-current='page'] {
+  border-color: rgba(15, 23, 42, 0.35);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.14);
+  transform: translateY(-1px);
+}
+
 .app-shell__nav {
   display: flex;
   gap: 0.5rem;

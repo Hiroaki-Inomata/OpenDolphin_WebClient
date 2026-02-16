@@ -9,6 +9,26 @@ vi.mock('@emotion/react', () => ({
   css: () => '',
 }));
 
+vi.mock('../../../routes/useAppNavigation', () => ({
+  useAppNavigation: () => ({
+    currentUrl: '/f/FAC-TEST/charts',
+    currentScreen: 'charts',
+    fromCandidate: undefined,
+    returnToCandidate: undefined,
+    safeReturnToCandidate: undefined,
+    carryover: {},
+    external: {},
+    encounter: {},
+    openReception: vi.fn(),
+    openPatients: vi.fn(),
+    openCharts: vi.fn(),
+    openOrderSets: vi.fn(),
+    openPrintOutpatient: vi.fn(),
+    openPrintDocument: vi.fn(),
+    openMobileImages: vi.fn(),
+  }),
+}));
+
 vi.mock('../authService', () => ({
   useAuthService: () => ({
     flags: {
@@ -29,10 +49,6 @@ vi.mock('@tanstack/react-query', () => ({
     error: null,
     refetch: vi.fn(),
   }),
-}));
-
-vi.mock('react-router-dom', () => ({
-  useNavigate: () => vi.fn(),
 }));
 
 vi.mock('../../../AppRouter', () => ({

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 
 import { ToneBanner } from '../reception/components/ToneBanner';
 import { StatusBadge } from '../shared/StatusBadge';
@@ -14,8 +13,8 @@ import type { ClaimOutpatientPayload, ReceptionEntry } from '../outpatient/types
 import { recordOutpatientFunnel } from '../../libs/telemetry/telemetryClient';
 import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { resolveOutpatientFlags, type OutpatientFlagSource } from '../outpatient/flags';
-import { buildFacilityPath } from '../../routes/facilityRoutes';
 import { useOptionalSession } from '../../AppRouter';
+import { useAppNavigation } from '../../routes/useAppNavigation';
 import { buildIncomeInfoRequestXml, fetchOrcaIncomeInfoXml } from './orcaIncomeInfoApi';
 import { getOrcaClaimSendEntry, type OrcaMedicalWarningUi } from './orcaClaimSendCache';
 import { formatOrcaIdentifier } from './orcaIdentifiers';
@@ -51,8 +50,8 @@ export function OrcaSummary({
   onRefresh,
   isRefreshing = false,
 }: OrcaSummaryProps) {
-  const navigate = useNavigate();
   const session = useOptionalSession();
+  const appNav = useAppNavigation({ facilityId: session?.facilityId, userId: session?.userId });
   const { flags } = useAuthService();
   const effectiveClaim = claimEnabled ? claim : undefined;
   const resolvedFlags = resolveOutpatientFlags(summary, effectiveClaim, appointmentMeta, flags);
@@ -269,15 +268,12 @@ export function OrcaSummary({
 
   const handleNavigate = useCallback(
     (target: 'reservation' | 'billing' | 'new-appointment') => {
-      const search = new URLSearchParams();
-      search.set('from', 'charts');
-      search.set('runId', resolvedRunId ?? '');
-      search.set('transition', resolvedTransition ?? 'snapshot');
-      if (target === 'reservation') search.set('section', 'appointment');
-      if (target === 'billing') search.set('section', 'billing');
-      if (target === 'new-appointment') search.set('create', '1');
-      navigate(`${buildFacilityPath(session?.facilityId, '/reception')}?${search.toString()}`, {
-        state: { runId: resolvedRunId, dataSourceTransition: resolvedTransition, from: 'charts', manualRefresh: false },
+      appNav.openReception({
+        runId: resolvedRunId ?? undefined,
+        section: target === 'reservation' ? 'appointment' : target === 'billing' ? 'billing' : undefined,
+        intent: target === 'billing' ? 'billing' : undefined,
+        create: target === 'new-appointment',
+        visitDate,
       });
       logUiState({
         action: 'outpatient_fetch',
@@ -302,19 +298,19 @@ export function OrcaSummary({
       });
     },
     [
-      navigate,
+      appNav,
       resolvedCacheHit,
       resolvedFallbackUsed,
       resolvedMissingMaster,
       resolvedRunId,
       resolvedTransition,
-      session?.facilityId,
+      visitDate,
     ],
   );
 
   const handleOpenReception = useCallback(() => {
-    navigate(buildFacilityPath(session?.facilityId, '/reception'));
-  }, [navigate, session?.facilityId]);
+    appNav.openReception();
+  }, [appNav]);
 
   const handleRefresh = useCallback(async () => {
     if (!onRefresh) return;

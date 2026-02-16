@@ -41,6 +41,8 @@ let mockMutationPending = false;
 let mockSearchParams = new URLSearchParams();
 let mockLocationSearch = '';
 const mockSetSearchParams = vi.fn();
+const mockRegisterDirty = vi.fn();
+const mockGuardedNavigate = vi.fn();
 
 const mockAuthFlags = {
   runId: 'RUN-AUTH',
@@ -128,6 +130,41 @@ vi.mock('../../../AppRouter', () => ({
   useSession: () => ({ facilityId: 'FAC-TEST', runId: 'RUN-SESSION' }),
 }));
 
+vi.mock('../../../routes/NavigationGuardProvider', () => ({
+  NavigationGuardProvider: ({ children }: { children: any }) => children,
+  useNavigationGuard: () => ({
+    registerDirty: mockRegisterDirty,
+    isDirty: false,
+    dirtySources: [],
+    guardedNavigate: mockGuardedNavigate,
+  }),
+}));
+
+vi.mock('../../../routes/useAppNavigation', () => ({
+  useAppNavigation: () => {
+    const from = mockSearchParams.get('from') ?? null;
+    const returnTo = mockSearchParams.get('returnTo') ?? null;
+    const safeReturnTo = returnTo && !returnTo.startsWith('http') && returnTo.startsWith('/f/') ? returnTo : null;
+    return {
+      currentUrl: '/f/FAC-TEST/patients',
+      currentScreen: 'patients',
+      fromCandidate: from,
+      returnToCandidate: returnTo,
+      safeReturnToCandidate: safeReturnTo,
+      carryover: {},
+      external: {},
+      encounter: {},
+      openReception: vi.fn(),
+      openPatients: vi.fn(),
+      openCharts: vi.fn(),
+      openOrderSets: vi.fn(),
+      openPrintOutpatient: vi.fn(),
+      openPrintDocument: vi.fn(),
+      openMobileImages: vi.fn(),
+    };
+  },
+}));
+
 type PatientsPageType = typeof import('../PatientsPage').PatientsPage;
 let PatientsPage: PatientsPageType;
 
@@ -149,6 +186,8 @@ beforeEach(() => {
   mockMutationPending = false;
   setRouterSearch('');
   mockSetSearchParams.mockClear();
+  mockRegisterDirty.mockClear();
+  mockGuardedNavigate.mockClear();
 });
 
 const renderPatientsPage = () => {
@@ -439,52 +478,53 @@ describe('PatientsPage return flow', () => {
     mockAuthFlags.fallbackUsed = false;
   });
 
-  it('returnTo クエリ指定のとき Charts に戻るが有効でステータスが表示される', () => {
+  it('returnTo クエリ指定のとき ReturnToBar が returnTo へ戻れる', async () => {
     mockPatients();
-    setRouterSearch('?from=charts&returnTo=/charts?patientId=000001');
+    setRouterSearch('?from=charts&returnTo=/f/FAC-TEST/charts?patientId=000001');
 
     renderPatientsPage();
 
-    const chartsButton = screen.getByRole('button', { name: 'Charts に戻る' });
-    expect(chartsButton).toBeEnabled();
-    expect(screen.getByText('クエリ指定')).toBeInTheDocument();
-    expect(screen.getByText('returnTo パラメータを使用します。')).toBeInTheDocument();
+    expect(screen.getByText('カルテに戻れます')).toBeInTheDocument();
+    const backButton = screen.getByRole('button', { name: /カルテへ戻る/ });
+    await userEvent.setup().click(backButton);
+    expect(mockGuardedNavigate).toHaveBeenCalledWith('/f/FAC-TEST/charts?patientId=000001');
   });
 
-  it('returnTo 保存済みのとき Charts に戻るが有効でステータスが表示される', () => {
+  it('returnTo 保存済みのとき ReturnToBar が sessionStorage の returnTo を使う', async () => {
     mockPatients();
     setRouterSearch('?from=charts');
-    sessionStorage.setItem('opendolphin:web-client:patients:returnTo:v1', '/charts?patientId=000002');
+    sessionStorage.setItem('opendolphin:web-client:patients:returnTo:v1', '/f/FAC-TEST/charts?patientId=000002');
 
     renderPatientsPage();
 
-    const chartsButton = screen.getByRole('button', { name: 'Charts に戻る' });
-    expect(chartsButton).toBeEnabled();
-    expect(screen.getByText('保存済み')).toBeInTheDocument();
-    expect(screen.getByText('sessionStorage の returnTo を使用します。')).toBeInTheDocument();
+    expect(screen.getByText('カルテに戻れます')).toBeInTheDocument();
+    const backButton = screen.getByRole('button', { name: /カルテへ戻る/ });
+    await userEvent.setup().click(backButton);
+    expect(mockGuardedNavigate).toHaveBeenCalledWith('/f/FAC-TEST/charts?patientId=000002');
   });
 
-  it('returnTo 不正時は自動生成にフォールバックする', () => {
+  it('returnTo 不正時は安全な fallback（/f/:facilityId/charts）へ戻る', async () => {
     mockPatients();
     setRouterSearch('?from=charts&returnTo=https://example.com');
 
     renderPatientsPage();
 
-    const chartsButton = screen.getByRole('button', { name: 'Charts に戻る' });
-    expect(chartsButton).toBeEnabled();
-    expect(screen.getByText('自動生成')).toBeInTheDocument();
-    expect(screen.getByText('returnTo が不正のため自動生成しました。')).toBeInTheDocument();
+    expect(screen.getByText('戻り先がないため安全な画面へ戻ります')).toBeInTheDocument();
+    const backButton = screen.getByRole('button', { name: /カルテへ戻る/ });
+    await userEvent.setup().click(backButton);
+    expect(mockGuardedNavigate).toHaveBeenCalledWith('/f/FAC-TEST/charts');
   });
 
-  it('Charts 由来でない場合は戻り導線が無効になる', () => {
+  it('Charts 由来でない場合は fallback（/f/:facilityId/charts）へ戻る', async () => {
     mockPatients();
     setRouterSearch('');
 
     renderPatientsPage();
 
-    const chartsButton = screen.getByRole('button', { name: 'Charts に戻る' });
-    expect(chartsButton).toBeDisabled();
-    expect(screen.getByText('未設定')).toBeInTheDocument();
+    expect(screen.getByText('戻り先がないため安全な画面へ戻ります')).toBeInTheDocument();
+    const backButton = screen.getByRole('button', { name: '◀︎ 戻る' });
+    await userEvent.setup().click(backButton);
+    expect(mockGuardedNavigate).toHaveBeenCalledWith('/f/FAC-TEST/charts');
   });
 });
 

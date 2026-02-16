@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 import { logUiState } from '../../libs/audit/auditLogger';
 import { readStoredAuth, resolveAuditActor } from '../../libs/auth/storedAuth';
@@ -28,7 +27,7 @@ import {
   type DocumentOutputMode,
 } from './print/documentPrintPreviewStorage';
 import { useOptionalSession } from '../../AppRouter';
-import { buildFacilityPath } from '../../routes/facilityRoutes';
+import { useAppNavigation } from '../../routes/useAppNavigation';
 import { fetchUserProfile } from './stampApi';
 import {
   deleteLetter,
@@ -535,7 +534,7 @@ export function DocumentCreatePanel({
     const stored = readStoredAuth();
     return stored ? normalizeUserName(stored.facilityId, stored.userId) : null;
   }, [session?.facilityId, session?.userId]);
-  const navigate = useNavigate();
+  const appNav = useAppNavigation({ facilityId: session?.facilityId, userId: session?.userId });
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [activeType, setActiveType] = useState<DocumentType>('referral');
   const [forms, setForms] = useState<DocumentFormState>(() => buildEmptyForms(today));
@@ -1547,8 +1546,10 @@ export function DocumentCreatePanel({
       facilityId,
       initialOutputMode,
     };
-    navigate(buildFacilityPath(session?.facilityId, '/charts/print/document'), { state: previewState });
-    saveDocumentPrintPreview(previewState, storageScope);
+    const returnTo = appNav.currentUrl;
+    const navigatedState = { ...previewState, from: 'charts', returnTo };
+    appNav.openPrintDocument({ state: navigatedState });
+    saveDocumentPrintPreview(navigatedState, storageScope);
   };
 
   useEffect(() => {
@@ -2223,7 +2224,7 @@ export function DocumentCreatePanel({
                           <button type="button" onClick={() => handleOpenDocumentPreview(doc, 'print')}>
                             再出力（印刷）
                           </button>
-                          <button type="button" onClick={() => navigate(buildFacilityPath(session?.facilityId, '/reception'))}>
+                          <button type="button" onClick={() => appNav.openReception()}>
                             再取得（Reception）
                           </button>
                           <a href={PRINT_HELP_URL} target="_blank" rel="noreferrer">

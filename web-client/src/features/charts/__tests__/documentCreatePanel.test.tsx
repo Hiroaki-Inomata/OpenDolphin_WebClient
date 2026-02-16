@@ -17,6 +17,26 @@ import {
   saveLetterModule,
 } from '../letterApi';
 
+vi.mock('../../../routes/useAppNavigation', () => ({
+  useAppNavigation: () => ({
+    currentUrl: '/f/0001/charts',
+    currentScreen: 'charts',
+    fromCandidate: null,
+    returnToCandidate: null,
+    safeReturnToCandidate: null,
+    carryover: {},
+    external: {},
+    encounter: {},
+    openReception: vi.fn(),
+    openPatients: vi.fn(),
+    openCharts: vi.fn(),
+    openOrderSets: vi.fn(),
+    openPrintOutpatient: vi.fn(),
+    openPrintDocument: vi.fn(),
+    openMobileImages: vi.fn(),
+  }),
+}));
+
 vi.mock('../../../libs/audit/auditLogger', () => ({
   logUiState: vi.fn(),
 }));

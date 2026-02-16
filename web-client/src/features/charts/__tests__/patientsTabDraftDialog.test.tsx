@@ -2,10 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 
 import { PatientsTab } from '../PatientsTab';
 import type { ReceptionEntry } from '../../reception/api';
+import { NavigationGuardProvider } from '../../../routes/NavigationGuardProvider';
 
 const session = {
   facilityId: 'FAC-1',
@@ -66,21 +67,32 @@ const buildEntry = (overrides: Partial<ReceptionEntry> = {}): ReceptionEntry => 
 
 const renderTab = (entries: ReceptionEntry[]) => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/',
+        element: (
+          <NavigationGuardProvider>
+            <PatientsTab
+              entries={entries}
+              selectedContext={{
+                patientId: entries[0]?.patientId,
+                appointmentId: entries[0]?.appointmentId,
+                receptionId: entries[0]?.receptionId,
+                visitDate: entries[0]?.visitDate,
+              }}
+              draftDirty
+              draftDirtySources={['soap']}
+            />
+          </NavigationGuardProvider>
+        ),
+      },
+    ],
+    { initialEntries: ['/'] },
+  );
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
-        <PatientsTab
-          entries={entries}
-          selectedContext={{
-            patientId: entries[0]?.patientId,
-            appointmentId: entries[0]?.appointmentId,
-            receptionId: entries[0]?.receptionId,
-            visitDate: entries[0]?.visitDate,
-          }}
-          draftDirty
-          draftDirtySources={['soap']}
-        />
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
 };

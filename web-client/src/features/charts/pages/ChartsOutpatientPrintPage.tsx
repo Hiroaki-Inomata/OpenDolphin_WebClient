@@ -8,6 +8,7 @@ import { getObservabilityMeta } from '../../../libs/observability/observability'
 import type { ReceptionEntry } from '../../reception/api';
 import { receptionStyles } from '../../reception/styles';
 import { ToneBanner } from '../../reception/components/ToneBanner';
+import { ReturnToBar } from '../../shared/ReturnToBar';
 import { recordChartsAuditEvent } from '../audit';
 import { chartsPrintStyles } from '../print/printStyles';
 import { OutpatientClinicalDocument, type ChartsPrintMeta } from '../print/outpatientClinicalDocument';
@@ -19,6 +20,8 @@ import {
 } from '../print/printPreviewStorage';
 import { useOptionalSession } from '../../../AppRouter';
 import { buildFacilityPath } from '../../../routes/facilityRoutes';
+import { isSafeReturnTo } from '../../../routes/appNavigation';
+import { useAppNavigation } from '../../../routes/useAppNavigation';
 import { MISSING_MASTER_RECOVERY_NEXT_STEPS } from '../../shared/missingMasterRecovery';
 
 type PrintLocationState = {
@@ -53,6 +56,26 @@ function ChartsOutpatientPrintContent() {
   const session = useOptionalSession();
   const navigate = useNavigate();
   const location = useLocation();
+  const appNav = useAppNavigation({ facilityId: session?.facilityId, userId: session?.userId });
+  const queryParams = useMemo(
+    () => new URLSearchParams(location.search.startsWith('?') ? location.search.slice(1) : location.search),
+    [location.search],
+  );
+  const from = useMemo(() => {
+    const state = location.state as Record<string, unknown> | null;
+    const fromState = state && typeof state.from === 'string' ? state.from : undefined;
+    return fromState ?? queryParams.get('from') ?? undefined;
+  }, [location.state, queryParams]);
+  const returnTo = useMemo(() => {
+    const state = location.state as Record<string, unknown> | null;
+    const returnToState = state && typeof state.returnTo === 'string' ? state.returnTo : undefined;
+    return returnToState ?? queryParams.get('returnTo') ?? undefined;
+  }, [location.state, queryParams]);
+  const fallbackUrl = useMemo(() => buildFacilityPath(session?.facilityId, '/charts'), [session?.facilityId]);
+  const safeReturnTo = useMemo(
+    () => (isSafeReturnTo(returnTo, session?.facilityId) ? returnTo : undefined),
+    [returnTo, session?.facilityId],
+  );
   const storageScope = useMemo(
     () => ({ facilityId: session?.facilityId, userId: session?.userId }),
     [session?.facilityId, session?.userId],
@@ -280,13 +303,19 @@ function ChartsOutpatientPrintContent() {
 
   const handleClose = () => {
     clearOutpatientPrintPreview(storageScope);
-    navigate(buildFacilityPath(session?.facilityId, '/charts'));
+    navigate(safeReturnTo ?? fallbackUrl);
   };
 
   if (!state) {
     return (
       <main className="charts-print">
         <div className="charts-print__screen-only">
+          <ReturnToBar
+            scope={{ facilityId: session?.facilityId, userId: session?.userId }}
+            returnTo={returnTo}
+            from={from}
+            fallbackUrl={fallbackUrl}
+          />
           <ToneBanner
             tone="error"
             message="印刷プレビューの状態が見つかりません（画面をリロードした可能性があります）"
@@ -316,6 +345,12 @@ function ChartsOutpatientPrintContent() {
   return (
     <main className="charts-print">
       <div className="charts-print__screen-only">
+        <ReturnToBar
+          scope={{ facilityId: session?.facilityId, userId: session?.userId }}
+          returnTo={returnTo}
+          from={from}
+          fallbackUrl={fallbackUrl}
+        />
         {restoredAt && !getState(location.state) && (
           <ToneBanner
             tone="info"
@@ -376,7 +411,7 @@ function ChartsOutpatientPrintContent() {
             <button
               type="button"
               className="charts-print__button"
-              onClick={() => navigate(buildFacilityPath(session?.facilityId, '/reception'))}
+              onClick={() => appNav.openReception()}
             >
               Receptionへ戻る
             </button>
@@ -415,7 +450,7 @@ function ChartsOutpatientPrintContent() {
             <button
               type="button"
               className="charts-print__button"
-              onClick={() => navigate(buildFacilityPath(session?.facilityId, '/reception'))}
+              onClick={() => appNav.openReception()}
             >
               Receptionへ戻る
             </button>

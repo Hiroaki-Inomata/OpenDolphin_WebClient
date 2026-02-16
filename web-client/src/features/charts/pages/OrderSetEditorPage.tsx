@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { ReturnToBar } from '../../shared/ReturnToBar';
 
 import { useSession } from '../../../AppRouter';
 import { buildFacilityPath } from '../../../routes/facilityRoutes';
+import { useNavigationGuard } from '../../../routes/NavigationGuardProvider';
+import { useAppNavigation } from '../../../routes/useAppNavigation';
 import {
   deleteChartOrderSet,
   listChartOrderSets,
@@ -28,7 +30,9 @@ const cloneSnapshot = (snapshot: ChartOrderSetSnapshot): ChartOrderSetSnapshot =
 
 export function OrderSetEditorPage() {
   const session = useSession();
-  const navigate = useNavigate();
+  const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
+  const { registerDirty } = useNavigationGuard();
+  const fallbackUrl = useMemo(() => buildFacilityPath(session.facilityId, '/charts'), [session.facilityId]);
   const [sets, setSets] = useState<ChartOrderSetEntry[]>(() => listChartOrderSets(session.facilityId));
   const [selectedId, setSelectedId] = useState<string>(() => listChartOrderSets(session.facilityId)[0]?.id ?? '');
   const [name, setName] = useState('');
@@ -40,6 +44,16 @@ export function OrderSetEditorPage() {
     [selectedId, sets],
   );
 
+  const isDirty = useMemo(() => {
+    if (!selectedSet || !snapshot) return false;
+    if (name !== selectedSet.name) return true;
+    try {
+      return JSON.stringify(snapshot) !== JSON.stringify(selectedSet.snapshot);
+    } catch {
+      return true;
+    }
+  }, [name, selectedSet, snapshot]);
+
   useEffect(() => {
     if (!selectedSet) {
       setName('');
@@ -49,6 +63,14 @@ export function OrderSetEditorPage() {
     setName(selectedSet.name);
     setSnapshot(cloneSnapshot(selectedSet.snapshot));
   }, [selectedSet]);
+
+  useEffect(() => {
+    registerDirty('orderSets', isDirty, 'オーダーセットの未保存変更');
+  }, [isDirty, registerDirty]);
+
+  useEffect(() => {
+    return () => registerDirty('orderSets', false);
+  }, [registerDirty]);
 
   const refreshSets = () => {
     const next = listChartOrderSets(session.facilityId);
@@ -91,6 +113,12 @@ export function OrderSetEditorPage() {
 
   return (
     <main className="page-shell" style={{ maxWidth: 1120, margin: '0 auto', padding: '1rem' }}>
+      <ReturnToBar
+        scope={{ facilityId: session.facilityId, userId: session.userId }}
+        returnTo={appNav.returnToCandidate}
+        from={appNav.fromCandidate}
+        fallbackUrl={fallbackUrl}
+      />
       <header style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ marginBottom: '0.5rem' }}>オーダーセット編集</h1>
@@ -99,9 +127,6 @@ export function OrderSetEditorPage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button type="button" onClick={() => navigate(buildFacilityPath(session.facilityId, '/charts'))}>
-            カルテへ戻る
-          </button>
           <button type="button" onClick={refreshSets}>
             再読込
           </button>

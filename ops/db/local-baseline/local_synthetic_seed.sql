@@ -1,6 +1,7 @@
 BEGIN;
 
-SET search_path = public;
+-- Prefer opendolphin when available, fall back to public (legacy schema dump).
+SET search_path = opendolphin,public;
 
 -- Ensure base sequence exists for inserts
 CREATE SEQUENCE IF NOT EXISTS hibernate_sequence
@@ -310,10 +311,10 @@ WHERE NOT EXISTS (
 -- Modernized facility extra patient for order/bundles QA (01415)
 WITH existing_patient AS (
     SELECT id
-    FROM opendolphin.d_patient
+    FROM d_patient
     WHERE facilityid = '1.3.6.1.4.1.9414.72.103' AND patientid = '01415'
 ), inserted_patient AS (
-    INSERT INTO opendolphin.d_patient (
+    INSERT INTO d_patient (
         id,
         facilityid,
         patientid,
@@ -325,7 +326,7 @@ WITH existing_patient AS (
         birthday
     )
     SELECT
-        nextval('opendolphin.hibernate_sequence'),
+        nextval('hibernate_sequence'),
         '1.3.6.1.4.1.9414.72.103',
         '01415',
         '通し検証',
@@ -337,7 +338,7 @@ WITH existing_patient AS (
     WHERE NOT EXISTS (SELECT 1 FROM existing_patient)
     RETURNING id
 ), updated_patient AS (
-    UPDATE opendolphin.d_patient
+    UPDATE d_patient
     SET
         familyname = '通し検証',
         givenname = '太郎',
@@ -352,27 +353,27 @@ WITH existing_patient AS (
     UNION ALL
     SELECT id FROM existing_patient
 )
-INSERT INTO opendolphin.d_karte (
+INSERT INTO d_karte (
     id,
     created,
     patient_id
 )
 SELECT
-    nextval('opendolphin.hibernate_sequence'),
+    nextval('hibernate_sequence'),
     CURRENT_DATE,
     selected_patient.id
 FROM selected_patient
 WHERE NOT EXISTS (
-    SELECT 1 FROM opendolphin.d_karte WHERE patient_id = selected_patient.id
+    SELECT 1 FROM d_karte WHERE patient_id = selected_patient.id
 );
 
 -- Modernized facility extra patient for WebORCA acceptance QA (00005)
 WITH existing_patient AS (
     SELECT id
-    FROM opendolphin.d_patient
+    FROM d_patient
     WHERE facilityid = '1.3.6.1.4.1.9414.72.103' AND patientid = '00005'
 ), inserted_patient AS (
-    INSERT INTO opendolphin.d_patient (
+    INSERT INTO d_patient (
         id,
         facilityid,
         patientid,
@@ -384,7 +385,7 @@ WITH existing_patient AS (
         birthday
     )
     SELECT
-        nextval('opendolphin.hibernate_sequence'),
+        nextval('hibernate_sequence'),
         '1.3.6.1.4.1.9414.72.103',
         '00005',
         '通し検証',
@@ -396,7 +397,7 @@ WITH existing_patient AS (
     WHERE NOT EXISTS (SELECT 1 FROM existing_patient)
     RETURNING id
 ), updated_patient AS (
-    UPDATE opendolphin.d_patient
+    UPDATE d_patient
     SET
         familyname = '通し検証',
         givenname = '五郎',
@@ -411,18 +412,18 @@ WITH existing_patient AS (
     UNION ALL
     SELECT id FROM existing_patient
 )
-INSERT INTO opendolphin.d_karte (
+INSERT INTO d_karte (
     id,
     created,
     patient_id
 )
 SELECT
-    nextval('opendolphin.hibernate_sequence'),
+    nextval('hibernate_sequence'),
     CURRENT_DATE,
     selected_patient.id
 FROM selected_patient
 WHERE NOT EXISTS (
-    SELECT 1 FROM opendolphin.d_karte WHERE patient_id = selected_patient.id
+    SELECT 1 FROM d_karte WHERE patient_id = selected_patient.id
 );
 
 -- Align hibernate_sequence with current max
@@ -444,14 +445,14 @@ BEGIN
     IF to_regclass('opendolphin.d_patient_seq') IS NOT NULL THEN
         PERFORM setval(
             'opendolphin.d_patient_seq',
-            GREATEST(COALESCE((SELECT MAX(id) FROM opendolphin.d_patient), 1), 1),
+            GREATEST(COALESCE((SELECT MAX(id) FROM d_patient), 1), 1),
             true
         );
     END IF;
     IF to_regclass('opendolphin.d_karte_seq') IS NOT NULL THEN
         PERFORM setval(
             'opendolphin.d_karte_seq',
-            GREATEST(COALESCE((SELECT MAX(id) FROM opendolphin.d_karte), 1), 1),
+            GREATEST(COALESCE((SELECT MAX(id) FROM d_karte), 1), 1),
             true
         );
     END IF;

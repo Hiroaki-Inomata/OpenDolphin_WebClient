@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 
+import { useNavigationGuard } from '../../../routes/NavigationGuardProvider';
+import { useAppNavigation } from '../../../routes/useAppNavigation';
 import { AuthServiceControls } from '../AuthServiceControls';
 import { applyAuthServicePatch, useAuthService, type AuthServiceFlags } from '../authService';
 import { DocumentTimeline } from '../DocumentTimeline';
@@ -486,6 +488,8 @@ export function ChartsPage() {
 function ChartsContent() {
   const { flags, setCacheHit, setDataSourceTransition, setMissingMaster, setFallbackUsed, bumpRunId } = useAuthService();
   const session = useSession();
+  const { registerDirty } = useNavigationGuard();
+  const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
   const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
@@ -614,6 +618,12 @@ function ChartsContent() {
     visitDate?: string;
     dirtySources?: DraftDirtySource[];
   }>({ dirty: false, dirtySources: [] });
+
+  useEffect(() => {
+    registerDirty('charts', draftState.dirty, 'カルテ: 未保存の入力があります');
+    return () => registerDirty('charts', false);
+  }, [draftState.dirty, registerDirty]);
+
   const [soapHistoryByEncounter, setSoapHistoryByEncounter] = useState<Record<string, SoapEntry[]>>(() => {
     const stored = readSoapHistoryStorage(storageScope);
     if (!stored) return {};
@@ -916,24 +926,9 @@ function ChartsContent() {
 
   const urlContext = useMemo(() => parseChartsEncounterContext(location.search), [location.search]);
   const receptionCarryover = useMemo(() => parseReceptionCarryoverParams(location.search), [location.search]);
-  const receptionUrl = useMemo(() => {
-    const params = new URLSearchParams();
-    params.set('from', 'charts');
-    if (receptionCarryover.kw) params.set('kw', receptionCarryover.kw);
-    if (receptionCarryover.dept) params.set('dept', receptionCarryover.dept);
-    if (receptionCarryover.phys) params.set('phys', receptionCarryover.phys);
-    if (receptionCarryover.pay) params.set('pay', receptionCarryover.pay);
-    if (receptionCarryover.sort) params.set('sort', receptionCarryover.sort);
-    if (encounterContext.visitDate) {
-      // Reception は既定で「当日」を表示し、カルテ日(visitDate)はヒントとして渡す。
-      params.set('visitDate', encounterContext.visitDate);
-    }
-    const query = params.toString();
-    return `${buildFacilityPath(session.facilityId, '/reception')}${query ? `?${query}` : ''}`;
-  }, [encounterContext.visitDate, receptionCarryover, session.facilityId]);
   const handleOpenReception = useCallback(() => {
-    navigate(receptionUrl);
-  }, [navigate, receptionUrl]);
+    appNav.openReception({ carryover: receptionCarryover, visitDate: encounterContext.visitDate });
+  }, [appNav, encounterContext.visitDate, receptionCarryover]);
   const soapEncounterKey = useMemo(
     () =>
       [
@@ -4381,7 +4376,7 @@ function ChartsContent() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => navigate(buildFacilityPath(session.facilityId, '/charts/order-sets'))}
+                              onClick={() => appNav.openOrderSets()}
                             >
                               セット編集画面を開く
                             </button>

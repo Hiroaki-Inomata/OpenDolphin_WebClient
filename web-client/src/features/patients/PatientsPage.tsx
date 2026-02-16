@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 
 import { getAuditEventLog, logAuditEvent, logUiState, type AuditEventRecord } from '../../libs/audit/auditLogger';
 import { resolveAriaLive, resolveRunId } from '../../libs/observability/observability';
@@ -8,6 +8,7 @@ import { getChartToneDetails, type ChartTonePayload } from '../../ux/charts/tone
 import { ApiFailureBanner } from '../shared/ApiFailureBanner';
 import { AdminBroadcastBanner } from '../shared/AdminBroadcastBanner';
 import { MissingMasterRecoveryGuide } from '../shared/MissingMasterRecoveryGuide';
+import { ReturnToBar } from '../shared/ReturnToBar';
 import { RunIdBadge } from '../shared/RunIdBadge';
 import { StatusPill } from '../shared/StatusPill';
 import { AuditSummaryInline } from '../shared/AuditSummaryInline';
@@ -21,9 +22,12 @@ import {
 import { MISSING_MASTER_RECOVERY_NEXT_ACTION } from '../shared/missingMasterRecovery';
 import { ToneBanner } from '../reception/components/ToneBanner';
 import { applyAuthServicePatch, useAuthService, type AuthServiceFlags, type DataSourceTransition } from '../charts/authService';
-import { buildChartsUrl, normalizeRunId, normalizeVisitDate, parseReceptionCarryoverParams } from '../charts/encounterContext';
+import { normalizeVisitDate, parseReceptionCarryoverParams } from '../charts/encounterContext';
 import { useSession } from '../../AppRouter';
-import { buildFacilityPath, parseFacilityPath } from '../../routes/facilityRoutes';
+import { buildFacilityPath } from '../../routes/facilityRoutes';
+import { applyExternalParams, isSafeReturnTo, pickExternalParams } from '../../routes/appNavigation';
+import { useNavigationGuard } from '../../routes/NavigationGuardProvider';
+import { useAppNavigation } from '../../routes/useAppNavigation';
 import { PatientFormErrorAlert } from './PatientFormErrorAlert';
 import { useAppToast } from '../../libs/ui/appToast';
 import { useAdminBroadcast } from '../../libs/admin/useAdminBroadcast';
@@ -76,13 +80,6 @@ const toSearchParams = (filters: typeof DEFAULT_FILTER) => {
 };
 
 const pickString = (value: unknown): string | undefined => (typeof value === 'string' && value.length > 0 ? value : undefined);
-
-const isSafeChartsReturnTo = (value?: string | null) => {
-  if (!value) return false;
-  if (value.startsWith('/charts')) return true;
-  const facilityMatch = parseFacilityPath(value);
-  return facilityMatch ? facilityMatch.suffix.startsWith('/charts') : false;
-};
 
 const readStorageJson = (key: string) => {
   if (typeof localStorage === 'undefined') return null;
@@ -213,92 +210,50 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     [session.facilityId, session.userId],
   );
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
-  const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { enqueue } = useAppToast();
-  const fromCharts = searchParams.get('from') === 'charts';
+  const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
+  const { registerDirty } = useNavigationGuard();
   const receptionCarryover = useMemo(() => parseReceptionCarryoverParams(location.search), [location.search]);
   const handleOpenReception = useCallback(() => {
-    navigate({ pathname: buildFacilityPath(session.facilityId, '/reception'), search: location.search });
-  }, [location.search, navigate, session.facilityId]);
+    appNav.openReception();
+  }, [appNav.openReception]);
   const patientIdParam = searchParams.get('patientId') ?? undefined;
   const appointmentIdParam = searchParams.get('appointmentId') ?? undefined;
   const receptionIdParam = searchParams.get('receptionId') ?? undefined;
   const visitDateParam = normalizeVisitDate(searchParams.get('visitDate') ?? undefined);
-  const runIdParam = normalizeRunId(searchParams.get('runId') ?? undefined);
-  const returnToParam = searchParams.get('returnTo') ?? undefined;
-  const chartsReturnState = useMemo(() => {
-    if (!fromCharts) {
-      return {
-        url: null,
-        label: '未設定',
-        detail: 'Charts からの遷移ではないため returnTo はありません。',
-        tone: 'neutral' as const,
-      };
-    }
-    if (isSafeChartsReturnTo(returnToParam)) {
-      return {
-        url: returnToParam,
-        label: 'クエリ指定',
-        detail: 'returnTo パラメータを使用します。',
-        tone: 'success' as const,
-      };
-    }
-    const storedReturnTo = (() => {
-      if (typeof sessionStorage === 'undefined') return undefined;
-      try {
-        const scopedKey =
-          buildScopedStorageKey(RETURN_TO_STORAGE_BASE, RETURN_TO_VERSION, storageScope) ?? RETURN_TO_LEGACY_KEY;
-        const raw = sessionStorage.getItem(scopedKey) ?? sessionStorage.getItem(RETURN_TO_LEGACY_KEY);
-        if (!raw) return undefined;
-        if (scopedKey !== RETURN_TO_LEGACY_KEY && !sessionStorage.getItem(scopedKey)) {
-          sessionStorage.setItem(scopedKey, raw);
-          sessionStorage.removeItem(RETURN_TO_LEGACY_KEY);
-        }
-        return raw ?? undefined;
-      } catch {
-        return undefined;
+  const fromCandidate = appNav.fromCandidate ?? undefined;
+  const fromCharts = fromCandidate === 'charts';
+  const storedReturnTo = useMemo(() => {
+    if (typeof sessionStorage === 'undefined') return undefined;
+    try {
+      const scopedKey = buildScopedStorageKey(RETURN_TO_STORAGE_BASE, RETURN_TO_VERSION, storageScope) ?? RETURN_TO_LEGACY_KEY;
+      const raw = sessionStorage.getItem(scopedKey) ?? sessionStorage.getItem(RETURN_TO_LEGACY_KEY);
+      if (!raw) return undefined;
+      // Migrate legacy key to scoped key (facilityId/userId) when possible.
+      if (scopedKey !== RETURN_TO_LEGACY_KEY && !sessionStorage.getItem(scopedKey)) {
+        sessionStorage.setItem(scopedKey, raw);
+        sessionStorage.removeItem(RETURN_TO_LEGACY_KEY);
       }
-    })();
-    if (isSafeChartsReturnTo(storedReturnTo)) {
-      return {
-        url: storedReturnTo,
-        label: '保存済み',
-        detail: 'sessionStorage の returnTo を使用します。',
-        tone: 'info' as const,
-      };
+      return raw;
+    } catch {
+      return undefined;
     }
-    const patientId = patientIdParam ?? searchParams.get('kw') ?? undefined;
-    const fallbackUrl = buildChartsUrl(
-      { patientId, appointmentId: appointmentIdParam, receptionId: receptionIdParam, visitDate: visitDateParam },
-      receptionCarryover,
-      { runId: runIdParam ?? runId },
-      buildFacilityPath(session.facilityId, '/charts'),
-    );
-    return {
-      url: fallbackUrl,
-      label: '自動生成',
-      detail: returnToParam
-        ? 'returnTo が不正のため自動生成しました。'
-        : 'returnTo が未設定のため自動生成しました。',
-      tone: 'warning' as const,
-    };
-  }, [
-    appointmentIdParam,
-    fromCharts,
-    patientIdParam,
-    receptionCarryover,
-    receptionIdParam,
-    returnToParam,
-    runIdParam,
-    runId,
-    searchParams,
-    session.facilityId,
-    storageScope,
-    visitDateParam,
-  ]);
-  const chartsReturnUrl = chartsReturnState.url;
+  }, [storageScope]);
+  const safeStoredReturnTo = useMemo(
+    () => (isSafeReturnTo(storedReturnTo, session.facilityId) ? storedReturnTo : undefined),
+    [session.facilityId, storedReturnTo],
+  );
+  const effectiveReturnTo = useMemo(() => {
+    if (appNav.safeReturnToCandidate) return appNav.safeReturnToCandidate;
+    if (fromCandidate === 'charts') return safeStoredReturnTo;
+    return undefined;
+  }, [appNav.safeReturnToCandidate, fromCandidate, safeStoredReturnTo]);
+  const fallbackUrl = useMemo(() => {
+    if (fromCandidate === 'reception') return buildFacilityPath(session.facilityId, '/reception');
+    return buildFacilityPath(session.facilityId, '/charts');
+  }, [fromCandidate, session.facilityId]);
   const initialFilters = useMemo(() => readFilters(searchParams), [searchParams]);
   const [filters, setFilters] = useState(initialFilters);
   const [selectedId, setSelectedId] = useState<string | undefined>();
@@ -340,6 +295,14 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   const [orcaMemoDirty, setOrcaMemoDirty] = useState(false);
   const [orcaMemoNotice, setOrcaMemoNotice] = useState<ToastState | null>(null);
   const [orcaMemoLastUpdate, setOrcaMemoLastUpdate] = useState<PatientMemoUpdateResult | null>(null);
+
+  useEffect(() => {
+    registerDirty('patients:orcaMemo', orcaMemoDirty, '患者メモ（ORCA）の未保存変更');
+  }, [orcaMemoDirty, registerDirty]);
+
+  useEffect(() => {
+    return () => registerDirty('patients:orcaMemo', false);
+  }, [registerDirty]);
   const [orcaOriginalFormat, setOrcaOriginalFormat] = useState<PatientOriginalFormat>('xml');
   const [orcaOriginalClass, setOrcaOriginalClass] = useState('');
   const [orcaOriginalResult, setOrcaOriginalResult] = useState<PatientOriginalResponse | null>(null);
@@ -660,6 +623,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     const receptionId = carryoverSource.get('receptionId');
     const visitDate = carryoverSource.get('visitDate');
     const returnTo = carryoverSource.get('returnTo');
+    const intent = carryoverSource.get('intent');
     const runIdFromUrl = carryoverSource.get('runId');
     if (sort) params.set('sort', sort);
     if (date) params.set('date', date);
@@ -668,14 +632,16 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     if (appointmentId) params.set('appointmentId', appointmentId);
     if (receptionId) params.set('receptionId', receptionId);
     if (visitDate) params.set('visitDate', visitDate);
-    if (returnTo) params.set('returnTo', returnTo);
+    if (intent) params.set('intent', intent);
+    if (isSafeReturnTo(returnTo, session.facilityId)) params.set('returnTo', returnTo as string);
     if (runIdFromUrl) params.set('runId', runIdFromUrl);
+    applyExternalParams(params, pickExternalParams(carryoverSource));
     const nextSearch = params.toString();
     const currentSearch = location.search.startsWith('?') ? location.search.slice(1) : location.search;
     if (nextSearch !== currentSearch) {
       setSearchParams(params, { replace: true });
     }
-  }, [filters, location.search, setSearchParams]);
+  }, [filters, location.search, session.facilityId, setSearchParams]);
 
   const patientsQuery = useQuery({
     queryKey: ['patients', filters],
@@ -1502,6 +1468,12 @@ export function PatientsPage({ runId }: PatientsPageProps) {
         本文へスキップ
       </a>
       <main className="patients-page" data-run-id={resolvedRunId} id="patients-main" tabIndex={-1}>
+      <ReturnToBar
+        scope={{ facilityId: session.facilityId, userId: session.userId }}
+        returnTo={effectiveReturnTo}
+        from={fromCandidate}
+        fallbackUrl={fallbackUrl}
+      />
       <header className="patients-page__header">
         <div>
           <p className="patients-page__kicker">Patients 検索・取り込み</p>
@@ -1551,36 +1523,6 @@ export function PatientsPage({ runId }: PatientsPageProps) {
           />
         </div>
       </header>
-
-      <section className="patients-page__return" aria-label="戻り導線" aria-live={infoLive}>
-        <div className="patients-page__return-main">
-          <span className="patients-page__return-label">戻り導線</span>
-          <div className="patients-page__return-actions">
-            <button
-              type="button"
-              className="patients-search__button primary"
-              onClick={() => chartsReturnUrl && navigate(chartsReturnUrl)}
-              disabled={!chartsReturnUrl}
-              title={chartsReturnUrl ? `returnTo: ${chartsReturnUrl}` : 'Charts からの遷移がありません'}
-            >
-              Charts に戻る
-            </button>
-            <button type="button" className="patients-search__button ghost" onClick={handleOpenReception}>
-              Reception に戻る
-            </button>
-          </div>
-        </div>
-        <div className="patients-page__return-meta" role="status" aria-live={infoLive}>
-          <StatusPill
-            className="patients-page__return-pill"
-            label="returnTo"
-            value={chartsReturnState.label}
-            tone={chartsReturnState.tone}
-            runId={resolvedRunId}
-          />
-          <span className="patients-page__return-detail">{chartsReturnState.detail}</span>
-        </div>
-      </section>
 
       <AdminBroadcastBanner broadcast={broadcast} surface="patients" runId={resolvedRunId} />
       {patientsAutoRefreshNotice && (

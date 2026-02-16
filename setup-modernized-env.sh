@@ -837,7 +837,10 @@ register_initial_user() {
   if [[ "$(schema_table_exists opendolphin.d_users)" == "t" ]]; then
     seed_schema="opendolphin"
   fi
-  local seed_search_path="$seed_schema"
+  # Use the same default search_path as the running server (opendolphin first).
+  # When d_users only exists in public, inserts still resolve correctly via search_path,
+  # while d_roles (which may exist in opendolphin) is seeded where the server will read it.
+  local seed_search_path="opendolphin,public"
   if [[ "$seed_schema" != "public" ]]; then
     seed_search_path="${seed_schema},public"
   fi
