@@ -72,6 +72,19 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
   const queryClient = useQueryClient();
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [form, setForm] = useState<DiagnosisFormState>(() => buildEmptyForm(today));
+  const [quickAdd, setQuickAdd] = useState<{
+    name: string;
+    code: string;
+    startDate: string;
+    isMain: boolean;
+    isSuspected: boolean;
+  }>({
+    name: '',
+    code: '',
+    startDate: today,
+    isMain: false,
+    isSuspected: false,
+  });
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
@@ -89,6 +102,16 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
     return reasons;
   }, [meta.fallbackUsed, meta.missingMaster, meta.readOnly, meta.readOnlyReason]);
   const isBlocked = blockReasons.length > 0;
+  const unblockHints = useMemo(() => {
+    const hints: string[] = [];
+    if (meta.readOnly) {
+      hints.push('閲覧専用を解除するには、タブロック解除または権限設定を確認してください。');
+    }
+    if (meta.missingMaster || meta.fallbackUsed) {
+      hints.push('マスター同期または再取得を実行して、編集可能状態へ戻してください。');
+    }
+    return hints;
+  }, [meta.fallbackUsed, meta.missingMaster, meta.readOnly]);
   const auditMetaDetails = useMemo(
     () => ({
       cacheHit: meta.cacheHit,
@@ -215,6 +238,15 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
       if (result.ok) {
         queryClient.invalidateQueries({ queryKey });
         setForm(buildEmptyForm(today));
+        if (!payload.diagnosisId) {
+          setQuickAdd({
+            name: '',
+            code: '',
+            startDate: today,
+            isMain: false,
+            isSuspected: false,
+          });
+        }
         if (payload.diagnosisId) {
           setIsEditorOpen(false);
         } else {
@@ -361,18 +393,25 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
       <header className="charts-side-panel__section-header">
         <div>
           <strong>保険病名</strong>
-          <p className="charts-diagnosis__lead">ORCA 保険病名（主/疑い）をコンパクトに確認し、追加/編集はモーダルで行います。</p>
+          <p className="charts-diagnosis__lead">上段で病名一覧を確認し、下段のクイック追加から最小入力で登録します。</p>
         </div>
         <div className="charts-diagnosis__header-actions" role="group" aria-label="病名操作">
           <button type="button" className="charts-side-panel__ghost" onClick={openCreate} disabled={isBlocked}>
-            追加
+            詳細入力
           </button>
         </div>
       </header>
 
       {isBlocked && (
         <div className="charts-side-panel__notice charts-side-panel__notice--info">
-          編集はブロックされています: {blockReasons.join(' / ')}
+          <div>編集はブロックされています: {blockReasons.join(' / ')}</div>
+          {unblockHints.length > 0 ? (
+            <ul className="charts-diagnosis__unblock">
+              {unblockHints.map((hint) => (
+                <li key={hint}>{hint}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       )}
       {notice && <div className={`charts-side-panel__notice charts-side-panel__notice--${notice.tone}`}>{notice.message}</div>}
@@ -415,12 +454,20 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
                           </span>
                         ) : null}
                       </span>
-                      <span className="charts-diagnosis__dates">
-                        {entry.startDate ? entry.startDate : '開始日未設定'}
-                        {entry.outcome ? ` / ${entry.outcome}` : ''}
-                      </span>
-                    </div>
-                  </div>
+                          <span className="charts-diagnosis__dates">
+                            <span>開始:{entry.startDate ? entry.startDate : '—'}</span>
+                            <span>転帰:{entry.outcome ? entry.outcome : '—'}</span>
+                            <span>終了:{entry.endDate ? entry.endDate : '—'}</span>
+                            <span
+                              className={`charts-diagnosis__code-state${
+                                entry.diagnosisCode ? ' charts-diagnosis__code-state--ok' : ' charts-diagnosis__code-state--warn'
+                              }`}
+                            >
+                              {entry.diagnosisCode ? 'コードあり' : '⚠ コード未設定'}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
                   <div className="charts-side-panel__item-actions charts-diagnosis__item-actions" role="group" aria-label="病名操作">
                     <button type="button" onClick={() => openEdit(entry)} disabled={isBlocked}>
                       編集
@@ -461,9 +508,16 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
                             ) : null}
                           </span>
                           <span className="charts-diagnosis__dates">
-                            {entry.startDate ? entry.startDate : '開始日未設定'}
-                            {entry.endDate ? ` → ${entry.endDate}` : ''}
-                            {entry.outcome ? ` / ${entry.outcome}` : ''}
+                            <span>開始:{entry.startDate ? entry.startDate : '—'}</span>
+                            <span>転帰:{entry.outcome ? entry.outcome : '—'}</span>
+                            <span>終了:{entry.endDate ? entry.endDate : '—'}</span>
+                            <span
+                              className={`charts-diagnosis__code-state${
+                                entry.diagnosisCode ? ' charts-diagnosis__code-state--ok' : ' charts-diagnosis__code-state--warn'
+                              }`}
+                            >
+                              {entry.diagnosisCode ? 'コードあり' : '⚠ コード未設定'}
+                            </span>
                           </span>
                         </div>
                       </div>
@@ -483,6 +537,85 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
           </>
         )}
       </div>
+
+      <section className="charts-diagnosis__quick-add" aria-label="病名クイック追加">
+        <div className="charts-side-panel__subheader">
+          <strong>クイック追加</strong>
+          <span className="charts-side-panel__help">最小入力で病名を追加できます。</span>
+        </div>
+        <div className="charts-diagnosis__quick-grid">
+          <div className="charts-side-panel__field">
+            <label htmlFor="diagnosis-quick-name">病名 *</label>
+            <input
+              id="diagnosis-quick-name"
+              value={quickAdd.name}
+              onChange={(event) => setQuickAdd((prev) => ({ ...prev, name: event.target.value }))}
+              placeholder="例: 高血圧症"
+              disabled={isBlocked || mutation.isPending}
+            />
+          </div>
+          <div className="charts-side-panel__field">
+            <label htmlFor="diagnosis-quick-code">コード</label>
+            <input
+              id="diagnosis-quick-code"
+              value={quickAdd.code}
+              onChange={(event) => setQuickAdd((prev) => ({ ...prev, code: event.target.value }))}
+              placeholder="例: I10"
+              disabled={isBlocked || mutation.isPending}
+            />
+          </div>
+          <div className="charts-side-panel__field">
+            <label htmlFor="diagnosis-quick-start">開始日</label>
+            <input
+              id="diagnosis-quick-start"
+              type="date"
+              value={quickAdd.startDate}
+              onChange={(event) => setQuickAdd((prev) => ({ ...prev, startDate: event.target.value }))}
+              disabled={isBlocked || mutation.isPending}
+            />
+          </div>
+          <label className="charts-side-panel__toggle">
+            <input
+              type="checkbox"
+              checked={quickAdd.isMain}
+              onChange={(event) => setQuickAdd((prev) => ({ ...prev, isMain: event.target.checked }))}
+              disabled={isBlocked || mutation.isPending}
+            />
+            主病名
+          </label>
+          <label className="charts-side-panel__toggle">
+            <input
+              type="checkbox"
+              checked={quickAdd.isSuspected}
+              onChange={(event) => setQuickAdd((prev) => ({ ...prev, isSuspected: event.target.checked }))}
+              disabled={isBlocked || mutation.isPending}
+            />
+            疑い
+          </label>
+        </div>
+        <div className="charts-diagnosis__quick-actions">
+          <button
+            type="button"
+            disabled={isBlocked || mutation.isPending}
+            onClick={() => {
+              if (!quickAdd.name.trim()) {
+                setNotice({ tone: 'error', message: '病名を入力してください。' });
+                return;
+              }
+              mutation.mutate({
+                ...buildEmptyForm(today),
+                name: quickAdd.name.trim(),
+                code: quickAdd.code.trim(),
+                startDate: quickAdd.startDate || today,
+                isMain: quickAdd.isMain,
+                isSuspected: quickAdd.isSuspected,
+              });
+            }}
+          >
+            クイック追加
+          </button>
+        </div>
+      </section>
 
       <FocusTrapDialog
         open={isEditorOpen}

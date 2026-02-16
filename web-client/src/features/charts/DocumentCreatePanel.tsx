@@ -70,6 +70,12 @@ export type DocumentCreatePanelProps = {
   patientId?: string;
   meta: DocumentCreatePanelMeta;
   onClose?: () => void;
+  onStateChange?: (next: {
+    dirty: boolean;
+    attachmentCount: number;
+    isSaving: boolean;
+    hasError: boolean;
+  }) => void;
   imageAttachments?: KarteAttachmentReference[];
   onImageAttachmentsChange?: (next: KarteAttachmentReference[]) => void;
   onImageAttachmentsClear?: () => void;
@@ -512,6 +518,7 @@ export function DocumentCreatePanel({
   patientId,
   meta,
   onClose,
+  onStateChange,
   imageAttachments,
   onImageAttachmentsChange,
   onImageAttachmentsClear,
@@ -541,6 +548,7 @@ export function DocumentCreatePanel({
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveRetryable, setSaveRetryable] = useState(false);
+  const [draftDirty, setDraftDirty] = useState(false);
   const [savedDocs, setSavedDocs] = useState<SavedDocument[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -579,6 +587,7 @@ export function DocumentCreatePanel({
     ? resolveAriaLive(notice.tone === 'info' ? 'info' : notice.tone === 'error' ? 'error' : 'success')
     : resolveAriaLive('info');
   const noticeRole = notice?.tone === 'error' ? 'alert' : 'status';
+  const panelDirty = draftDirty || attachmentsForDocument.length > 0 || isSaving;
 
   const handleRemoveAttachment = useCallback(
     (attachmentId: number) => {
@@ -641,6 +650,7 @@ export function DocumentCreatePanel({
       setIsHistoryLoading(false);
       setHistoryLoaded(true);
       setHistoryError(null);
+      setDraftDirty(false);
       return;
     }
     // patientId が切り替わった直後は karteId 未確定。履歴は karteId が確定してから取得する。
@@ -656,6 +666,7 @@ export function DocumentCreatePanel({
         setIsHistoryLoading(false);
         setHistoryLoaded(true);
         setHistoryError(result.error ?? 'カルテ情報の取得に失敗しました。');
+        setDraftDirty(false);
         return;
       }
       setKarteId(result.karteId ?? null);
@@ -664,6 +675,15 @@ export function DocumentCreatePanel({
       active = false;
     };
   }, [patientId]);
+
+  useEffect(() => {
+    onStateChange?.({
+      dirty: panelDirty,
+      attachmentCount: attachmentsForDocument.length,
+      isSaving,
+      hasError: notice?.tone === 'error',
+    });
+  }, [attachmentsForDocument.length, isSaving, notice?.tone, onStateChange, panelDirty]);
 
   useEffect(() => {
     const outputResult = loadDocumentOutputResult(storageScope);
@@ -835,6 +855,7 @@ export function DocumentCreatePanel({
   }, [refreshDocumentHistory]);
 
   const updateForm = <T extends DocumentType>(type: T, next: Partial<DocumentFormState[T]>) => {
+    setDraftDirty(true);
     setForms((prev) => ({
       ...prev,
       [type]: {
@@ -933,6 +954,7 @@ export function DocumentCreatePanel({
         },
       }));
       setEditingDocId(null);
+      setDraftDirty(false);
       setNotice({ tone: 'success', message: '履歴からコピーして編集フォームに反映しました。' });
       recordChartsAuditEvent({
         action: 'document_template_reuse',
@@ -1006,6 +1028,7 @@ export function DocumentCreatePanel({
         },
       }));
       setEditingDocId(resolvedDoc.id);
+      setDraftDirty(false);
       setNotice({ tone: 'info', message: '文書を編集モードで読み込みました。' });
     },
     [ensureDocumentDetail, patientId],
@@ -1058,6 +1081,7 @@ export function DocumentCreatePanel({
         },
       };
     });
+    setDraftDirty(true);
     setNotice({ tone: 'success', message: `テンプレート「${template.label}」を差し込みました。` });
   };
 
@@ -1313,6 +1337,7 @@ export function DocumentCreatePanel({
       [activeType]: buildEmptyForms(today)[activeType],
     }));
     setEditingDocId(null);
+    setDraftDirty(false);
     if (hasAttachments) {
       onImageAttachmentsClear?.();
       attachmentsForDocument.forEach((attachment) => {
@@ -1360,7 +1385,9 @@ export function DocumentCreatePanel({
   const handleCancel = () => {
     setForms(buildEmptyForms(today));
     setEditingDocId(null);
+    setDraftDirty(false);
     setNotice({ tone: 'info', message: '入力を中断しました。' });
+    onImageAttachmentsClear?.();
     logDocumentAudit('CHARTS_DOCUMENT_CANCEL', 'do', {
       documentTitle: buildDocumentSummary(activeType, forms),
       documentIssuedAt: forms[activeType].issuedAt,

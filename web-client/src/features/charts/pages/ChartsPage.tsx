@@ -281,20 +281,34 @@ type SoapHistoryStorage = {
   >;
 };
 
-	type DockedUtilityAction =
-	  | 'order-set'
-	  | 'document'
-	  | 'imaging';
+type DockedUtilityAction = 'order-set' | 'document' | 'imaging';
+type UtilityVisualKind = 'stamp' | 'document' | 'imaging' | 'none';
+type UtilityOrderSetSubtab = 'set' | 'stamp';
+type UtilityCloseGuardState = {
+  open: boolean;
+  trigger: 'close' | 'switch';
+  reason: string;
+  nextAction?: DockedUtilityAction;
+};
+type DocumentUtilityState = {
+  dirty: boolean;
+  attachmentCount: number;
+  isSaving: boolean;
+  hasError: boolean;
+};
+type ImageUtilityState = {
+  queueCount: number;
+  uploadingCount: number;
+  hasError: boolean;
+};
 
-	type UtilityVisualKind = 'stamp' | 'document' | 'imaging' | 'none';
-
-	const resolveUtilityVisualKind = (action: DockedUtilityAction | null): UtilityVisualKind => {
-	  if (!action) return 'none';
-	  if (action === 'order-set') return 'stamp';
-	  if (action === 'document') return 'document';
-	  if (action === 'imaging') return 'imaging';
-	  return 'none';
-	};
+const resolveUtilityVisualKind = (action: DockedUtilityAction | null): UtilityVisualKind => {
+  if (!action) return 'none';
+  if (action === 'order-set') return 'stamp';
+  if (action === 'document') return 'document';
+  if (action === 'imaging') return 'imaging';
+  return 'none';
+};
 
 type ChartsPatientTab = {
   key: string;
@@ -618,6 +632,19 @@ function ChartsContent() {
     visitDate?: string;
     dirtySources?: DraftDirtySource[];
   }>({ dirty: false, dirtySources: [] });
+  const [soapSyncState, setSoapSyncState] = useState<{
+    localSaved: boolean;
+    serverSynced: boolean;
+    isSaving: boolean;
+    error?: string | null;
+    savedAt?: string;
+  }>({
+    localSaved: false,
+    serverSynced: true,
+    isSaving: false,
+    error: undefined,
+    savedAt: undefined,
+  });
 
   useEffect(() => {
     registerDirty('charts', draftState.dirty, 'カルテ: 未保存の入力があります');
@@ -697,6 +724,26 @@ function ChartsContent() {
         startLayout: UtilityPanelLayout;
       }
   >(null);
+  const [isUtilityPanelDragging, setIsUtilityPanelDragging] = useState(false);
+  const [isUtilityPanelResizing, setIsUtilityPanelResizing] = useState(false);
+  const [utilityCloseGuard, setUtilityCloseGuard] = useState<UtilityCloseGuardState | null>(null);
+  const [orderSetSubtab, setOrderSetSubtab] = useState<UtilityOrderSetSubtab>('set');
+  const [documentUtilityState, setDocumentUtilityState] = useState<DocumentUtilityState>({
+    dirty: false,
+    attachmentCount: 0,
+    isSaving: false,
+    hasError: false,
+  });
+  const [imageUtilityState, setImageUtilityState] = useState<ImageUtilityState>({
+    queueCount: 0,
+    uploadingCount: 0,
+    hasError: false,
+  });
+  useEffect(() => {
+    if (!stampboxMvpEnabled && orderSetSubtab === 'stamp') {
+      setOrderSetSubtab('set');
+    }
+  }, [orderSetSubtab, stampboxMvpEnabled]);
   const [isPatientPanelOpen, setIsPatientPanelOpen] = useState(false);
   const [orderHistoryCopyRequest, setOrderHistoryCopyRequest] = useState<{
     requestId: string;
@@ -945,6 +992,15 @@ function ChartsContent() {
     ],
   );
   const soapHistory = useMemo(() => soapHistoryByEncounter[soapEncounterKey] ?? [], [soapEncounterKey, soapHistoryByEncounter]);
+  useEffect(() => {
+    setSoapSyncState({
+      localSaved: false,
+      serverSynced: true,
+      isSaving: false,
+      error: undefined,
+      savedAt: undefined,
+    });
+  }, [soapEncounterKey]);
   const [soapDraftSnapshot, setSoapDraftSnapshot] = useState<SoapDraft>(() => ({
     free: '',
     subjective: '',
@@ -952,12 +1008,6 @@ function ChartsContent() {
     assessment: '',
     plan: '',
   }));
-  const [applySoapDraftPatch, setApplySoapDraftPatch] = useState<{
-    token: string;
-    section: SoapSectionKey;
-    body: string;
-    note?: string;
-  } | null>(null);
   const [doCopyDialog, setDoCopyDialog] = useState<DoCopyDialogState | null>(null);
 
   const openDoCopyDialog = useCallback(
@@ -967,13 +1017,46 @@ function ChartsContent() {
       const beforeBody = soapDraftSnapshot?.[section] ?? '';
       setDoCopyDialog({
         open: true,
-        section,
+        sections: [
+          {
+            section,
+            source: {
+              authoredAt: entry.authoredAt,
+              authorRole: entry.authorRole,
+              body: entry.body ?? '',
+            },
+            target: { body: beforeBody },
+          },
+        ],
+        selectedSections: [section],
+        sourceLabel: entry.authoredAt?.slice(0, 10),
+        applied: false,
+      });
+    },
+    [soapDraftSnapshot],
+  );
+
+  const openDoCopyBatchDialog = useCallback(
+    (payload: { sections: Array<{ section: SoapSectionKey; entry: SoapEntry }>; sourceDate?: string }) => {
+      const sections = payload.sections.map((item) => ({
+        section: item.section,
         source: {
-          authoredAt: entry.authoredAt,
-          authorRole: entry.authorRole,
-          body: entry.body ?? '',
+          authoredAt: item.entry.authoredAt,
+          authorRole: item.entry.authorRole,
+          body: item.entry.body ?? '',
         },
-        target: { body: beforeBody },
+        target: {
+          body: soapDraftSnapshot?.[item.section] ?? '',
+        },
+      }));
+      if (sections.length === 0) return;
+      setDoCopyDialog({
+        open: true,
+        sections,
+        selectedSections: sections
+          .filter((item) => item.source.body.trim().length > 0)
+          .map((item) => item.section),
+        sourceLabel: payload.sourceDate,
         applied: false,
       });
     },
@@ -984,15 +1067,25 @@ function ChartsContent() {
     setDoCopyDialog(null);
   }, []);
 
-  const handleDoCopyApply = useCallback(() => {
+  const handleDoCopyApply = useCallback((requestedSections: SoapSectionKey[]) => {
     setDoCopyDialog((prev) => {
       if (!prev) return prev;
+      const sections =
+        requestedSections.length > 0
+          ? requestedSections
+          : prev.selectedSections;
+      if (sections.length === 0) return prev;
+      const sectionSet = new Set(sections);
+      const nextDraft: SoapDraft = { ...soapDraftSnapshot };
+      prev.sections.forEach((item) => {
+        if (!sectionSet.has(item.section)) return;
+        nextDraft[item.section] = item.source.body;
+      });
       const token = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      setApplySoapDraftPatch({
+      setReplaceSoapDraftRequest({
         token,
-        section: prev.section,
-        body: prev.source.body,
-        note: `${SOAP_SECTION_LABELS[prev.section]} を Do転記しました。`,
+        draft: nextDraft,
+        note: `${sections.map((section) => SOAP_SECTION_LABELS[section]).join(' / ')} を Do転記しました。`,
       });
       recordChartsAuditEvent({
         action: 'DRAFT_SAVE',
@@ -1000,7 +1093,7 @@ function ChartsContent() {
         subject: 'charts-do-copy',
         patientId: encounterContext.patientId,
         appointmentId: encounterContext.appointmentId,
-        note: `do_copy_apply section=${prev.section}`,
+        note: `do_copy_apply sections=${sections.join(',')}`,
         runId: flags.runId,
         cacheHit: flags.cacheHit,
         missingMaster: flags.missingMaster,
@@ -1009,24 +1102,34 @@ function ChartsContent() {
         details: {
           operationPhase: 'do',
           doCopy: true,
-          section: prev.section,
-          sourceAuthoredAt: prev.source.authoredAt,
-          sourceAuthorRole: prev.source.authorRole,
+          sections,
+          sourceAuthoredAt: prev.sections[0]?.source.authoredAt,
+          sourceAuthorRole: prev.sections[0]?.source.authorRole,
         },
       });
-      return { ...prev, applied: true };
+      return { ...prev, applied: true, selectedSections: sections };
     });
-  }, [encounterContext.appointmentId, encounterContext.patientId, flags.cacheHit, flags.dataSourceTransition, flags.fallbackUsed, flags.missingMaster, flags.runId]);
+  }, [encounterContext.appointmentId, encounterContext.patientId, flags.cacheHit, flags.dataSourceTransition, flags.fallbackUsed, flags.missingMaster, flags.runId, soapDraftSnapshot]);
 
-  const handleDoCopyUndo = useCallback(() => {
+  const handleDoCopyUndo = useCallback((requestedSections: SoapSectionKey[]) => {
     setDoCopyDialog((prev) => {
       if (!prev) return prev;
+      const sections =
+        requestedSections.length > 0
+          ? requestedSections
+          : prev.selectedSections;
+      if (sections.length === 0) return prev;
+      const sectionSet = new Set(sections);
+      const nextDraft: SoapDraft = { ...soapDraftSnapshot };
+      prev.sections.forEach((item) => {
+        if (!sectionSet.has(item.section)) return;
+        nextDraft[item.section] = item.target.body;
+      });
       const token = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      setApplySoapDraftPatch({
+      setReplaceSoapDraftRequest({
         token,
-        section: prev.section,
-        body: prev.target.body,
-        note: `${SOAP_SECTION_LABELS[prev.section]} の Do転記を Undo しました。`,
+        draft: nextDraft,
+        note: `${sections.map((section) => SOAP_SECTION_LABELS[section]).join(' / ')} の Do転記を Undo しました。`,
       });
       recordChartsAuditEvent({
         action: 'DRAFT_CANCEL',
@@ -1034,7 +1137,7 @@ function ChartsContent() {
         subject: 'charts-do-copy',
         patientId: encounterContext.patientId,
         appointmentId: encounterContext.appointmentId,
-        note: `do_copy_undo section=${prev.section}`,
+        note: `do_copy_undo sections=${sections.join(',')}`,
         runId: flags.runId,
         cacheHit: flags.cacheHit,
         missingMaster: flags.missingMaster,
@@ -1043,12 +1146,12 @@ function ChartsContent() {
         details: {
           operationPhase: 'do',
           doCopy: true,
-          section: prev.section,
+          sections,
         },
       });
-      return { ...prev, applied: false };
+      return { ...prev, applied: false, selectedSections: sections };
     });
-  }, [encounterContext.appointmentId, encounterContext.patientId, flags.cacheHit, flags.dataSourceTransition, flags.fallbackUsed, flags.missingMaster, flags.runId]);
+  }, [encounterContext.appointmentId, encounterContext.patientId, flags.cacheHit, flags.dataSourceTransition, flags.fallbackUsed, flags.missingMaster, flags.runId, soapDraftSnapshot]);
   const appendSoapHistory = useCallback(
     (entries: SoapEntry[]) => {
       setSoapHistoryByEncounter((prev) => ({
@@ -2113,6 +2216,28 @@ function ChartsContent() {
     enabled: Boolean(patientId),
     staleTime: 30_000,
   });
+  const diagnosisSummaryQuery = useQuery({
+    queryKey: ['charts-diagnosis-summary', patientId, actionVisitDate],
+    queryFn: async () => {
+      if (!patientId) return { ok: false as const, diseases: [] as Array<Record<string, unknown>>, message: 'patientId is missing' };
+      try {
+        const result = await fetchDiseases({
+          patientId,
+          from: actionVisitDate,
+          to: actionVisitDate,
+        });
+        return {
+          ok: true as const,
+          diseases: result.diseases ?? [],
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { ok: false as const, diseases: [] as Array<Record<string, unknown>>, message };
+      }
+    },
+    enabled: Boolean(patientId && actionVisitDate),
+    staleTime: 30_000,
+  });
 
   const safetyPayload = safetySummaryQuery.data?.ok ? safetySummaryQuery.data.payload : undefined;
   const allergies = safetyPayload?.allergies ?? [];
@@ -2123,6 +2248,10 @@ function ChartsContent() {
   const orderBundlesError =
     orderBundleSummaryQuery.data && !orderBundleSummaryQuery.data.ok
       ? orderBundleSummaryQuery.data.message ?? 'オーダー情報の取得に失敗しました。'
+      : undefined;
+  const diagnosisCountForSend =
+    diagnosisSummaryQuery.data && diagnosisSummaryQuery.data.ok
+      ? (diagnosisSummaryQuery.data.diseases ?? []).length
       : undefined;
   const todaySoapHistoryForSet = useMemo(
     () => filterSameDaySoapHistory(soapHistory, actionVisitDate),
@@ -2199,6 +2328,43 @@ function ChartsContent() {
     selectedEntry?.status,
     selectedEntry?.visitDate,
   ]);
+  const soapSendSummary = useMemo(
+    () => ({
+      subjective: Boolean((soapDraftSnapshot.subjective ?? '').trim()),
+      objective: Boolean((soapDraftSnapshot.objective ?? '').trim()),
+      assessment: Boolean((soapDraftSnapshot.assessment ?? '').trim()),
+      plan: Boolean((soapDraftSnapshot.plan ?? '').trim()),
+    }),
+    [soapDraftSnapshot.assessment, soapDraftSnapshot.objective, soapDraftSnapshot.plan, soapDraftSnapshot.subjective],
+  );
+  const sendConfirmSummary = useMemo(
+    () => ({
+      patientName: patientDisplay.name,
+      patientId,
+      birthDate: patientDisplay.birthDateIso,
+      age: patientDisplay.age,
+      visitDate: actionVisitDate,
+      receptionId,
+      appointmentId,
+      diagnosisCount: diagnosisCountForSend,
+      orderCount: todayOrderBundlesForSet.length,
+      soap: soapSendSummary,
+      imageAttachmentCount: documentImageAttachments.length,
+    }),
+    [
+      actionVisitDate,
+      appointmentId,
+      diagnosisCountForSend,
+      documentImageAttachments.length,
+      patientDisplay.age,
+      patientDisplay.birthDateIso,
+      patientDisplay.name,
+      patientId,
+      receptionId,
+      soapSendSummary,
+      todayOrderBundlesForSet.length,
+    ],
+  );
 
   useEffect(() => {
     refreshOrderSetEntries();
@@ -2878,6 +3044,50 @@ function ChartsContent() {
     storageScope,
   ]);
 
+  const editStateBar = useMemo(() => {
+    if (sidePanelMeta.readOnly) {
+      return {
+        tone: 'blocked' as const,
+        label: '閲覧専用',
+        detail: sidePanelMeta.readOnlyReason ?? 'ロックまたは権限状態により編集できません。',
+      };
+    }
+    const warnings: string[] = [];
+    if (resolvedMissingMaster) warnings.push('マスター未同期');
+    if (resolvedFallbackUsed) warnings.push('フォールバック経路');
+    if (networkDegradedReason) warnings.push(networkDegradedReason);
+    if (warnings.length > 0) {
+      return {
+        tone: 'warning' as const,
+        label: 'データ状態に注意',
+        detail: warnings.join(' / '),
+      };
+    }
+    const syncDetail = (() => {
+      if (soapSyncState.isSaving) return 'SOAPを保存中です。';
+      if (!soapSyncState.serverSynced && soapSyncState.error) return `SOAP保存未反映: ${soapSyncState.error}`;
+      if (!soapSyncState.serverSynced && soapSyncState.localSaved) return 'SOAPはローカル保存済み、サーバ未反映です。';
+      if (draftState.dirty) return '未保存の入力があります。';
+      return '未保存なし。';
+    })();
+    return {
+      tone: 'ready' as const,
+      label: '編集可能',
+      detail: syncDetail,
+    };
+  }, [
+    draftState.dirty,
+    networkDegradedReason,
+    resolvedFallbackUsed,
+    resolvedMissingMaster,
+    sidePanelMeta.readOnly,
+    sidePanelMeta.readOnlyReason,
+    soapSyncState.error,
+    soapSyncState.isSaving,
+    soapSyncState.localSaved,
+    soapSyncState.serverSynced,
+  ]);
+
   const saveOrderSetMutation = useMutation({
     mutationFn: async () => {
       if (!patientId) {
@@ -3042,19 +3252,19 @@ function ChartsContent() {
     },
   });
 
-	  const utilityPanelTitles: Record<DockedUtilityAction, string> = {
-	    'order-set': 'スタンプ',
-	    document: '文書',
-	    imaging: '画像',
-	  };
+  const utilityPanelTitles: Record<DockedUtilityAction, string> = {
+    'order-set': 'セット / スタンプ',
+    document: '文書',
+    imaging: '画像',
+  };
   const utilityItems = useMemo<
     Array<{ id: DockedUtilityAction; label: string; shortLabel: string; requiresEdit: boolean; shortcut: string }>
   >(
-	    () => {
-	      const base: Array<{ id: DockedUtilityAction; label: string; shortLabel: string; requiresEdit: boolean }> = [
-	        { id: 'order-set', label: 'スタンプ', shortLabel: '★', requiresEdit: false },
-	        { id: 'document', label: '文書', shortLabel: '文', requiresEdit: true },
-	      ];
+    () => {
+      const base: Array<{ id: DockedUtilityAction; label: string; shortLabel: string; requiresEdit: boolean }> = [
+        { id: 'order-set', label: 'セット/スタンプ', shortLabel: '★', requiresEdit: false },
+        { id: 'document', label: '文書', shortLabel: '文', requiresEdit: true },
+      ];
       if (isPatientImagesMvpEnabled) {
         base.push({ id: 'imaging', label: '画像', shortLabel: '画', requiresEdit: false });
       }
@@ -3137,6 +3347,7 @@ function ChartsContent() {
       if (event.button !== 0 || !utilityPanelAction) return;
       event.preventDefault();
       event.stopPropagation();
+      setIsUtilityPanelResizing(true);
       utilityPanelResizeRef.current = {
         pointerId: event.pointerId,
         startX: event.clientX,
@@ -3153,6 +3364,7 @@ function ChartsContent() {
       const target = event.target as HTMLElement | null;
       if (target?.closest('button, input, select, textarea, a, [role="tab"]')) return;
       event.preventDefault();
+      setIsUtilityPanelDragging(true);
       utilityPanelMoveRef.current = {
         pointerId: event.pointerId,
         startX: event.clientX,
@@ -3178,42 +3390,83 @@ function ChartsContent() {
     [patientSelected, sidePanelMeta.readOnly, utilityEditActions],
   );
 
-	  const openUtilityPanel = useCallback(
-	    (action: DockedUtilityAction, trigger?: HTMLButtonElement | null) => {
-	      if (!canOpenUtilityAction(action)) return;
-	      utilityLastActionRef.current = action;
-	      utilityTriggerRef.current = trigger ?? resolveUtilityTrigger(action) ?? utilityTriggerRef.current;
-	      setUtilityPanelAction(action);
-	    },
-	    [canOpenUtilityAction, resolveUtilityTrigger],
-	  );
+  const resolveUtilityLeaveReason = useCallback(
+    (action: DockedUtilityAction | null) => {
+      if (!action) return null;
+      if (action === 'document' && documentUtilityState.dirty) {
+        return '文書に未保存の入力があります。閉じると破棄されます。';
+      }
+      if (action === 'imaging' && (imageUtilityState.uploadingCount > 0 || imageUtilityState.queueCount > 0)) {
+        return '画像のアップロード処理中です。閉じると進捗確認ができなくなります。';
+      }
+      return null;
+    },
+    [documentUtilityState.dirty, imageUtilityState.queueCount, imageUtilityState.uploadingCount],
+  );
 
-	  const createCopyRequestId = useCallback(
-	    () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
-	    [],
-	  );
+  const discardUtilityDraftIfNeeded = useCallback(
+    (action: DockedUtilityAction | null) => {
+      if (action !== 'document') return;
+      clearDocumentAttachments();
+      setDocumentUtilityState({
+        dirty: false,
+        attachmentCount: 0,
+        isSaving: false,
+        hasError: false,
+      });
+    },
+    [clearDocumentAttachments],
+  );
 
-	  const canDoFromPast = useMemo(() => {
-	    if (!patientSelected) return { ok: false, reason: '患者が未選択のためDoできません。' };
-	    if (sidePanelMeta.readOnly) {
-	      return { ok: false, reason: sidePanelMeta.readOnlyReason ?? '閲覧専用のためDoできません。' };
-	    }
-	    if (sidePanelMeta.missingMaster) return { ok: false, reason: 'マスター未同期のためDoできません。' };
-	    if (sidePanelMeta.fallbackUsed) return { ok: false, reason: 'フォールバックデータのためDoできません。' };
-	    return { ok: true, reason: undefined };
-	  }, [
-	    patientSelected,
-	    sidePanelMeta.fallbackUsed,
-	    sidePanelMeta.missingMaster,
-	    sidePanelMeta.readOnly,
-	    sidePanelMeta.readOnlyReason,
-	  ]);
+  const openUtilityPanel = useCallback(
+    (action: DockedUtilityAction, trigger?: HTMLButtonElement | null) => {
+      if (!canOpenUtilityAction(action)) return;
+      const currentAction = utilityPanelActionRef.current;
+      if (currentAction && currentAction !== action) {
+        const reason = resolveUtilityLeaveReason(currentAction);
+        if (reason) {
+          setUtilityCloseGuard({
+            open: true,
+            trigger: 'switch',
+            reason,
+            nextAction: action,
+          });
+          return;
+        }
+      }
+      utilityLastActionRef.current = action;
+      utilityTriggerRef.current = trigger ?? resolveUtilityTrigger(action) ?? utilityTriggerRef.current;
+      setUtilityPanelAction(action);
+    },
+    [canOpenUtilityAction, resolveUtilityLeaveReason, resolveUtilityTrigger],
+  );
 
-	  const openOrderEditor = useCallback(
-	    (entity: PastOrderEntity) => {
-	      if (!canDoFromPast.ok) return;
-	      const requestId = createCopyRequestId();
-	      setOrderDockOpenRequest({ requestId, entity });
+  const createCopyRequestId = useCallback(
+    () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+    [],
+  );
+
+  const canDoFromPast = useMemo(() => {
+    if (!patientSelected) return { ok: false, reason: '患者が未選択のためDoできません。' };
+    if (sidePanelMeta.readOnly) {
+      return { ok: false, reason: sidePanelMeta.readOnlyReason ?? '閲覧専用のためDoできません。' };
+    }
+    if (sidePanelMeta.missingMaster) return { ok: false, reason: 'マスター未同期のためDoできません。' };
+    if (sidePanelMeta.fallbackUsed) return { ok: false, reason: 'フォールバックデータのためDoできません。' };
+    return { ok: true, reason: undefined };
+  }, [
+    patientSelected,
+    sidePanelMeta.fallbackUsed,
+    sidePanelMeta.missingMaster,
+    sidePanelMeta.readOnly,
+    sidePanelMeta.readOnlyReason,
+  ]);
+
+  const openOrderEditor = useCallback(
+    (entity: PastOrderEntity) => {
+      if (!canDoFromPast.ok) return;
+      const requestId = createCopyRequestId();
+      setOrderDockOpenRequest({ requestId, entity });
       // Close the utility panel if it was used as an entry point (legacy flow).
       setUtilityPanelAction(null);
       if (typeof document === 'undefined') return;
@@ -3221,21 +3474,53 @@ function ChartsContent() {
         const el = document.getElementById('charts-order-pane');
         if (el && typeof (el as any).focus === 'function') (el as HTMLElement).focus();
       });
-	    },
-	    [canDoFromPast.ok, createCopyRequestId],
-	  );
+    },
+    [canDoFromPast.ok, createCopyRequestId],
+  );
 
-	  const closeUtilityPanel = useCallback((restoreFocus: boolean) => {
-	    if (restoreFocus) {
-	      utilityFocusRestoreRef.current = true;
-	    }
-	    setUtilityPanelAction(null);
-	  }, []);
+  const closeUtilityPanel = useCallback(
+    (restoreFocus: boolean) => {
+      const currentAction = utilityPanelActionRef.current;
+      const reason = resolveUtilityLeaveReason(currentAction);
+      if (reason) {
+        setUtilityCloseGuard({
+          open: true,
+          trigger: 'close',
+          reason,
+        });
+        return;
+      }
+      if (restoreFocus) {
+        utilityFocusRestoreRef.current = true;
+      }
+      setUtilityPanelAction(null);
+    },
+    [resolveUtilityLeaveReason],
+  );
 
-	  const handlePastOrderDo = useCallback(
-	    (payload: { entity: PastOrderEntity; bundle: OrderBundle }) => {
-	      if (!canDoFromPast.ok) return;
-	      const requestId = createCopyRequestId();
+  const handleConfirmUtilityCloseGuard = useCallback(() => {
+    const guard = utilityCloseGuard;
+    if (!guard) return;
+    const currentAction = utilityPanelActionRef.current;
+    discardUtilityDraftIfNeeded(currentAction);
+    setUtilityCloseGuard(null);
+    if (guard.trigger === 'switch' && guard.nextAction) {
+      utilityLastActionRef.current = guard.nextAction;
+      setUtilityPanelAction(guard.nextAction);
+      return;
+    }
+    utilityFocusRestoreRef.current = true;
+    setUtilityPanelAction(null);
+  }, [discardUtilityDraftIfNeeded, utilityCloseGuard]);
+
+  const handleCancelUtilityCloseGuard = useCallback(() => {
+    setUtilityCloseGuard(null);
+  }, []);
+
+  const handlePastOrderDo = useCallback(
+    (payload: { entity: PastOrderEntity; bundle: OrderBundle }) => {
+      if (!canDoFromPast.ok) return;
+      const requestId = createCopyRequestId();
       setOrderHistoryCopyRequest({ requestId, entity: payload.entity, bundle: payload.bundle });
       openOrderEditor(payload.entity);
     },
@@ -3342,12 +3627,14 @@ function ChartsContent() {
       const resizeState = utilityPanelResizeRef.current;
       if (resizeState && event.pointerId === resizeState.pointerId) {
         utilityPanelResizeRef.current = null;
+        setIsUtilityPanelResizing(false);
         persistUtilityPanelLayout(utilityPanelLayoutRef.current);
         return;
       }
       const moveState = utilityPanelMoveRef.current;
       if (!moveState || event.pointerId !== moveState.pointerId) return;
       utilityPanelMoveRef.current = null;
+      setIsUtilityPanelDragging(false);
       persistUtilityPanelLayout(utilityPanelLayoutRef.current);
     };
     window.addEventListener('pointermove', handlePointerMove);
@@ -3381,13 +3668,32 @@ function ChartsContent() {
     utilityFocusRestoreRef.current = false;
   }, [utilityPanelAction]);
 
+  useEffect(() => {
+    if (utilityPanelAction) return;
+    setIsUtilityPanelDragging(false);
+    setIsUtilityPanelResizing(false);
+  }, [utilityPanelAction]);
+
   const prevPatientIdRef = useRef<string | undefined>(encounterContext.patientId);
   useEffect(() => {
     if (prevPatientIdRef.current === encounterContext.patientId) return;
     prevPatientIdRef.current = encounterContext.patientId;
     setUtilityPanelAction(null);
+    setUtilityCloseGuard(null);
+    setOrderSetSubtab('set');
     setOrderHistoryCopyRequest(null);
     setDocumentHistoryCopyRequest(null);
+    setDocumentUtilityState({
+      dirty: false,
+      attachmentCount: 0,
+      isSaving: false,
+      hasError: false,
+    });
+    setImageUtilityState({
+      queueCount: 0,
+      uploadingCount: 0,
+      hasError: false,
+    });
     utilityFocusRestoreRef.current = false;
     utilityLastActionRef.current = 'order-set';
     requestAnimationFrame(() => {
@@ -3538,6 +3844,25 @@ function ChartsContent() {
         onUndo={handleDoCopyUndo}
         onClose={closeDoCopyDialog}
       />
+      <FocusTrapDialog
+        open={Boolean(utilityCloseGuard?.open)}
+        title="作業中の内容があります"
+        description="未完了の作業を破棄して続行するか、キャンセルするかを選択してください。"
+        onClose={handleCancelUtilityCloseGuard}
+        testId="charts-utility-close-guard-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="ユーティリティ操作確認">
+          <p className="charts-tab-guard__message">{utilityCloseGuard?.reason ?? '未保存の作業があります。'}</p>
+          <div className="charts-tab-guard__actions" role="group" aria-label="ユーティリティ操作選択">
+            <button type="button" onClick={handleConfirmUtilityCloseGuard}>
+              {utilityCloseGuard?.trigger === 'switch' ? '破棄して切替' : '破棄して閉じる'}
+            </button>
+            <button type="button" className="charts-side-panel__ghost" onClick={handleCancelUtilityCloseGuard}>
+              キャンセル
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
       <FocusTrapDialog
         open={isPatientPanelOpen}
         title="患者・受付"
@@ -3845,6 +4170,30 @@ function ChartsContent() {
             <div className="charts-workbench__sticky">
               <div className="charts-workbench__sticky-grid">
                 <div className="charts-encounter-header" aria-label="患者情報と診療操作">
+                  <div
+                    className={`charts-edit-state-bar charts-edit-state-bar--${editStateBar.tone}`}
+                    role="status"
+                    aria-live={resolveAriaLive(editStateBar.tone === 'blocked' ? 'warning' : 'info')}
+                  >
+                    <div className="charts-edit-state-bar__main">
+                      <strong>
+                        {editStateBar.tone === 'ready' ? '✅' : editStateBar.tone === 'blocked' ? '⛔' : '⚠'} {editStateBar.label}
+                      </strong>
+                      <span>{editStateBar.detail}</span>
+                    </div>
+                    <div className="charts-edit-state-bar__actions" role="group" aria-label="編集状態の操作">
+                      {editStateBar.tone !== 'ready' ? (
+                        <button type="button" onClick={() => void handleRefreshSummary()} disabled={isManualRefreshing}>
+                          {isManualRefreshing ? '再取得中...' : '再取得'}
+                        </button>
+                      ) : null}
+                      {tabLock.isReadOnly && !approvalLocked ? (
+                        <button type="button" onClick={() => tabLock.forceTakeover()}>
+                          強制引き継ぎ
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
                   <div className="charts-patient-tabs" aria-label="開いているカルテ" data-test-id="charts-patient-tabs">
                     <div className="charts-patient-tabs__list" role="list" aria-label="カルテタブ一覧">
                       {patientTabs.length > 0 ? (
@@ -3852,6 +4201,8 @@ function ChartsContent() {
                           const tabName = tab.name?.trim() || '患者';
                           const label = `${tabName}（${tab.patientId}）`;
                           const isActive = tab.key === activePatientTabKey;
+                          const isDirtyTab = isActive && draftState.dirty;
+                          const dirtyReason = isDirtyTab && (draftState.dirtySources ?? []).length > 0 ? (draftState.dirtySources ?? []).join('/') : undefined;
                           return (
                             <div
                               key={tab.key}
@@ -3864,9 +4215,21 @@ function ChartsContent() {
                                 className="charts-patient-tabs__select"
                                 aria-current={isActive ? 'page' : undefined}
                                 onClick={() => requestSelectPatientTab(tab.key)}
-                                title={`${label} / visitDate=${tab.visitDate}`}
+                                title={`${label} / visitDate=${tab.visitDate}${isDirtyTab ? ` / 未保存:${dirtyReason ?? 'あり'}` : ''}`}
+                                data-dirty={isDirtyTab ? 'true' : 'false'}
                               >
-                                <span className="charts-patient-tabs__name">{tabName}</span>
+                                <span className="charts-patient-tabs__name">
+                                  {tabName}
+                                  {isDirtyTab ? (
+                                    <span
+                                      className="charts-patient-tabs__dirty-dot"
+                                      aria-label={`未保存${dirtyReason ? ` (${dirtyReason})` : ''}`}
+                                      title={`未保存${dirtyReason ? ` (${dirtyReason})` : ''}`}
+                                    >
+                                      ●
+                                    </span>
+                                  ) : null}
+                                </span>
                                 <span className="charts-patient-tabs__id">{tab.patientId}</span>
                               </button>
                               <button
@@ -4013,6 +4376,7 @@ function ChartsContent() {
                         onAfterStart={handleAfterStart}
                         onAfterPause={handleAfterPause}
                         onAfterFinish={handleAfterFinish}
+                        sendConfirmSummary={sendConfirmSummary}
                         onDraftSaved={() => setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }))}
                         onLockChange={handleLockChange}
                       />
@@ -4044,6 +4408,7 @@ function ChartsContent() {
                       soapHistory={soapHistory}
                       doCopyEnabled={isChartsDoCopyEnabled}
                       onRequestDoCopy={openDoCopyDialog}
+                      onRequestDoCopyBatch={openDoCopyBatchDialog}
                       doOrderEnabled={canDoFromPast.ok}
                       doOrderDisabledReason={canDoFromPast.reason}
                       onRequestOrderDo={handlePastOrderDo}
@@ -4095,11 +4460,11 @@ function ChartsContent() {
 			                      onOrderHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
 			                      onDraftSnapshot={setSoapDraftSnapshot}
 			                      replaceDraftRequest={replaceSoapDraftRequest}
-			                      applyDraftPatch={applySoapDraftPatch}
 		                      attachmentInsert={pendingSoapAttachment}
 		                      onAttachmentInserted={() => setPendingSoapAttachment(null)}
 		                      onAppendHistory={appendSoapHistory}
                       onDraftDirtyChange={setDraftState}
+                      onSyncStateChange={setSoapSyncState}
                       onClearHistory={clearSoapHistory}
                       onAuditLogged={() => setAuditEvents(getAuditEventLog())}
                     />
@@ -4230,6 +4595,24 @@ function ChartsContent() {
                         const isActive = utilityPanelAction === item.id;
                         const utilityKind = resolveUtilityVisualKind(item.id);
                         const isDisabled = item.requiresEdit && (!patientSelected || sidePanelMeta.readOnly);
+                        const tabDirty =
+                          item.id === 'document'
+                            ? documentUtilityState.dirty
+                            : item.id === 'imaging'
+                              ? imageUtilityState.queueCount > 0 || imageUtilityState.uploadingCount > 0
+                              : false;
+                        const tabMeta =
+                          item.id === 'document'
+                            ? documentImageAttachments.length > 0
+                              ? `📎${documentImageAttachments.length}`
+                              : null
+                            : item.id === 'imaging'
+                              ? imageUtilityState.uploadingCount > 0
+                                ? `送信${imageUtilityState.uploadingCount}`
+                                : imageUtilityState.queueCount > 0
+                                  ? `待機${imageUtilityState.queueCount}`
+                                  : null
+                              : null;
                         const disabledReason = !patientSelected
                           ? UTILITY_PATIENT_UNSELECTED_MESSAGE
                           : sidePanelMeta.readOnlyReason ?? '読み取り専用のため編集はできません。';
@@ -4255,7 +4638,11 @@ function ChartsContent() {
                               {item.shortLabel}
                             </span>
                             <span className="charts-docked-panel__tab-text">
-                              <span className="charts-docked-panel__tab-label">{item.label}</span>
+                              <span className="charts-docked-panel__tab-label">
+                                {item.label}
+                                {tabDirty ? <span className="charts-docked-panel__tab-dirty" aria-hidden="true">●</span> : null}
+                                {tabMeta ? <span className="charts-docked-panel__tab-meta">{tabMeta}</span> : null}
+                              </span>
                               <span className="charts-docked-panel__tab-shortcut">{item.shortcut}</span>
                             </span>
                           </button>
@@ -4288,16 +4675,21 @@ function ChartsContent() {
                     data-docked-panel-content="true"
                   >
                     <div
-                      className={`charts-docked-panel__header${utilityPanelAction ? ' charts-docked-panel__header--draggable' : ''}`}
+                      className={`charts-docked-panel__header${utilityPanelAction ? ' charts-docked-panel__header--draggable' : ''}${
+                        isUtilityPanelDragging ? ' is-dragging' : ''
+                      }`}
                       onPointerDown={beginUtilityPanelMove}
                     >
+                      <span className="charts-docked-panel__drag-handle" aria-hidden="true" title="ドラッグで移動">
+                        ⋮⋮
+                      </span>
                       <div>
                         <p className="charts-docked-panel__eyebrow">ユーティリティ</p>
                         <h2 id="charts-docked-panel-title" ref={utilityHeadingRef} tabIndex={-1}>
                           {utilityPanelAction ? utilityPanelTitles[utilityPanelAction] : 'ユーティリティ'}
 	                        </h2>
 	                        <p id="charts-docked-panel-desc" className="charts-docked-panel__desc">
-	                          スタンプ・文書・画像入力をまとめて呼び出します。
+	                          セット/スタンプ・文書・画像入力をまとめて呼び出します。
 	                        </p>
                         <p className="charts-docked-panel__shortcut">
                           Ctrl+Shift+U: 開閉 / Ctrl+Shift+1〜{utilityItems.length}: タブ切替 / Esc: 閉じる
@@ -4307,83 +4699,109 @@ function ChartsContent() {
                         閉じる
                       </button>
                     </div>
-	                    {utilityPanelAction === 'order-set' && (
-	                      <div className="charts-side-panel__content">
-                        {orderSetNotice ? (
-                          <div className={`charts-side-panel__notice charts-side-panel__notice--${orderSetNotice.tone}`}>
-                            {orderSetNotice.message}
-                          </div>
-                        ) : null}
-                        <div className="charts-side-panel__subsection">
-                          <div className="charts-side-panel__subheader">
-                            <strong>当日データをセット保存</strong>
-                          </div>
-                          <div className="charts-side-panel__field">
-                            <label htmlFor="charts-order-set-name">セット名称</label>
-                            <input
-                              id="charts-order-set-name"
-                              value={orderSetName}
-                              onChange={(event) => setOrderSetName(event.target.value)}
-                              placeholder="例: 定期フォローセット"
-                            />
-                          </div>
-                          <p className="charts-side-panel__help">
-                            対象: 病名 / SOAP / オーダー / 画像（{actionVisitDate}）
-                          </p>
-                          <div className="charts-side-panel__actions">
+                    {utilityPanelAction === 'order-set' && (
+                      <div className="charts-side-panel__content">
+                        <div className="charts-docked-panel__subtabs" role="tablist" aria-label="セット/スタンプ切替">
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={orderSetSubtab === 'set'}
+                            className="charts-docked-panel__subtab"
+                            data-active={orderSetSubtab === 'set' ? 'true' : 'false'}
+                            onClick={() => setOrderSetSubtab('set')}
+                          >
+                            セット
+                          </button>
+                          {stampboxMvpEnabled ? (
                             <button
                               type="button"
-                              onClick={() => saveOrderSetMutation.mutate()}
-                              disabled={!patientId || saveOrderSetMutation.isPending || sidePanelMeta.readOnly}
+                              role="tab"
+                              aria-selected={orderSetSubtab === 'stamp'}
+                              className="charts-docked-panel__subtab"
+                              data-active={orderSetSubtab === 'stamp' ? 'true' : 'false'}
+                              onClick={() => setOrderSetSubtab('stamp')}
                             >
-                              {saveOrderSetMutation.isPending ? '保存中...' : '本日データをセット保存'}
+                              スタンプ
                             </button>
-                          </div>
-                        </div>
-
-                        <div className="charts-side-panel__subsection">
-                          <div className="charts-side-panel__subheader">
-                            <strong>登録済みセット</strong>
-                            <span className="charts-side-panel__search-count">{orderSetEntries.length}件</span>
-                          </div>
-                          <div className="charts-side-panel__field">
-                            <label htmlFor="charts-order-set-select">セット選択</label>
-                            <select
-                              id="charts-order-set-select"
-                              value={selectedOrderSetId}
-                              onChange={(event) => setSelectedOrderSetId(event.target.value)}
-                            >
-                              <option value="">選択してください</option>
-                              {orderSetEntries.map((entry) => (
-                                <option key={entry.id} value={entry.id}>
-                                  {entry.name} / {entry.snapshot.sourceVisitDate || '日付未設定'} / 患者ID {entry.snapshot.sourcePatientId || '未設定'}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          {selectedOrderSet ? (
-                            <p className="charts-side-panel__help">
-                              内容: 病名{selectedOrderSet.snapshot.diagnoses.length}件 / SOAP履歴{selectedOrderSet.snapshot.soapHistory.length}件 / オーダー{selectedOrderSet.snapshot.orderBundles.length}件 / 画像{selectedOrderSet.snapshot.imageAttachments.length}件
-                            </p>
                           ) : null}
-                          <div className="charts-side-panel__actions">
-                            <button
-                              type="button"
-                              onClick={() => selectedOrderSet && applyOrderSetMutation.mutate(selectedOrderSet)}
-                              disabled={!selectedOrderSet || applyOrderSetMutation.isPending || !patientId || sidePanelMeta.readOnly}
-                            >
-                              {applyOrderSetMutation.isPending ? '登録中...' : 'セット登録（現在患者へ適用）'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => appNav.openOrderSets()}
-                            >
-                              セット編集画面を開く
-                            </button>
-                          </div>
                         </div>
 
-                        {stampboxMvpEnabled ? (
+                        {orderSetSubtab === 'set' ? (
+                          <>
+                            {orderSetNotice ? (
+                              <div className={`charts-side-panel__notice charts-side-panel__notice--${orderSetNotice.tone}`}>
+                                {orderSetNotice.message}
+                              </div>
+                            ) : null}
+                            <div className="charts-side-panel__subsection">
+                              <div className="charts-side-panel__subheader">
+                                <strong>当日データをセット保存</strong>
+                              </div>
+                              <div className="charts-side-panel__field">
+                                <label htmlFor="charts-order-set-name">セット名称</label>
+                                <input
+                                  id="charts-order-set-name"
+                                  value={orderSetName}
+                                  onChange={(event) => setOrderSetName(event.target.value)}
+                                  placeholder="例: 定期フォローセット"
+                                />
+                              </div>
+                              <p className="charts-side-panel__help">
+                                対象: 病名 / SOAP / オーダー / 画像（{actionVisitDate}）
+                              </p>
+                              <div className="charts-side-panel__actions">
+                                <button
+                                  type="button"
+                                  onClick={() => saveOrderSetMutation.mutate()}
+                                  disabled={!patientId || saveOrderSetMutation.isPending || sidePanelMeta.readOnly}
+                                >
+                                  {saveOrderSetMutation.isPending ? '保存中...' : '本日データをセット保存'}
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="charts-side-panel__subsection">
+                              <div className="charts-side-panel__subheader">
+                                <strong>登録済みセット</strong>
+                                <span className="charts-side-panel__search-count">{orderSetEntries.length}件</span>
+                              </div>
+                              <div className="charts-side-panel__field">
+                                <label htmlFor="charts-order-set-select">セット選択</label>
+                                <select
+                                  id="charts-order-set-select"
+                                  value={selectedOrderSetId}
+                                  onChange={(event) => setSelectedOrderSetId(event.target.value)}
+                                >
+                                  <option value="">選択してください</option>
+                                  {orderSetEntries.map((entry) => (
+                                    <option key={entry.id} value={entry.id}>
+                                      {entry.name} / {entry.snapshot.sourceVisitDate || '日付未設定'} / 患者ID {entry.snapshot.sourcePatientId || '未設定'}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              {selectedOrderSet ? (
+                                <p className="charts-side-panel__help">
+                                  内容: 病名{selectedOrderSet.snapshot.diagnoses.length}件 / SOAP履歴{selectedOrderSet.snapshot.soapHistory.length}件 / オーダー{selectedOrderSet.snapshot.orderBundles.length}件 / 画像{selectedOrderSet.snapshot.imageAttachments.length}件
+                                </p>
+                              ) : null}
+                              <div className="charts-side-panel__actions">
+                                <button
+                                  type="button"
+                                  onClick={() => selectedOrderSet && applyOrderSetMutation.mutate(selectedOrderSet)}
+                                  disabled={!selectedOrderSet || applyOrderSetMutation.isPending || !patientId || sidePanelMeta.readOnly}
+                                >
+                                  {applyOrderSetMutation.isPending ? '登録中...' : 'セット登録（現在患者へ適用）'}
+                                </button>
+                                <button type="button" onClick={() => appNav.openOrderSets()}>
+                                  セット編集画面を開く
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        ) : null}
+
+                        {orderSetSubtab === 'stamp' && stampboxMvpEnabled ? (
                           <div className="charts-side-panel__subsection">
                             <div className="charts-side-panel__subheader">
                               <strong>スタンプ</strong>
@@ -4406,7 +4824,18 @@ function ChartsContent() {
                           onImageAttachmentsClear={clearDocumentAttachments}
                           historyCopyRequest={documentHistoryCopyRequest}
                           onHistoryCopyConsumed={handleDocumentHistoryCopyConsumed}
-                          onClose={() => closeUtilityPanel(true)}
+                          onStateChange={setDocumentUtilityState}
+                          onClose={() => {
+                            clearDocumentAttachments();
+                            setDocumentUtilityState({
+                              dirty: false,
+                              attachmentCount: 0,
+                              isSaving: false,
+                              hasError: false,
+                            });
+                            utilityFocusRestoreRef.current = true;
+                            setUtilityPanelAction(null);
+                          }}
                         />
                       </div>
                     )}
@@ -4422,6 +4851,7 @@ function ChartsContent() {
                           soapTargetOptions={soapAttachmentOptions}
                           soapTargetSection={soapAttachmentTarget}
                           onSoapTargetChange={(next) => setSoapAttachmentTarget(next as SoapSectionKey)}
+                          onStateChange={setImageUtilityState}
                         />
                       </div>
                     )}
@@ -4430,7 +4860,7 @@ function ChartsContent() {
                   {utilityPanelAction ? (
                     <button
                       type="button"
-                      className="charts-docked-panel__resize-handle"
+                      className={`charts-docked-panel__resize-handle${isUtilityPanelResizing ? ' is-resizing' : ''}`}
                       onPointerDown={beginUtilityPanelResize}
                       aria-label="ユーティリティパネルのサイズを変更"
                     />
