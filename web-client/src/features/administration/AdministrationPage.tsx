@@ -4,8 +4,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { getAuditEventLog, logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { resolveAriaLive, resolveRunId } from '../../libs/observability/observability';
+import { copyTextToClipboard } from '../../libs/observability/runIdCopy';
 import { persistHeaderFlags, resolveHeaderFlags } from '../../libs/http/header-flags';
 import { isSystemAdminRole } from '../../libs/auth/roles';
+import { useAppToast } from '../../libs/ui/appToast';
 import { ToneBanner } from '../reception/components/ToneBanner';
 import { useSession } from '../../AppRouter';
 import { buildFacilityPath } from '../../routes/facilityRoutes';
@@ -75,6 +77,20 @@ import {
 } from '../../libs/admin/broadcast';
 import { AuditSummaryInline } from '../shared/AuditSummaryInline';
 import { RunIdBadge } from '../shared/RunIdBadge';
+import { ConfirmDialog } from './components/ConfirmDialog';
+import { AdminStatusPill } from './components/AdminStatusPill';
+import { DeliverySubNav } from './delivery/DeliverySubNav';
+import { DeliveryDashboard } from './delivery/DeliveryDashboard';
+import { WebOrcaConnectionCard } from './delivery/WebOrcaConnectionCard';
+import { AdminDeliveryConfigCard } from './delivery/AdminDeliveryConfigCard';
+import { AdminDeliveryStatusCard } from './delivery/AdminDeliveryStatusCard';
+import { OrcaMasterSyncCard } from './delivery/OrcaMasterSyncCard';
+import { SystemHealthCard } from './delivery/SystemHealthCard';
+import { MedicalSetSearchCard } from './delivery/MedicalSetSearchCard';
+import { OrcaXmlProxyCard } from './delivery/OrcaXmlProxyCard';
+import { OrcaInternalWrapperCard } from './delivery/OrcaInternalWrapperCard';
+import { OrcaQueueCard } from './delivery/OrcaQueueCard';
+import { DELIVERY_SECTION_ITEMS, type DeliverySection } from './delivery/types';
 
 type AdministrationPageProps = {
   runId: string;
@@ -443,10 +459,24 @@ const summarizeDeliveryStatus = (status: AdminDeliveryStatus) => {
 };
 
 const formatDeliveryValue = (value: boolean | string | undefined) => (value === undefined ? '―' : String(value));
+const DEFAULT_DELIVERY_SECTION: DeliverySection = 'dashboard';
+const isDeliverySection = (value: string | null): value is DeliverySection =>
+  DELIVERY_SECTION_ITEMS.some((item) => item.id === value);
+
+const buildMedicationTemplateXml = (baseDate: string) =>
+  [
+    '<data>',
+    '  <medicatonmodreq type="record">',
+    '    <Request_Number type="string">01</Request_Number>',
+    `    <Base_Date type="string">${baseDate}</Base_Date>`,
+    '  </medicatonmodreq>',
+    '</data>',
+  ].join('\n');
 
 export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const isSystemAdmin = isSystemAdminRole(role);
   const session = useSession();
+  const { enqueue } = useAppToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (() => {
     const tab = searchParams.get('tab');
@@ -454,18 +484,38 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     if (tab === 'orca-users' || tab === 'master-updates') return tab;
     return 'delivery';
   })() as AdministrationTab;
+  const activeDeliverySection = (() => {
+    const section = searchParams.get('section');
+    if (isDeliverySection(section)) return section;
+    return DEFAULT_DELIVERY_SECTION;
+  })();
   const handleTabChange = (next: AdministrationTab) => {
     setSearchParams(
       (prev) => {
         const updated = new URLSearchParams(prev);
         if (next === 'delivery') {
           updated.delete('tab');
+          if (!isDeliverySection(updated.get('section'))) {
+            updated.set('section', DEFAULT_DELIVERY_SECTION);
+          }
         } else {
           updated.set('tab', next);
+          updated.delete('section');
         }
         return updated;
       },
-      { replace: true },
+      { replace: false },
+    );
+  };
+  const handleDeliverySectionChange = (next: DeliverySection) => {
+    setSearchParams(
+      (prev) => {
+        const updated = new URLSearchParams(prev);
+        updated.delete('tab');
+        updated.set('section', next);
+        return updated;
+      },
+      { replace: false },
     );
   };
   const appliedMeta = useRef<Partial<AuthServiceFlags>>({});
@@ -477,21 +527,30 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const [form, setForm] = useState<AdminConfigPayload>(DEFAULT_FORM);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [orcaConnectionForm, setOrcaConnectionForm] = useState<OrcaConnectionFormState>(DEFAULT_ORCA_CONNECTION_FORM);
+  const [orcaConnectionSavedSnapshot, setOrcaConnectionSavedSnapshot] = useState<OrcaConnectionFormState | null>(null);
+  const [orcaConnectionFieldErrors, setOrcaConnectionFieldErrors] = useState<{
+    serverUrl?: string;
+    port?: string;
+    username?: string;
+    password?: string;
+    clientCertificate?: string;
+    clientCertificatePassphrase?: string;
+  }>({});
   const [orcaConnectionFeedback, setOrcaConnectionFeedback] = useState<Feedback | null>(null);
   const [orcaConnectionTestResult, setOrcaConnectionTestResult] = useState<OrcaConnectionTestState>(null);
+  const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
+  const [discardConfirmTarget, setDiscardConfirmTarget] = useState<OrcaQueueEntry | null>(null);
+  const [connectivitySummary, setConnectivitySummary] = useState<{
+    testedAt: string;
+    success: number;
+    failure: number;
+    details: string[];
+  } | null>(null);
   const [masterLastUpdateResult, setMasterLastUpdateResult] = useState<MasterLastUpdateResponse | null>(null);
   const [medicationSyncResult, setMedicationSyncResult] = useState<MedicationModResponse | null>(null);
   const [medicationSyncClass, setMedicationSyncClass] = useState('01');
-  const [medicationSyncXml, setMedicationSyncXml] = useState(() =>
-    [
-      '<data>',
-      '  <medicatonmodreq type="record">',
-      `    <Request_Number type="string">01</Request_Number>`,
-      `    <Base_Date type="string">${today}</Base_Date>`,
-      '  </medicatonmodreq>',
-      '</data>',
-    ].join('\n'),
-  );
+  const [medicationTemplateBaseDate, setMedicationTemplateBaseDate] = useState(() => today);
+  const [medicationSyncXml, setMedicationSyncXml] = useState(() => buildMedicationTemplateXml(today));
   const [systemInfoResult, setSystemInfoResult] = useState<SystemInfoResponse | null>(null);
   const [systemDailyResult, setSystemDailyResult] = useState<SystemDailyResponse | null>(null);
   const [systemBaseDate, setSystemBaseDate] = useState(() => today);
@@ -572,6 +631,8 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   );
   const environmentLabel = normalizeEnvironmentLabel(configQuery.data?.environment) ?? envFallback ?? 'unknown';
   const warningThresholdMinutes = Math.round(QUEUE_DELAY_WARNING_MS / 60000);
+  const rawConfig = configQuery.data?.rawConfig ?? configQuery.data;
+  const rawDelivery = configQuery.data?.rawDelivery;
   const latestAuditEvent = useMemo(() => {
     const snapshot = getAuditEventLog();
     const latest = snapshot[snapshot.length - 1];
@@ -582,6 +643,92 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const actorId = `${session.facilityId}:${session.userId}`;
   const showAdminDebugToggles = import.meta.env.VITE_ENABLE_ADMIN_DEBUG === '1' && isSystemAdmin;
   const toErrorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
+  const handleCopyValue = useCallback(
+    async (value: string, label: string) => {
+      try {
+        await copyTextToClipboard(value);
+        enqueue({ tone: 'success', message: `${label} をコピーしました`, detail: value, durationMs: 1800 });
+      } catch {
+        enqueue({ tone: 'error', message: `${label} のコピーに失敗しました` });
+      }
+    },
+    [enqueue],
+  );
+  const requestTemplate = useMemo(
+    () =>
+      [
+        '【system_admin 権限依頼テンプレート】',
+        `施設ID: ${session.facilityId}`,
+        `環境: ${environmentLabel}`,
+        '作業内容: Administration の設定変更/配信',
+        '影響範囲: WebORCA接続設定・配信設定・ORCA queue 操作',
+      ].join('\n'),
+    [environmentLabel, session.facilityId],
+  );
+  const buildConnectionSnapshot = useCallback(
+    (formState: OrcaConnectionFormState): OrcaConnectionFormState => ({
+      ...formState,
+      password: '',
+      clientCertificateFile: null,
+      clientCertificatePassphrase: '',
+      caCertificateFile: null,
+    }),
+    [],
+  );
+  const orcaConnectionDirty = useMemo(() => {
+    if (!orcaConnectionSavedSnapshot) return false;
+    return JSON.stringify(buildConnectionSnapshot(orcaConnectionForm)) !== JSON.stringify(orcaConnectionSavedSnapshot);
+  }, [buildConnectionSnapshot, orcaConnectionForm, orcaConnectionSavedSnapshot]);
+  const configDirty = useMemo(() => {
+    if (!rawConfig) return false;
+    return (
+      rawConfig.orcaEndpoint !== form.orcaEndpoint ||
+      rawConfig.mswEnabled !== form.mswEnabled ||
+      rawConfig.useMockOrcaQueue !== form.useMockOrcaQueue ||
+      rawConfig.verifyAdminDelivery !== form.verifyAdminDelivery ||
+      rawConfig.chartsDisplayEnabled !== form.chartsDisplayEnabled ||
+      rawConfig.chartsSendEnabled !== form.chartsSendEnabled ||
+      rawConfig.chartsMasterSource !== form.chartsMasterSource
+    );
+  }, [form, rawConfig]);
+  const configDiffRows = useMemo(
+    () =>
+      [
+        { key: 'orcaEndpoint', label: 'orcaEndpoint', before: rawConfig?.orcaEndpoint, after: form.orcaEndpoint },
+        { key: 'mswEnabled', label: 'mswEnabled', before: rawConfig?.mswEnabled, after: form.mswEnabled },
+        {
+          key: 'useMockOrcaQueue',
+          label: 'useMockOrcaQueue',
+          before: rawConfig?.useMockOrcaQueue,
+          after: form.useMockOrcaQueue,
+        },
+        {
+          key: 'verifyAdminDelivery',
+          label: 'verifyAdminDelivery',
+          before: rawConfig?.verifyAdminDelivery,
+          after: form.verifyAdminDelivery,
+        },
+        {
+          key: 'chartsDisplayEnabled',
+          label: 'chartsDisplayEnabled',
+          before: rawConfig?.chartsDisplayEnabled,
+          after: form.chartsDisplayEnabled,
+        },
+        {
+          key: 'chartsSendEnabled',
+          label: 'chartsSendEnabled',
+          before: rawConfig?.chartsSendEnabled,
+          after: form.chartsSendEnabled,
+        },
+        {
+          key: 'chartsMasterSource',
+          label: 'chartsMasterSource',
+          before: rawConfig?.chartsMasterSource,
+          after: form.chartsMasterSource,
+        },
+      ].filter((row) => row.before !== row.after),
+    [form, rawConfig],
+  );
   const countVersionDiffs = (versions?: Array<{ localVersion?: string; newVersion?: string }>) =>
     versions?.filter((entry) => entry.localVersion && entry.newVersion && entry.localVersion !== entry.newVersion).length ?? 0;
   const resolveStatusTone = (result: { ok: boolean } | null, isPending: boolean) => {
@@ -748,12 +895,12 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
       }
       return;
     }
-    setOrcaConnectionForm((prev) => ({
-      ...prev,
-      useWeborca: data.useWeborca ?? prev.useWeborca,
-      serverUrl: data.serverUrl ?? prev.serverUrl,
-      port: data.port !== undefined ? String(data.port) : prev.port,
-      username: data.username ?? prev.username,
+    const next = buildConnectionSnapshot({
+      ...orcaConnectionForm,
+      useWeborca: data.useWeborca ?? orcaConnectionForm.useWeborca,
+      serverUrl: data.serverUrl ?? orcaConnectionForm.serverUrl,
+      port: data.port !== undefined ? String(data.port) : orcaConnectionForm.port,
+      username: data.username ?? orcaConnectionForm.username,
       password: '',
       passwordConfigured: Boolean(data.passwordConfigured),
       passwordUpdatedAt: data.passwordUpdatedAt,
@@ -771,13 +918,17 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
       caCertificateUploadedAt: data.caCertificateUploadedAt,
       updatedAt: data.updatedAt,
       auditSummary: data.auditSummary,
-    }));
+    });
+    setOrcaConnectionForm(next);
+    setOrcaConnectionSavedSnapshot(next);
+    setOrcaConnectionFieldErrors({});
     setOrcaConnectionFeedback(null);
-  }, [orcaConnectionQuery.data]);
+  }, [buildConnectionSnapshot, orcaConnectionForm, orcaConnectionQuery.data]);
 
   const configMutation = useMutation({
     mutationFn: saveAdminConfig,
     onSuccess: (data) => {
+      setSaveConfirmOpen(false);
       setFeedback({ tone: 'success', message: '設定を保存し、配信をブロードキャストしました。' });
       persistHeaderFlags({
         useMockOrcaQueue: data.useMockOrcaQueue,
@@ -848,6 +999,7 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
       });
     },
     onError: () => {
+      setSaveConfirmOpen(false);
       setFeedback({ tone: 'error', message: '保存に失敗しました。再度お試しください。' });
     },
   });
@@ -860,12 +1012,12 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
         return;
       }
       setOrcaConnectionFeedback({ tone: 'success', message: 'WebORCA 接続設定を保存しました。' });
-      setOrcaConnectionForm((prev) => ({
-        ...prev,
-        useWeborca: data.useWeborca ?? prev.useWeborca,
-        serverUrl: data.serverUrl ?? prev.serverUrl,
-        port: data.port !== undefined ? String(data.port) : prev.port,
-        username: data.username ?? prev.username,
+      const next = buildConnectionSnapshot({
+        ...orcaConnectionForm,
+        useWeborca: data.useWeborca ?? orcaConnectionForm.useWeborca,
+        serverUrl: data.serverUrl ?? orcaConnectionForm.serverUrl,
+        port: data.port !== undefined ? String(data.port) : orcaConnectionForm.port,
+        username: data.username ?? orcaConnectionForm.username,
         password: '',
         passwordConfigured: Boolean(data.passwordConfigured),
         passwordUpdatedAt: data.passwordUpdatedAt,
@@ -883,7 +1035,10 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
         caCertificateUploadedAt: data.caCertificateUploadedAt,
         updatedAt: data.updatedAt,
         auditSummary: data.auditSummary,
-      }));
+      });
+      setOrcaConnectionForm(next);
+      setOrcaConnectionSavedSnapshot(next);
+      setOrcaConnectionFieldErrors({});
       queryClient.invalidateQueries({ queryKey: ['admin-orca-connection'] });
     },
     onError: (error) => {
@@ -1450,6 +1605,16 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
         return;
       }
       setOrcaConnectionForm((prev) => ({ ...prev, ...patch }));
+      setOrcaConnectionFieldErrors((prev) => ({
+        ...prev,
+        serverUrl: patch.serverUrl !== undefined ? undefined : prev.serverUrl,
+        port: patch.port !== undefined ? undefined : prev.port,
+        username: patch.username !== undefined ? undefined : prev.username,
+        password: patch.password !== undefined ? undefined : prev.password,
+        clientCertificate: patch.clientCertificateFile !== undefined ? undefined : prev.clientCertificate,
+        clientCertificatePassphrase:
+          patch.clientCertificatePassphrase !== undefined ? undefined : prev.clientCertificatePassphrase,
+      }));
     },
     [requireOrcaConnectionAdminAuth],
   );
@@ -1472,34 +1637,41 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     const username = orcaConnectionForm.username.trim();
     const password = orcaConnectionForm.password.trim();
     const passphrase = orcaConnectionForm.clientCertificatePassphrase.trim();
+    const fieldErrors: {
+      serverUrl?: string;
+      port?: string;
+      username?: string;
+      password?: string;
+      clientCertificate?: string;
+      clientCertificatePassphrase?: string;
+    } = {};
 
     if (!serverUrl) {
-      setOrcaConnectionFeedback({ tone: 'error', message: 'サーバURLは必須です。' });
-      return;
+      fieldErrors.serverUrl = 'サーバURLは必須です。';
     }
     if (!Number.isFinite(port) || port <= 0 || port > 65535) {
-      setOrcaConnectionFeedback({ tone: 'error', message: 'ポート番号が不正です。' });
-      return;
+      fieldErrors.port = 'ポートは 1〜65535 で入力してください。';
     }
     if (!username) {
-      setOrcaConnectionFeedback({ tone: 'error', message: 'ユーザー名は必須です。' });
-      return;
+      fieldErrors.username = 'ユーザー名は必須です。';
     }
     if (!orcaConnectionForm.passwordConfigured && !password) {
-      setOrcaConnectionFeedback({ tone: 'error', message: 'パスワードまたは API キーは必須です。' });
-      return;
+      fieldErrors.password = 'パスワードまたは API キーは必須です。';
     }
     if (orcaConnectionForm.clientAuthEnabled) {
       const hasP12 = orcaConnectionForm.clientCertificateConfigured || Boolean(orcaConnectionForm.clientCertificateFile);
       if (!hasP12) {
-        setOrcaConnectionFeedback({ tone: 'error', message: 'クライアント証明書（.p12）は必須です。' });
-        return;
+        fieldErrors.clientCertificate = 'mTLS 有効時はクライアント証明書（.p12）が必須です。';
       }
       const passphraseRequired = !orcaConnectionForm.clientCertificatePassphraseConfigured;
       if (!passphrase && passphraseRequired) {
-        setOrcaConnectionFeedback({ tone: 'error', message: 'クライアント証明書のパスフレーズは必須です。' });
-        return;
+        fieldErrors.clientCertificatePassphrase = 'mTLS 有効時は証明書パスフレーズが必須です。';
       }
+    }
+    setOrcaConnectionFieldErrors(fieldErrors);
+    if (Object.keys(fieldErrors).length > 0) {
+      setOrcaConnectionFeedback({ tone: 'error', message: '入力エラーを修正してください。' });
+      return;
     }
 
     orcaConnectionSaveMutation.mutate({
@@ -1515,6 +1687,10 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     });
   };
 
+  const handleCopyRequestTemplate = useCallback(async () => {
+    await handleCopyValue(requestTemplate, '依頼テンプレ');
+  }, [handleCopyValue, requestTemplate]);
+
   const handleOrcaConnectionTest = () => {
     if (!requireOrcaConnectionAdminAuth()) {
       return;
@@ -1528,6 +1704,12 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
       return;
     }
     setForm((prev) => ({ ...prev, [key]: value }));
+    if (key === 'useMockOrcaQueue' && typeof value === 'boolean') {
+      persistHeaderFlags({ useMockOrcaQueue: value });
+    }
+    if (key === 'verifyAdminDelivery' && typeof value === 'boolean') {
+      persistHeaderFlags({ verifyAdminDelivery: value });
+    }
   };
 
   const handleChartsMasterSourceChange = (value: string) => {
@@ -1543,6 +1725,10 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
       reportGuardedAction('save');
       return;
     }
+    setSaveConfirmOpen(true);
+  };
+
+  const handleConfirmSave = () => {
     configMutation.mutate(form);
   };
 
@@ -1554,12 +1740,18 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     queueMutation.mutate({ kind: 'retry', patientId });
   };
 
-  const handleDiscard = (patientId: string) => {
+  const handleDiscardRequest = (entry: OrcaQueueEntry) => {
     if (!isSystemAdmin) {
-      reportGuardedAction('discard', `patient:${patientId}`);
+      reportGuardedAction('discard', `patient:${entry.patientId}`);
       return;
     }
-    queueMutation.mutate({ kind: 'discard', patientId });
+    setDiscardConfirmTarget(entry);
+  };
+
+  const handleConfirmDiscard = () => {
+    if (!discardConfirmTarget) return;
+    queueMutation.mutate({ kind: 'discard', patientId: discardConfirmTarget.patientId });
+    setDiscardConfirmTarget(null);
   };
 
   const handleMasterCheck = () => {
@@ -1568,6 +1760,10 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
       return;
     }
     masterLastUpdateMutation.mutate();
+  };
+
+  const handleRegenerateMedicationTemplate = () => {
+    setMedicationSyncXml(buildMedicationTemplateXml(medicationTemplateBaseDate));
   };
 
   const handleMedicationSync = () => {
@@ -1650,10 +1846,65 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     });
   };
 
+  const handleRunConnectivityGroup = async () => {
+    if (!isSystemAdmin) {
+      reportGuardedAction('orca-xml-proxy', 'connectivity-group');
+      return;
+    }
+    const checks: Array<Promise<{ label: string; ok: boolean; detail: string }>> = [
+      postOrcaXmlProxy({
+        endpoint: 'acceptlstv2',
+        xml: buildAcceptListRequestXml(),
+        classCode: '01',
+      })
+        .then((result) => ({
+          label: 'XML proxy acceptlstv2',
+          ok: Boolean(result.ok),
+          detail: `HTTP ${result.status} / Api_Result=${result.apiResult ?? '―'}`,
+        }))
+        .catch((error) => ({
+          label: 'XML proxy acceptlstv2',
+          ok: false,
+          detail: toErrorMessage(error),
+        })),
+      postMedicalRecords(resolveInternalWrapperOption(internalWrapperOptions, 'medical-records').defaultPayload)
+        .then((result) => ({
+          label: 'internal wrapper medical-records',
+          ok: Boolean(result.ok),
+          detail: `HTTP ${result.status} / Api_Result=${result.apiResult ?? '―'} / source=${result.stub ? 'stub' : 'real'}`,
+        }))
+        .catch((error) => ({
+          label: 'internal wrapper medical-records',
+          ok: false,
+          detail: toErrorMessage(error),
+        })),
+    ];
+
+    if (orcaConnectionAccessVerified) {
+      checks.push(
+        testOrcaConnection()
+          .then((result) => ({
+            label: 'WebORCA connection test',
+            ok: Boolean(result.ok),
+            detail: `HTTP ${result.orcaHttpStatus ?? result.status} / Api_Result=${result.apiResult ?? '―'}`,
+          }))
+          .catch((error) => ({
+            label: 'WebORCA connection test',
+            ok: false,
+            detail: toErrorMessage(error),
+          })),
+      );
+    }
+
+    const results = await Promise.all(checks);
+    const success = results.filter((entry) => entry.ok).length;
+    const failure = results.length - success;
+    const details = results.map((entry) => `${entry.ok ? 'OK' : 'NG'} ${entry.label}: ${entry.detail}`);
+    setConnectivitySummary({ testedAt: new Date().toISOString(), success, failure, details });
+  };
+
   const syncMismatch = configQuery.data?.syncMismatch;
   const syncMismatchFields = configQuery.data?.syncMismatchFields?.length ? configQuery.data.syncMismatchFields.join(', ') : undefined;
-  const rawConfig = configQuery.data?.rawConfig ?? configQuery.data;
-  const rawDelivery = configQuery.data?.rawDelivery;
   const isForbidden =
     configQuery.data?.status === 403 ||
     rawConfig?.status === 403 ||
@@ -1718,6 +1969,80 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const xmlProxyStatusLabel = resolveStatusLabel(xmlProxyResult, xmlProxyMutation.isPending);
   const isMasterUpdateDetected = masterUpdateLabel === '更新あり';
   const masterUpdateHeadline = isMasterUpdateDetected ? '更新検知: 同期推奨' : `更新検知: ${masterUpdateLabel}`;
+  const traceId = queueQuery.data?.traceId ?? orcaConnectionTestResult?.traceId;
+  const deliveryMode = configQuery.data?.deliveryMode ?? rawDelivery?.deliveryMode ?? rawConfig?.deliveryMode;
+  const effectiveDeliveryEtag = configQuery.data?.deliveryEtag ?? configQuery.data?.deliveryVersion;
+  const deliveryStatus = buildChartsDeliveryStatus(rawConfig, rawDelivery);
+  const deliverySummary = summarizeDeliveryStatus(deliveryStatus);
+  const lastDeliveredAt = rawDelivery?.deliveredAt ?? configQuery.data?.deliveredAt;
+  const deliveryFlagRows = [
+    {
+      key: 'chartsDisplayEnabled',
+      label: 'Charts表示',
+      configValue: rawConfig?.chartsDisplayEnabled,
+      deliveryValue: rawDelivery?.chartsDisplayEnabled,
+      state: deliveryStatus.chartsDisplayEnabled ?? 'unknown',
+    },
+    {
+      key: 'chartsSendEnabled',
+      label: 'Charts送信',
+      configValue: rawConfig?.chartsSendEnabled,
+      deliveryValue: rawDelivery?.chartsSendEnabled,
+      state: deliveryStatus.chartsSendEnabled ?? 'unknown',
+    },
+    {
+      key: 'chartsMasterSource',
+      label: 'Charts masterSource',
+      configValue: rawConfig?.chartsMasterSource,
+      deliveryValue: rawDelivery?.chartsMasterSource,
+      state: deliveryStatus.chartsMasterSource ?? 'unknown',
+    },
+  ];
+  const queueSummary = useMemo(() => {
+    let pending = 0;
+    let failed = 0;
+    let delivered = 0;
+    let delayed = 0;
+    const now = Date.now();
+    for (const entry of queueEntries) {
+      if (entry.status === 'pending') pending += 1;
+      if (entry.status === 'failed') failed += 1;
+      if (entry.status === 'delivered') delivered += 1;
+      if (entry.status === 'pending' && entry.lastDispatchAt) {
+        const delta = now - new Date(entry.lastDispatchAt).getTime();
+        if (delta > QUEUE_DELAY_WARNING_MS) delayed += 1;
+      }
+    }
+    return { pending, failed, delivered, delayed };
+  }, [queueEntries]);
+  const webOrcaConnectionLabel = orcaConnectionTestResult
+    ? orcaConnectionTestResult.ok
+      ? '接続OK'
+      : '接続NG'
+    : orcaConnectionAccessVerified
+      ? '認証済み（未テスト）'
+      : orcaConnectionAuthBlocked
+        ? '認証要確認'
+        : '未確認';
+  const masterVersionDiffs = countVersionDiffs(masterLastUpdateResult?.versions);
+  const masterStatusTone = resolveStatusTone(masterLastUpdateResult, masterLastUpdateMutation.isPending);
+  const masterStatusLabel = resolveStatusLabel(masterLastUpdateResult, masterLastUpdateMutation.isPending);
+  const medicationStatusTone = resolveStatusTone(medicationSyncResult, medicationModMutation.isPending);
+  const medicationStatusLabel = resolveStatusLabel(medicationSyncResult, medicationModMutation.isPending);
+  const systemInfoStatusTone = resolveStatusTone(systemInfoResult, systemHealthMutation.isPending);
+  const systemDailyStatusTone = resolveStatusTone(systemDailyResult, systemHealthMutation.isPending);
+  const medicalSetStatusTone = resolveStatusTone(medicalSetResult, medicalSetMutation.isPending);
+  const orcaConnectionStatusTone = resolveStatusTone(orcaConnectionTestResult, orcaConnectionTestMutation.isPending);
+  const orcaConnectionStatusLabel = resolveStatusLabel(orcaConnectionTestResult, orcaConnectionTestMutation.isPending);
+  const abnormalSummary = (() => {
+    const fragments: string[] = [];
+    const dbDiffs = countVersionDiffs(systemInfoResult?.versions);
+    if (dbDiffs > 0) fragments.push(`DB New ≠ Local が ${dbDiffs}件`);
+    if (systemInfoResult && !systemInfoResult.ok) fragments.push('systeminfv2 が NG');
+    if (systemDailyResult && !systemDailyResult.ok) fragments.push('system01dailyv2 が NG');
+    if (queueSummary.failed > 0) fragments.push(`queue failed ${queueSummary.failed}件`);
+    return fragments.length > 0 ? fragments.join(' / ') : '異常なし';
+  })();
 
   return (
     <>
@@ -1733,62 +2058,88 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
       >
         <div className="administration-page__header">
           <h1>Administration</h1>
-
           {activeTab === 'delivery' ? (
             <p className="administration-page__lead" role="status" aria-live={infoLive}>
-              管理者が ORCA 接続・MSW トグル・配信フラグを編集し、保存時に broadcast / audit を送ります。RUN_ID:{' '}
-              <strong>{resolvedRunId}</strong>
+              設定配信の運用導線と診断導線を分離し、誤操作を防止します。
             </p>
           ) : activeTab === 'master-updates' ? (
             <p className="administration-page__lead" role="status" aria-live={infoLive}>
-              ORCA/外部マスタの参照データ更新を管理します（自動・手動・アップロード・ロールバック）。RUN_ID:{' '}
-              <strong>{resolvedRunId}</strong>
+              ORCA/外部マスタの参照データ更新を管理します（自動・手動・アップロード・ロールバック）。
             </p>
           ) : (
             <p className="administration-page__lead" role="status" aria-live={infoLive}>
-              ORCA職員マスタ連携と、ORCA連携済みユーザーへの電子カルテ権限付与を管理します。RUN_ID:{' '}
-              <strong>{resolvedRunId}</strong>
+              ORCA職員マスタ連携と、連携済みユーザーへの電子カルテ権限付与を管理します。
             </p>
           )}
 
-          <div className="administration-page__meta" aria-live={infoLive}>
-            <RunIdBadge runId={resolvedRunId} />
-            <AuditSummaryInline
-              auditEvent={latestAuditEvent}
-              className="administration-page__pill"
-              variant="inline"
-              runId={resolvedRunId}
-            />
-            <span className="administration-page__pill">role: {role ?? 'unknown'}</span>
-            <span className="administration-page__pill">施設ID: {session.facilityId}</span>
-            <span className="administration-page__pill">環境: {environmentLabel}</span>
-            {activeTab === 'delivery' ? (
-              <>
-                <span className="administration-page__pill">配信元: {configQuery.data?.source ?? 'live'}</span>
-                <span className="administration-page__pill">deliveryMode: {deliveryMode ?? '―'}</span>
-                <span className="administration-page__pill">ETag: {effectiveDeliveryEtag ?? '―'}</span>
+          <div className="admin-header-blocks">
+            <section className="admin-header-block">
+              <h2>運用KPI</h2>
+              <div className="administration-page__meta" aria-live={infoLive}>
                 <span className="administration-page__pill">配信状態: {deliverySummary.summary}</span>
                 <span className="administration-page__pill">最終配信: {formatTimestampWithAgo(lastDeliveredAt)}</span>
+                <span className="administration-page__pill">WebORCA: {webOrcaConnectionLabel}</span>
                 <span className="administration-page__pill">
-                  検証フラグ: {form.verifyAdminDelivery ? 'enabled' : 'disabled'}
+                  queue警告: pending {queueSummary.pending} / failed {queueSummary.failed} / 遅延 {queueSummary.delayed}
                 </span>
+                <span className="administration-page__pill">環境: {environmentLabel}</span>
+                {syncMismatch ? (
+                  <button
+                    type="button"
+                    className="administration-page__pill administration-page__pill--warn"
+                    onClick={() => handleDeliverySectionChange('config')}
+                  >
+                    不整合あり
+                  </button>
+                ) : (
+                  <span className="administration-page__pill">不整合なし</span>
+                )}
+              </div>
+            </section>
+
+            <section className="admin-header-block">
+              <h2>識別子</h2>
+              <div className="administration-page__meta">
+                <RunIdBadge runId={resolvedRunId} />
+                <AuditSummaryInline
+                  auditEvent={latestAuditEvent}
+                  className="administration-page__pill"
+                  variant="inline"
+                  runId={resolvedRunId}
+                />
                 <span className="administration-page__pill">
-                  ORCA queue: {form.useMockOrcaQueue ? 'mock (MSW)' : 'live'}
+                  施設ID: {session.facilityId}
+                  <button type="button" className="admin-pill-copy" onClick={() => handleCopyValue(session.facilityId, '施設ID')}>
+                    コピー
+                  </button>
                 </span>
+                <span className="administration-page__pill">role: {role ?? 'unknown'}</span>
                 <span className="administration-page__pill">
-                  Charts表示: {form.chartsDisplayEnabled ? 'enabled' : 'disabled'}
+                  traceId: {traceId ?? '―'}
+                  {traceId ? (
+                    <button type="button" className="admin-pill-copy" onClick={() => handleCopyValue(traceId, 'traceId')}>
+                      コピー
+                    </button>
+                  ) : null}
                 </span>
-                <span className="administration-page__pill">
-                  Charts送信: {form.chartsSendEnabled ? 'enabled' : 'disabled'}
-                </span>
-                <span className="administration-page__pill">Charts master: {form.chartsMasterSource}</span>
-                <span className="administration-page__pill">
-                  syncMismatch:{' '}
-                  {syncMismatch === undefined ? '―' : syncMismatch ? `true（${deliveryPriorityLabel}）` : 'false'}
-                </span>
-                <span className="administration-page__pill">mismatchFields: {syncMismatchFields ?? '―'}</span>
-              </>
-            ) : null}
+              </div>
+            </section>
+
+            <section className="admin-header-block">
+              <h2>詳細フラグ</h2>
+              <details>
+                <summary>詳細を表示</summary>
+                <div className="administration-page__meta">
+                  <span className="administration-page__pill">配信元: {configQuery.data?.source ?? 'live'}</span>
+                  <span className="administration-page__pill">deliveryMode: {deliveryMode ?? '―'}</span>
+                  <span className="administration-page__pill">ETag: {effectiveDeliveryEtag ?? '―'}</span>
+                  <span className="administration-page__pill">verifyAdminDelivery: {String(form.verifyAdminDelivery)}</span>
+                  <span className="administration-page__pill">useMockOrcaQueue: {String(form.useMockOrcaQueue)}</span>
+                  <span className="administration-page__pill">chartsMasterSource: {form.chartsMasterSource}</span>
+                  <span className="administration-page__pill">mismatchFields: {syncMismatchFields ?? '―'}</span>
+                </div>
+              </details>
+            </section>
           </div>
 
           <div className="administration-tabs" role="tablist" aria-label="Administration tabs">
@@ -1821,6 +2172,10 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
             </button>
           </div>
 
+          {activeTab === 'delivery' ? (
+            <DeliverySubNav activeSection={activeDeliverySection} onChange={handleDeliverySectionChange} />
+          ) : null}
+
           {isForbidden && activeTab === 'delivery' ? (
             <ToneBanner
               tone="error"
@@ -1830,6 +2185,7 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
               nextAction="権限確認 / 再ログイン"
             />
           ) : null}
+
           {!isSystemAdmin ? (
             <div className="admin-guard" role="alert" aria-live={resolveAriaLive('warning')} id={guardMessageId}>
               <div className="admin-guard__header">
@@ -1837,9 +2193,15 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
                 <span className="admin-guard__badge">system_adminのみ</span>
               </div>
               <p className="admin-guard__message">
-                現在のロール（{role ?? 'unknown'}）では Administration の操作はできません。閲覧のみ可能です。
+                現在のロール（{role ?? 'unknown'}）では Administration の破壊操作はできません。入力欄は readOnly でコピー可能です。
               </p>
-              <ul className="admin-guard__next" id={guardDetailsId}>
+              <div className="admin-request-template">
+                <textarea value={requestTemplate} readOnly rows={6} id={guardDetailsId} />
+                <button type="button" className="admin-button admin-button--secondary" onClick={handleCopyRequestTemplate}>
+                  依頼テンプレをコピー
+                </button>
+              </div>
+              <ul className="admin-guard__next">
                 <li>system_admin で再ログインしてください。</li>
                 <li>権限保持者へ作業依頼を行ってください。</li>
                 <li>
@@ -1864,1236 +2226,315 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
         ) : (
           <>
             {warningEntries.length > 0 ? (
-        <ToneBanner
-          tone="warning"
-          message={`未配信・失敗バンドルが ${warningEntries.length} 件あります（遅延判定:${warningThresholdMinutes}分）。再送または破棄を実施してください。`}
-          destination="ORCA queue"
-          runId={resolvedRunId}
-          nextAction="再送/破棄・再取得"
-        />
-      ) : syncMismatch ? (
-        <ToneBanner
-          tone="warning"
-          message={`config/delivery の不一致を検知しました（delivery優先）。fields: ${syncMismatchFields ?? 'unknown'}`}
-          destination="Administration"
-          runId={resolvedRunId}
-          nextAction="再取得 / 再配信で解消"
-        />
-      ) : (
-        <p className="admin-quiet">
-          未配信キューの遅延は検知されていません（遅延閾値:{warningThresholdMinutes}分）。
-        </p>
-      )}
-
-      <div className="administration-grid">
-        <section className="administration-card" aria-label="WebORCA 接続設定">
-          <h2 className="administration-card__title">WebORCA 接続設定</h2>
-          {orcaConnectionAccessVerified ? (
-            <form className="admin-form" onSubmit={(e) => e.preventDefault()}>
-            <div className="admin-form__toggles">
-              <div className="admin-toggle">
-                <div className="admin-toggle__label">
-                  <span>WebORCA モード（/api を自動付与）</span>
-                  <span className="admin-toggle__hint">ON: 443 / OFF: 8000（必要に応じて変更可）</span>
-                </div>
-                <input
-                  id="orca-connection-use-weborca"
-                  name="orcaConnectionUseWeborca"
-                  type="checkbox"
-                  aria-label="WebORCA モード（/api を自動付与）"
-                  checked={orcaConnectionForm.useWeborca}
-                  onChange={(event) => handleOrcaConnectionWeborcaToggle(event.target.checked)}
-                  disabled={!isSystemAdmin}
-                  aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                />
-              </div>
-
-              <div className="admin-toggle">
-                <div className="admin-toggle__label">
-                  <span>SSL クライアント認証（mTLS）</span>
-                  <span className="admin-toggle__hint">ON のとき .p12 とパスフレーズが必要</span>
-                </div>
-                <input
-                  id="orca-connection-client-auth-enabled"
-                  name="orcaConnectionClientAuthEnabled"
-                  type="checkbox"
-                  aria-label="SSL クライアント認証（mTLS）"
-                  checked={orcaConnectionForm.clientAuthEnabled}
-                  onChange={(event) => patchOrcaConnectionForm({ clientAuthEnabled: event.target.checked })}
-                  disabled={!isSystemAdmin}
-                  aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                />
-              </div>
-            </div>
-
-            <div className="admin-form__field">
-              <label htmlFor="orca-connection-server-url">サーバ URL</label>
-              <input
-                id="orca-connection-server-url"
-                type="text"
-                value={orcaConnectionForm.serverUrl}
-                onChange={(event) => patchOrcaConnectionForm({ serverUrl: event.target.value })}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+              <ToneBanner
+                tone="warning"
+                message={`未配信・失敗バンドルが ${warningEntries.length} 件あります（遅延判定:${warningThresholdMinutes}分）。再送または破棄を実施してください。`}
+                destination="ORCA queue"
+                runId={resolvedRunId}
+                nextAction="再送/破棄・再取得"
               />
-              <p className="admin-quiet">
-                WebORCA モードの場合、リクエスト先パス先頭に <code>/api</code> を自動付与します（URL に <code>/api</code>{' '}
-                を含めても二重付与は吸収されます）。
-              </p>
-              <p className="admin-quiet">例: https://weborca.cloud.orcamo.jp / https://demo-weborca.cloud.orcamo.jp</p>
-            </div>
-
-            <div className="admin-form__field">
-              <label htmlFor="orca-connection-port">ポート番号</label>
-              <input
-                id="orca-connection-port"
-                type="number"
-                value={orcaConnectionForm.port}
-                onChange={(event) => patchOrcaConnectionForm({ port: event.target.value })}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+            ) : syncMismatch ? (
+              <ToneBanner
+                tone="warning"
+                message={`config/delivery の不一致を検知しました。fields: ${syncMismatchFields ?? 'unknown'}`}
+                destination="Administration"
+                runId={resolvedRunId}
+                nextAction="再取得 / 再配信で解消"
               />
-              <p className="admin-quiet">既定値: WebORCA=443 / オンプレ=8000</p>
-            </div>
-
-            <div className="admin-form__field">
-              <label htmlFor="orca-connection-username">ユーザ名（オペレータID）</label>
-              <input
-                id="orca-connection-username"
-                type="text"
-                value={orcaConnectionForm.username}
-                onChange={(event) => patchOrcaConnectionForm({ username: event.target.value })}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              />
-            </div>
-
-            <div className="admin-form__field">
-              <label htmlFor="orca-connection-password">パスワードまたは API キー</label>
-              <input
-                id="orca-connection-password"
-                type="password"
-                value={orcaConnectionForm.password}
-                onChange={(event) => patchOrcaConnectionForm({ password: event.target.value })}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                placeholder={orcaConnectionForm.passwordConfigured ? '（登録済み。変更する場合のみ入力）' : ''}
-              />
-              <p className="admin-quiet">
-                {orcaConnectionForm.passwordConfigured
-                  ? `登録済み（最終更新: ${formatTimestamp(orcaConnectionForm.passwordUpdatedAt)}）`
-                  : '未登録'}
-              </p>
-              <p className="admin-quiet">保存後は平文で再表示されません。再設定時のみ入力してください。</p>
-            </div>
-
-            <div className="admin-divider" />
-
-            <div className="admin-form__field">
-              <label htmlFor="orca-connection-client-cert">クライアント証明書ファイル（.p12）</label>
-              <input
-                id="orca-connection-client-cert"
-                type="file"
-                accept=".p12,.pfx,application/x-pkcs12"
-                onChange={(event) =>
-                  patchOrcaConnectionForm({ clientCertificateFile: event.target.files?.[0] ?? null })
-                }
-                disabled={!isSystemAdmin || !orcaConnectionForm.clientAuthEnabled}
-                aria-readonly={!isSystemAdmin || !orcaConnectionForm.clientAuthEnabled}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              />
-              <p className="admin-quiet">
-                {orcaConnectionForm.clientCertificateConfigured
-                  ? `登録済み: ${orcaConnectionForm.clientCertificateFileName ?? '（ファイル名不明）'} / ${formatTimestamp(
-                      orcaConnectionForm.clientCertificateUploadedAt,
-                    )}`
-                  : '未登録'}
-              </p>
-              <p className="admin-quiet">保存後はダウンロードできません（ファイル名と登録日時のみ表示）。</p>
-            </div>
-
-            <div className="admin-form__field">
-              <label htmlFor="orca-connection-client-passphrase">パスフレーズ</label>
-              <input
-                id="orca-connection-client-passphrase"
-                type="password"
-                value={orcaConnectionForm.clientCertificatePassphrase}
-                onChange={(event) => patchOrcaConnectionForm({ clientCertificatePassphrase: event.target.value })}
-                disabled={!isSystemAdmin || !orcaConnectionForm.clientAuthEnabled}
-                aria-readonly={!isSystemAdmin || !orcaConnectionForm.clientAuthEnabled}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                placeholder={orcaConnectionForm.clientCertificatePassphraseConfigured ? '（登録済み。変更する場合のみ入力）' : ''}
-              />
-              <p className="admin-quiet">
-                {orcaConnectionForm.clientCertificatePassphraseConfigured
-                  ? `登録済み（最終更新: ${formatTimestamp(orcaConnectionForm.clientCertificatePassphraseUpdatedAt)}）`
-                  : '未登録'}
-              </p>
-            </div>
-
-            <div className="admin-form__field">
-              <label htmlFor="orca-connection-ca-cert">CA 証明書（任意）</label>
-              <input
-                id="orca-connection-ca-cert"
-                type="file"
-                accept=".crt,.pem,.cer,application/x-x509-ca-cert"
-                onChange={(event) => patchOrcaConnectionForm({ caCertificateFile: event.target.files?.[0] ?? null })}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              />
-              <p className="admin-quiet">
-                {orcaConnectionForm.caCertificateConfigured
-                  ? `登録済み: ${orcaConnectionForm.caCertificateFileName ?? '（ファイル名不明）'} / ${formatTimestamp(
-                      orcaConnectionForm.caCertificateUploadedAt,
-                    )}`
-                  : '未登録'}
-              </p>
-            </div>
-
-            <div className="admin-actions">
-              <button
-                type="button"
-                className="admin-button admin-button--primary"
-                onClick={handleOrcaConnectionSave}
-                disabled={orcaConnectionSaveMutation.isPending}
-                aria-disabled={!isSystemAdmin || orcaConnectionSaveMutation.isPending}
-                data-guarded={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              >
-                保存
-              </button>
-              <button
-                type="button"
-                className="admin-button admin-button--secondary"
-                onClick={() => orcaConnectionQuery.refetch()}
-                disabled={orcaConnectionQuery.isFetching}
-              >
-                再取得
-              </button>
-              <button
-                type="button"
-                className="admin-button admin-button--secondary"
-                onClick={handleOrcaConnectionTest}
-                disabled={orcaConnectionTestMutation.isPending}
-                aria-disabled={!isSystemAdmin || orcaConnectionTestMutation.isPending}
-                data-guarded={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              >
-                接続テスト
-              </button>
-            </div>
-
-            {orcaConnectionFeedback ? (
-              <p className="status-message" role="status" aria-live={resolveAriaLive(orcaConnectionFeedback.tone)}>
-                {orcaConnectionFeedback.message}
-              </p>
             ) : null}
 
-            <div className="admin-status-row">
-              <span className="admin-status-label">接続テスト結果</span>
-              <span className={`admin-status admin-status--${orcaConnectionStatusTone}`}>{orcaConnectionStatusLabel}</span>
-            </div>
+            {activeDeliverySection === 'dashboard' ? (
+              <DeliveryDashboard
+                deliverySummary={deliverySummary.summary}
+                deliveryMode={deliveryMode}
+                lastDeliveredAt={formatTimestampWithAgo(lastDeliveredAt)}
+                webOrcaConnection={webOrcaConnectionLabel}
+                queueSummary={queueSummary}
+                environmentLabel={environmentLabel}
+                syncMismatch={syncMismatch}
+                syncMismatchFields={syncMismatchFields}
+                warningThresholdMinutes={warningThresholdMinutes}
+                onNavigate={handleDeliverySectionChange}
+              />
+            ) : null}
 
-            {orcaConnectionTestResult ? (
-              <div className="admin-result admin-result--stack">
-                <div>HTTP: {orcaConnectionTestResult.orcaHttpStatus ?? '―'}</div>
-                <div>Api_Result: {orcaConnectionTestResult.apiResult ?? '―'}</div>
-                <div>Api_Result_Message: {orcaConnectionTestResult.apiResultMessage ?? '―'}</div>
-                {!orcaConnectionTestResult.ok ? (
-                  <>
-                    <div>errorCategory: {orcaConnectionTestResult.errorCategory ?? 'unknown'}</div>
-                    <div>error: {orcaConnectionTestResult.error ?? '―'}</div>
-                  </>
-                ) : null}
-                <div>testedAt: {formatTimestamp(orcaConnectionTestResult.testedAt)}</div>
+            {activeDeliverySection === 'connection' ? (
+              <WebOrcaConnectionCard
+                form={orcaConnectionForm}
+                fieldErrors={orcaConnectionFieldErrors}
+                isSystemAdmin={isSystemAdmin}
+                accessVerified={orcaConnectionAccessVerified}
+                authBlocked={orcaConnectionAuthBlocked}
+                dirty={orcaConnectionDirty}
+                feedback={orcaConnectionFeedback}
+                statusTone={orcaConnectionStatusTone}
+                statusLabel={orcaConnectionStatusLabel}
+                testSummary={orcaConnectionTestResult}
+                savePending={orcaConnectionSaveMutation.isPending}
+                testPending={orcaConnectionTestMutation.isPending}
+                refetchPending={orcaConnectionQuery.isFetching}
+                onPatch={patchOrcaConnectionForm}
+                onToggleWeborca={handleOrcaConnectionWeborcaToggle}
+                onSave={handleOrcaConnectionSave}
+                onTest={handleOrcaConnectionTest}
+                onRefetch={() => orcaConnectionQuery.refetch()}
+                onCopyRequestTemplate={handleCopyRequestTemplate}
+                requestTemplate={requestTemplate}
+                guardDetailsId={guardDetailsId}
+              />
+            ) : null}
+
+            {activeDeliverySection === 'config' ? (
+              <div className="administration-grid">
+                <AdminDeliveryConfigCard
+                  form={form}
+                  isSystemAdmin={isSystemAdmin}
+                  showAdminDebugToggles={showAdminDebugToggles}
+                  dirty={configDirty}
+                  updatedAt={rawDelivery?.deliveredAt ?? rawConfig?.deliveredAt}
+                  feedback={feedback}
+                  note={configQuery.data?.note}
+                  guardDetailsId={guardDetailsId}
+                  saving={configMutation.isPending}
+                  refetching={configQuery.isFetching}
+                  onFieldChange={handleInputChange}
+                  onChartsMasterSourceChange={handleChartsMasterSourceChange}
+                  onSaveRequest={handleSave}
+                  onRefetch={() => configQuery.refetch()}
+                />
+                <AdminDeliveryStatusCard
+                  deliveryId={configQuery.data?.deliveryId}
+                  deliveryVersion={configQuery.data?.deliveryVersion}
+                  deliveryEtag={effectiveDeliveryEtag}
+                  deliveredAt={rawDelivery?.deliveredAt ?? configQuery.data?.deliveredAt}
+                  environmentLabel={environmentLabel}
+                  deliveryMode={deliveryMode}
+                  verified={configQuery.data?.verifyAdminDelivery}
+                  rows={deliveryFlagRows}
+                  onCopy={handleCopyValue}
+                />
               </div>
             ) : null}
-            </form>
-          ) : (
-            <div className="admin-form">
-              <p className="admin-note">
-                WebORCA 接続設定は、管理者アカウントで認証済みのセッションでのみ表示・編集できます。
-              </p>
-              <ul className="placeholder-page__list">
-                <li>認証状態: {orcaConnectionAuthBlocked ? '未認証 / 権限不足' : '確認中または未取得'}</li>
-                <li>必要条件: `/api/admin/orca/connection` が HTTP 200 で取得できること</li>
-                <li>対処: 管理者で再ログイン → 再取得</li>
-              </ul>
-              <div className="admin-actions">
-                <button
-                  type="button"
-                  className="admin-button admin-button--secondary"
-                  onClick={() => orcaConnectionQuery.refetch()}
-                  disabled={orcaConnectionQuery.isFetching}
-                >
-                  認証状態を再確認
-                </button>
-              </div>
-              {orcaConnectionQuery.data?.error ? (
-                <p className="status-message" role="status" aria-live={resolveAriaLive('warning')}>
-                  {`接続設定の取得に失敗しました: ${orcaConnectionQuery.data.error}`}
-                </p>
-              ) : null}
-            </div>
-          )}
-        </section>
 
-        <section className="administration-card" aria-label="配信設定フォーム">
-          <h2 className="administration-card__title">配信設定</h2>
-          <form className="admin-form" onSubmit={(e) => e.preventDefault()}>
-            <div className="admin-form__field">
-              <label htmlFor="orca-endpoint">ORCA 接続先</label>
-              <input
-                id="orca-endpoint"
-                type="text"
-                value={form.orcaEndpoint}
-                onChange={(event) => handleInputChange('orcaEndpoint', event.target.value)}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+            {activeDeliverySection === 'queue' ? (
+              <OrcaQueueCard
+                entries={queueEntries}
+                isSystemAdmin={isSystemAdmin}
+                guardDetailsId={guardDetailsId}
+                pending={queueMutation.isPending}
+                warningThresholdMs={QUEUE_DELAY_WARNING_MS}
+                onRetry={handleRetry}
+                onDiscardRequest={handleDiscardRequest}
               />
-              <p className="admin-quiet">例: https://localhost:9080/openDolphin/resources</p>
-            </div>
+            ) : null}
 
-            <div className="admin-form__toggles">
-              {showAdminDebugToggles ? (
-                <>
-                  <div className="admin-toggle">
-                    <div className="admin-toggle__label">
-                      <span>MSW（モック）を優先</span>
-                      <span className="admin-toggle__hint">開発時は ON、実 API 検証時は OFF</span>
-                    </div>
-                    <input
-                      id="admin-use-mock-orca-queue"
-                      name="adminUseMockOrcaQueue"
-                      type="checkbox"
-                      aria-label="MSW（モック）を優先"
-                      checked={form.useMockOrcaQueue}
-                      onChange={(event) => {
-                        const next = event.target.checked;
-                        handleInputChange('useMockOrcaQueue', next);
-                        persistHeaderFlags({ useMockOrcaQueue: next });
-                      }}
+            {activeDeliverySection === 'master-health' ? (
+              <div className="administration-grid administration-grid--wide">
+                <OrcaMasterSyncCard
+                  isSystemAdmin={isSystemAdmin}
+                  guardDetailsId={guardDetailsId}
+                  masterStatusTone={masterStatusTone}
+                  masterStatusLabel={masterStatusLabel}
+                  masterLastUpdateResult={masterLastUpdateResult}
+                  masterUpdateLabel={masterUpdateLabel}
+                  masterVersionDiffs={masterVersionDiffs}
+                  onMasterCheck={handleMasterCheck}
+                  masterCheckPending={masterLastUpdateMutation.isPending}
+                  medicationSyncClass={medicationSyncClass}
+                  onMedicationSyncClassChange={setMedicationSyncClass}
+                  medicationSyncXml={medicationSyncXml}
+                  onMedicationSyncXmlChange={setMedicationSyncXml}
+                  medicationTemplateBaseDate={medicationTemplateBaseDate}
+                  onMedicationTemplateBaseDateChange={setMedicationTemplateBaseDate}
+                  onRegenerateMedicationTemplate={handleRegenerateMedicationTemplate}
+                  medicationStatusTone={medicationStatusTone}
+                  medicationStatusLabel={medicationStatusLabel}
+                  medicationSyncResult={medicationSyncResult}
+                  onMedicationSync={handleMedicationSync}
+                  medicationSyncPending={medicationModMutation.isPending}
+                />
+                <SystemHealthCard
+                  isSystemAdmin={isSystemAdmin}
+                  guardDetailsId={guardDetailsId}
+                  overallTone={resolveHealthTone(systemInfoResult, systemDailyResult, systemHealthMutation.isPending)}
+                  overallLabel={resolveHealthLabel(systemInfoResult, systemDailyResult, systemHealthMutation.isPending)}
+                  infoTone={systemInfoStatusTone}
+                  infoLabel={resolveStatusLabel(systemInfoResult, systemHealthMutation.isPending)}
+                  dailyTone={systemDailyStatusTone}
+                  dailyLabel={resolveStatusLabel(systemDailyResult, systemHealthMutation.isPending)}
+                  systemInfoResult={systemInfoResult}
+                  systemDailyResult={systemDailyResult}
+                  systemBaseDate={systemBaseDate}
+                  onSystemBaseDateChange={setSystemBaseDate}
+                  onHealthCheck={handleSystemHealthCheck}
+                  healthCheckPending={systemHealthMutation.isPending}
+                  abnormalSummary={abnormalSummary}
+                />
+              </div>
+            ) : null}
+
+            {activeDeliverySection === 'medicalset' ? (
+              <MedicalSetSearchCard
+                isSystemAdmin={isSystemAdmin}
+                guardDetailsId={guardDetailsId}
+                query={medicalSetQuery}
+                onQueryChange={(patch) => setMedicalSetQuery((prev) => ({ ...prev, ...patch }))}
+                result={medicalSetResult}
+                statusTone={medicalSetStatusTone}
+                statusLabel={resolveStatusLabel(medicalSetResult, medicalSetMutation.isPending)}
+                searchPending={medicalSetMutation.isPending}
+                onSearch={handleMedicalSetSearch}
+                chartsPath={buildFacilityPath(session.facilityId, '/charts')}
+              />
+            ) : null}
+
+            {activeDeliverySection === 'debug' ? (
+              <>
+                <section className="administration-card" aria-label="診断一括疎通">
+                  <h2 className="administration-card__title">診断/デバッグ</h2>
+                  <p className="admin-note">
+                    このセクションは運用設定から隔離されています。診断用途のみで使用してください。
+                  </p>
+                  <div className="admin-actions">
+                    <button
+                      type="button"
+                      className="admin-button admin-button--secondary"
+                      onClick={handleRunConnectivityGroup}
                       disabled={!isSystemAdmin}
-                      aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                    />
+                    >
+                      一括疎通（グループ）
+                    </button>
                   </div>
-                  <div className="admin-toggle">
-                    <div className="admin-toggle__label">
-                      <span>配信検証フラグ</span>
-                      <span className="admin-toggle__hint">ヘッダー x-admin-delivery-verification を付与</span>
+                  {connectivitySummary ? (
+                    <div className="admin-result admin-result--stack">
+                      <div>testedAt: {formatTimestamp(connectivitySummary.testedAt)}</div>
+                      <div>
+                        success: {connectivitySummary.success} / failure: {connectivitySummary.failure}
+                      </div>
+                      <ul className="placeholder-page__list">
+                        {connectivitySummary.details.map((detail) => (
+                          <li key={detail}>{detail}</li>
+                        ))}
+                      </ul>
                     </div>
-                    <input
-                      id="admin-verify-delivery"
-                      name="adminVerifyDelivery"
-                      type="checkbox"
-                      aria-label="配信検証フラグ"
-                      checked={form.verifyAdminDelivery}
-                      onChange={(event) => {
-                        const next = event.target.checked;
-                        handleInputChange('verifyAdminDelivery', next);
-                        persistHeaderFlags({ verifyAdminDelivery: next });
-                      }}
-                      disabled={!isSystemAdmin}
-                      aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                    />
-                  </div>
-                  <div className="admin-toggle">
-                    <div className="admin-toggle__label">
-                      <span>MSW ローカルキャッシュ</span>
-                      <span className="admin-toggle__hint">mswEnabled=true で UI モックを許可</span>
-                    </div>
-                    <input
-                      id="admin-msw-enabled"
-                      name="adminMswEnabled"
-                      type="checkbox"
-                      aria-label="MSW ローカルキャッシュ"
-                      checked={form.mswEnabled}
-                      onChange={(event) => handleInputChange('mswEnabled', event.target.checked)}
-                      disabled={!isSystemAdmin}
-                      aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                    />
-                  </div>
-                </>
-              ) : null}
-              <div className="admin-toggle">
-                <div className="admin-toggle__label">
-                  <span>Charts 表示フラグ</span>
-                  <span className="admin-toggle__hint">Charts の表示（カード一式）を切替</span>
+                  ) : null}
+                </section>
+                <div className="administration-grid administration-grid--wide">
+                  <OrcaXmlProxyCard
+                    isSystemAdmin={isSystemAdmin}
+                    guardDetailsId={guardDetailsId}
+                    options={ORCA_XML_PROXY_OPTIONS}
+                    target={orcaXmlProxyTarget}
+                    currentOption={xmlProxyOption}
+                    currentState={currentXmlProxy}
+                    result={xmlProxyResult}
+                    statusTone={xmlProxyStatusTone}
+                    statusLabel={xmlProxyStatusLabel}
+                    pending={xmlProxyMutation.isPending}
+                    onTargetChange={setOrcaXmlProxyTarget}
+                    onClassChange={handleXmlProxyClassChange}
+                    onXmlChange={handleXmlProxyXmlChange}
+                    onSubmit={handleXmlProxySubmit}
+                    onReset={handleXmlProxyReset}
+                  />
+                  <OrcaInternalWrapperCard
+                    isSystemAdmin={isSystemAdmin}
+                    guardDetailsId={guardDetailsId}
+                    options={internalWrapperOptions}
+                    target={orcaInternalWrapperTarget}
+                    currentOption={internalWrapperOption}
+                    currentState={currentInternalWrapper}
+                    result={internalWrapperResult}
+                    statusTone={internalWrapperStatusTone}
+                    statusLabel={internalWrapperStatusLabel}
+                    pending={internalWrapperMutation.isPending}
+                    onTargetChange={setOrcaInternalWrapperTarget}
+                    onPayloadChange={handleInternalWrapperPayloadChange}
+                    onSubmit={handleInternalWrapperSubmit}
+                    onReset={handleInternalWrapperReset}
+                  />
                 </div>
-                <input
-                  id="admin-charts-display-enabled"
-                  name="adminChartsDisplayEnabled"
-                  type="checkbox"
-                  aria-label="Charts 表示フラグ"
-                  checked={form.chartsDisplayEnabled}
-                  onChange={(event) => handleInputChange('chartsDisplayEnabled', event.target.checked)}
-                  disabled={!isSystemAdmin}
-                  aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+                <LegacyRestPanel
+                  runId={resolvedRunId ?? session.runId ?? 'RUN-UNSET'}
+                  role={role}
+                  actorId={actorId}
+                  environmentLabel={environmentLabel}
+                  isSystemAdmin={isSystemAdmin}
+                  onGuarded={(detail) => reportGuardedAction('legacy-rest', detail)}
                 />
-              </div>
-              <div className="admin-toggle">
-                <div className="admin-toggle__label">
-                  <span>Charts 送信フラグ</span>
-                  <span className="admin-toggle__hint">ORCA送信（ActionBar）を切替</span>
-                </div>
-                <input
-                  id="admin-charts-send-enabled"
-                  name="adminChartsSendEnabled"
-                  type="checkbox"
-                  aria-label="Charts 送信フラグ"
-                  checked={form.chartsSendEnabled}
-                  onChange={(event) => handleInputChange('chartsSendEnabled', event.target.checked)}
-                  disabled={!isSystemAdmin}
-                  aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
+                <TouchAdmPhrPanel
+                  runId={resolvedRunId ?? session.runId ?? 'RUN-UNSET'}
+                  role={role}
+                  actorId={actorId}
+                  environmentLabel={environmentLabel}
+                  isSystemAdmin={isSystemAdmin}
+                  facilityId={session.facilityId}
+                  userId={session.userId}
+                  onGuarded={(detail) => reportGuardedAction('touch-adm-phr', detail)}
                 />
-              </div>
-            </div>
-
-            <div className="admin-form__field">
-              <label htmlFor="charts-master-source">Charts master ソース</label>
-              <select
-                id="charts-master-source"
-                value={form.chartsMasterSource}
-                onChange={(event) => handleChartsMasterSourceChange(event.target.value)}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              >
-                <option value="auto">auto（環境変数に従う）</option>
-                <option value="server">server（実 API 優先）</option>
-                <option value="mock">mock（MSW/fixture 優先）</option>
-                <option value="fallback">fallback（送信停止・フォールバック扱い）</option>
-                <option value="snapshot">snapshot（将来拡張）</option>
-              </select>
-              <p className="admin-quiet">
-                `fallback` は Charts 側で送信をブロックし、ToneBanner で「server→fallback」を明示します（デモ用途）。
-              </p>
-            </div>
-
-            <div className="admin-actions">
-              <button
-                type="button"
-                className="admin-button admin-button--primary"
-                onClick={handleSave}
-                disabled={configMutation.isPending}
-                aria-disabled={!isSystemAdmin || configMutation.isPending}
-                data-guarded={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              >
-                保存して配信
-              </button>
-              <button
-                type="button"
-                className="admin-button admin-button--secondary"
-                onClick={() => configQuery.refetch()}
-                disabled={configQuery.isFetching}
-              >
-                再取得
-              </button>
-            </div>
-            {feedback ? (
-              <p
-                className="status-message"
-                role="status"
-                aria-live={resolveAriaLive(feedback.tone)}
-              >
-                {feedback.message}
-              </p>
+              </>
             ) : null}
-            {configQuery.data?.note ? <p className="admin-note">{configQuery.data.note}</p> : null}
-          </form>
-        </section>
-
-        <section className="administration-card" aria-label="配信ステータス">
-          <h2 className="administration-card__title">配信ステータス</h2>
-          <ul className="placeholder-page__list">
-            <li>deliveryId: {configQuery.data?.deliveryId ?? '―'}</li>
-            <li>deliveryVersion: {configQuery.data?.deliveryVersion ?? '―'}</li>
-            <li>ETag: {effectiveDeliveryEtag ?? '―'}</li>
-            <li>deliveredAt: {formatTimestamp(rawDelivery?.deliveredAt ?? configQuery.data?.deliveredAt)}</li>
-            <li>environment: {environmentLabel}</li>
-            <li>deliveryMode: {deliveryMode ?? '―'}</li>
-            <li>verified: {configQuery.data?.verifyAdminDelivery ? 'true' : 'false'}</li>
-            <li>chartsDisplayEnabled: {configQuery.data?.chartsDisplayEnabled === undefined ? '―' : String(configQuery.data.chartsDisplayEnabled)}</li>
-            <li>chartsSendEnabled: {configQuery.data?.chartsSendEnabled === undefined ? '―' : String(configQuery.data.chartsSendEnabled)}</li>
-            <li>chartsMasterSource: {configQuery.data?.chartsMasterSource ?? '―'}</li>
-          </ul>
-          <p className="admin-quiet">表示優先: {deliveryPriorityLabel}（rawConfig / rawDelivery を併記）</p>
-          <ul className="admin-delivery-flags" aria-label="Charts 配信状態">
-            {deliveryFlagRows.map((row) => (
-              <li key={row.key} className="admin-delivery-flags__row">
-                <span className="admin-delivery-flags__label">{row.label}</span>
-                <span className="admin-delivery-flags__value">
-                  rawConfig: {formatDeliveryValue(row.configValue)} / rawDelivery: {formatDeliveryValue(row.deliveryValue)}
-                </span>
-                <span className={`admin-delivery-pill admin-delivery-pill--${row.state}`}>
-                  {deliveryFlagStateLabel(row.state)}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="admin-note">
-            保存時に broadcast を発行し、Reception/Charts へ「設定更新」バナーを表示します。system_admin 以外は読み取り専用です。
-          </p>
-        </section>
-      </div>
-
-      <div className="administration-grid administration-grid--wide">
-        <section className="administration-card" aria-label="ORCA マスタ同期">
-          <h2 className="administration-card__title">ORCA マスタ同期</h2>
-          <div className="admin-status-row">
-            <span className={`admin-status admin-status--${masterStatusTone}`}>
-              {resolveStatusLabel(masterLastUpdateResult, masterLastUpdateMutation.isPending)}
-            </span>
-            <span className="admin-status-label">更新検知:</span>
-            <span
-              className={`admin-status admin-status--${
-                masterUpdateLabel === '更新あり' ? 'warn' : masterUpdateLabel === '初回取得' ? 'idle' : 'ok'
-              }`}
-            >
-              {masterUpdateLabel}
-            </span>
-            <span>更新差分: {masterLastUpdateResult ? `${masterVersionDiffs}件` : '―'}</span>
-            <span>最終更新日: {masterLastUpdateResult?.lastUpdateDate ?? '―'}</span>
-          </div>
-          <div className="admin-callout">
-            <div className="admin-callout__body">
-              <p className="admin-callout__title">{masterUpdateHeadline}</p>
-              <ol className="admin-step-list">
-                <li>masterlastupdatev3 で更新有無を確認</li>
-                <li>更新ありなら medicatonmodv2 で点数マスタ同期</li>
-                <li>同期後に再度更新確認して反映確認</li>
-              </ol>
-            </div>
-            <div className="admin-callout__actions">
-              <span className={`admin-status admin-status--${masterStatusTone}`}>
-                {resolveStatusLabel(masterLastUpdateResult, masterLastUpdateMutation.isPending)}
-              </span>
-            </div>
-          </div>
-          <div className="admin-actions">
-            <button
-              type="button"
-              className="admin-button admin-button--secondary"
-              onClick={handleMasterCheck}
-              disabled={masterLastUpdateMutation.isPending}
-              aria-disabled={!isSystemAdmin || masterLastUpdateMutation.isPending}
-              data-guarded={!isSystemAdmin}
-              aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-            >
-              更新確認
-            </button>
-          </div>
-          {masterLastUpdateResult ? (
-            <div className="admin-result">
-              <span>Api_Result: {masterLastUpdateResult.apiResult ?? '―'}</span>
-              <span>Message: {masterLastUpdateResult.apiResultMessage ?? '―'}</span>
-              <span>取得日時: {formatDateTime(masterLastUpdateResult.informationDate, masterLastUpdateResult.informationTime)}</span>
-              <span>更新検知: {masterUpdateLabel}（差分 {masterVersionDiffs}件）</span>
-              {masterLastUpdateResult.error ? <span className="admin-error">error: {masterLastUpdateResult.error}</span> : null}
-            </div>
-          ) : null}
-          <div className="admin-divider" />
-          <div className="admin-form">
-            <div className="admin-form__field">
-              <label htmlFor="medication-class">medicatonmodv2 class</label>
-              <input
-                id="medication-class"
-                type="text"
-                value={medicationSyncClass}
-                onChange={(event) => setMedicationSyncClass(event.target.value)}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              />
-              <p className="admin-quiet">例: 01（点数マスタ登録）</p>
-            </div>
-            <div className="admin-form__field">
-              <label htmlFor="medication-xml">medicatonmodv2 payload (XML)</label>
-              <textarea
-                id="medication-xml"
-                className="admin-textarea"
-                value={medicationSyncXml}
-                onChange={(event) => setMedicationSyncXml(event.target.value)}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                rows={7}
-              />
-            </div>
-          </div>
-          <div className="admin-actions">
-            <button
-              type="button"
-              className="admin-button admin-button--primary"
-              onClick={handleMedicationSync}
-              disabled={medicationModMutation.isPending}
-              aria-disabled={!isSystemAdmin || medicationModMutation.isPending}
-              data-guarded={!isSystemAdmin}
-              aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-            >
-              点数マスタ同期
-            </button>
-          </div>
-          {medicationSyncResult ? (
-            <div className="admin-result">
-              <span className={`admin-status admin-status--${medicationStatusTone}`}>
-                {resolveStatusLabel(medicationSyncResult, medicationModMutation.isPending)}
-              </span>
-              <span>Api_Result: {medicationSyncResult.apiResult ?? '―'}</span>
-              <span>Message: {medicationSyncResult.apiResultMessage ?? '―'}</span>
-              {medicationSyncResult.error ? <span className="admin-error">error: {medicationSyncResult.error}</span> : null}
-            </div>
-          ) : null}
-        </section>
-
-        <section className="administration-card" aria-label="システムヘルスチェック">
-          <h2 className="administration-card__title">システムヘルスチェック</h2>
-          <div className="admin-status-row">
-            <span
-              className={`admin-status admin-status--${resolveHealthTone(
-                systemInfoResult,
-                systemDailyResult,
-                systemHealthMutation.isPending,
-              )}`}
-            >
-              総合:{' '}
-              {resolveHealthLabel(systemInfoResult, systemDailyResult, systemHealthMutation.isPending)}
-            </span>
-            <span className={`admin-status admin-status--${systemInfoStatusTone}`}>
-              systeminfv2: {resolveStatusLabel(systemInfoResult, systemHealthMutation.isPending)}
-            </span>
-            <span className={`admin-status admin-status--${systemDailyStatusTone}`}>
-              system01dailyv2: {resolveStatusLabel(systemDailyResult, systemHealthMutation.isPending)}
-            </span>
-            <span>バージョン差分: {systemInfoResult ? `${systemVersionDiffs}件` : '―'}</span>
-          </div>
-          <div className="admin-callout">
-            <div className="admin-callout__body">
-              <p className="admin-callout__title">systeminfv2 / system01dailyv2 統合サマリー</p>
-              <div className="admin-summary">
-                <div className="admin-summary__row">
-                  <span className="admin-summary__label">JMA Receipt</span>
-                  <span>{systemInfoResult?.jmaReceiptVersion ?? '―'}</span>
-                </div>
-                <div className="admin-summary__row">
-                  <span className="admin-summary__label">DB(Local/New)</span>
-                  <span>{systemInfoResult?.databaseLocalVersion ?? '―'} / {systemInfoResult?.databaseNewVersion ?? '―'}</span>
-                </div>
-                <div className="admin-summary__row">
-                  <span className="admin-summary__label">Master更新日</span>
-                  <span>{systemInfoResult?.lastUpdateDate ?? '―'}</span>
-                </div>
-                <div className="admin-summary__row">
-                  <span className="admin-summary__label">system01dailyv2 Base_Date</span>
-                  <span>{systemDailyResult?.baseDate ?? systemBaseDate}</span>
-                </div>
-                <div className="admin-summary__row">
-                  <span className="admin-summary__label">取得日時</span>
-                  <span>
-                    {formatDateTime(systemInfoResult?.informationDate, systemInfoResult?.informationTime)} /{' '}
-                    {formatDateTime(systemDailyResult?.informationDate, systemDailyResult?.informationTime)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="admin-form">
-            <div className="admin-form__field">
-              <label htmlFor="system-base-date">system01dailyv2 Base_Date</label>
-              <input
-                id="system-base-date"
-                type="date"
-                value={systemBaseDate}
-                onChange={(event) => setSystemBaseDate(event.target.value)}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              />
-            </div>
-          </div>
-          <div className="admin-actions">
-            <button
-              type="button"
-              className="admin-button admin-button--secondary"
-              onClick={handleSystemHealthCheck}
-              disabled={systemHealthMutation.isPending}
-              aria-disabled={!isSystemAdmin || systemHealthMutation.isPending}
-              data-guarded={!isSystemAdmin}
-              aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-            >
-              ヘルスチェック実行
-            </button>
-          </div>
-          <div className="admin-result admin-result--stack">
-            <span>JMA Receipt: {systemInfoResult?.jmaReceiptVersion ?? '―'}</span>
-            <span>DB(Local/New): {systemInfoResult?.databaseLocalVersion ?? '―'} / {systemInfoResult?.databaseNewVersion ?? '―'}</span>
-            <span>Master更新日: {systemInfoResult?.lastUpdateDate ?? '―'}</span>
-            <span>systeminfv2 取得日時: {formatDateTime(systemInfoResult?.informationDate, systemInfoResult?.informationTime)}</span>
-            <span>system01dailyv2 Base_Date: {systemDailyResult?.baseDate ?? systemBaseDate}</span>
-            <span>system01dailyv2 取得日時: {formatDateTime(systemDailyResult?.informationDate, systemDailyResult?.informationTime)}</span>
-            {systemInfoResult?.error ? <span className="admin-error">systeminfv2 error: {systemInfoResult.error}</span> : null}
-            {systemDailyResult?.error ? <span className="admin-error">system01dailyv2 error: {systemDailyResult.error}</span> : null}
-          </div>
-          <div className="admin-scroll">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>マスタ名</th>
-                  <th>Local</th>
-                  <th>New</th>
-                  <th>状態</th>
-                </tr>
-              </thead>
-              <tbody>
-                {systemInfoResult?.versions.length ? (
-                  systemInfoResult.versions.map((entry, index) => {
-                    const isDiff =
-                      entry.localVersion && entry.newVersion && entry.localVersion !== entry.newVersion;
-                    return (
-                      <tr key={`${entry.name ?? 'master'}-${index}`} className={isDiff ? 'admin-version--diff' : undefined}>
-                        <td>{entry.name ?? '―'}</td>
-                        <td>{entry.localVersion ?? '―'}</td>
-                        <td>{entry.newVersion ?? '―'}</td>
-                        <td>{isDiff ? '更新あり' : '一致'}</td>
-                      </tr>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={4}>バージョン情報は未取得です。</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="administration-card" aria-label="診療セット検索">
-          <h2 className="administration-card__title">診療セット検索</h2>
-          <div className="admin-status-row">
-            <span className={`admin-status admin-status--${medicalSetStatusTone}`}>
-              {resolveStatusLabel(medicalSetResult, medicalSetMutation.isPending)}
-            </span>
-            <span>結果: {medicalSetResult ? `${medicalSetResult.entries.length}件` : '―'}</span>
-          </div>
-          <div className="admin-callout">
-            <div className="admin-callout__body">
-              <p className="admin-callout__title">セット検索の起点</p>
-              <p className="admin-quiet">Administration で条件を入力 → セット検索 → Charts オーダーへ接続します。</p>
-            </div>
-            <div className="admin-callout__actions">
-              <Link to={buildFacilityPath(session.facilityId, '/charts')} className="admin-link admin-link--button">
-                Charts で利用
-              </Link>
-            </div>
-          </div>
-          <div className="admin-form">
-            <div className="admin-form__field">
-              <label htmlFor="medicalset-base-date">Base_Date</label>
-              <input
-                id="medicalset-base-date"
-                type="date"
-                value={medicalSetQuery.baseDate}
-                onChange={(event) => setMedicalSetQuery((prev) => ({ ...prev, baseDate: event.target.value }))}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              />
-            </div>
-            <div className="admin-form__field">
-              <label htmlFor="medicalset-code">Set_Code</label>
-              <input
-                id="medicalset-code"
-                type="text"
-                value={medicalSetQuery.setCode ?? ''}
-                onChange={(event) => setMedicalSetQuery((prev) => ({ ...prev, setCode: event.target.value }))}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              />
-            </div>
-            <div className="admin-form__field">
-              <label htmlFor="medicalset-name">Set_Code_Name</label>
-              <input
-                id="medicalset-name"
-                type="text"
-                value={medicalSetQuery.setName ?? ''}
-                onChange={(event) => setMedicalSetQuery((prev) => ({ ...prev, setName: event.target.value }))}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              />
-            </div>
-            <div className="admin-form__field">
-              <label htmlFor="medicalset-start-date">Start_Date</label>
-              <input
-                id="medicalset-start-date"
-                type="date"
-                value={medicalSetQuery.startDate ?? ''}
-                onChange={(event) => setMedicalSetQuery((prev) => ({ ...prev, startDate: event.target.value }))}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              />
-            </div>
-            <div className="admin-form__field">
-              <label htmlFor="medicalset-end-date">Ende_Date</label>
-              <input
-                id="medicalset-end-date"
-                type="date"
-                value={medicalSetQuery.endDate ?? ''}
-                onChange={(event) => setMedicalSetQuery((prev) => ({ ...prev, endDate: event.target.value }))}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              />
-            </div>
-            <div className="admin-form__field">
-              <label htmlFor="medicalset-inout">InOut</label>
-              <select
-                id="medicalset-inout"
-                value={medicalSetQuery.inOut ?? ''}
-                onChange={(event) => setMedicalSetQuery((prev) => ({ ...prev, inOut: event.target.value }))}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              >
-                <option value="">指定なし</option>
-                <option value="O">O（外来）</option>
-                <option value="I">I（入院）</option>
-              </select>
-            </div>
-          </div>
-          <div className="admin-actions">
-            <button
-              type="button"
-              className="admin-button admin-button--secondary"
-              onClick={handleMedicalSetSearch}
-              disabled={medicalSetMutation.isPending}
-              aria-disabled={!isSystemAdmin || medicalSetMutation.isPending}
-              data-guarded={!isSystemAdmin}
-              aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-            >
-              セット検索
-            </button>
-          </div>
-          {medicalSetResult?.error ? <p className="admin-error">error: {medicalSetResult.error}</p> : null}
-          <div className="admin-scroll">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>Set_Code</th>
-                  <th>名称</th>
-                  <th>期間</th>
-                  <th>InOut</th>
-                  <th>内容</th>
-                </tr>
-              </thead>
-              <tbody>
-                {medicalSetResult?.entries.length ? (
-                  medicalSetResult.entries.map((entry, index) => (
-                    <tr key={`${entry.setCode ?? 'set'}-${index}`}>
-                      <td>{entry.setCode ?? '―'}</td>
-                      <td>{entry.setName ?? '―'}</td>
-                      <td>
-                        {entry.startDate ?? '―'} ~ {entry.endDate ?? '―'}
-                      </td>
-                      <td>{entry.inOut ?? '―'}</td>
-                      <td>{entry.medicationSummary ?? '―'}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5}>検索結果はまだありません。</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="administration-card" aria-label="ORCA公式XMLプロキシ">
-          <h2 className="administration-card__title">ORCA公式XMLプロキシ</h2>
-          <div className="admin-status-row">
-            <span className={`admin-status admin-status--${xmlProxyStatusTone}`}>{xmlProxyStatusLabel}</span>
-            <span>エンドポイント: {xmlProxyOption.label}</span>
-            <span>HTTP: {xmlProxyResult?.status ?? '―'}</span>
-            <span>Api_Result: {xmlProxyResult?.apiResult ?? '―'}</span>
-          </div>
-          <div className="admin-form">
-            <div className="admin-form__field">
-              <label htmlFor="orca-xml-endpoint">エンドポイント</label>
-              <select
-                id="orca-xml-endpoint"
-                value={orcaXmlProxyTarget}
-                onChange={(event) => setOrcaXmlProxyTarget(event.target.value as OrcaXmlProxyEndpoint)}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              >
-                {ORCA_XML_PROXY_OPTIONS.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <p className="admin-quiet">{xmlProxyOption.hint}</p>
-            </div>
-            {xmlProxyOption.supportsClass ? (
-              <div className="admin-form__field">
-                <label htmlFor="orca-xml-class">class</label>
-                <input
-                  id="orca-xml-class"
-                  type="text"
-                  value={currentXmlProxy?.classCode ?? ''}
-                  onChange={(event) => handleXmlProxyClassChange(event.target.value)}
-                  disabled={!isSystemAdmin}
-                  aria-readonly={!isSystemAdmin}
-                  aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                />
-              </div>
-            ) : null}
-            <div className="admin-form__field">
-              <label htmlFor="orca-xml-payload">XML2 payload</label>
-              <textarea
-                id="orca-xml-payload"
-                className="admin-textarea"
-                value={currentXmlProxy?.xml ?? ''}
-                onChange={(event) => handleXmlProxyXmlChange(event.target.value)}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                rows={7}
-              />
-            </div>
-          </div>
-          <div className="admin-actions">
-            <button
-              type="button"
-              className="admin-button admin-button--primary"
-              onClick={handleXmlProxySubmit}
-              disabled={xmlProxyMutation.isPending}
-              aria-disabled={!isSystemAdmin || xmlProxyMutation.isPending}
-              data-guarded={!isSystemAdmin}
-              aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-            >
-              送信
-            </button>
-            <button
-              type="button"
-              className="admin-button admin-button--secondary"
-              onClick={handleXmlProxyReset}
-              disabled={xmlProxyMutation.isPending}
-              aria-disabled={!isSystemAdmin || xmlProxyMutation.isPending}
-              data-guarded={!isSystemAdmin}
-              aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-            >
-              テンプレ再生成
-            </button>
-            {xmlProxyResult && !xmlProxyResult.ok ? (
-              <button
-                type="button"
-                className="admin-button admin-button--secondary"
-                onClick={handleXmlProxySubmit}
-                disabled={xmlProxyMutation.isPending}
-                aria-disabled={!isSystemAdmin || xmlProxyMutation.isPending}
-                data-guarded={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              >
-                再送
-              </button>
-            ) : null}
-          </div>
-          {xmlProxyResult ? (
-            <div className="admin-result admin-result--stack">
-              <span>HTTP Status: {xmlProxyResult.status}</span>
-              <span>Api_Result: {xmlProxyResult.apiResult ?? '―'}</span>
-              <span>Message: {xmlProxyResult.apiResultMessage ?? '―'}</span>
-              <span className={xmlProxyResult.error ? 'admin-error' : undefined}>
-                Error: {xmlProxyResult.error ?? '―'}
-              </span>
-              <span>取得日時: {formatDateTime(xmlProxyResult.informationDate, xmlProxyResult.informationTime)}</span>
-              {xmlProxyResult.missingTags?.length ? (
-                <span>Missing tags: {xmlProxyResult.missingTags.join(', ')}</span>
-              ) : null}
-              {xmlProxyResult.runId ? <span>runId: {xmlProxyResult.runId}</span> : null}
-              {xmlProxyResult.traceId ? <span>traceId: {xmlProxyResult.traceId}</span> : null}
-            </div>
-          ) : null}
-        </section>
-
-        <section className="administration-card" aria-label="ORCA内製ラッパー">
-          <h2 className="administration-card__title">ORCA内製ラッパー（stub混在）</h2>
-          <div className="admin-status-row">
-            <span className={`admin-status admin-status--${internalWrapperStatusTone}`}>{internalWrapperStatusLabel}</span>
-            <span>エンドポイント: {internalWrapperOption?.label}</span>
-            <span>HTTP: {internalWrapperResult?.status ?? '―'}</span>
-            <span>Api_Result: {internalWrapperResult?.apiResult ?? '―'}</span>
-            <span
-              className={`admin-status admin-status--${
-                internalWrapperResult?.stub ? 'warn' : internalWrapperResult?.ok ? 'ok' : 'idle'
-              }`}
-            >
-              source: {internalWrapperStubLabel}
-            </span>
-            {internalWrapperStubFixed ? (
-              <span className="admin-status admin-status--warn">stub固定</span>
-            ) : null}
-          </div>
-          <div className="admin-form">
-            <div className="admin-form__field">
-              <label htmlFor="orca-internal-endpoint">エンドポイント</label>
-              <select
-                id="orca-internal-endpoint"
-                value={orcaInternalWrapperTarget}
-                onChange={(event) =>
-                  setOrcaInternalWrapperTarget(event.target.value as OrcaInternalWrapperEndpoint)
-                }
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              >
-                {internalWrapperOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <p className="admin-quiet">{internalWrapperOption?.hint}</p>
-            </div>
-            <div className="admin-form__field">
-              <label htmlFor="orca-internal-payload">payload (JSON)</label>
-              <textarea
-                id="orca-internal-payload"
-                className="admin-textarea"
-                value={currentInternalWrapper?.payload ?? ''}
-                onChange={(event) => handleInternalWrapperPayloadChange(event.target.value)}
-                disabled={!isSystemAdmin}
-                aria-readonly={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                rows={7}
-              />
-            </div>
-          </div>
-          <div className="admin-actions">
-            <button
-              type="button"
-              className="admin-button admin-button--primary"
-              onClick={handleInternalWrapperSubmit}
-              disabled={internalWrapperMutation.isPending}
-              aria-disabled={!isSystemAdmin || internalWrapperMutation.isPending}
-              data-guarded={!isSystemAdmin}
-              aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-            >
-              送信
-            </button>
-            <button
-              type="button"
-              className="admin-button admin-button--secondary"
-              onClick={handleInternalWrapperReset}
-              disabled={internalWrapperMutation.isPending}
-              aria-disabled={!isSystemAdmin || internalWrapperMutation.isPending}
-              data-guarded={!isSystemAdmin}
-              aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-            >
-              テンプレ再生成
-            </button>
-            {internalWrapperResult && !internalWrapperResult.ok ? (
-              <button
-                type="button"
-                className="admin-button admin-button--secondary"
-                onClick={handleInternalWrapperSubmit}
-                disabled={internalWrapperMutation.isPending}
-                aria-disabled={!isSystemAdmin || internalWrapperMutation.isPending}
-                data-guarded={!isSystemAdmin}
-                aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-              >
-                再送
-              </button>
-            ) : null}
-          </div>
-          {currentInternalWrapper?.parseError ? (
-            <p className="admin-error">payload error: {currentInternalWrapper.parseError}</p>
-          ) : null}
-          {internalWrapperResult ? (
-            <div className="admin-result admin-result--stack">
-              <span>HTTP Status: {internalWrapperResult.status}</span>
-              <span>Api_Result: {internalWrapperResult.apiResult ?? '―'}</span>
-              <span>Message: {internalWrapperResult.apiResultMessage ?? '―'}</span>
-              {internalWrapperResult.apiResult?.startsWith('79') ? (
-                <span className="admin-error">Trial未検証/Stub固定（Api_Result=79）</span>
-              ) : null}
-              {internalWrapperResult.messageDetail ? (
-                <span>Detail: {internalWrapperResult.messageDetail}</span>
-              ) : null}
-              {internalWrapperResult.warningMessage ? (
-                <span>Warning: {internalWrapperResult.warningMessage}</span>
-              ) : null}
-              {internalWrapperResult.generatedAt ? (
-                <span>generatedAt: {internalWrapperResult.generatedAt}</span>
-              ) : null}
-              {internalWrapperResult.recordedAt ? (
-                <span>recordedAt: {internalWrapperResult.recordedAt}</span>
-              ) : null}
-              {internalWrapperResult.patient ? (
-                <span>
-                  patient: {internalWrapperResult.patient.patientId ?? '―'} /{' '}
-                  {internalWrapperResult.patient.wholeName ?? '―'}
-                </span>
-              ) : null}
-              {internalWrapperResult.records ? (
-                <span>records: {internalWrapperResult.records.length}件</span>
-              ) : null}
-              {internalWrapperResult.patientDbId ? (
-                <span>patientDbId: {internalWrapperResult.patientDbId}</span>
-              ) : null}
-              {internalWrapperResult.patientId ? (
-                <span>patientId: {internalWrapperResult.patientId}</span>
-              ) : null}
-              {internalWrapperResult.warnings?.length ? (
-                <span>warnings: {internalWrapperResult.warnings.join(' / ')}</span>
-              ) : null}
-              {internalWrapperResult.missingMaster !== undefined ? (
-                <span>missingMaster: {internalWrapperResult.missingMaster ? 'true' : 'false'}</span>
-              ) : null}
-              {internalWrapperResult.fallbackUsed !== undefined ? (
-                <span>fallbackUsed: {internalWrapperResult.fallbackUsed ? 'true' : 'false'}</span>
-              ) : null}
-              {internalWrapperResult.runId ? <span>runId: {internalWrapperResult.runId}</span> : null}
-              {internalWrapperResult.traceId ? <span>traceId: {internalWrapperResult.traceId}</span> : null}
-              {internalWrapperResult.error ? (
-                <span className="admin-error">error: {internalWrapperResult.error}</span>
-              ) : null}
-            </div>
-          ) : null}
-          {internalWrapperGuidance ? (
-            <p className="admin-quiet">次のアクション: {internalWrapperGuidance}</p>
-          ) : null}
-          {internalWrapperResult?.records ? (
-            <div className="admin-scroll">
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>診療日</th>
-                    <th>部門</th>
-                    <th>status</th>
-                    <th>documentId</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {internalWrapperResult.records.length ? (
-                    internalWrapperResult.records.map((record, index) => (
-                      <tr key={`${record.documentId ?? 'record'}-${index}`}>
-                        <td>{record.performDate ?? '―'}</td>
-                        <td>{record.departmentName ?? record.departmentCode ?? '―'}</td>
-                        <td>{record.documentStatus ?? '―'}</td>
-                        <td>{record.documentId ?? '―'}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={4}>診療記録はまだ取得されていません。</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </section>
-      </div>
-
-      <LegacyRestPanel
-        runId={resolvedRunId ?? session.runId ?? 'RUN-UNSET'}
-        role={role}
-        actorId={actorId}
-        environmentLabel={environmentLabel}
-        isSystemAdmin={isSystemAdmin}
-        onGuarded={(detail) => reportGuardedAction('legacy-rest', detail)}
-      />
-
-      <TouchAdmPhrPanel
-        runId={resolvedRunId ?? session.runId ?? 'RUN-UNSET'}
-        role={role}
-        actorId={actorId}
-        environmentLabel={environmentLabel}
-        isSystemAdmin={isSystemAdmin}
-        facilityId={session.facilityId}
-        userId={session.userId}
-        onGuarded={(detail) => reportGuardedAction('touch-adm-phr', detail)}
-      />
-
-      <section className="administration-card" aria-label="配信キュー一覧">
-        <h2 className="administration-card__title">配信キュー</h2>
-        <p className="admin-quiet">
-          未配信のバンドルを確認し、必要に応じて再送（retry）または破棄します。遅延判定は {warningThresholdMinutes}
-          分超の pending を対象とし、失敗と合わせて警告バナーに反映します。
-        </p>
-        <table className="admin-queue">
-          <thead>
-            <tr>
-              <th>patientId</th>
-              <th>status</th>
-              <th>lastDispatch</th>
-              <th>headers</th>
-              <th aria-label="actions">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {queueEntries.length === 0 ? (
-              <tr>
-                <td colSpan={5}>未配信キューはありません。</td>
-              </tr>
-            ) : (
-              queueEntries.map((entry) => (
-                <tr key={entry.patientId}>
-                  <td>{entry.patientId}</td>
-                  <td>
-                    <span className={toStatusClass(entry.status)}>{entry.status}</span>
-                  </td>
-                  <td>{formatTimeAgo(entry.lastDispatchAt)}</td>
-                  <td>{entry.headers?.join(' / ') ?? '―'}</td>
-                  <td>
-                    <div className="admin-queue__actions">
-                      <button
-                        type="button"
-                        className="admin-button admin-button--secondary"
-                        onClick={() => handleRetry(entry.patientId)}
-                        disabled={queueMutation.isPending || !entry.retryable}
-                        aria-disabled={!isSystemAdmin || queueMutation.isPending || !entry.retryable}
-                        data-guarded={!isSystemAdmin}
-                        aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                      >
-                        再送
-                      </button>
-                      <button
-                        type="button"
-                        className="admin-button admin-button--danger"
-                        onClick={() => handleDiscard(entry.patientId)}
-                        disabled={queueMutation.isPending}
-                        aria-disabled={!isSystemAdmin || queueMutation.isPending}
-                        data-guarded={!isSystemAdmin}
-                        aria-describedby={!isSystemAdmin ? guardDetailsId : undefined}
-                      >
-                        破棄
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </section>
           </>
         )}
       </main>
+
+      <ConfirmDialog
+        open={saveConfirmOpen}
+        title="設定を保存して配信しますか？"
+        description="差分内容と影響範囲を確認してください。"
+        confirmLabel="保存して配信"
+        tone="danger"
+        pending={configMutation.isPending}
+        onConfirm={handleConfirmSave}
+        onCancel={() => setSaveConfirmOpen(false)}
+      >
+        <div className="admin-result admin-result--stack">
+          <div>対象環境: {environmentLabel}</div>
+          <div>施設ID: {session.facilityId}</div>
+          <div>RUN_ID: {resolvedRunId ?? '―'}</div>
+        </div>
+        <table className="admin-table admin-table--compact">
+          <thead>
+            <tr>
+              <th>項目</th>
+              <th>変更前</th>
+              <th>変更後</th>
+            </tr>
+          </thead>
+          <tbody>
+            {configDiffRows.length ? (
+              configDiffRows.map((row) => (
+                <tr key={row.key}>
+                  <td>{row.label}</td>
+                  <td>{String(row.before ?? '―')}</td>
+                  <td>{String(row.after ?? '―')}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={3}>差分はありません。</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={Boolean(discardConfirmTarget)}
+        title="キュー破棄を実行しますか？"
+        description="破棄後は再送できない可能性があります。"
+        confirmLabel="破棄する"
+        tone="danger"
+        pending={queueMutation.isPending}
+        onConfirm={handleConfirmDiscard}
+        onCancel={() => setDiscardConfirmTarget(null)}
+      >
+        <div className="admin-result admin-result--stack">
+          <div>patientId: {discardConfirmTarget?.patientId ?? '―'}</div>
+          <div>status: {discardConfirmTarget?.status ?? '―'}</div>
+          <div>影響: このエントリは再送不可となる場合があります。</div>
+        </div>
+      </ConfirmDialog>
     </>
   );
 }
