@@ -14,7 +14,7 @@ const respondXml = (xml: string, status = 200) =>
 const respondEmpty = (status = 200) => HttpResponse.text('', { status });
 
 export const orcaIncomeHandlers = [
-  http.post('/api01rv2/incomeinfv2', async ({ request }) => {
+  http.post('/orca/incomeinfv2', async ({ request }) => {
     const fault = parseFaultSpec(request);
     await applyFaultDelay(fault);
     const omitRequired = fault.tokens.has('missing-required');

@@ -52,7 +52,7 @@ export const orcaReportHandlers = [
     });
   }),
   ...Object.keys(reportLabels).map((key) =>
-    http.post(`/api01rv2/${key}`, async ({ request }) => {
+    http.post(`/orca/${key}`, async ({ request }) => {
       const fault = parseFaultSpec(request);
       await applyFaultDelay(fault);
       const label = reportLabels[key] ?? key;

@@ -48,6 +48,28 @@ public class OrcaMedicalApiResource extends AbstractResource {
     }
 
     @POST
+    @Path("/orca/medicalgetv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postMedicalGetWithOrcaPrefix(@Context HttpServletRequest request,
+            @QueryParam("class") String classCode,
+            String payload) {
+        return respondXmlWithClass(request, OrcaEndpoint.MEDICAL_GET, classCode,
+                "/orca/medicalgetv2", payload, "ORCA_MEDICAL_GET");
+    }
+
+    @POST
+    @Path("/api/orca/medicalgetv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postMedicalGetWithApiOrcaPrefix(@Context HttpServletRequest request,
+            @QueryParam("class") String classCode,
+            String payload) {
+        return respondXmlWithClass(request, OrcaEndpoint.MEDICAL_GET, classCode,
+                "/api/orca/medicalgetv2", payload, "ORCA_MEDICAL_GET");
+    }
+
+    @POST
     @Path("/api/api01rv2/medicalgetv2")
     @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
     @Produces(MediaType.APPLICATION_XML)

@@ -112,7 +112,7 @@ export async function fetchPatientMemo(params: {
 }): Promise<PatientMemoResponse> {
   const runId = getObservabilityMeta().runId;
   const requestXml = buildRequestXml(params);
-  const response = await httpFetch('/api01rv2/patientlst7v2', {
+  const response = await httpFetch('/orca/patientlst7v2', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/xml; charset=UTF-8',

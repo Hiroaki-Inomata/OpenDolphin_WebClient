@@ -19,12 +19,12 @@ export const ORCA_REPORT_LABELS: Record<OrcaReportType, string> = {
 };
 
 const ORCA_REPORT_ENDPOINTS: Record<OrcaReportType, string> = {
-  prescription: '/api01rv2/prescriptionv2',
-  medicinenotebook: '/api01rv2/medicinenotebookv2',
-  karteno1: '/api01rv2/karteno1v2',
-  karteno3: '/api01rv2/karteno3v2',
-  invoicereceipt: '/api01rv2/invoicereceiptv2',
-  statement: '/api01rv2/statementv2',
+  prescription: '/orca/prescriptionv2',
+  medicinenotebook: '/orca/medicinenotebookv2',
+  karteno1: '/orca/karteno1v2',
+  karteno3: '/orca/karteno3v2',
+  invoicereceipt: '/orca/invoicereceiptv2',
+  statement: '/orca/statementv2',
 };
 
 export type OrcaReportRequestParams = {

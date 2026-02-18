@@ -20,7 +20,7 @@ export const CHART_EVENT_REPLAY_TARGETS: ReplayGapTarget[] = [
   },
   {
     key: ['orca-push-events'],
-    label: '/api01rv2/pusheventgetv2',
+    label: '/orca/pusheventgetv2',
   },
 ];
 

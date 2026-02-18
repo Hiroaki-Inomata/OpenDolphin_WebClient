@@ -46,7 +46,7 @@ export type SubjectivesModResponse = {
   error?: string;
 };
 
-const SUBJECTIVES_LIST_PATH = '/api01rv2/subjectiveslstv2';
+const SUBJECTIVES_LIST_PATH = '/orca/subjectiveslstv2';
 const SUBJECTIVES_MOD_PATH = '/orca25/subjectivesv2';
 
 export const buildSubjectivesListRequestXml = (params: {

@@ -29,6 +29,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-02-18: ORCA API 契約統一として `web-client` の `/api01rv2` 依存を `/orca/*` へ置換（RUN_ID=20260218T133538Z）。
+  - 内容: `web-client` の業務コード/デバッグUI/MSW/QAスクリプトで使用していた `/api01rv2*` と `/api/api01rv2*` を `/orca/*` へ統一。`server-modernized` 側には `OrcaPatientApiResource` / `OrcaDiseaseApiResource` / `OrcaMedicalApiResource` / `OrcaAdditionalApiResource` / `OrcaReportResource` / `OrcaSystemManagementResource` / `OrcaAcceptanceListResource` に `/orca/*` と `/api/orca/*` の受け口を追加し、既存 `respond*` ロジックを再利用して監査メタ（runId/traceId/requestId）を継承。
+  - 再発防止: `scripts/check-no-api01rv2.sh` と `npm run check:orca-api01rv2` を追加し、`.github/workflows/e2e.yml` にガードステップを追加（`web-client` 内に `/api01rv2` が残るとCI失敗）。
+  - ドキュメント: `docs/server-modernization/orca-api-contract-unification-20260218.md` を追加し、旧->新マッピングを明記。ハブ更新: `docs/web-client/CURRENT.md` / `docs/server-modernization/README.md`。
+  - 検証: `npm run check:orca-api01rv2` PASS、`npm -C web-client run typecheck` PASS、`npm -C web-client run test -- --run src/features/administration/orcaXmlProxyApi.test.ts src/features/charts/print/__tests__/useOrcaReportPrint.test.tsx src/features/charts/__tests__/subjectivesWarning.test.tsx --silent=true` PASS。
+  - 既知の既存課題（今回差分外）: `src/features/charts/__tests__/contraindicationWarning.test.tsx` 実行時に `AdministrationPage.tsx` の重複宣言で transform 失敗、`mvn -pl server-modernized -Dtest=OrcaAcceptanceListResourceTest test` は `AdminAccessResource` の `UserAccessProfile` 未解決で compile 失敗。
 - 2026-02-16: Administration 設定配信タブを運用向けに再構成（RUN_ID=20260216T122953Z）。
   - 内容: `delivery` タブに `section` サブナビ（概要/接続/配信設定/配信キュー/マスタ・ヘルス/診療セット/診断・デバッグ）を追加し、`?tab=delivery&section=...` の deep link と履歴遷移に対応。`AdministrationPage` の巨大UIを `web-client/src/features/administration/delivery/*` / `web-client/src/features/administration/components/*` へ分割（WebORCA接続カード、配信設定カード、差分テーブル、キュー監視カード、ConfirmDialog 等）。
   - UX改善: ヘッダを「運用KPI/識別子/詳細フラグ」に整理、`syncMismatch` を「不整合あり」単一導線へ集約。非 `system_admin` は入力欄を原則 `readOnly` でコピー可能にし、依頼テンプレのコピー導線を追加。WebORCA 接続カードに「接続テストは保存済み設定」を固定表示し、保存済み/編集中（Dirty）と mTLS バリデーション（port範囲/p12必須）を可視化。配信操作とキュー破棄に ConfirmDialog を必須化。

@@ -47,6 +47,26 @@ public class OrcaSystemManagementResource extends AbstractResource {
     }
 
     @POST
+    @Path("/orca/system01lstv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postSystemListWithOrcaPrefix(@Context HttpServletRequest request,
+            @QueryParam("class") String classCode,
+            String payload) {
+        return respondSystemList(request, classCode, "/orca/system01lstv2", payload);
+    }
+
+    @POST
+    @Path("/api/orca/system01lstv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postSystemListWithApiOrcaPrefix(@Context HttpServletRequest request,
+            @QueryParam("class") String classCode,
+            String payload) {
+        return respondSystemList(request, classCode, "/api/orca/system01lstv2", payload);
+    }
+
+    @POST
     @Path("/api/api01rv2/system01lstv2")
     @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
     @Produces(MediaType.APPLICATION_XML)
@@ -80,6 +100,24 @@ public class OrcaSystemManagementResource extends AbstractResource {
     @Produces(MediaType.APPLICATION_XML)
     public Response postInsuranceProvider(@Context HttpServletRequest request, String payload) {
         return respondXml(request, OrcaEndpoint.INSURANCE_PROVIDER, "/api01rv2/insprogetv2", payload,
+                buildDefaultInsuranceProviderPayload(), "ORCA_INSURANCE_PROVIDER");
+    }
+
+    @POST
+    @Path("/orca/insprogetv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postInsuranceProviderWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.INSURANCE_PROVIDER, "/orca/insprogetv2", payload,
+                buildDefaultInsuranceProviderPayload(), "ORCA_INSURANCE_PROVIDER");
+    }
+
+    @POST
+    @Path("/api/orca/insprogetv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postInsuranceProviderWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.INSURANCE_PROVIDER, "/api/orca/insprogetv2", payload,
                 buildDefaultInsuranceProviderPayload(), "ORCA_INSURANCE_PROVIDER");
     }
 

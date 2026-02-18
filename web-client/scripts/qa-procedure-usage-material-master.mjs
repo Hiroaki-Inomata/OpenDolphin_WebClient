@@ -109,7 +109,6 @@ const shouldRewriteRunIdHeader = (urlString) => {
     return (
       url.pathname.startsWith('/orca/') ||
       url.pathname.startsWith('/api/') ||
-      url.pathname.startsWith('/api01rv2/') ||
       url.pathname === '/chart-events'
     );
   } catch {

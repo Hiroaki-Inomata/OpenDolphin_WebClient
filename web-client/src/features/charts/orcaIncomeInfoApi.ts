@@ -31,7 +31,7 @@ export type IncomeInfoResponse = {
   error?: string;
 };
 
-const ORCA_INCOME_INFO_PATH = '/api01rv2/incomeinfv2';
+const ORCA_INCOME_INFO_PATH = '/orca/incomeinfv2';
 
 const parseOrcaNumber = (value?: string) => {
   if (!value) return undefined;

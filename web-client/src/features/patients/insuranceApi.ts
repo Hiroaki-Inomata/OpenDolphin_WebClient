@@ -79,7 +79,7 @@ export async function fetchInsuranceList(params: {
   updateObservabilityMeta({ runId });
   const requestXml = buildRequestXml(params.baseDate, params.requestNumber);
 
-  const response = await httpFetch('/api/api01rv2/insuranceinf1v2', {
+  const response = await httpFetch('/orca/insuranceinf1v2', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/xml; charset=UTF-8',

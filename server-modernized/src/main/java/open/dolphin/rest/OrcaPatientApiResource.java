@@ -52,6 +52,26 @@ public class OrcaPatientApiResource extends AbstractResource {
     }
 
     @GET
+    @Path("/orca/patientgetv2")
+    @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
+    public Response getPatientWithOrcaPrefix(@Context HttpServletRequest request,
+            @QueryParam("id") String patientId,
+            @QueryParam("class") String classCode,
+            @QueryParam("format") String format) {
+        return respondPatientGet(request, patientId, classCode, format, "/orca/patientgetv2");
+    }
+
+    @GET
+    @Path("/api/orca/patientgetv2")
+    @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
+    public Response getPatientWithApiOrcaPrefix(@Context HttpServletRequest request,
+            @QueryParam("id") String patientId,
+            @QueryParam("class") String classCode,
+            @QueryParam("format") String format) {
+        return respondPatientGet(request, patientId, classCode, format, "/api/orca/patientgetv2");
+    }
+
+    @GET
     @Path("/api/api01rv2/patientgetv2")
     @Produces({MediaType.APPLICATION_XML, MediaType.APPLICATION_JSON})
     public Response getPatientWithApiPrefix(@Context HttpServletRequest request,
@@ -90,6 +110,24 @@ public class OrcaPatientApiResource extends AbstractResource {
     public Response postPatientMemoList(@Context HttpServletRequest request, String payload) {
         return respondXml(request, OrcaEndpoint.PATIENT_MEMO_LIST,
                 "/api01rv2/patientlst7v2", payload, "ORCA_PATIENT_MEMO_LIST");
+    }
+
+    @POST
+    @Path("/orca/patientlst7v2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postPatientMemoListWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.PATIENT_MEMO_LIST,
+                "/orca/patientlst7v2", payload, "ORCA_PATIENT_MEMO_LIST");
+    }
+
+    @POST
+    @Path("/api/orca/patientlst7v2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postPatientMemoListWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.PATIENT_MEMO_LIST,
+                "/api/orca/patientlst7v2", payload, "ORCA_PATIENT_MEMO_LIST");
     }
 
     @POST

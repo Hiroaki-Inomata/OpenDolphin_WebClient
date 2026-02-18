@@ -129,7 +129,6 @@ export default defineConfig(({ mode }) => {
   const stripApiPrefix = (rawPath: string) => rawPath.replace(/^\/api(?=\/|$)/, '');
 
   const orcaPrefixedPaths = [
-    '/api01rv2',
     '/api21',
     '/orca06',
     '/orca12',
@@ -205,7 +204,6 @@ export default defineConfig(({ mode }) => {
     '/karte': createProxyConfig(addResourcePrefix),
     '/odletter': createProxyConfig(addResourcePrefix),
     // ORCA / 外来 API 群を開発プロキシ経由でモダナイズ版サーバーへ中継する。
-    '/api01rv2': createProxyConfig((p: string) => addResourcePrefix(addOrcaPrefix(p))),
     '/api21': createProxyConfig((p: string) => addResourcePrefix(addOrcaPrefix(p))),
     '/orca06': createProxyConfig((p: string) => addResourcePrefix(addOrcaPrefix(p))),
     '/orca12': createProxyConfig((p: string) => addResourcePrefix(addOrcaPrefix(p))),

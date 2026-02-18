@@ -24,7 +24,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
       id: 'patientgetv2',
       label: 'patientgetv2',
       method: 'GET',
-      path: '/api01rv2/patientgetv2',
+      path: '/orca/patientgetv2',
       defaultQuery: 'id=00002',
       description: '患者基本情報の取得（GET）。',
     },
@@ -32,7 +32,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
       id: 'patientgetv2-json',
       label: 'patientgetv2 (JSON)',
       method: 'GET',
-      path: '/api01rv2/patientgetv2',
+      path: '/orca/patientgetv2',
       defaultQuery: 'id=00002&format=json',
       description: '患者基本情報の取得（JSON）。',
     },
@@ -40,7 +40,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
       id: 'patientlst7v2',
       label: 'patientlst7v2',
       method: 'POST',
-      path: '/api01rv2/patientlst7v2',
+      path: '/orca/patientlst7v2',
       defaultBody: [
         '<data>',
         '  <patientlst7req type="record">',
@@ -77,7 +77,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
       id: 'insuranceinf1v2',
       label: 'insuranceinf1v2',
       method: 'POST',
-      path: '/api/api01rv2/insuranceinf1v2',
+      path: '/orca/insuranceinf1v2',
       defaultBody: [
         '<data>',
         '  <insuranceinfreq type="record">',
@@ -92,7 +92,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
       id: 'diseasegetv2',
       label: 'diseasegetv2',
       method: 'POST',
-      path: '/api01rv2/diseasegetv2?class=01',
+      path: '/orca/diseasegetv2?class=01',
       defaultBody: [
         '<data>',
         '  <disease_inforeq type="record">',
@@ -135,7 +135,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
       id: 'medicalgetv2',
       label: 'medicalgetv2',
       method: 'POST',
-      path: '/api01rv2/medicalgetv2?class=01',
+      path: '/orca/medicalgetv2?class=01',
       defaultBody: [
         '<data>',
         '  <medicalgetreq type="record">',

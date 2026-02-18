@@ -48,6 +48,26 @@ public class OrcaAcceptanceListResource extends AbstractResource {
     }
 
     @POST
+    @Path("/orca/acceptlstv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postAcceptListWithOrcaPrefix(@Context HttpServletRequest request,
+            @QueryParam("class") String classCode,
+            String payload) {
+        return respondAcceptList(request, classCode, "/orca/acceptlstv2", payload);
+    }
+
+    @POST
+    @Path("/api/orca/acceptlstv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postAcceptListWithApiOrcaPrefix(@Context HttpServletRequest request,
+            @QueryParam("class") String classCode,
+            String payload) {
+        return respondAcceptList(request, classCode, "/api/orca/acceptlstv2", payload);
+    }
+
+    @POST
     @Path("/api/api01rv2/acceptlstv2")
     @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
     @Produces(MediaType.APPLICATION_XML)

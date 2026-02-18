@@ -16,7 +16,7 @@ const buildXmlResponse = (body: string, status = 200) =>
   });
 
 export const orcaPatientMemoHandlers = [
-  http.post('/api01rv2/patientlst7v2', async ({ request }) => {
+  http.post('/orca/patientlst7v2', async ({ request }) => {
     const raw = await request.text().catch(() => '');
     const patientId = extractTagValue(raw, 'Patient_ID');
     const baseDate = extractTagValue(raw, 'Base_Date');

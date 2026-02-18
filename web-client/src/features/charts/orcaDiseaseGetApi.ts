@@ -16,7 +16,7 @@ export type OrcaXmlResponse = {
   error?: string;
 };
 
-export const ORCA_DISEASEGETV2_PATH = '/api01rv2/diseasegetv2?class=01';
+export const ORCA_DISEASEGETV2_PATH = '/orca/diseasegetv2?class=01';
 
 export const buildDiseaseGetRequestXml = (params: { patientId: string; baseDate?: string }) => {
   return [
