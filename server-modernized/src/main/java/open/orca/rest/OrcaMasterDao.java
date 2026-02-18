@@ -16,7 +16,9 @@ public class OrcaMasterDao {
     private static final Logger LOGGER = Logger.getLogger(OrcaMasterDao.class.getName());
     private static final int MAX_PAGE_SIZE = 2000;
     private static final String DRUG_CODE_PREFIX = "6";
+    private static final String MATERIAL_CODE_PREFIX = "7";
     private static final String COMMENT_CODE_REGEX = "^(008[1-6]|8[1-6]|098|099|98|99)";
+    private static final String BODY_PART_NAME_TOKEN = "部位";
 
     public GenericClassSearchResult searchGenericClass(GenericClassCriteria criteria) {
         if (criteria == null) {
@@ -110,6 +112,29 @@ public class OrcaMasterDao {
         }
     }
 
+    public ListSearchResult<CommentRecord> searchBodypart(CommentCriteria criteria) {
+        if (criteria == null) {
+            return null;
+        }
+        try (Connection connection = ORCAConnection.getInstance().getConnection()) {
+            DrugTableMeta meta = DrugTableMeta.load(connection);
+            if (meta == null || meta.codeColumn == null || meta.nameColumn == null) {
+                return null;
+            }
+            Query query = buildBodypartQuery(criteria, meta);
+            int totalCount = fetchTotalCount(connection, meta.tableName, query);
+            if (totalCount == 0) {
+                return new ListSearchResult<>(Collections.emptyList(), 0, null);
+            }
+            List<CommentRecord> records = fetchCommentRecords(connection, meta, query, criteria.page, criteria.size);
+            String version = resolveVersion(records, null);
+            return new ListSearchResult<>(records, totalCount, version);
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "Failed to load ORCA-08 bodypart master", e);
+            return null;
+        }
+    }
+
     public ListSearchResult<YouhouRecord> searchYouhou(YouhouCriteria criteria) {
         if (criteria == null) {
             return null;
@@ -135,17 +160,16 @@ public class OrcaMasterDao {
             return null;
         }
         try (Connection connection = ORCAConnection.getInstance().getConnection()) {
-            MaterialTableMeta meta = MaterialTableMeta.load(connection);
+            DrugTableMeta meta = DrugTableMeta.load(connection);
             if (meta == null || meta.codeColumn == null) {
                 return null;
             }
-            Query query = buildKeywordEffectiveQuery(criteria.keyword, criteria.effective, meta.tableName,
-                    meta.codeColumn, meta.nameColumn, meta.kanaColumn, meta.startDateColumn, meta.endDateColumn);
-            List<MaterialRecord> records = fetchMaterialRecords(connection, meta, query);
+            Query query = buildMaterialQuery(criteria, meta);
+            List<MaterialRecord> records = fetchMaterialRecordsFromTensu(connection, meta, query);
             String version = resolveVersion(records, null);
             return new ListSearchResult<>(records, records.size(), version);
         } catch (SQLException e) {
-            LOGGER.log(Level.WARNING, "Failed to load ORCA-05 material master", e);
+            LOGGER.log(Level.WARNING, "Failed to load ORCA-08 material master", e);
             return null;
         }
     }
@@ -155,17 +179,18 @@ public class OrcaMasterDao {
             return null;
         }
         try (Connection connection = ORCAConnection.getInstance().getConnection()) {
-            KensaSortTableMeta meta = KensaSortTableMeta.load(connection);
-            if (meta == null || meta.codeColumn == null) {
+            KensaSortTableMeta kensaSortMeta = KensaSortTableMeta.load(connection);
+            DrugTableMeta tensuMeta = DrugTableMeta.load(connection);
+            if (kensaSortMeta == null || kensaSortMeta.codeColumn == null
+                    || tensuMeta == null || tensuMeta.codeColumn == null || tensuMeta.nameColumn == null) {
                 return null;
             }
-            Query query = buildKeywordEffectiveQuery(criteria.keyword, criteria.effective, meta.tableName,
-                    meta.codeColumn, meta.nameColumn, meta.kanaColumn, meta.startDateColumn, meta.endDateColumn);
-            List<KensaSortRecord> records = fetchKensaSortRecords(connection, meta, query);
+            Query query = buildKensaSortJoinQuery(criteria, kensaSortMeta, tensuMeta);
+            List<KensaSortRecord> records = fetchKensaSortRecordsFromTensu(connection, kensaSortMeta, tensuMeta, query);
             String version = resolveVersion(records, null);
             return new ListSearchResult<>(records, records.size(), version);
         } catch (SQLException e) {
-            LOGGER.log(Level.WARNING, "Failed to load ORCA-05 kensa sort master", e);
+            LOGGER.log(Level.WARNING, "Failed to load ORCA-08 kensa sort master", e);
             return null;
         }
     }
@@ -242,11 +267,80 @@ public class OrcaMasterDao {
         return new Query(where.toString(), params);
     }
 
+    private Query buildMaterialQuery(MaterialCriteria criteria, DrugTableMeta meta) {
+        StringBuilder where = new StringBuilder(" FROM ").append(meta.tableName).append(" WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+        where.append(" AND CAST(").append(meta.codeColumn).append(" AS VARCHAR) LIKE ?");
+        params.add(MATERIAL_CODE_PREFIX + "%");
+        appendKeywordFilter(where, params, criteria.keyword, meta.codeColumn, meta.nameColumn, meta.kanaColumn);
+        appendEffectiveFilter(where, params, criteria.effective, meta.startDateColumn, meta.endDateColumn);
+        return new Query(where.toString(), params);
+    }
+
     private Query buildCommentQuery(CommentCriteria criteria, DrugTableMeta meta) {
         StringBuilder where = new StringBuilder(" FROM ").append(meta.tableName).append(" WHERE 1=1");
         List<Object> params = new ArrayList<>();
         where.append(" AND CAST(").append(meta.codeColumn).append(" AS VARCHAR) ~ ?");
         params.add(COMMENT_CODE_REGEX);
+        appendKeywordFilter(where, params, criteria.keyword, meta.codeColumn, meta.nameColumn, meta.kanaColumn);
+        appendEffectiveFilter(where, params, criteria.effective, meta.startDateColumn, meta.endDateColumn);
+        return new Query(where.toString(), params);
+    }
+
+    private Query buildKensaSortJoinQuery(KensaSortCriteria criteria, KensaSortTableMeta kensaSortMeta,
+            DrugTableMeta tensuMeta) {
+        final String sortAlias = "k";
+        final String tensuAlias = "t";
+        StringBuilder where = new StringBuilder(" FROM ").append(kensaSortMeta.tableName).append(' ').append(sortAlias)
+                .append(" JOIN ").append(tensuMeta.tableName).append(' ').append(tensuAlias)
+                .append(" ON ").append(tensuAlias).append('.').append(tensuMeta.codeColumn)
+                .append(" = ").append(sortAlias).append('.').append(kensaSortMeta.codeColumn)
+                .append(" WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+        appendKensaSortKeywordFilter(where, params, criteria.keyword, sortAlias + "." + kensaSortMeta.codeColumn,
+                tensuAlias + "." + tensuMeta.nameColumn, tensuAlias + "." + tensuMeta.kanaColumn,
+                kensaSortMeta.kensaSortColumn != null ? sortAlias + "." + kensaSortMeta.kensaSortColumn : null);
+        appendEffectiveFilter(where, params, criteria.effective,
+                tensuMeta.startDateColumn != null ? tensuAlias + "." + tensuMeta.startDateColumn : null,
+                tensuMeta.endDateColumn != null ? tensuAlias + "." + tensuMeta.endDateColumn : null);
+        return new Query(where.toString(), params);
+    }
+
+    private void appendKensaSortKeywordFilter(StringBuilder where, List<Object> params, String keyword,
+            String codeColumn, String nameColumn, String kanaColumn, String sortColumn) {
+        if (keyword == null || keyword.isBlank()) {
+            return;
+        }
+        String like = "%" + keyword.toUpperCase(Locale.ROOT) + "%";
+        List<String> clauses = new ArrayList<>();
+        if (codeColumn != null) {
+            clauses.add("UPPER(CAST(" + codeColumn + " AS VARCHAR)) LIKE ?");
+            params.add(like);
+        }
+        if (nameColumn != null) {
+            clauses.add("UPPER(CAST(" + nameColumn + " AS VARCHAR)) LIKE ?");
+            params.add(like);
+        }
+        if (kanaColumn != null) {
+            clauses.add("UPPER(CAST(" + kanaColumn + " AS VARCHAR)) LIKE ?");
+            params.add(like);
+        }
+        if (sortColumn != null) {
+            clauses.add("UPPER(CAST(" + sortColumn + " AS VARCHAR)) LIKE ?");
+            params.add(like);
+        }
+        if (!clauses.isEmpty()) {
+            where.append(" AND (").append(String.join(" OR ", clauses)).append(")");
+        }
+    }
+
+    private Query buildBodypartQuery(CommentCriteria criteria, DrugTableMeta meta) {
+        StringBuilder where = new StringBuilder(" FROM ").append(meta.tableName).append(" WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+        where.append(" AND CAST(").append(meta.codeColumn).append(" AS VARCHAR) ~ ?");
+        params.add(COMMENT_CODE_REGEX);
+        where.append(" AND UPPER(CAST(").append(meta.nameColumn).append(" AS VARCHAR)) LIKE ?");
+        params.add("%" + BODY_PART_NAME_TOKEN.toUpperCase(Locale.ROOT) + "%");
         appendKeywordFilter(where, params, criteria.keyword, meta.codeColumn, meta.nameColumn, meta.kanaColumn);
         appendEffectiveFilter(where, params, criteria.effective, meta.startDateColumn, meta.endDateColumn);
         return new Query(where.toString(), params);
@@ -559,6 +653,44 @@ public class OrcaMasterDao {
         return records;
     }
 
+    private List<MaterialRecord> fetchMaterialRecordsFromTensu(Connection connection, DrugTableMeta meta, Query query)
+            throws SQLException {
+        String sql = "SELECT "
+                + selectColumn(meta.codeColumn) + " AS code, "
+                + selectColumn(meta.nameColumn) + " AS name, "
+                + selectColumn(meta.kanaColumn) + " AS kana, "
+                + selectColumn(meta.categoryColumn) + " AS category, "
+                + selectColumn(meta.unitColumn) + " AS unit, "
+                + selectColumn(meta.priceColumn) + " AS price, "
+                + selectColumn(meta.startDateColumn) + " AS startDate, "
+                + selectColumn(meta.endDateColumn) + " AS endDate, "
+                + selectColumn(meta.versionColumn) + " AS version "
+                + query.whereClause
+                + " ORDER BY " + meta.codeColumn + ", " + meta.startDateColumn + " DESC";
+        List<MaterialRecord> records = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            bindParams(ps, query.params, 1);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    MaterialRecord record = new MaterialRecord();
+                    record.materialCode = rs.getString("code");
+                    record.materialName = rs.getString("name");
+                    record.kanaName = rs.getString("kana");
+                    record.category = rs.getString("category");
+                    record.materialCategory = rs.getString("category");
+                    record.unit = rs.getString("unit");
+                    record.price = getDouble(rs, "price");
+                    record.maker = null;
+                    record.startDate = rs.getString("startDate");
+                    record.endDate = rs.getString("endDate");
+                    record.version = rs.getString("version");
+                    records.add(record);
+                }
+            }
+        }
+        return records;
+    }
+
     private List<KensaSortRecord> fetchKensaSortRecords(Connection connection, KensaSortTableMeta meta, Query query)
             throws SQLException {
         String sql = "SELECT "
@@ -572,6 +704,67 @@ public class OrcaMasterDao {
                 + selectColumn(meta.versionColumn) + " AS version "
                 + query.whereClause
                 + " ORDER BY " + meta.codeColumn;
+        List<KensaSortRecord> records = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            bindParams(ps, query.params, 1);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    KensaSortRecord record = new KensaSortRecord();
+                    record.kensaCode = rs.getString("code");
+                    record.kensaName = rs.getString("name");
+                    record.kanaName = rs.getString("kana");
+                    record.kensaSort = rs.getString("kensaSort");
+                    record.classification = rs.getString("classification");
+                    record.startDate = rs.getString("startDate");
+                    record.endDate = rs.getString("endDate");
+                    record.version = rs.getString("version");
+                    records.add(record);
+                }
+            }
+        }
+        return records;
+    }
+
+    private List<KensaSortRecord> fetchKensaSortRecordsFromTensu(Connection connection, KensaSortTableMeta kensaSortMeta,
+            DrugTableMeta tensuMeta, Query query) throws SQLException {
+        final String sortAlias = "k";
+        final String tensuAlias = "t";
+        String versionColumn = kensaSortMeta.versionColumn != null
+                ? sortAlias + "." + kensaSortMeta.versionColumn
+                : null;
+        String tensuVersionColumn = tensuMeta.versionColumn != null
+                ? tensuAlias + "." + tensuMeta.versionColumn
+                : null;
+        String versionSelect;
+        if (versionColumn != null && tensuVersionColumn != null) {
+            versionSelect = "COALESCE(" + versionColumn + ", " + tensuVersionColumn + ")";
+        } else if (versionColumn != null) {
+            versionSelect = versionColumn;
+        } else if (tensuVersionColumn != null) {
+            versionSelect = tensuVersionColumn;
+        } else {
+            versionSelect = "null";
+        }
+
+        StringBuilder order = new StringBuilder(sortAlias).append('.').append(kensaSortMeta.codeColumn);
+        if (tensuMeta.startDateColumn != null) {
+            order.append(", ").append(tensuAlias).append('.').append(tensuMeta.startDateColumn).append(" DESC");
+        }
+        if (tensuMeta.endDateColumn != null) {
+            order.append(", ").append(tensuAlias).append('.').append(tensuMeta.endDateColumn).append(" DESC");
+        }
+
+        String sql = "SELECT DISTINCT ON (" + sortAlias + "." + kensaSortMeta.codeColumn + ") "
+                + selectColumn(sortAlias + "." + kensaSortMeta.codeColumn) + " AS code, "
+                + selectColumn(tensuAlias + "." + tensuMeta.nameColumn) + " AS name, "
+                + selectColumn(tensuAlias + "." + tensuMeta.kanaColumn) + " AS kana, "
+                + selectColumn(sortAlias + "." + kensaSortMeta.kensaSortColumn) + " AS kensaSort, "
+                + selectColumn(tensuAlias + "." + tensuMeta.categoryColumn) + " AS classification, "
+                + selectColumn(tensuAlias + "." + tensuMeta.startDateColumn) + " AS startDate, "
+                + selectColumn(tensuAlias + "." + tensuMeta.endDateColumn) + " AS endDate, "
+                + versionSelect + " AS version "
+                + query.whereClause
+                + " ORDER BY " + order;
         List<KensaSortRecord> records = new ArrayList<>();
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
             bindParams(ps, query.params, 1);

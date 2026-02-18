@@ -43,10 +43,20 @@ type DrugMasterItem = {
   validTo?: string;
 };
 
+const ETENSU_ITEMS: TensuItem[] = [
+  { tensuCode: '111000110', name: '初診料', unit: '', category: '110', points: 291, noticeDate: '20240101', startDate: '20240101' },
+  { tensuCode: '130003510', name: '静脈内注射', unit: '', category: '320', points: 37, noticeDate: '20240101', startDate: '20240101' },
+  { tensuCode: '140000610', name: '創傷処置（１００ｃｍ２未満）', unit: '', category: '400', points: 52, noticeDate: '20240101', startDate: '20240101' },
+  { tensuCode: '150129210', name: 'カテーテル心臓手術', unit: '', category: '500', points: 1000, noticeDate: '20240101', startDate: '20240101' },
+  { tensuCode: '160000110', name: '血液学的検査判断料', unit: '', category: '600', points: 125, noticeDate: '20240101', startDate: '20240101' },
+  { tensuCode: '170017510', name: 'ＣＴ撮影', unit: '', category: '700', points: 500, noticeDate: '20240101', startDate: '20240101' },
+  { tensuCode: '180000210', name: '薬剤情報提供料', unit: '', category: '800', points: 10, noticeDate: '20240101', startDate: '20240101' },
+];
+
 const BODY_PART_ITEMS: TensuItem[] = [
-  { tensuCode: '002001', name: '胸部', unit: '部位', category: '2', points: 0, noticeDate: '20240101', startDate: '20240101' },
-  { tensuCode: '002002', name: '腹部', unit: '部位', category: '2', points: 0, noticeDate: '20240101', startDate: '20240101' },
-  { tensuCode: '002003', name: '膝関節', unit: '部位', category: '2', points: 0, noticeDate: '20240101', startDate: '20240101' },
+  { tensuCode: '820181220', name: '撮影部位（単純撮影）：胸部（肩を除く。）', unit: '部位', category: '820', points: 0, noticeDate: '20240101', startDate: '20240101' },
+  { tensuCode: '820181300', name: '撮影部位（単純撮影）：腹部', unit: '部位', category: '820', points: 0, noticeDate: '20240101', startDate: '20240101' },
+  { tensuCode: '820183500', name: '撮影部位（ＭＲＩ撮影）：膝', unit: '部位', category: '820', points: 0, noticeDate: '20240101', startDate: '20240101' },
 ];
 
 const COMMENT_ITEMS: TensuItem[] = [
@@ -127,12 +137,24 @@ const handleEtensuRequest = (request: Request) => {
   const url = new URL(request.url);
   const category = url.searchParams.get('category');
   const keyword = url.searchParams.get('keyword') ?? '';
-  if (category && category !== '2') {
-    return HttpResponse.json(
-      { items: [], totalCount: 0, message: 'unsupported category', runId, traceId },
-      { status: 400, headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
-    );
-  }
+  const filteredByKeyword = filterByKeyword(ETENSU_ITEMS, keyword);
+  const items =
+    category && category.trim().length > 0
+      ? filteredByKeyword.filter((item) => {
+          const value = item.category?.trim() ?? '';
+          return value.startsWith(category.trim());
+        })
+      : filteredByKeyword;
+  return HttpResponse.json(
+    { items, totalCount: items.length, runId, traceId },
+    { headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
+  );
+};
+
+const handleBodypartRequest = (request: Request) => {
+  const { runId, traceId } = resolveAuditHeaders(request);
+  const url = new URL(request.url);
+  const keyword = url.searchParams.get('keyword') ?? '';
   const items = filterByKeyword(BODY_PART_ITEMS, keyword);
   return HttpResponse.json(
     { items, totalCount: items.length, runId, traceId },
@@ -175,6 +197,7 @@ const handleDrugMasterRequest = (request: Request, items: DrugMasterItem[]) => {
 export const orcaMasterHandlers = [
   http.get('/orca/tensu/etensu', ({ request }) => (shouldBypass(request) ? passthrough() : handleEtensuRequest(request))),
   http.get('/orca/master/etensu', ({ request }) => (shouldBypass(request) ? passthrough() : handleEtensuRequest(request))),
+  http.get('/orca/master/bodypart', ({ request }) => (shouldBypass(request) ? passthrough() : handleBodypartRequest(request))),
   http.get('/orca/master/comment', ({ request }) => (shouldBypass(request) ? passthrough() : handleCommentRequest(request))),
   http.get('/orca/master/generic-class', ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, GENERIC_CLASS_ITEMS))),
   http.get('/orca/master/material', ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, MATERIAL_ITEMS))),

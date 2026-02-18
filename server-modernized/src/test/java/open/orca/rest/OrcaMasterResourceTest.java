@@ -189,6 +189,65 @@ class OrcaMasterResourceTest {
     }
 
     @Test
+    void getBodypart_returnsPagedResponseWithMeta() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public ListSearchResult<CommentRecord> searchBodypart(CommentCriteria criteria) {
+                CommentRecord record = new CommentRecord();
+                record.tensuCode = "820183500";
+                record.name = "撮影部位（ＭＲＩ撮影）：膝";
+                record.category = "820";
+                record.unit = "部位";
+                record.startDate = "00000000";
+                record.endDate = "99999999";
+                record.version = "20260125";
+                return new ListSearchResult<>(List.of(record), 1, "20260125");
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("keyword", "膝");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getBodypart(USER, PASSWORD, null, uriInfo, null);
+
+        assertEquals(200, response.getStatus());
+        @SuppressWarnings("unchecked")
+        OrcaMasterListResponse<OrcaTensuEntry> payload =
+                (OrcaMasterListResponse<OrcaTensuEntry>) response.getEntity();
+        assertNotNull(payload);
+        assertEquals(1, payload.getTotalCount());
+        assertNotNull(payload.getItems());
+        assertFalse(payload.getItems().isEmpty());
+        OrcaTensuEntry entry = payload.getItems().get(0);
+        assertEquals("820183500", entry.getTensuCode());
+        assertEquals("撮影部位（ＭＲＩ撮影）：膝", entry.getName());
+        assertNotNull(entry.getMeta());
+        assertEquals("server", entry.getMeta().getDataSource());
+    }
+
+    @Test
+    void getBodypart_dbUnavailable_returnsServiceUnavailable() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public ListSearchResult<CommentRecord> searchBodypart(CommentCriteria criteria) {
+                return null;
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("keyword", "膝");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getBodypart(USER, PASSWORD, null, uriInfo, null);
+
+        assertEquals(503, response.getStatus());
+        OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
+        assertNotNull(payload);
+        assertEquals("MASTER_BODYPART_UNAVAILABLE", payload.getCode());
+    }
+
+    @Test
     void getGenericPrice_invalidSrycd_returnsValidationError() {
         OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
         MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
@@ -320,6 +379,80 @@ class OrcaMasterResourceTest {
         assertEquals("youhou", entry.getCategory());
         assertEquals(entry.getCode(), entry.getYouhouCode());
         assertNotNull(entry.getMeta());
+    }
+
+    @Test
+    void getMaterial_returnsListWithMeta() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public ListSearchResult<MaterialRecord> searchMaterial(MaterialCriteria criteria) {
+                MaterialRecord record = new MaterialRecord();
+                record.materialCode = "710010004";
+                record.materialName = "中心静脈用カテーテル（標準・シングルルーメン）";
+                record.category = "700";
+                record.materialCategory = "700";
+                record.unit = "本";
+                record.price = 1234d;
+                record.startDate = "20200401";
+                record.endDate = "99999999";
+                record.version = "20250401";
+                return new ListSearchResult<>(List.of(record), 1, "20250401");
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("keyword", "カテーテル");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getMaterial(USER, PASSWORD, null, uriInfo, null);
+
+        assertEquals(200, response.getStatus());
+        @SuppressWarnings("unchecked")
+        List<OrcaDrugMasterEntry> payload = (List<OrcaDrugMasterEntry>) response.getEntity();
+        assertFalse(payload.isEmpty());
+        OrcaDrugMasterEntry entry = payload.get(0);
+        assertEquals("710010004", entry.getCode());
+        assertEquals("中心静脈用カテーテル（標準・シングルルーメン）", entry.getName());
+        assertEquals("material", entry.getCategory());
+        assertNotNull(entry.getMaterialCategory());
+        assertNotNull(entry.getMeta());
+        assertEquals("server", entry.getMeta().getDataSource());
+    }
+
+    @Test
+    void getKensaSort_returnsListWithMeta() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public ListSearchResult<KensaSortRecord> searchKensaSort(KensaSortCriteria criteria) {
+                KensaSortRecord record = new KensaSortRecord();
+                record.kensaCode = "160008010";
+                record.kensaName = "末梢血液一般";
+                record.kensaSort = "2";
+                record.classification = "600";
+                record.startDate = "20240401";
+                record.endDate = "99999999";
+                record.version = "20250401";
+                return new ListSearchResult<>(List.of(record), 1, "20250401");
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("keyword", "血液");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getKensaSort(USER, PASSWORD, null, uriInfo, null);
+
+        assertEquals(200, response.getStatus());
+        @SuppressWarnings("unchecked")
+        List<OrcaDrugMasterEntry> payload = (List<OrcaDrugMasterEntry>) response.getEntity();
+        assertFalse(payload.isEmpty());
+        OrcaDrugMasterEntry entry = payload.get(0);
+        assertEquals("160008010", entry.getCode());
+        assertEquals("末梢血液一般", entry.getName());
+        assertEquals("kensa-sort", entry.getCategory());
+        assertEquals("2", entry.getKensaSort());
+        assertNotNull(entry.getMeta());
+        assertEquals("server", entry.getMeta().getDataSource());
     }
 
     @Test

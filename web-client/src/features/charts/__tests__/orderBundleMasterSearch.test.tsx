@@ -362,6 +362,282 @@ describe('OrderBundleEditPanel master search UI', () => {
     });
   });
 
+  it('generalOrder の手技検索は etensu カテゴリ4を使用する', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({
+      ok: true,
+      items: [],
+      totalCount: 0,
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="generalOrder"
+        title="オーダー編集"
+        bundleLabel="オーダー名"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    const itemNameInput = screen.getByPlaceholderText('処置項目名');
+    await user.type(itemNameInput, '創傷');
+
+    await waitFor(() => {
+      const called = searchMock.mock.calls.some(
+        ([params]) =>
+          params?.type === 'etensu' &&
+          params?.category === '4' &&
+          typeof params?.keyword === 'string' &&
+          params.keyword.includes('創傷'),
+      );
+      expect(called).toBe(true);
+    });
+  });
+
+  it('算定オーダーの手技検索は etensu カテゴリ1を使用する', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({
+      ok: true,
+      items: [],
+      totalCount: 0,
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="baseChargeOrder"
+        title="基本料"
+        bundleLabel="算定"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    const itemNameInput = screen.getByPlaceholderText('算定項目名');
+    await user.type(itemNameInput, '初診');
+
+    await waitFor(() => {
+      const called = searchMock.mock.calls.some(
+        ([params]) =>
+          params?.type === 'etensu' &&
+          params?.category === '1' &&
+          typeof params?.keyword === 'string' &&
+          params.keyword.includes('初診'),
+      );
+      expect(called).toBe(true);
+    });
+  });
+
+  it('注射オーダーの統合検索は drug と etensu カテゴリ3を使用する', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({
+      ok: true,
+      items: [],
+      totalCount: 0,
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="injectionOrder"
+        title="注射"
+        bundleLabel="注射名"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    const itemNameInput = screen.getByPlaceholderText('注射薬剤または手技名');
+    await user.type(itemNameInput, '点滴');
+
+    await waitFor(() => {
+      const hasDrug = searchMock.mock.calls.some(
+        ([params]) => params?.type === 'drug' && typeof params?.keyword === 'string' && params.keyword.includes('点滴'),
+      );
+      const hasEtensu = searchMock.mock.calls.some(
+        ([params]) =>
+          params?.type === 'etensu' &&
+          params?.category === '3' &&
+          typeof params?.keyword === 'string' &&
+          params.keyword.includes('点滴'),
+      );
+      expect(hasDrug).toBe(true);
+      expect(hasEtensu).toBe(true);
+    });
+  });
+
+  it('放射線オーダーの統合検索は etensuカテゴリ7 / material / drug を使用する', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({
+      ok: true,
+      items: [],
+      totalCount: 0,
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="radiologyOrder"
+        title="放射線"
+        bundleLabel="放射線オーダー名"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    const itemNameInput = screen.getByPlaceholderText('画像検査名');
+    await user.type(itemNameInput, 'CT');
+
+    await waitFor(() => {
+      const hasEtensu = searchMock.mock.calls.some(
+        ([params]) =>
+          params?.type === 'etensu' &&
+          params?.category === '7' &&
+          typeof params?.keyword === 'string' &&
+          params.keyword.includes('CT'),
+      );
+      const hasMaterial = searchMock.mock.calls.some(
+        ([params]) => params?.type === 'material' && typeof params?.keyword === 'string' && params.keyword.includes('CT'),
+      );
+      const hasDrug = searchMock.mock.calls.some(
+        ([params]) => params?.type === 'drug' && typeof params?.keyword === 'string' && params.keyword.includes('CT'),
+      );
+      expect(hasEtensu).toBe(true);
+      expect(hasMaterial).toBe(true);
+      expect(hasDrug).toBe(true);
+    });
+  });
+
+  it('検査オーダーの統合検索は etensuカテゴリ6 と kensa-sort を使用する', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({
+      ok: true,
+      items: [],
+      totalCount: 0,
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="testOrder"
+        title="検査"
+        bundleLabel="検査オーダー名"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    const itemNameInput = screen.getByPlaceholderText('検査項目名');
+    await user.type(itemNameInput, '血液');
+
+    await waitFor(() => {
+      const hasEtensu = searchMock.mock.calls.some(
+        ([params]) =>
+          params?.type === 'etensu' &&
+          params?.category === '6' &&
+          typeof params?.keyword === 'string' &&
+          params.keyword.includes('血液'),
+      );
+      const hasKensaSort = searchMock.mock.calls.some(
+        ([params]) => params?.type === 'kensa-sort' && typeof params?.keyword === 'string' && params.keyword.includes('血液'),
+      );
+      expect(hasEtensu).toBe(true);
+      expect(hasKensaSort).toBe(true);
+    });
+  });
+
+  it('その他オーダーの統合検索は etensuカテゴリ8 / drug / material を使用する', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({
+      ok: true,
+      items: [],
+      totalCount: 0,
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="otherOrder"
+        title="その他"
+        bundleLabel="その他オーダー名"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    const itemNameInput = screen.getByPlaceholderText('処置項目名');
+    await user.type(itemNameInput, '創');
+
+    await waitFor(() => {
+      const hasEtensu = searchMock.mock.calls.some(
+        ([params]) =>
+          params?.type === 'etensu' &&
+          params?.category === '8' &&
+          typeof params?.keyword === 'string' &&
+          params.keyword.includes('創'),
+      );
+      const hasDrug = searchMock.mock.calls.some(
+        ([params]) => params?.type === 'drug' && typeof params?.keyword === 'string' && params.keyword.includes('創'),
+      );
+      const hasMaterial = searchMock.mock.calls.some(
+        ([params]) => params?.type === 'material' && typeof params?.keyword === 'string' && params.keyword.includes('創'),
+      );
+      expect(hasEtensu).toBe(true);
+      expect(hasDrug).toBe(true);
+      expect(hasMaterial).toBe(true);
+    });
+  });
+
+  it('指導料オーダーの手技検索は etensu カテゴリ1を使用する', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({
+      ok: true,
+      items: [],
+      totalCount: 0,
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="instractionChargeOrder"
+        title="指導料"
+        bundleLabel="指導料"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    const itemNameInput = screen.getByPlaceholderText('算定項目名');
+    await user.type(itemNameInput, '管理');
+
+    await waitFor(() => {
+      const called = searchMock.mock.calls.some(
+        ([params]) =>
+          params?.type === 'etensu' &&
+          params?.category === '1' &&
+          typeof params?.keyword === 'string' &&
+          params.keyword.includes('管理'),
+      );
+      expect(called).toBe(true);
+    });
+  });
+
   it('放射線オーダーでは統合検索対象が表示される', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');

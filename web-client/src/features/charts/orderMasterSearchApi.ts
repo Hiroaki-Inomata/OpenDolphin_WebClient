@@ -94,7 +94,7 @@ const MASTER_ENDPOINT_MAP: Record<OrderMasterSearchType, string> = {
   'kensa-sort': '/orca/master/kensa-sort',
   etensu: '/orca/master/etensu',
   comment: '/orca/master/comment',
-  bodypart: '/orca/master/etensu',
+  bodypart: '/orca/master/bodypart',
 };
 
 const COMMENT_CODE_PATTERN = /^(008[1-6]|8[1-6]|098|099|98|99)/;
@@ -243,9 +243,6 @@ export async function fetchOrderMasterSearch(params: {
   if (keyword) query.set('keyword', keyword);
   if (params.effective) query.set('effective', params.effective);
   if (params.category) query.set('category', params.category);
-  if (params.type === 'bodypart' && !params.category) {
-    query.set('category', '2');
-  }
   if (params.type === 'comment' && params.category) {
     query.set('category', params.category);
   }
@@ -271,7 +268,7 @@ export async function fetchOrderMasterSearch(params: {
     const isTensuNotFound =
       response.status === 404 &&
       errorCode === 'TENSU_NOT_FOUND' &&
-      (params.type === 'etensu' || params.type === 'comment' || params.type === 'bodypart');
+      (params.type === 'etensu' || params.type === 'comment');
     if (isTensuNotFound) {
       return {
         ok: true,

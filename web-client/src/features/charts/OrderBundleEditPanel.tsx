@@ -326,6 +326,7 @@ const resolveEntityEtensuCategory = (entity: string): string | undefined => {
     case 'injectionOrder':
       return '3';
     case 'treatmentOrder':
+    case 'generalOrder':
       return '4';
     case 'surgeryOrder':
       return '5';
@@ -338,6 +339,9 @@ const resolveEntityEtensuCategory = (entity: string): string | undefined => {
       return '7';
     case 'otherOrder':
       return '8';
+    case 'baseChargeOrder':
+    case 'instractionChargeOrder':
+      return '1';
     default:
       return undefined;
   }

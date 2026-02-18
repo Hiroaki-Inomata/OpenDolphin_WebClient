@@ -53,7 +53,7 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(init?.notifySessionExpired).toBe(false);
   });
 
-  it('keeps etensu category=2 query with the same master auth headers', async () => {
+  it('routes bodypart search to /orca/master/bodypart with the same master auth headers', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ totalCount: 0, items: [] }), {
@@ -65,8 +65,9 @@ describe('fetchOrderMasterSearch auth routing', () => {
     const result = await fetchOrderMasterSearch({ type: 'bodypart', keyword: '腹' });
 
     expect(result.ok).toBe(true);
-    expect(vi.mocked(httpFetch).mock.calls[0]?.[0]).toContain('/orca/master/etensu?');
-    expect(vi.mocked(httpFetch).mock.calls[0]?.[0]).toContain('category=2');
+    const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    expect(requestUrl).toContain('/orca/master/bodypart?');
+    expect(requestUrl).not.toContain('category=2');
     const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
     const headers = new Headers(init?.headers);
     expect(headers.get('Authorization')).toMatch(/^Basic /);
@@ -88,6 +89,46 @@ describe('fetchOrderMasterSearch auth routing', () => {
     const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
     expect(requestUrl).toContain('/orca/master/comment?');
     expect(requestUrl).not.toContain('category=8');
+    const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
+    const headers = new Headers(init?.headers);
+    expect(headers.get('Authorization')).toMatch(/^Basic /);
+    expect(headers.get('X-Facility-Id')).toBe('f001');
+  });
+
+  it('routes material search to /orca/master/material with master auth headers', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'material', keyword: 'カテーテル' });
+
+    expect(result.ok).toBe(true);
+    const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    expect(requestUrl).toContain('/orca/master/material?');
+    const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
+    const headers = new Headers(init?.headers);
+    expect(headers.get('Authorization')).toMatch(/^Basic /);
+    expect(headers.get('X-Facility-Id')).toBe('f001');
+  });
+
+  it('routes kensa-sort search to /orca/master/kensa-sort with master auth headers', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'kensa-sort', keyword: '血液' });
+
+    expect(result.ok).toBe(true);
+    const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    expect(requestUrl).toContain('/orca/master/kensa-sort?');
     const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
     const headers = new Headers(init?.headers);
     expect(headers.get('Authorization')).toMatch(/^Basic /);

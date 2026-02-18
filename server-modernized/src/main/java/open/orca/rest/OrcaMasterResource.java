@@ -327,6 +327,64 @@ public class OrcaMasterResource extends AbstractResource {
     }
 
     @GET
+    @Path("/bodypart")
+    public Response getBodypart(
+            @HeaderParam("userName") String userName,
+            @HeaderParam("password") String password,
+            @HeaderParam("If-None-Match") String ifNoneMatch,
+            @Context UriInfo uriInfo,
+            @Context HttpServletRequest request
+    ) {
+        if (!isAuthorized(request, userName, password)) {
+            return unauthorized(request);
+        }
+        final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
+        final String keyword = getFirstValue(params, "keyword");
+        final String effective = normalizeEffectiveDate(getFirstValue(params, "effective"));
+        OrcaMasterDao.CommentCriteria criteria = new OrcaMasterDao.CommentCriteria();
+        criteria.setKeyword(keyword);
+        criteria.setEffective(effective);
+        criteria.setPage(parsePositiveInt(params, "page", 1));
+        criteria.setSize(parsePageSize(params, "size", 100));
+        OrcaMasterDao.ListSearchResult<OrcaMasterDao.CommentRecord> dbResult = masterDao.searchBodypart(criteria);
+        final String masterType = "orca08-bodypart";
+        final String apiRoute = "/orca/master/bodypart";
+        if (dbResult == null) {
+            LoadedFixture<OrcaMasterDao.CommentRecord> dbFixture = buildDbFixture(
+                    Collections.emptyList(),
+                    null,
+                    true
+            );
+            Response failure = serviceUnavailable(request, "MASTER_BODYPART_UNAVAILABLE", "部位マスタを取得できませんでした");
+            recordMasterAudit(request, apiRoute, masterType, 503, dbFixture, false, true, 0,
+                    buildQueryDetails(null, keyword, effective, params));
+            return failure;
+        }
+        LoadedFixture<OrcaMasterDao.CommentRecord> fixture = buildDbFixture(
+                dbResult.getRecords(),
+                dbResult.getVersion(),
+                false
+        );
+        final String etagValue = buildEtag(apiRoute, masterType, fixture, params);
+        final long ttlSeconds = cacheTtlSeconds(masterType);
+        if (etagMatches(ifNoneMatch, etagValue)) {
+            recordMasterAudit(request, apiRoute, masterType, 304, fixture, true, null, null,
+                    buildQueryDetails(null, keyword, effective, params));
+            return buildNotModifiedResponse(etagValue, ttlSeconds);
+        }
+        final int totalCount = dbResult.getTotalCount();
+        final List<OrcaTensuEntry> items = fixture.entries.stream()
+                .map(entry -> toCommentEntry(entry, fixture))
+                .collect(Collectors.toList());
+        OrcaMasterListResponse<OrcaTensuEntry> response = new OrcaMasterListResponse<>();
+        response.setTotalCount(totalCount);
+        response.setItems(items);
+        recordMasterAudit(request, apiRoute, masterType, 200, fixture, false, totalCount == 0,
+                totalCount, buildQueryDetails(null, keyword, effective, params));
+        return buildCachedOkResponse(response, etagValue, ttlSeconds);
+    }
+
+    @GET
     @Path("/generic-price")
     public Response getGenericPrice(
             @HeaderParam("userName") String userName,
