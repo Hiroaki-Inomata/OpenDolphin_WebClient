@@ -49,6 +49,12 @@ const BODY_PART_ITEMS: TensuItem[] = [
   { tensuCode: '002003', name: '膝関節', unit: '部位', category: '2', points: 0, noticeDate: '20240101', startDate: '20240101' },
 ];
 
+const COMMENT_ITEMS: TensuItem[] = [
+  { tensuCode: '820000001', name: '別途コメントあり', unit: '回', category: '820', points: 0, noticeDate: '20240101', startDate: '20240101' },
+  { tensuCode: '820181300', name: '撮影部位（単純撮影）：腹部', unit: '部位', category: '820', points: 0, noticeDate: '20240101', startDate: '20240101' },
+  { tensuCode: '810000001', name: '混合', unit: '回', category: '810', points: 0, noticeDate: '20240101', startDate: '20240101' },
+];
+
 const GENERIC_CLASS_ITEMS: DrugMasterItem[] = [
   {
     code: 'A100',
@@ -134,6 +140,17 @@ const handleEtensuRequest = (request: Request) => {
   );
 };
 
+const handleCommentRequest = (request: Request) => {
+  const { runId, traceId } = resolveAuditHeaders(request);
+  const url = new URL(request.url);
+  const keyword = url.searchParams.get('keyword') ?? '';
+  const items = filterByKeyword(COMMENT_ITEMS, keyword);
+  return HttpResponse.json(
+    { items, totalCount: items.length, runId, traceId },
+    { headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
+  );
+};
+
 const filterDrugItems = (items: DrugMasterItem[], keyword: string) => {
   const normalized = keyword.trim().toLowerCase();
   if (!normalized) return items;
@@ -158,6 +175,7 @@ const handleDrugMasterRequest = (request: Request, items: DrugMasterItem[]) => {
 export const orcaMasterHandlers = [
   http.get('/orca/tensu/etensu', ({ request }) => (shouldBypass(request) ? passthrough() : handleEtensuRequest(request))),
   http.get('/orca/master/etensu', ({ request }) => (shouldBypass(request) ? passthrough() : handleEtensuRequest(request))),
+  http.get('/orca/master/comment', ({ request }) => (shouldBypass(request) ? passthrough() : handleCommentRequest(request))),
   http.get('/orca/master/generic-class', ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, GENERIC_CLASS_ITEMS))),
   http.get('/orca/master/material', ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, MATERIAL_ITEMS))),
   http.get('/orca/master/youhou', ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, YOUHOU_ITEMS))),

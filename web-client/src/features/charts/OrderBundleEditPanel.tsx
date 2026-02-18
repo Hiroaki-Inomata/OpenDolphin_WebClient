@@ -321,6 +321,28 @@ const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
   };
 };
 
+const resolveEntityEtensuCategory = (entity: string): string | undefined => {
+  switch (entity) {
+    case 'injectionOrder':
+      return '3';
+    case 'treatmentOrder':
+      return '4';
+    case 'surgeryOrder':
+      return '5';
+    case 'testOrder':
+    case 'physiologyOrder':
+    case 'bacteriaOrder':
+    case 'laboTest':
+      return '6';
+    case 'radiologyOrder':
+      return '7';
+    case 'otherOrder':
+      return '8';
+    default:
+      return undefined;
+  }
+};
+
 const parseDocumentIds = (value?: string) => {
   if (!value) return { documentId: undefined, letterId: undefined };
   const trimmed = value.trim();
@@ -986,15 +1008,17 @@ export function OrderBundleEditPanel({
     () => Array.from(new Set(itemMasterTargets.map((target) => target.type))),
     [itemMasterTargets],
   );
+  const etensuCategory = useMemo(() => resolveEntityEtensuCategory(entity), [entity]);
   const isItemCodeSearch = isLikelyCodeSearch(debouncedItemPredictionKeyword);
   const itemPredictiveQuery = useQuery({
-    queryKey: ['charts-order-item-predictive', entity, itemPredictiveSearchTypes.join(','), debouncedItemPredictionKeyword],
+    queryKey: ['charts-order-item-predictive', entity, itemPredictiveSearchTypes.join(','), etensuCategory ?? '', debouncedItemPredictionKeyword],
     queryFn: async () => {
       const responses = await Promise.all(
         itemPredictiveSearchTypes.map(async (type) => {
           const result = await fetchOrderMasterSearch({
             type,
             keyword: debouncedItemPredictionKeyword,
+            category: type === 'etensu' ? etensuCategory : undefined,
             page: 1,
             size: DEFAULT_PREDICTIVE_LIMIT,
           });

@@ -16,6 +16,7 @@ public class OrcaMasterDao {
     private static final Logger LOGGER = Logger.getLogger(OrcaMasterDao.class.getName());
     private static final int MAX_PAGE_SIZE = 2000;
     private static final String DRUG_CODE_PREFIX = "6";
+    private static final String COMMENT_CODE_REGEX = "^(008[1-6]|8[1-6]|098|099|98|99)";
 
     public GenericClassSearchResult searchGenericClass(GenericClassCriteria criteria) {
         if (criteria == null) {
@@ -82,6 +83,29 @@ public class OrcaMasterDao {
             return new ListSearchResult<>(records, totalCount, version);
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "Failed to load ORCA-08 drug master", e);
+            return null;
+        }
+    }
+
+    public ListSearchResult<CommentRecord> searchComment(CommentCriteria criteria) {
+        if (criteria == null) {
+            return null;
+        }
+        try (Connection connection = ORCAConnection.getInstance().getConnection()) {
+            DrugTableMeta meta = DrugTableMeta.load(connection);
+            if (meta == null || meta.codeColumn == null || meta.nameColumn == null) {
+                return null;
+            }
+            Query query = buildCommentQuery(criteria, meta);
+            int totalCount = fetchTotalCount(connection, meta.tableName, query);
+            if (totalCount == 0) {
+                return new ListSearchResult<>(Collections.emptyList(), 0, null);
+            }
+            List<CommentRecord> records = fetchCommentRecords(connection, meta, query, criteria.page, criteria.size);
+            String version = resolveVersion(records, null);
+            return new ListSearchResult<>(records, totalCount, version);
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "Failed to load ORCA-08 comment master", e);
             return null;
         }
     }
@@ -213,6 +237,16 @@ public class OrcaMasterDao {
         List<Object> params = new ArrayList<>();
         where.append(" AND CAST(").append(meta.codeColumn).append(" AS VARCHAR) LIKE ?");
         params.add(DRUG_CODE_PREFIX + "%");
+        appendKeywordFilter(where, params, criteria.keyword, meta.codeColumn, meta.nameColumn, meta.kanaColumn);
+        appendEffectiveFilter(where, params, criteria.effective, meta.startDateColumn, meta.endDateColumn);
+        return new Query(where.toString(), params);
+    }
+
+    private Query buildCommentQuery(CommentCriteria criteria, DrugTableMeta meta) {
+        StringBuilder where = new StringBuilder(" FROM ").append(meta.tableName).append(" WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+        where.append(" AND CAST(").append(meta.codeColumn).append(" AS VARCHAR) ~ ?");
+        params.add(COMMENT_CODE_REGEX);
         appendKeywordFilter(where, params, criteria.keyword, meta.codeColumn, meta.nameColumn, meta.kanaColumn);
         appendEffectiveFilter(where, params, criteria.effective, meta.startDateColumn, meta.endDateColumn);
         return new Query(where.toString(), params);
@@ -409,6 +443,42 @@ public class OrcaMasterDao {
                     record.unit = rs.getString("unit");
                     record.price = getDouble(rs, "price");
                     record.note = rs.getString("note");
+                    record.startDate = rs.getString("startDate");
+                    record.endDate = rs.getString("endDate");
+                    record.version = rs.getString("version");
+                    records.add(record);
+                }
+            }
+        }
+        return records;
+    }
+
+    private List<CommentRecord> fetchCommentRecords(Connection connection, DrugTableMeta meta, Query query, int page, int size)
+            throws SQLException {
+        String sql = "SELECT "
+                + selectColumn(meta.codeColumn) + " AS code, "
+                + selectColumn(meta.nameColumn) + " AS name, "
+                + selectColumn(meta.kanaColumn) + " AS kana, "
+                + selectColumn(meta.categoryColumn) + " AS category, "
+                + selectColumn(meta.unitColumn) + " AS unit, "
+                + selectColumn(meta.startDateColumn) + " AS startDate, "
+                + selectColumn(meta.endDateColumn) + " AS endDate, "
+                + selectColumn(meta.versionColumn) + " AS version "
+                + query.whereClause
+                + " ORDER BY " + meta.codeColumn + ", " + meta.startDateColumn + " DESC";
+        sql = applyPaging(sql);
+        List<CommentRecord> records = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            int index = bindParams(ps, query.params, 1);
+            applyPagingParams(ps, index, page, size);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    CommentRecord record = new CommentRecord();
+                    record.tensuCode = rs.getString("code");
+                    record.name = rs.getString("name");
+                    record.kanaName = rs.getString("kana");
+                    record.category = rs.getString("category");
+                    record.unit = rs.getString("unit");
                     record.startDate = rs.getString("startDate");
                     record.endDate = rs.getString("endDate");
                     record.version = rs.getString("version");
@@ -848,6 +918,45 @@ public class OrcaMasterDao {
         }
     }
 
+    public static final class CommentCriteria {
+        private String keyword;
+        private String effective;
+        private int page = 1;
+        private int size = 100;
+
+        public String getKeyword() {
+            return keyword;
+        }
+
+        public void setKeyword(String keyword) {
+            this.keyword = keyword;
+        }
+
+        public String getEffective() {
+            return effective;
+        }
+
+        public void setEffective(String effective) {
+            this.effective = effective;
+        }
+
+        public int getPage() {
+            return page;
+        }
+
+        public void setPage(int page) {
+            this.page = page;
+        }
+
+        public int getSize() {
+            return size;
+        }
+
+        public void setSize(int size) {
+            this.size = size;
+        }
+    }
+
     public static final class YouhouCriteria {
         private String keyword;
         private String effective;
@@ -1119,6 +1228,54 @@ public class OrcaMasterDao {
 
         public String getNote() {
             return note;
+        }
+
+        public String getStartDate() {
+            return startDate;
+        }
+
+        public String getEndDate() {
+            return endDate;
+        }
+
+        public String getVersion() {
+            return version;
+        }
+
+        @Override
+        public String version() {
+            return version;
+        }
+    }
+
+    public static final class CommentRecord implements VersionedRecord {
+        public String tensuCode;
+        public String name;
+        public String kanaName;
+        public String category;
+        public String unit;
+        public String startDate;
+        public String endDate;
+        public String version;
+
+        public String getTensuCode() {
+            return tensuCode;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public String getKanaName() {
+            return kanaName;
+        }
+
+        public String getCategory() {
+            return category;
+        }
+
+        public String getUnit() {
+            return unit;
         }
 
         public String getStartDate() {

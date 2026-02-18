@@ -269,6 +269,64 @@ public class OrcaMasterResource extends AbstractResource {
     }
 
     @GET
+    @Path("/comment")
+    public Response getComment(
+            @HeaderParam("userName") String userName,
+            @HeaderParam("password") String password,
+            @HeaderParam("If-None-Match") String ifNoneMatch,
+            @Context UriInfo uriInfo,
+            @Context HttpServletRequest request
+    ) {
+        if (!isAuthorized(request, userName, password)) {
+            return unauthorized(request);
+        }
+        final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
+        final String keyword = getFirstValue(params, "keyword");
+        final String effective = normalizeEffectiveDate(getFirstValue(params, "effective"));
+        OrcaMasterDao.CommentCriteria criteria = new OrcaMasterDao.CommentCriteria();
+        criteria.setKeyword(keyword);
+        criteria.setEffective(effective);
+        criteria.setPage(parsePositiveInt(params, "page", 1));
+        criteria.setSize(parsePageSize(params, "size", 100));
+        OrcaMasterDao.ListSearchResult<OrcaMasterDao.CommentRecord> dbResult = masterDao.searchComment(criteria);
+        final String masterType = "orca08-comment";
+        final String apiRoute = "/orca/master/comment";
+        if (dbResult == null) {
+            LoadedFixture<OrcaMasterDao.CommentRecord> dbFixture = buildDbFixture(
+                    Collections.emptyList(),
+                    null,
+                    true
+            );
+            Response failure = serviceUnavailable(request, "MASTER_COMMENT_UNAVAILABLE", "コメントマスタを取得できませんでした");
+            recordMasterAudit(request, apiRoute, masterType, 503, dbFixture, false, true, 0,
+                    buildQueryDetails(null, keyword, effective, params));
+            return failure;
+        }
+        LoadedFixture<OrcaMasterDao.CommentRecord> fixture = buildDbFixture(
+                dbResult.getRecords(),
+                dbResult.getVersion(),
+                false
+        );
+        final String etagValue = buildEtag(apiRoute, masterType, fixture, params);
+        final long ttlSeconds = cacheTtlSeconds(masterType);
+        if (etagMatches(ifNoneMatch, etagValue)) {
+            recordMasterAudit(request, apiRoute, masterType, 304, fixture, true, null, null,
+                    buildQueryDetails(null, keyword, effective, params));
+            return buildNotModifiedResponse(etagValue, ttlSeconds);
+        }
+        final int totalCount = dbResult.getTotalCount();
+        final List<OrcaTensuEntry> items = fixture.entries.stream()
+                .map(entry -> toCommentEntry(entry, fixture))
+                .collect(Collectors.toList());
+        OrcaMasterListResponse<OrcaTensuEntry> response = new OrcaMasterListResponse<>();
+        response.setTotalCount(totalCount);
+        response.setItems(items);
+        recordMasterAudit(request, apiRoute, masterType, 200, fixture, false, totalCount == 0,
+                totalCount, buildQueryDetails(null, keyword, effective, params));
+        return buildCachedOkResponse(response, etagValue, ttlSeconds);
+    }
+
+    @GET
     @Path("/generic-price")
     public Response getGenericPrice(
             @HeaderParam("userName") String userName,
@@ -1086,6 +1144,22 @@ public class OrcaMasterResource extends AbstractResource {
                 false,
                 false
         );
+    }
+
+    private OrcaTensuEntry toCommentEntry(OrcaMasterDao.CommentRecord entry, LoadedFixture<?> fixture) {
+        OrcaTensuEntry response = new OrcaTensuEntry();
+        response.setTensuCode(entry.tensuCode);
+        response.setName(entry.name);
+        response.setKubun(entry.category);
+        response.setCategory(entry.category);
+        response.setUnit(entry.unit);
+        response.setNoticeDate(entry.version);
+        response.setEffectiveDate(firstNonBlank(entry.startDate, DEFAULT_VALID_FROM));
+        response.setStartDate(firstNonBlank(entry.startDate, DEFAULT_VALID_FROM));
+        response.setEndDate(firstNonBlank(entry.endDate, DEFAULT_VALID_TO));
+        response.setTensuVersion(entry.version);
+        response.setMeta(buildMeta(fixture.origin, fixture.snapshotVersion, fixture.version, false, false, false, null));
+        return response;
     }
 
     private OrcaDrugMasterEntry toGenericPriceEntry(OrcaMasterDao.GenericPriceRecord entry, LoadedFixture<?> fixture) {

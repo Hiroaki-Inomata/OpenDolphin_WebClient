@@ -93,7 +93,7 @@ const MASTER_ENDPOINT_MAP: Record<OrderMasterSearchType, string> = {
   material: '/orca/master/material',
   'kensa-sort': '/orca/master/kensa-sort',
   etensu: '/orca/master/etensu',
-  comment: '/orca/master/etensu',
+  comment: '/orca/master/comment',
   bodypart: '/orca/master/etensu',
 };
 
@@ -246,12 +246,8 @@ export async function fetchOrderMasterSearch(params: {
   if (params.type === 'bodypart' && !params.category) {
     query.set('category', '2');
   }
-  if (params.type === 'comment' && !params.category) {
-    query.set('category', '8');
-  }
-  if (params.type === 'etensu' && !params.category) {
-    // Default tensu lane: avoid category-less queries that return TENSU_NOT_FOUND.
-    query.set('category', '1');
+  if (params.type === 'comment' && params.category) {
+    query.set('category', params.category);
   }
   if (params.type === 'drug' || params.type === 'generic-class') {
     query.set('page', String(params.page ?? 1));

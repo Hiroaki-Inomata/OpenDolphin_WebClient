@@ -130,6 +130,65 @@ class OrcaMasterResourceTest {
     }
 
     @Test
+    void getComment_returnsPagedResponseWithMeta() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public ListSearchResult<CommentRecord> searchComment(CommentCriteria criteria) {
+                CommentRecord record = new CommentRecord();
+                record.tensuCode = "820000001";
+                record.name = "別途コメントあり";
+                record.category = "820";
+                record.unit = "回";
+                record.startDate = "00000000";
+                record.endDate = "99999999";
+                record.version = "20260125";
+                return new ListSearchResult<>(List.of(record), 1, "20260125");
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("keyword", "別途");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getComment(USER, PASSWORD, null, uriInfo, null);
+
+        assertEquals(200, response.getStatus());
+        @SuppressWarnings("unchecked")
+        OrcaMasterListResponse<OrcaTensuEntry> payload =
+                (OrcaMasterListResponse<OrcaTensuEntry>) response.getEntity();
+        assertNotNull(payload);
+        assertEquals(1, payload.getTotalCount());
+        assertNotNull(payload.getItems());
+        assertFalse(payload.getItems().isEmpty());
+        OrcaTensuEntry entry = payload.getItems().get(0);
+        assertEquals("820000001", entry.getTensuCode());
+        assertEquals("別途コメントあり", entry.getName());
+        assertNotNull(entry.getMeta());
+        assertEquals("server", entry.getMeta().getDataSource());
+    }
+
+    @Test
+    void getComment_dbUnavailable_returnsServiceUnavailable() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public ListSearchResult<CommentRecord> searchComment(CommentCriteria criteria) {
+                return null;
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("keyword", "別途");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getComment(USER, PASSWORD, null, uriInfo, null);
+
+        assertEquals(503, response.getStatus());
+        OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
+        assertNotNull(payload);
+        assertEquals("MASTER_COMMENT_UNAVAILABLE", payload.getCode());
+    }
+
+    @Test
     void getGenericPrice_invalidSrycd_returnsValidationError() {
         OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
         MultivaluedMap<String, String> params = new MultivaluedHashMap<>();

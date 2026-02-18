@@ -326,6 +326,42 @@ describe('OrderBundleEditPanel master search UI', () => {
     expect(screen.getByLabelText('投与指示')).toBeInTheDocument();
   });
 
+  it('手術オーダーの手技検索は etensu カテゴリ5を使用する', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({
+      ok: true,
+      items: [],
+      totalCount: 0,
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="surgeryOrder"
+        title="手術"
+        bundleLabel="手術オーダー名"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    const itemNameInput = screen.getByPlaceholderText('処置項目名');
+    await user.type(itemNameInput, 'カテ');
+
+    await waitFor(() => {
+      const called = searchMock.mock.calls.some(
+        ([params]) =>
+          params?.type === 'etensu' &&
+          params?.category === '5' &&
+          typeof params?.keyword === 'string' &&
+          params.keyword.includes('カテ'),
+      );
+      expect(called).toBe(true);
+    });
+  });
+
   it('放射線オーダーでは統合検索対象が表示される', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');

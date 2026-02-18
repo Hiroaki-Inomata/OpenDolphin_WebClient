@@ -73,6 +73,44 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(headers.get('X-Facility-Id')).toBe('f001');
   });
 
+  it('routes comment search to /orca/master/comment with master auth headers', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'comment', keyword: '別途' });
+
+    expect(result.ok).toBe(true);
+    const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    expect(requestUrl).toContain('/orca/master/comment?');
+    expect(requestUrl).not.toContain('category=8');
+    const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
+    const headers = new Headers(init?.headers);
+    expect(headers.get('Authorization')).toMatch(/^Basic /);
+    expect(headers.get('X-Facility-Id')).toBe('f001');
+  });
+
+  it('does not force default category for plain etensu search', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'etensu', keyword: 'カテーテル' });
+
+    expect(result.ok).toBe(true);
+    const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    expect(requestUrl).toContain('/orca/master/etensu?');
+    expect(requestUrl).not.toContain('category=1');
+  });
+
   it('treats TENSU_NOT_FOUND as empty result for etensu family searches', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(
