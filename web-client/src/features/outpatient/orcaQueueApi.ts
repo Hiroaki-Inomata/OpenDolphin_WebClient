@@ -53,7 +53,7 @@ export type OrcaPushEventResponse = {
 };
 
 const ORCA_QUEUE_ENDPOINT = '/api/orca/queue';
-const ORCA_PUSH_EVENT_ENDPOINT = '/api01rv2/pusheventgetv2';
+const ORCA_PUSH_EVENT_ENDPOINT = '/orca/pusheventgetv2';
 const isOrcaPollingDisabled = () => import.meta.env.VITE_DISABLE_ORCA_POLLING === '1';
 let orcaQueueUnavailable = false;
 let orcaPushEventUnavailable = false;

@@ -16,8 +16,8 @@ export type OrcaXmlResponse = {
   error?: string;
 };
 
-export const ORCA_MEDICALGETV2_PATH = '/api01rv2/medicalgetv2?class=01';
-export const ORCA_TMEDICALGETV2_PATH = '/api01rv2/tmedicalgetv2';
+export const ORCA_MEDICALGETV2_PATH = '/orca/medicalgetv2?class=01';
+export const ORCA_TMEDICALGETV2_PATH = '/orca/tmedicalgetv2';
 
 export const buildMedicalGetRequestXml = (params: {
   patientId: string;

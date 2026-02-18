@@ -103,7 +103,7 @@ export async function fetchPatientOriginal(params: {
   if (params.classCode) query.set('class', params.classCode);
   if (format === 'json') query.set('format', 'json');
 
-  const response = await httpFetch(`/api01rv2/patientgetv2?${query.toString()}`, {
+  const response = await httpFetch(`/orca/patientgetv2?${query.toString()}`, {
     method: 'GET',
     headers: {
       Accept: format === 'json' ? 'application/json' : 'application/xml',

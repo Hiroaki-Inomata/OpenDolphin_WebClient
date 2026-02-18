@@ -52,6 +52,24 @@ public class OrcaAdditionalApiResource extends AbstractResource {
     }
 
     @POST
+    @Path("/orca/tmedicalgetv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postTempMedicalGetWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.TEMP_MEDICAL_GET,
+                "/orca/tmedicalgetv2", payload, "ORCA_TEMP_MEDICAL_GET", false);
+    }
+
+    @POST
+    @Path("/api/orca/tmedicalgetv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postTempMedicalGetWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.TEMP_MEDICAL_GET,
+                "/api/orca/tmedicalgetv2", payload, "ORCA_TEMP_MEDICAL_GET", false);
+    }
+
+    @POST
     @Path("/api/api01rv2/tmedicalgetv2")
     @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
     @Produces(MediaType.APPLICATION_XML)
@@ -88,6 +106,24 @@ public class OrcaAdditionalApiResource extends AbstractResource {
     }
 
     @POST
+    @Path("/orca/incomeinfv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postIncomeInfoWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.INCOME_INFO,
+                "/orca/incomeinfv2", payload, "ORCA_INCOME_INFO", false);
+    }
+
+    @POST
+    @Path("/api/orca/incomeinfv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postIncomeInfoWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.INCOME_INFO,
+                "/api/orca/incomeinfv2", payload, "ORCA_INCOME_INFO", false);
+    }
+
+    @POST
     @Path("/api/api01rv2/incomeinfv2")
     @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
     @Produces(MediaType.APPLICATION_XML)
@@ -103,6 +139,24 @@ public class OrcaAdditionalApiResource extends AbstractResource {
     public Response postSubjectivesList(@Context HttpServletRequest request, String payload) {
         return respondXml(request, OrcaEndpoint.SUBJECTIVES_LIST,
                 "/api01rv2/subjectiveslstv2", payload, "ORCA_SUBJECTIVES_LIST", false);
+    }
+
+    @POST
+    @Path("/orca/subjectiveslstv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postSubjectivesListWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.SUBJECTIVES_LIST,
+                "/orca/subjectiveslstv2", payload, "ORCA_SUBJECTIVES_LIST", false);
+    }
+
+    @POST
+    @Path("/api/orca/subjectiveslstv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postSubjectivesListWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.SUBJECTIVES_LIST,
+                "/api/orca/subjectiveslstv2", payload, "ORCA_SUBJECTIVES_LIST", false);
     }
 
     @POST
@@ -146,6 +200,24 @@ public class OrcaAdditionalApiResource extends AbstractResource {
     }
 
     @POST
+    @Path("/orca/contraindicationcheckv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postContraindicationWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.CONTRAINDICATION_CHECK,
+                "/orca/contraindicationcheckv2", payload, "ORCA_CONTRAINDICATION", false);
+    }
+
+    @POST
+    @Path("/api/orca/contraindicationcheckv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postContraindicationWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.CONTRAINDICATION_CHECK,
+                "/api/orca/contraindicationcheckv2", payload, "ORCA_CONTRAINDICATION", false);
+    }
+
+    @POST
     @Path("/api/api01rv2/contraindicationcheckv2")
     @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
     @Produces(MediaType.APPLICATION_XML)
@@ -161,6 +233,24 @@ public class OrcaAdditionalApiResource extends AbstractResource {
     public Response postMedicationGet(@Context HttpServletRequest request, String payload) {
         return respondXml(request, OrcaEndpoint.MEDICATION_GET,
                 "/api01rv2/medicationgetv2", payload, "ORCA_MEDICATION_GET", false);
+    }
+
+    @POST
+    @Path("/orca/medicationgetv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postMedicationGetWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.MEDICATION_GET,
+                "/orca/medicationgetv2", payload, "ORCA_MEDICATION_GET", false);
+    }
+
+    @POST
+    @Path("/api/orca/medicationgetv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postMedicationGetWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.MEDICATION_GET,
+                "/api/orca/medicationgetv2", payload, "ORCA_MEDICATION_GET", false);
     }
 
     @POST
@@ -222,6 +312,24 @@ public class OrcaAdditionalApiResource extends AbstractResource {
     }
 
     @POST
+    @Path("/orca/systeminfv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postSystemInfoWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.SYSTEM_INFO,
+                "/orca/systeminfv2", payload, "ORCA_SYSTEM_INFO", false);
+    }
+
+    @POST
+    @Path("/api/orca/systeminfv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postSystemInfoWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.SYSTEM_INFO,
+                "/api/orca/systeminfv2", payload, "ORCA_SYSTEM_INFO", false);
+    }
+
+    @POST
     @Path("/api/api01rv2/systeminfv2")
     @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
     @Produces(MediaType.APPLICATION_XML)
@@ -240,6 +348,24 @@ public class OrcaAdditionalApiResource extends AbstractResource {
     }
 
     @POST
+    @Path("/orca/system01dailyv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postSystemDailyWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.SYSTEM_DAILY,
+                "/orca/system01dailyv2", payload, "ORCA_SYSTEM_DAILY", false);
+    }
+
+    @POST
+    @Path("/api/orca/system01dailyv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postSystemDailyWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.SYSTEM_DAILY,
+                "/api/orca/system01dailyv2", payload, "ORCA_SYSTEM_DAILY", false);
+    }
+
+    @POST
     @Path("/api/api01rv2/system01dailyv2")
     @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
     @Produces(MediaType.APPLICATION_XML)
@@ -255,6 +381,24 @@ public class OrcaAdditionalApiResource extends AbstractResource {
     public Response postInsuranceList(@Context HttpServletRequest request, String payload) {
         return respondXml(request, OrcaEndpoint.INSURANCE_LIST,
                 "/api01rv2/insuranceinf1v2", payload, "ORCA_INSURANCE_LIST", false);
+    }
+
+    @POST
+    @Path("/orca/insuranceinf1v2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postInsuranceListWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.INSURANCE_LIST,
+                "/orca/insuranceinf1v2", payload, "ORCA_INSURANCE_LIST", false);
+    }
+
+    @POST
+    @Path("/api/orca/insuranceinf1v2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postInsuranceListWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondXml(request, OrcaEndpoint.INSURANCE_LIST,
+                "/api/orca/insuranceinf1v2", payload, "ORCA_INSURANCE_LIST", false);
     }
 
     @POST
@@ -291,6 +435,24 @@ public class OrcaAdditionalApiResource extends AbstractResource {
     public Response postPushEventGet(@Context HttpServletRequest request, String payload) {
         return respondPushEvent(request, OrcaEndpoint.PUSH_EVENT_GET,
                 "/api01rv2/pusheventgetv2", payload, "ORCA_PUSH_EVENT_GET");
+    }
+
+    @POST
+    @Path("/orca/pusheventgetv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response postPushEventGetWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondPushEvent(request, OrcaEndpoint.PUSH_EVENT_GET,
+                "/orca/pusheventgetv2", payload, "ORCA_PUSH_EVENT_GET");
+    }
+
+    @POST
+    @Path("/api/orca/pusheventgetv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response postPushEventGetWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondPushEvent(request, OrcaEndpoint.PUSH_EVENT_GET,
+                "/api/orca/pusheventgetv2", payload, "ORCA_PUSH_EVENT_GET");
     }
 
     @POST

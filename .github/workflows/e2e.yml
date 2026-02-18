@@ -27,6 +27,9 @@ jobs:
         run: npm ci
         working-directory: web-client
 
+      - name: Guard ORCA API contract (/api01rv2 forbidden in web-client)
+        run: npm run check:orca-api01rv2
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 

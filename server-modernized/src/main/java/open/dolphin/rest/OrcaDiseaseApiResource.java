@@ -48,6 +48,28 @@ public class OrcaDiseaseApiResource extends AbstractResource {
     }
 
     @POST
+    @Path("/orca/diseasegetv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postDiseaseGetWithOrcaPrefix(@Context HttpServletRequest request,
+            @QueryParam("class") String classCode,
+            String payload) {
+        return respondXmlWithClass(request, OrcaEndpoint.DISEASE_GET, classCode,
+                "/orca/diseasegetv2", payload, "ORCA_DISEASE_GET");
+    }
+
+    @POST
+    @Path("/api/orca/diseasegetv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces(MediaType.APPLICATION_XML)
+    public Response postDiseaseGetWithApiOrcaPrefix(@Context HttpServletRequest request,
+            @QueryParam("class") String classCode,
+            String payload) {
+        return respondXmlWithClass(request, OrcaEndpoint.DISEASE_GET, classCode,
+                "/api/orca/diseasegetv2", payload, "ORCA_DISEASE_GET");
+    }
+
+    @POST
     @Path("/api/api01rv2/diseasegetv2")
     @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
     @Produces(MediaType.APPLICATION_XML)

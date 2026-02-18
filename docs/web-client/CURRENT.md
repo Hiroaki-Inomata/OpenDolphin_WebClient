@@ -53,6 +53,7 @@
 - `docs/web-client-orca-additional-api-plan.md`
 - `docs/web-client-orca-additional-api-task-prerequisites.md`
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
+- `docs/server-modernization/orca-api-contract-unification-20260218.md`
 - ORCA 接続ルール: `docs/server-modernization/operations/ORCA_CERTIFICATION_ONLY.md`
 
 ### 運用 / デバッグ

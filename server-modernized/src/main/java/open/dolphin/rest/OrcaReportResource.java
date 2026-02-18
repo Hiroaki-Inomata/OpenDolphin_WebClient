@@ -78,6 +78,24 @@ public class OrcaReportResource extends AbstractResource {
     }
 
     @POST
+    @Path("/orca/prescriptionv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
+    public Response postPrescriptionWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondReport(request, OrcaEndpoint.PRESCRIPTION_REPORT,
+                "/orca/prescriptionv2", payload, "ORCA_REPORT_PRESCRIPTION");
+    }
+
+    @POST
+    @Path("/api/orca/prescriptionv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
+    public Response postPrescriptionWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondReport(request, OrcaEndpoint.PRESCRIPTION_REPORT,
+                "/api/orca/prescriptionv2", payload, "ORCA_REPORT_PRESCRIPTION");
+    }
+
+    @POST
     @Path("/api/api01rv2/prescriptionv2")
     @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
     @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
@@ -93,6 +111,24 @@ public class OrcaReportResource extends AbstractResource {
     public Response postMedicineNotebook(@Context HttpServletRequest request, String payload) {
         return respondReport(request, OrcaEndpoint.MEDICINE_NOTEBOOK_REPORT,
                 "/api01rv2/medicinenotebookv2", payload, "ORCA_REPORT_MEDICINE_NOTEBOOK");
+    }
+
+    @POST
+    @Path("/orca/medicinenotebookv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
+    public Response postMedicineNotebookWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondReport(request, OrcaEndpoint.MEDICINE_NOTEBOOK_REPORT,
+                "/orca/medicinenotebookv2", payload, "ORCA_REPORT_MEDICINE_NOTEBOOK");
+    }
+
+    @POST
+    @Path("/api/orca/medicinenotebookv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
+    public Response postMedicineNotebookWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondReport(request, OrcaEndpoint.MEDICINE_NOTEBOOK_REPORT,
+                "/api/orca/medicinenotebookv2", payload, "ORCA_REPORT_MEDICINE_NOTEBOOK");
     }
 
     @POST
@@ -114,6 +150,24 @@ public class OrcaReportResource extends AbstractResource {
     }
 
     @POST
+    @Path("/orca/karteno1v2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
+    public Response postKarteno1WithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondReport(request, OrcaEndpoint.KARTENO1_REPORT,
+                "/orca/karteno1v2", payload, "ORCA_REPORT_KARTENO1");
+    }
+
+    @POST
+    @Path("/api/orca/karteno1v2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
+    public Response postKarteno1WithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondReport(request, OrcaEndpoint.KARTENO1_REPORT,
+                "/api/orca/karteno1v2", payload, "ORCA_REPORT_KARTENO1");
+    }
+
+    @POST
     @Path("/api/api01rv2/karteno1v2")
     @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
     @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
@@ -129,6 +183,24 @@ public class OrcaReportResource extends AbstractResource {
     public Response postKarteno3(@Context HttpServletRequest request, String payload) {
         return respondReport(request, OrcaEndpoint.KARTENO3_REPORT,
                 "/api01rv2/karteno3v2", payload, "ORCA_REPORT_KARTENO3");
+    }
+
+    @POST
+    @Path("/orca/karteno3v2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
+    public Response postKarteno3WithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondReport(request, OrcaEndpoint.KARTENO3_REPORT,
+                "/orca/karteno3v2", payload, "ORCA_REPORT_KARTENO3");
+    }
+
+    @POST
+    @Path("/api/orca/karteno3v2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
+    public Response postKarteno3WithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondReport(request, OrcaEndpoint.KARTENO3_REPORT,
+                "/api/orca/karteno3v2", payload, "ORCA_REPORT_KARTENO3");
     }
 
     @POST
@@ -150,6 +222,24 @@ public class OrcaReportResource extends AbstractResource {
     }
 
     @POST
+    @Path("/orca/invoicereceiptv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
+    public Response postInvoiceReceiptWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondReport(request, OrcaEndpoint.INVOICE_RECEIPT_REPORT,
+                "/orca/invoicereceiptv2", payload, "ORCA_REPORT_INVOICE_RECEIPT");
+    }
+
+    @POST
+    @Path("/api/orca/invoicereceiptv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
+    public Response postInvoiceReceiptWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondReport(request, OrcaEndpoint.INVOICE_RECEIPT_REPORT,
+                "/api/orca/invoicereceiptv2", payload, "ORCA_REPORT_INVOICE_RECEIPT");
+    }
+
+    @POST
     @Path("/api/api01rv2/invoicereceiptv2")
     @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
     @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
@@ -165,6 +255,24 @@ public class OrcaReportResource extends AbstractResource {
     public Response postStatement(@Context HttpServletRequest request, String payload) {
         return respondReport(request, OrcaEndpoint.STATEMENT_REPORT,
                 "/api01rv2/statementv2", payload, "ORCA_REPORT_STATEMENT");
+    }
+
+    @POST
+    @Path("/orca/statementv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
+    public Response postStatementWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondReport(request, OrcaEndpoint.STATEMENT_REPORT,
+                "/orca/statementv2", payload, "ORCA_REPORT_STATEMENT");
+    }
+
+    @POST
+    @Path("/api/orca/statementv2")
+    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Produces({MediaType.APPLICATION_JSON, "application/pdf"})
+    public Response postStatementWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
+        return respondReport(request, OrcaEndpoint.STATEMENT_REPORT,
+                "/api/orca/statementv2", payload, "ORCA_REPORT_STATEMENT");
     }
 
     @POST

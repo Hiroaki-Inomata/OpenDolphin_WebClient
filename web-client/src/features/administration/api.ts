@@ -47,8 +47,8 @@ const ADMIN_CONFIG_ENDPOINT = '/api/admin/config';
 const ADMIN_DELIVERY_ENDPOINT = '/api/admin/delivery';
 const ORCA_MASTER_LAST_UPDATE_ENDPOINT = '/api/orca51/masterlastupdatev3';
 const ORCA_MEDICATION_MOD_ENDPOINT = '/api/orca102/medicatonmodv2';
-const ORCA_SYSTEM_INFO_ENDPOINT = '/api/api01rv2/systeminfv2';
-const ORCA_SYSTEM_DAILY_ENDPOINT = '/api/api01rv2/system01dailyv2';
+const ORCA_SYSTEM_INFO_ENDPOINT = '/orca/systeminfv2';
+const ORCA_SYSTEM_DAILY_ENDPOINT = '/orca/system01dailyv2';
 const ORCA_MEDICAL_SET_ENDPOINT = '/api/orca21/medicalsetv2';
 
 const REQUIRED_ORCA_TAGS = ['Api_Result', 'Api_Result_Message'];

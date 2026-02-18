@@ -26,11 +26,11 @@ type OrcaXmlProxyEndpointConfig = {
 
 const ORCA_XML_PROXY_ENDPOINTS: Record<OrcaXmlProxyEndpoint, OrcaXmlProxyEndpointConfig> = {
   acceptlstv2: {
-    path: '/api/api01rv2/acceptlstv2',
+    path: '/orca/acceptlstv2',
     supportsClass: true,
   },
   system01lstv2: {
-    path: '/api/api01rv2/system01lstv2',
+    path: '/orca/system01lstv2',
     supportsClass: true,
   },
   manageusersv2: {
@@ -38,7 +38,7 @@ const ORCA_XML_PROXY_ENDPOINTS: Record<OrcaXmlProxyEndpoint, OrcaXmlProxyEndpoin
     supportsClass: false,
   },
   insprogetv2: {
-    path: '/api/api01rv2/insprogetv2',
+    path: '/orca/insprogetv2',
     supportsClass: false,
   },
 };

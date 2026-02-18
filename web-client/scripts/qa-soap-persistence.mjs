@@ -98,7 +98,7 @@ const respondJson = (route, payload) => {
   });
 };
 
-const SOAP_ENDPOINTS = ['/orca/chart/subjectives', '/orca25/subjectivesv2', '/api01rv2/subjectiveslstv2'];
+const SOAP_ENDPOINTS = ['/orca/chart/subjectives', '/orca25/subjectivesv2', '/orca/subjectiveslstv2'];
 
 const run = async () => {
   const browser = await chromium.launch({ headless: true });

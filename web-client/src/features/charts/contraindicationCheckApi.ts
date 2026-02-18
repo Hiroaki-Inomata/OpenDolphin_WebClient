@@ -39,7 +39,7 @@ export type ContraindicationCheckResponse = {
   error?: string;
 };
 
-const ORCA_CONTRAINDICATION_PATH = '/api01rv2/contraindicationcheckv2';
+const ORCA_CONTRAINDICATION_PATH = '/orca/contraindicationcheckv2';
 
 export const buildContraindicationCheckRequestXml = (params: {
   patientId: string;

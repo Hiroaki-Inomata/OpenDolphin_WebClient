@@ -35,7 +35,7 @@ export type MedicationGetResponse = {
   error?: string;
 };
 
-const ORCA_MEDICATION_GET_PATH = '/api01rv2/medicationgetv2';
+const ORCA_MEDICATION_GET_PATH = '/orca/medicationgetv2';
 
 export const buildMedicationGetRequestXml = (params: {
   requestNumber?: string;

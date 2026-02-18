@@ -21,7 +21,7 @@ const respondXml = (xml: string, status = 200) =>
 const respondEmpty = (status = 200) => HttpResponse.text('', { status });
 
 export const orcaAdditionalHandlers = [
-  http.post('/api01rv2/subjectiveslstv2', async ({ request }) => {
+  http.post('/orca/subjectiveslstv2', async ({ request }) => {
     const fault = parseFaultSpec(request);
     await applyFaultDelay(fault);
     const omitRequired = fault.tokens.has('missing-required');
@@ -49,7 +49,7 @@ export const orcaAdditionalHandlers = [
     if (fault.tokens.has('invalid-xml')) return respondXml(ORCA_ADDITIONAL_INVALID_XML);
     return respondXml(xml);
   }),
-  http.post('/api01rv2/contraindicationcheckv2', async ({ request }) => {
+  http.post('/orca/contraindicationcheckv2', async ({ request }) => {
     const fault = parseFaultSpec(request);
     await applyFaultDelay(fault);
     const warning = fault.tokens.has('api-warning');
@@ -65,7 +65,7 @@ export const orcaAdditionalHandlers = [
     if (fault.tokens.has('invalid-xml')) return respondXml(ORCA_ADDITIONAL_INVALID_XML);
     return respondXml(xml);
   }),
-  http.get('/api01rv2/patientgetv2', async ({ request }) => {
+  http.get('/orca/patientgetv2', async ({ request }) => {
     const fault = parseFaultSpec(request);
     await applyFaultDelay(fault);
     const url = new URL(request.url);
