@@ -106,11 +106,10 @@ describe('OrderBundleEditPanel item actions', () => {
     if (!itemSection) throw new Error('処方薬剤セクションが見つかりません');
     await user.click(within(itemSection).getByRole('button', { name: '追加' }));
 
-    const nameInputs = screen.getAllByPlaceholderText('項目名') as HTMLInputElement[];
+    const nameInputs = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
     await user.type(nameInputs[0], 'A');
     await user.type(nameInputs[1], 'B');
 
-    await user.type(screen.getByLabelText('RP名'), '降圧薬');
     await selectUsage(user);
 
     await user.click(screen.getByRole('button', { name: '保存して追加' }));
@@ -128,11 +127,11 @@ describe('OrderBundleEditPanel item actions', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const nameInputs = screen.getAllByPlaceholderText('項目名') as HTMLInputElement[];
+    const nameInputs = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
     await user.type(nameInputs[0], 'アムロジピン');
 
-    await user.click(screen.getByLabelText('院内'));
-    await user.selectOptions(screen.getByLabelText('剤区分'), 'tonyo');
+    await user.click(screen.getByRole('button', { name: '院内' }));
+    await user.click(screen.getByRole('button', { name: '頓用' }));
 
     await selectUsage(user);
     await user.clear(screen.getByLabelText('回数'));
@@ -158,10 +157,10 @@ describe('OrderBundleEditPanel item actions', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    await user.type(screen.getByPlaceholderText('項目名'), 'アムロジピン');
+    await user.type(screen.getByPlaceholderText('薬剤名'), 'アムロジピン');
     await selectUsage(user);
 
-    await user.selectOptions(screen.getByLabelText('剤区分'), 'gaiyo');
+    await user.click(screen.getByRole('button', { name: '外用' }));
     await user.click(screen.getByLabelText('混合'));
 
     await user.click(screen.getByRole('button', { name: '保存して追加' }));
@@ -192,12 +191,12 @@ describe('OrderBundleEditPanel item actions', () => {
           totalCount: 1,
         };
       }
-      if (type === 'generic-class' && keyword.trim().length > 0) {
+      if (type === 'drug' && keyword.trim().length > 0) {
         return {
           ok: true,
           items: [
             {
-              type: 'generic-class',
+              type: 'drug',
               code: '612345678',
               name: 'アムロジピン',
               unit: '錠',
@@ -212,15 +211,16 @@ describe('OrderBundleEditPanel item actions', () => {
 
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const nameInput = screen.getByPlaceholderText('項目名') as HTMLInputElement;
+    const nameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
     await user.click(nameInput);
     await user.type(nameInput, 'アムロジピン');
     const suggestion = await screen.findByRole('button', { name: /612345678/ });
     await user.click(suggestion);
 
-    const genericSelect = screen.getByLabelText('一般名') as HTMLSelectElement;
-    await waitFor(() => expect(genericSelect).toBeEnabled());
-    await user.selectOptions(genericSelect, 'yes');
+    const genericGroup = screen.getByRole('group', { name: '一般名' });
+    const genericOnButton = within(genericGroup).getByRole('button', { name: '一般名' });
+    await waitFor(() => expect(genericOnButton).toBeEnabled());
+    await user.click(genericOnButton);
 
     const usageInput = screen.getByLabelText('用法') as HTMLInputElement;
     await user.type(usageInput, '1回');
@@ -253,7 +253,7 @@ describe('OrderBundleEditPanel item actions', () => {
     );
 
     expect(screen.getByRole('button', { name: '追加' })).toBeDisabled();
-    const nameInput = screen.getByPlaceholderText('項目名') as HTMLInputElement;
+    const nameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
     expect(nameInput).toBeDisabled();
     const deleteButtons = screen.getAllByLabelText(/削除/);
     deleteButtons.forEach((button) => expect(button).toBeDisabled());
@@ -264,11 +264,11 @@ describe('OrderBundleEditPanel item actions', () => {
 
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const nameInput = screen.getByPlaceholderText('項目名') as HTMLInputElement;
+    const nameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
     await user.type(nameInput, 'A');
     await user.click(screen.getByLabelText(/削除/));
 
-    const cleared = screen.getAllByPlaceholderText('項目名') as HTMLInputElement[];
+    const cleared = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
     expect(cleared).toHaveLength(1);
     expect(cleared[0].value).toBe('');
   });

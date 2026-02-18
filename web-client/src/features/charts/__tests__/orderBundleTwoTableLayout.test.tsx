@@ -68,7 +68,7 @@ describe('OrderBundleEditPanel two-table layout', () => {
       ok: true,
       items: [
         {
-          type: 'generic-class',
+          type: 'drug',
           code: 'A100',
           name: 'アムロジピン',
           unit: '錠',
@@ -83,13 +83,12 @@ describe('OrderBundleEditPanel two-table layout', () => {
     const confirmed = screen.getByTestId('order-bundle-confirmed-table');
     const candidates = screen.getByTestId('order-bundle-candidate-table');
 
-    const itemNameInput = within(confirmed).getByPlaceholderText('項目名');
+    const itemNameInput = within(confirmed).getByPlaceholderText('薬剤名');
     await user.type(itemNameInput, 'アム');
 
     await waitFor(() =>
-      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'generic-class', keyword: 'アム' })),
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'drug', keyword: 'アム' })),
     );
     await waitFor(() => expect(within(candidates).getByText('アムロジピン')).toBeInTheDocument());
   });
 });
-

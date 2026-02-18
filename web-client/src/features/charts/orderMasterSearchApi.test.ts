@@ -1,0 +1,97 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { fetchOrderMasterSearch } from './orderMasterSearchApi';
+
+vi.mock('../../libs/http/httpClient', () => ({
+  httpFetch: vi.fn(),
+}));
+
+vi.mock('../../libs/observability/observability', () => ({
+  ensureObservabilityMeta: vi.fn(() => ({ runId: 'RUN-TEST' })),
+  getObservabilityMeta: vi.fn(() => ({ runId: 'RUN-TEST' })),
+}));
+
+vi.mock('./orcaMedicationGetApi', () => ({
+  buildMedicationGetRequestXml: vi.fn(() => '<xml />'),
+  fetchOrcaMedicationGetXml: vi.fn(async () => ({
+    ok: true,
+    apiResult: '00',
+    apiResultMessage: 'ok',
+    medication: null,
+    selections: [],
+  })),
+}));
+
+describe('fetchOrderMasterSearch auth routing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    sessionStorage.clear();
+    localStorage.setItem('devFacilityId', 'f001');
+    localStorage.setItem('devUserId', 'user01');
+    localStorage.setItem('devPasswordPlain', 'plainpass');
+  });
+
+  it('uses connected account authorization header (drug)', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'drug', keyword: 'アム' });
+
+    expect(result.ok).toBe(true);
+    expect(vi.mocked(httpFetch).mock.calls[0]?.[0]).toContain('/orca/master/drug?');
+    const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
+    const headers = new Headers(init?.headers);
+    const expectedToken = btoa(unescape(encodeURIComponent('user01:plainpass')));
+    expect(headers.get('Authorization')).toBe(`Basic ${expectedToken}`);
+    expect(headers.get('X-Facility-Id')).toBe('f001');
+    expect(init?.notifySessionExpired).toBe(false);
+  });
+
+  it('keeps etensu category=2 query with the same master auth headers', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'bodypart', keyword: '腹' });
+
+    expect(result.ok).toBe(true);
+    expect(vi.mocked(httpFetch).mock.calls[0]?.[0]).toContain('/orca/master/etensu?');
+    expect(vi.mocked(httpFetch).mock.calls[0]?.[0]).toContain('category=2');
+    const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
+    const headers = new Headers(init?.headers);
+    expect(headers.get('Authorization')).toMatch(/^Basic /);
+    expect(headers.get('X-Facility-Id')).toBe('f001');
+  });
+
+  it('treats TENSU_NOT_FOUND as empty result for etensu family searches', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 'TENSU_NOT_FOUND',
+          message: 'no etensu entries matched',
+        }),
+        {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'etensu', keyword: 'zz' });
+
+    expect(result.ok).toBe(true);
+    expect(result.items).toEqual([]);
+    expect(result.totalCount).toBe(0);
+  });
+});

@@ -15,6 +15,7 @@ import java.util.logging.Logger;
 public class OrcaMasterDao {
     private static final Logger LOGGER = Logger.getLogger(OrcaMasterDao.class.getName());
     private static final int MAX_PAGE_SIZE = 2000;
+    private static final String DRUG_CODE_PREFIX = "6";
 
     public GenericClassSearchResult searchGenericClass(GenericClassCriteria criteria) {
         if (criteria == null) {
@@ -58,6 +59,29 @@ public class OrcaMasterDao {
             return new LookupResult<>(records.get(0), version, true);
         } catch (SQLException e) {
             LOGGER.log(Level.WARNING, "Failed to load ORCA-05 generic price master", e);
+            return null;
+        }
+    }
+
+    public ListSearchResult<DrugRecord> searchDrug(DrugCriteria criteria) {
+        if (criteria == null) {
+            return null;
+        }
+        try (Connection connection = ORCAConnection.getInstance().getConnection()) {
+            DrugTableMeta meta = DrugTableMeta.load(connection);
+            if (meta == null || meta.codeColumn == null || meta.nameColumn == null) {
+                return null;
+            }
+            Query query = buildDrugQuery(criteria, meta);
+            int totalCount = fetchTotalCount(connection, meta.tableName, query);
+            if (totalCount == 0) {
+                return new ListSearchResult<>(Collections.emptyList(), 0, null);
+            }
+            List<DrugRecord> records = fetchDrugRecords(connection, meta, query, criteria.page, criteria.size);
+            String version = resolveVersion(records, null);
+            return new ListSearchResult<>(records, totalCount, version);
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "Failed to load ORCA-08 drug master", e);
             return null;
         }
     }
@@ -180,6 +204,16 @@ public class OrcaMasterDao {
         List<Object> params = new ArrayList<>();
         where.append(" AND ").append(meta.codeColumn).append(" = ?");
         params.add(criteria.srycd);
+        appendEffectiveFilter(where, params, criteria.effective, meta.startDateColumn, meta.endDateColumn);
+        return new Query(where.toString(), params);
+    }
+
+    private Query buildDrugQuery(DrugCriteria criteria, DrugTableMeta meta) {
+        StringBuilder where = new StringBuilder(" FROM ").append(meta.tableName).append(" WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+        where.append(" AND CAST(").append(meta.codeColumn).append(" AS VARCHAR) LIKE ?");
+        params.add(DRUG_CODE_PREFIX + "%");
+        appendKeywordFilter(where, params, criteria.keyword, meta.codeColumn, meta.nameColumn, meta.kanaColumn);
         appendEffectiveFilter(where, params, criteria.effective, meta.startDateColumn, meta.endDateColumn);
         return new Query(where.toString(), params);
     }
@@ -335,6 +369,46 @@ public class OrcaMasterDao {
                     record.unit = rs.getString("unit");
                     record.price = getDouble(rs, "price");
                     record.youhouCode = rs.getString("youhou");
+                    record.startDate = rs.getString("startDate");
+                    record.endDate = rs.getString("endDate");
+                    record.version = rs.getString("version");
+                    records.add(record);
+                }
+            }
+        }
+        return records;
+    }
+
+    private List<DrugRecord> fetchDrugRecords(Connection connection, DrugTableMeta meta, Query query, int page, int size)
+            throws SQLException {
+        String sql = "SELECT "
+                + selectColumn(meta.codeColumn) + " AS code, "
+                + selectColumn(meta.nameColumn) + " AS name, "
+                + selectColumn(meta.kanaColumn) + " AS kana, "
+                + selectColumn(meta.categoryColumn) + " AS category, "
+                + selectColumn(meta.unitColumn) + " AS unit, "
+                + selectColumn(meta.priceColumn) + " AS price, "
+                + selectColumn(meta.noteColumn) + " AS note, "
+                + selectColumn(meta.startDateColumn) + " AS startDate, "
+                + selectColumn(meta.endDateColumn) + " AS endDate, "
+                + selectColumn(meta.versionColumn) + " AS version "
+                + query.whereClause
+                + " ORDER BY " + meta.codeColumn + ", " + meta.startDateColumn + " DESC";
+        sql = applyPaging(sql);
+        List<DrugRecord> records = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            int index = bindParams(ps, query.params, 1);
+            applyPagingParams(ps, index, page, size);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    DrugRecord record = new DrugRecord();
+                    record.srycd = rs.getString("code");
+                    record.drugName = rs.getString("name");
+                    record.kanaName = rs.getString("kana");
+                    record.category = rs.getString("category");
+                    record.unit = rs.getString("unit");
+                    record.price = getDouble(rs, "price");
+                    record.note = rs.getString("note");
                     record.startDate = rs.getString("startDate");
                     record.endDate = rs.getString("endDate");
                     record.version = rs.getString("version");
@@ -735,6 +809,45 @@ public class OrcaMasterDao {
         }
     }
 
+    public static final class DrugCriteria {
+        private String keyword;
+        private String effective;
+        private int page = 1;
+        private int size = 100;
+
+        public String getKeyword() {
+            return keyword;
+        }
+
+        public void setKeyword(String keyword) {
+            this.keyword = keyword;
+        }
+
+        public String getEffective() {
+            return effective;
+        }
+
+        public void setEffective(String effective) {
+            this.effective = effective;
+        }
+
+        public int getPage() {
+            return page;
+        }
+
+        public void setPage(int page) {
+            this.page = page;
+        }
+
+        public int getSize() {
+            return size;
+        }
+
+        public void setSize(int size) {
+            this.size = size;
+        }
+    }
+
     public static final class YouhouCriteria {
         private String keyword;
         private String effective;
@@ -948,6 +1061,64 @@ public class OrcaMasterDao {
 
         public String getYouhouCode() {
             return youhouCode;
+        }
+
+        public String getStartDate() {
+            return startDate;
+        }
+
+        public String getEndDate() {
+            return endDate;
+        }
+
+        public String getVersion() {
+            return version;
+        }
+
+        @Override
+        public String version() {
+            return version;
+        }
+    }
+
+    public static final class DrugRecord implements VersionedRecord {
+        public String srycd;
+        public String drugName;
+        public String kanaName;
+        public String category;
+        public String unit;
+        public Double price;
+        public String note;
+        public String startDate;
+        public String endDate;
+        public String version;
+
+        public String getSrycd() {
+            return srycd;
+        }
+
+        public String getDrugName() {
+            return drugName;
+        }
+
+        public String getKanaName() {
+            return kanaName;
+        }
+
+        public String getCategory() {
+            return category;
+        }
+
+        public String getUnit() {
+            return unit;
+        }
+
+        public Double getPrice() {
+            return price;
+        }
+
+        public String getNote() {
+            return note;
         }
 
         public String getStartDate() {
@@ -1435,6 +1606,56 @@ public class OrcaMasterDao {
             String endDate = columnOrNull(meta, table, "end_date", "yukoedymd", "valid_to");
             String version = columnOrNull(meta, table, "upymd", "creymd", "chgymd", "version");
             return new GenericPriceTableMeta(table, code, name, kana, price, unit, youhou, startDate, endDate,
+                    version);
+        }
+    }
+
+    private static final class DrugTableMeta {
+        private final String tableName;
+        private final String codeColumn;
+        private final String nameColumn;
+        private final String kanaColumn;
+        private final String categoryColumn;
+        private final String unitColumn;
+        private final String priceColumn;
+        private final String noteColumn;
+        private final String startDateColumn;
+        private final String endDateColumn;
+        private final String versionColumn;
+
+        private DrugTableMeta(String tableName, String codeColumn, String nameColumn, String kanaColumn,
+                String categoryColumn, String unitColumn, String priceColumn, String noteColumn,
+                String startDateColumn, String endDateColumn, String versionColumn) {
+            this.tableName = tableName;
+            this.codeColumn = codeColumn;
+            this.nameColumn = nameColumn;
+            this.kanaColumn = kanaColumn;
+            this.categoryColumn = categoryColumn;
+            this.unitColumn = unitColumn;
+            this.priceColumn = priceColumn;
+            this.noteColumn = noteColumn;
+            this.startDateColumn = startDateColumn;
+            this.endDateColumn = endDateColumn;
+            this.versionColumn = versionColumn;
+        }
+
+        private static DrugTableMeta load(Connection connection) throws SQLException {
+            DatabaseMetaData meta = connection.getMetaData();
+            String table = resolveTable(meta, "TBL_TENSU_MASTER", "tbl_tensu_master");
+            if (table == null) {
+                return null;
+            }
+            String code = columnOrNull(meta, table, "srycd", "code");
+            String name = columnOrNull(meta, table, "name", "drug_name");
+            String kana = columnOrNull(meta, table, "kananame", "kana_name", "kana");
+            String category = columnOrNull(meta, table, "srysyukbn", "srykbn", "category");
+            String unit = columnOrNull(meta, table, "taniname", "tani", "unit", "tanicd");
+            String price = columnOrNull(meta, table, "ten", "tanka", "price");
+            String note = columnOrNull(meta, table, "yakkakjncd", "drug_class_code", "note");
+            String startDate = columnOrNull(meta, table, "yukostymd", "start_date", "valid_from");
+            String endDate = columnOrNull(meta, table, "yukoedymd", "end_date", "valid_to");
+            String version = columnOrNull(meta, table, "upymd", "chgymd", "creymd", "version");
+            return new DrugTableMeta(table, code, name, kana, category, unit, price, note, startDate, endDate,
                     version);
         }
     }

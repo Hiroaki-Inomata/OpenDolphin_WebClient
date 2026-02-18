@@ -3,7 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { recordOutpatientFunnel } from '../../libs/telemetry/telemetryClient';
-import { getObservabilityMeta, resolveAriaLive } from '../../libs/observability/observability';
+import { resolveAriaLive } from '../../libs/observability/observability';
 import { useOptionalSession } from '../../AppRouter';
 import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 import { fetchOrderBundles, mutateOrderBundles, type OrderBundle, type OrderBundleItem } from './orderBundleApi';
@@ -13,7 +13,6 @@ import {
   type OrderMasterSearchItem,
   type OrderMasterSearchType,
 } from './orderMasterSearchApi';
-import { fetchMasterReferenceStatus, type MasterReferenceStatusResponse } from './masterReferenceStatusApi';
 import { buildContraindicationCheckRequestXml, fetchContraindicationCheckXml } from './contraindicationCheckApi';
 import { buildMedicationGetRequestXml, fetchOrcaMedicationGetXml } from './orcaMedicationGetApi';
 import { parseOrcaOrderItemMemo, updateOrcaOrderItemMeta } from './orcaOrderItemMeta';
@@ -99,6 +98,7 @@ type BundleValidationRule = {
   itemLabel: string;
   requiresItems: boolean;
   requiresUsage: boolean;
+  requiresBodyPart: boolean;
 };
 
 type ContraindicationNotice = { tone: 'info' | 'warning' | 'error'; message: string; detail?: string };
@@ -114,7 +114,8 @@ const ensureRowId = (item: OrderBundleItem): OrderBundleItemWithRowId => ({
 });
 
 const stripRowMeta = (item: OrderBundleItem): OrderBundleItem => {
-  const { rowId, ...rest } = item as OrderBundleItemWithRowId;
+  const rest = { ...(item as OrderBundleItemWithRowId) };
+  delete rest.rowId;
   return rest;
 };
 
@@ -165,13 +166,22 @@ const PRESCRIPTION_CLASS_NAMES: Record<string, string> = {
   '291': '内服薬剤（臨時投薬）（院内）',
   '292': '内服薬剤（臨時投薬）（院外）',
 };
+const PRESCRIPTION_LOCATION_OPTIONS: Array<{ value: PrescriptionLocation; label: string }> = [
+  { value: 'in', label: '院内' },
+  { value: 'out', label: '院外' },
+];
+const PRESCRIPTION_TIMING_OPTIONS: Array<{ value: PrescriptionTiming; label: string }> = [
+  { value: 'regular', label: '内服' },
+  { value: 'tonyo', label: '頓用' },
+  { value: 'gaiyo', label: '外用' },
+  { value: 'temporal', label: '臨時' },
+];
 const DEFAULT_USAGE_SUGGESTION_LIMIT = 12;
 const DEFAULT_PREDICTIVE_LIMIT = 20;
 
 const isDrugMedicationCode = (code: string) => /^6\d{8}$/.test(code.trim());
 
 type OrderEntityUiProfile = {
-  formDescription: string;
   bundleNamePlaceholder: string;
   instructionLabel: string;
   instructionPlaceholder: string;
@@ -182,7 +192,6 @@ type OrderEntityUiProfile = {
   mainItemPlaceholder: string;
   supportsUsageSearch: boolean;
   supportsBodyPartSearch: boolean;
-  supportsMaterials: boolean;
   supportsCommentCodes: boolean;
   supportsInjectionNoProcedure: boolean;
   masterSearchPresets: Array<{ type: OrderMasterSearchType; label: string }>;
@@ -192,7 +201,6 @@ type OrderEntityUiProfile = {
 const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
   if (entity === 'medOrder') {
     return {
-      formDescription: '処方専用フォームです。処方薬剤マスタと用法マスタを中心に入力します。',
       bundleNamePlaceholder: '例: 降圧薬RP',
       instructionLabel: '用法',
       instructionPlaceholder: '例: 1日1回 朝',
@@ -203,16 +211,14 @@ const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
       mainItemPlaceholder: '薬剤名',
       supportsUsageSearch: true,
       supportsBodyPartSearch: false,
-      supportsMaterials: false,
       supportsCommentCodes: true,
       supportsInjectionNoProcedure: false,
-      masterSearchPresets: [{ type: 'generic-class', label: '処方薬剤' }],
-      defaultMasterSearchType: 'generic-class',
+      masterSearchPresets: [{ type: 'drug', label: '処方薬剤' }],
+      defaultMasterSearchType: 'drug',
     };
   }
   if (entity === 'injectionOrder') {
     return {
-      formDescription: '注射専用フォームです。注射薬剤と注射手技を分けて検索できます。',
       bundleNamePlaceholder: '例: 点滴セット',
       instructionLabel: '投与指示',
       instructionPlaceholder: '例: 静注 / 点滴 / 1日1回',
@@ -223,19 +229,17 @@ const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
       mainItemPlaceholder: '注射薬剤または手技名',
       supportsUsageSearch: false,
       supportsBodyPartSearch: false,
-      supportsMaterials: false,
       supportsCommentCodes: true,
       supportsInjectionNoProcedure: true,
       masterSearchPresets: [
-        { type: 'generic-class', label: '注射薬剤' },
+        { type: 'drug', label: '注射薬剤' },
         { type: 'etensu', label: '注射手技' },
       ],
-      defaultMasterSearchType: 'generic-class',
+      defaultMasterSearchType: 'drug',
     };
   }
   if (entity === 'radiologyOrder') {
     return {
-      formDescription: '画像検査専用フォームです。画像検査点数・器材・造影薬剤を個別に検索できます。',
       bundleNamePlaceholder: '例: 胸部CT（造影）',
       instructionLabel: '検査指示',
       instructionPlaceholder: '例: 造影あり / 単純',
@@ -246,20 +250,18 @@ const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
       mainItemPlaceholder: '画像検査名',
       supportsUsageSearch: false,
       supportsBodyPartSearch: true,
-      supportsMaterials: true,
       supportsCommentCodes: true,
       supportsInjectionNoProcedure: false,
       masterSearchPresets: [
         { type: 'etensu', label: '画像検査' },
         { type: 'material', label: '画像器材' },
-        { type: 'generic-class', label: '造影薬剤' },
+        { type: 'drug', label: '造影薬剤' },
       ],
       defaultMasterSearchType: 'etensu',
     };
   }
   if (entity === 'testOrder' || entity === 'physiologyOrder' || entity === 'bacteriaOrder' || entity === 'laboTest') {
     return {
-      formDescription: '検査専用フォームです。検査マスタと検査区分を中心に入力します。',
       bundleNamePlaceholder: '例: 生化学検査',
       instructionLabel: '検査指示',
       instructionPlaceholder: '例: 至急 / 空腹時',
@@ -270,7 +272,6 @@ const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
       mainItemPlaceholder: '検査項目名',
       supportsUsageSearch: false,
       supportsBodyPartSearch: false,
-      supportsMaterials: entity === 'testOrder',
       supportsCommentCodes: true,
       supportsInjectionNoProcedure: false,
       masterSearchPresets: [
@@ -282,7 +283,6 @@ const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
   }
   if (entity === 'baseChargeOrder' || entity === 'instractionChargeOrder') {
     return {
-      formDescription: '算定専用フォームです。算定点数マスタを検索して登録します。',
       bundleNamePlaceholder: '例: 初診料算定',
       instructionLabel: '算定指示',
       instructionPlaceholder: '例: 初再診 / 指導料',
@@ -293,7 +293,6 @@ const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
       mainItemPlaceholder: '算定項目名',
       supportsUsageSearch: false,
       supportsBodyPartSearch: false,
-      supportsMaterials: false,
       supportsCommentCodes: true,
       supportsInjectionNoProcedure: false,
       masterSearchPresets: [{ type: 'etensu', label: '算定項目' }],
@@ -301,7 +300,6 @@ const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
     };
   }
   return {
-    formDescription: '処置専用フォームです。処置マスタと材料マスタを中心に入力します。',
     bundleNamePlaceholder: '例: 創傷処置',
     instructionLabel: '処置指示',
     instructionPlaceholder: '例: 1日1回 実施',
@@ -312,20 +310,15 @@ const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
     mainItemPlaceholder: '処置項目名',
     supportsUsageSearch: false,
     supportsBodyPartSearch: entity === 'generalOrder',
-    supportsMaterials: ['generalOrder', 'treatmentOrder', 'surgeryOrder', 'otherOrder'].includes(entity),
     supportsCommentCodes: true,
     supportsInjectionNoProcedure: false,
     masterSearchPresets: [
       { type: 'etensu', label: '処置項目' },
-      { type: 'generic-class', label: '使用薬剤' },
+      { type: 'drug', label: '使用薬剤' },
       { type: 'material', label: '処置材料' },
     ],
     defaultMasterSearchType: 'etensu',
   };
-};
-
-const resolveDefaultMasterSearchType = (entity: string): OrderMasterSearchType => {
-  return resolveOrderEntityUiProfile(entity).defaultMasterSearchType;
 };
 
 const parseDocumentIds = (value?: string) => {
@@ -412,12 +405,13 @@ const collectBundleItems = (form: BundleFormState) => {
   return merged;
 };
 
-const countMainItems = (form: BundleFormState) => countItems([...form.items, ...form.materialItems]);
+const countMainItems = (form: BundleFormState) => countItems(form.items);
 
 const DEFAULT_VALIDATION_RULE: BundleValidationRule = {
   itemLabel: '項目',
   requiresItems: true,
   requiresUsage: false,
+  requiresBodyPart: false,
 };
 
 const BASE_EDITOR_ENTITIES = [
@@ -430,16 +424,14 @@ const BASE_EDITOR_ENTITIES = [
   'instractionChargeOrder',
   'surgeryOrder',
   'otherOrder',
-  'radiologyOrder',
   'baseChargeOrder',
 ];
-
-const BUNDLE_NAME_REQUIRED_ENTITIES = new Set([...BASE_EDITOR_ENTITIES, 'medOrder']);
 
 const BASE_EDITOR_RULE: BundleValidationRule = {
   itemLabel: '項目',
   requiresItems: true,
   requiresUsage: false,
+  requiresBodyPart: false,
 };
 
 const VALIDATION_RULES_BY_ENTITY: Record<string, BundleValidationRule> = {
@@ -447,6 +439,13 @@ const VALIDATION_RULES_BY_ENTITY: Record<string, BundleValidationRule> = {
     itemLabel: '薬剤/項目',
     requiresItems: true,
     requiresUsage: true,
+    requiresBodyPart: false,
+  },
+  radiologyOrder: {
+    itemLabel: '画像検査項目',
+    requiresItems: true,
+    requiresUsage: false,
+    requiresBodyPart: true,
   },
   ...Object.fromEntries(BASE_EDITOR_ENTITIES.map((entity) => [entity, BASE_EDITOR_RULE])),
 };
@@ -469,6 +468,7 @@ const buildEmptyForm = (today: string): BundleFormState => ({
 export const toFormState = (bundle: OrderBundle, today: string): BundleFormState => {
   const { normal, material, comment, bodyPart } = splitBundleItems(bundle.items);
   const prescription = parsePrescriptionClassCode(bundle.classCode);
+  const mergedItems = [...normal, ...material];
   return {
     documentId: bundle.documentId,
     moduleId: bundle.moduleId,
@@ -480,8 +480,8 @@ export const toFormState = (bundle: OrderBundle, today: string): BundleFormState
     startDate: bundle.started ?? today,
     prescriptionLocation: prescription.location,
     prescriptionTiming: prescription.timing,
-    items: normal.length > 0 ? normal.map(ensureRowId) : [buildEmptyItem()],
-    materialItems: material.map(ensureRowId),
+    items: mergedItems.length > 0 ? mergedItems.map(ensureRowId) : [buildEmptyItem()],
+    materialItems: [],
     commentItems: comment.map(ensureRowId),
     bodyPart,
   };
@@ -506,8 +506,11 @@ const toFormStateFromRecommendation = (template: OrderRecommendationTemplate, to
   startDate: today,
   prescriptionLocation: template.prescriptionLocation ?? DEFAULT_PRESCRIPTION_LOCATION,
   prescriptionTiming: template.prescriptionTiming ?? DEFAULT_PRESCRIPTION_TIMING,
-  items: template.items.length > 0 ? template.items.map((item) => ensureRowId({ ...item })) : [buildEmptyItem()],
-  materialItems: template.materialItems.map((item) => ensureRowId({ ...item })),
+  items:
+    [...template.items, ...template.materialItems].length > 0
+      ? [...template.items, ...template.materialItems].map((item) => ensureRowId({ ...item }))
+      : [buildEmptyItem()],
+  materialItems: [],
   commentItems: template.commentItems.map((item) => ({ ...item })),
   bodyPart: template.bodyPart ? { ...template.bodyPart } : null,
 });
@@ -537,27 +540,6 @@ const matchesMasterItemByPartial = (item: OrderMasterSearchItem, keyword: string
   if (!normalizedKeyword) return true;
   const candidates = [item.code ?? '', item.name, formatMasterLabel(item), item.category ?? '', item.note ?? ''];
   return candidates.some((candidate) => candidate.toLowerCase().includes(normalizedKeyword));
-};
-
-const resolveMasterReferenceStatusLabel = (status?: string) => {
-  if (status === 'normal') return '正常';
-  if (status === 'running') return '更新中';
-  if (status === 'update_detected') return '更新あり';
-  if (status === 'failed') return '失敗';
-  return '未確認';
-};
-
-const resolveMasterReferenceStatusTone = (status?: string): 'ok' | 'warn' | 'error' => {
-  if (status === 'normal') return 'ok';
-  if (status === 'failed') return 'error';
-  return 'warn';
-};
-
-const formatMasterReferenceTimestamp = (value?: string) => {
-  if (!value) return '―';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('ja-JP', { hour12: false });
 };
 
 export const resolvePrescriptionClassCode = (timing: PrescriptionTiming, location: PrescriptionLocation) =>
@@ -611,7 +593,6 @@ export const resolveMedOrderBundleName = ({
 export const validateBundleForm = ({
   form,
   entity,
-  bundleLabel,
 }: {
   form: BundleFormState;
   entity: string;
@@ -634,17 +615,8 @@ export const validateBundleForm = ({
   if (rule.requiresUsage && !form.admin.trim()) {
     issues.push({ key: 'missing_usage', message: '用法を入力してください。' });
   }
-  if (BUNDLE_NAME_REQUIRED_ENTITIES.has(entity) && !form.bundleName.trim()) {
-    issues.push({ key: 'missing_bundle_name', message: `${bundleLabel}を入力してください。` });
-  }
-  if (entity === 'radiologyOrder' && !form.bodyPart?.name?.trim()) {
+  if (rule.requiresBodyPart && !form.bodyPart?.name?.trim()) {
     issues.push({ key: 'missing_body_part', message: '部位を入力してください。' });
-  }
-  const invalidMaterial = form.materialItems.some(
-    (item) => hasAnyValue(item) && !item.name?.trim(),
-  );
-  if (invalidMaterial) {
-    issues.push({ key: 'invalid_material_item', message: '材料名を入力してください。' });
   }
   const commentIssues = form.commentItems.reduce(
     (acc, item) => {
@@ -690,14 +662,11 @@ export function OrderBundleEditPanel({
   const [contraNotice, setContraNotice] = useState<ContraindicationNotice | null>(null);
   const [contraDetails, setContraDetails] = useState<string[]>([]);
   const [isContraChecking, setIsContraChecking] = useState(false);
-  const [masterSearchType, setMasterSearchType] = useState<OrderMasterSearchType>(() => resolveDefaultMasterSearchType(entity));
-  const [materialKeyword, setMaterialKeyword] = useState('');
   const [bodyPartKeyword, setBodyPartKeyword] = useState('');
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [selectedItemRowId, setSelectedItemRowId] = useState<string | null>(null);
   const [optimisticBundles, setOptimisticBundles] = useState<OrderBundle[]>([]);
-  const [showMasterReferenceStatus, setShowMasterReferenceStatus] = useState(false);
   const [commentDraft, setCommentDraft] = useState<OrderBundleItem>({
     code: '',
     name: '',
@@ -705,12 +674,9 @@ export function OrderBundleEditPanel({
     unit: '',
     memo: '',
   });
-  const bundleNameInputRef = useRef<HTMLInputElement | null>(null);
   const editorScrollRef = useRef<HTMLDivElement | null>(null);
   const [validationIssues, setValidationIssues] = useState<BundleValidationIssue[]>([]);
-  const [materialsFoldOpen, setMaterialsFoldOpen] = useState(false);
   const [commentsFoldOpen, setCommentsFoldOpen] = useState(false);
-  const materialsAutoOpenedRef = useRef(false);
   const commentsAutoOpenedRef = useRef(false);
   const [itemCandidateCursor, setItemCandidateCursor] = useState(-1);
   const [usageCandidateCursor, setUsageCandidateCursor] = useState(-1);
@@ -729,9 +695,7 @@ export function OrderBundleEditPanel({
     setNotice(null);
     setContraNotice(null);
     setContraDetails([]);
-    setMaterialKeyword('');
     setBodyPartKeyword('');
-    setMasterSearchType(resolveDefaultMasterSearchType(entity));
     setValidationIssues([]);
     setCommentDraft({
       code: '',
@@ -740,13 +704,11 @@ export function OrderBundleEditPanel({
       unit: '',
       memo: '',
     });
-    setMaterialsFoldOpen(false);
     setCommentsFoldOpen(false);
-    materialsAutoOpenedRef.current = false;
     commentsAutoOpenedRef.current = false;
     setItemCandidateCursor(-1);
     setUsageCandidateCursor(-1);
-  }, [entity, today]);
+  }, [today]);
 
   const focusFirstField = useCallback(() => {
     if (typeof document === 'undefined') return;
@@ -755,8 +717,8 @@ export function OrderBundleEditPanel({
         editorScrollRef.current.scrollTop = 0;
       }
       const el =
-        bundleNameInputRef.current ??
-        (document.getElementById(`${entity}-bundle-name`) as HTMLInputElement | null);
+        (document.getElementById(`${entity}-admin`) as HTMLInputElement | null) ??
+        (document.getElementById(`${entity}-item-name-0`) as HTMLInputElement | null);
       if (!el) return;
       safeScrollIntoView(el, { block: 'nearest' });
       el.focus();
@@ -800,18 +762,8 @@ export function OrderBundleEditPanel({
   const supportsUsageSearch = orderUiProfile.supportsUsageSearch;
   const supportsBodyPartSearch = orderUiProfile.supportsBodyPartSearch;
   const supportsCommentCodes = orderUiProfile.supportsCommentCodes;
-  const supportsMaterials = orderUiProfile.supportsMaterials;
-  const masterSearchPresets = orderUiProfile.masterSearchPresets;
-  const selectedMasterPresetLabel =
-    masterSearchPresets.find((preset) => preset.type === masterSearchType)?.label ?? masterSearchType;
-
-  const hasMaterialValues = useMemo(
-    () =>
-      form.materialItems.some((item) =>
-        Boolean(item.name?.trim() || item.code?.trim() || item.quantity?.trim() || item.unit?.trim() || item.memo?.trim()),
-      ),
-    [form.materialItems],
-  );
+  const itemMasterTargets = orderUiProfile.masterSearchPresets;
+  const itemPredictiveTargetLabel = itemMasterTargets.map((target) => target.label).join(' / ');
   const hasCommentValues = useMemo(
     () =>
       form.commentItems.some((item) =>
@@ -819,15 +771,6 @@ export function OrderBundleEditPanel({
       ),
     [form.commentItems],
   );
-
-  useEffect(() => {
-    if (!supportsMaterials) return;
-    if (materialsFoldOpen) return;
-    if (materialsAutoOpenedRef.current) return;
-    if (!hasMaterialValues) return;
-    setMaterialsFoldOpen(true);
-    materialsAutoOpenedRef.current = true;
-  }, [hasMaterialValues, materialsFoldOpen, supportsMaterials]);
 
   useEffect(() => {
     if (!supportsCommentCodes) return;
@@ -900,7 +843,6 @@ export function OrderBundleEditPanel({
     | { kind: 'usage' }
     | { kind: 'bodyPart' }
     | { kind: 'items'; index: number }
-    | { kind: 'materialItems'; index: number }
     | { kind: 'commentItems'; index: number };
 
   const resolveWarningFocusTarget = useCallback(
@@ -920,13 +862,7 @@ export function OrderBundleEditPanel({
         const index = sourceIndex - itemsStart;
         return { elementId: `${entity}-item-name-${index}`, target: { kind: 'items', index } };
       }
-      const materialStart = itemsEnd;
-      const materialEnd = materialStart + form.materialItems.length;
-      if (sourceIndex >= materialStart && sourceIndex < materialEnd) {
-        const index = sourceIndex - materialStart;
-        return { elementId: `${entity}-material-name-${index}`, target: { kind: 'materialItems', index } };
-      }
-      const commentStart = materialEnd;
+      const commentStart = itemsEnd;
       const commentEnd = commentStart + form.commentItems.length;
       if (sourceIndex >= commentStart && sourceIndex < commentEnd) {
         const index = sourceIndex - commentStart;
@@ -934,7 +870,7 @@ export function OrderBundleEditPanel({
       }
       return null;
     },
-    [entity, form.bodyPart, form.commentItems.length, form.items.length, form.materialItems.length],
+    [entity, form.bodyPart, form.commentItems.length, form.items.length],
   );
 
   const [warningFocusRequest, setWarningFocusRequest] = useState<OrcaMedicalWarningUi | null>(null);
@@ -956,7 +892,6 @@ export function OrderBundleEditPanel({
   );
 
   useEffect(() => {
-    setMasterSearchType(resolveDefaultMasterSearchType(entity));
     setCommentDraft({ code: '', name: '', quantity: '', unit: '', memo: '' });
   }, [entity]);
 
@@ -1010,30 +945,6 @@ export function OrderBundleEditPanel({
     placeholderData: keepPreviousData,
   });
 
-  const masterReferenceStatusQuery = useQuery({
-    queryKey: ['charts-master-reference-status'],
-    queryFn: fetchMasterReferenceStatus,
-    enabled: showMasterReferenceStatus,
-    staleTime: 60 * 1000,
-    retry: 1,
-  });
-  const masterReferenceStatus = masterReferenceStatusQuery.data as MasterReferenceStatusResponse | undefined;
-  const masterReferenceOverallStatus = masterReferenceStatus?.overallStatus;
-  const masterReferenceBadgeLabel = showMasterReferenceStatus
-    ? masterReferenceStatusQuery.isFetching
-      ? '確認中'
-      : masterReferenceStatusQuery.isError
-        ? '取得失敗'
-        : resolveMasterReferenceStatusLabel(masterReferenceOverallStatus)
-    : '未確認';
-  const masterReferenceBadgeTone: 'ok' | 'warn' | 'error' = showMasterReferenceStatus
-    ? masterReferenceStatusQuery.isFetching
-      ? 'warn'
-      : masterReferenceStatusQuery.isError
-        ? 'error'
-        : resolveMasterReferenceStatusTone(masterReferenceOverallStatus)
-    : 'warn';
-
   const resolveActionMessage = (action: OrderBundleSubmitAction, ok: boolean) => {
     if (action === 'save') {
       return ok ? 'オーダーを保存しました。' : 'オーダーの保存に失敗しました。';
@@ -1071,17 +982,45 @@ export function OrderBundleEditPanel({
   }, [form.items, selectedItemRowId]);
   const selectedItemPredictionKeyword = selectedItemForPrediction?.name?.trim() ?? '';
   const debouncedItemPredictionKeyword = useDebouncedValue(selectedItemPredictionKeyword, 260);
-  const itemPredictiveSearchType = masterSearchType;
+  const itemPredictiveSearchTypes = useMemo<OrderMasterSearchType[]>(
+    () => Array.from(new Set(itemMasterTargets.map((target) => target.type))),
+    [itemMasterTargets],
+  );
   const isItemCodeSearch = isLikelyCodeSearch(debouncedItemPredictionKeyword);
   const itemPredictiveQuery = useQuery({
-    queryKey: ['charts-order-item-predictive', entity, itemPredictiveSearchType, debouncedItemPredictionKeyword],
-    queryFn: () =>
-      fetchOrderMasterSearch({
-        type: itemPredictiveSearchType,
-        keyword: debouncedItemPredictionKeyword,
-        page: 1,
-        size: DEFAULT_PREDICTIVE_LIMIT,
-      }),
+    queryKey: ['charts-order-item-predictive', entity, itemPredictiveSearchTypes.join(','), debouncedItemPredictionKeyword],
+    queryFn: async () => {
+      const responses = await Promise.all(
+        itemPredictiveSearchTypes.map(async (type) => {
+          const result = await fetchOrderMasterSearch({
+            type,
+            keyword: debouncedItemPredictionKeyword,
+            page: 1,
+            size: DEFAULT_PREDICTIVE_LIMIT,
+          });
+          return { type, result };
+        }),
+      );
+      const successful = responses.filter((entry) => entry.result.ok);
+      const failedTypes = responses.filter((entry) => !entry.result.ok).map((entry) => entry.type);
+      const items = successful.flatMap((entry) => entry.result.items ?? []);
+      const correctionCandidates = successful.flatMap((entry) => entry.result.correctionCandidates ?? []);
+      const correctionMeta = successful.map((entry) => entry.result.correctionMeta).find((meta) => Boolean(meta));
+      const selectionComments = successful.flatMap((entry) => entry.result.selectionComments ?? []);
+      const failedMessages = responses
+        .filter((entry) => !entry.result.ok)
+        .map((entry) => entry.result.message)
+        .filter((message): message is string => Boolean(message && message.trim()));
+      return {
+        ok: successful.length > 0,
+        items,
+        correctionCandidates,
+        correctionMeta,
+        selectionComments,
+        failedTypes,
+        message: failedMessages[0],
+      };
+    },
     enabled: debouncedItemPredictionKeyword.length > 0,
     staleTime: 30 * 1000,
     placeholderData: keepPreviousData,
@@ -1096,6 +1035,13 @@ export function OrderBundleEditPanel({
     [debouncedItemPredictionKeyword, itemPredictiveQuery.data],
   );
   const correctionMeta = itemPredictiveQuery.data?.correctionMeta;
+  const itemPredictiveFailedTypeLabel = useMemo(() => {
+    const failedTypes = itemPredictiveQuery.data?.failedTypes ?? [];
+    if (failedTypes.length === 0) return '';
+    return failedTypes
+      .map((type) => itemMasterTargets.find((target) => target.type === type)?.label ?? type)
+      .join(' / ');
+  }, [itemMasterTargets, itemPredictiveQuery.data?.failedTypes]);
   const itemCorrectionCandidates = useMemo(
     () =>
       (itemPredictiveQuery.data?.correctionCandidates ?? []).filter((item) =>
@@ -1190,15 +1136,6 @@ export function OrderBundleEditPanel({
   useEffect(() => {
     setUsageCandidateCursor(-1);
   }, [debouncedUsageKeyword, usageItems.length]);
-
-  const debouncedMaterialKeyword = useDebouncedValue(materialKeyword, 260);
-  const materialSearchQuery = useQuery({
-    queryKey: ['charts-order-material-search', debouncedMaterialKeyword],
-    queryFn: () => fetchOrderMasterSearch({ type: 'material', keyword: debouncedMaterialKeyword }),
-    enabled: supportsMaterials && debouncedMaterialKeyword.trim().length > 0,
-    staleTime: 30 * 1000,
-    placeholderData: keepPreviousData,
-  });
 
   const debouncedBodyPartKeyword = useDebouncedValue(bodyPartKeyword, 260);
   const bodyPartSearchQuery = useQuery({
@@ -1336,11 +1273,12 @@ export function OrderBundleEditPanel({
     unit?: string;
     note?: string;
   }) => {
-    if (!selected.name?.trim()) return;
+    const selectedName = selected.name?.trim();
+    if (!selectedName) return;
     setCommentDraft((prev) => ({
       ...prev,
       code: selected.code?.trim() ?? '',
-      name: selected.name.trim(),
+      name: selectedName,
       unit: selected.unit ?? prev.unit ?? '',
       memo: selected.note ?? prev.memo ?? '',
     }));
@@ -1458,10 +1396,6 @@ export function OrderBundleEditPanel({
     });
   };
 
-  const appendMaterialItem = (item: OrderBundleItem) => {
-    setForm((prev) => ({ ...prev, materialItems: [...prev.materialItems, ensureRowId(item)] }));
-  };
-
   const applyBodyPart = (item: OrderMasterSearchItem) => {
     setForm((prev) => ({
       ...prev,
@@ -1531,10 +1465,7 @@ export function OrderBundleEditPanel({
     // MVP: For base editor entities, auto-fill bundle name from the first item.
     // This reduces friction vs legacy EditorSet where "bundle label" was often implicit.
     if (import.meta.env.VITE_ORDER_EDIT_MVP === '1') {
-      const candidate =
-        bundleForm.items.find((item) => item.name.trim())?.name.trim() ??
-        bundleForm.materialItems.find((item) => item.name.trim())?.name.trim() ??
-        '';
+      const candidate = bundleForm.items.find((item) => item.name.trim())?.name.trim() ?? '';
       if (candidate) return { ...bundleForm, bundleName: candidate };
     }
 
@@ -1624,9 +1555,7 @@ export function OrderBundleEditPanel({
         setNotice(null);
         setContraNotice(null);
         setContraDetails([]);
-        setMaterialKeyword('');
         setBodyPartKeyword('');
-        setMasterSearchType(resolveDefaultMasterSearchType(entity));
         break;
       }
       case 'copy': {
@@ -2129,7 +2058,6 @@ export function OrderBundleEditPanel({
 
   const orcaWarningTargets = useMemo(() => {
     const items = new Set<number>();
-    const materialItems = new Set<number>();
     const commentItems = new Set<number>();
     let usage = false;
     let bodyPart = false;
@@ -2139,15 +2067,13 @@ export function OrderBundleEditPanel({
       if (resolved.target.kind === 'usage') usage = true;
       if (resolved.target.kind === 'bodyPart') bodyPart = true;
       if (resolved.target.kind === 'items') items.add(resolved.target.index);
-      if (resolved.target.kind === 'materialItems') materialItems.add(resolved.target.index);
       if (resolved.target.kind === 'commentItems') commentItems.add(resolved.target.index);
     });
     if (warningFocusTarget?.kind === 'usage') usage = true;
     if (warningFocusTarget?.kind === 'bodyPart') bodyPart = true;
     if (warningFocusTarget?.kind === 'items') items.add(warningFocusTarget.index);
-    if (warningFocusTarget?.kind === 'materialItems') materialItems.add(warningFocusTarget.index);
     if (warningFocusTarget?.kind === 'commentItems') commentItems.add(warningFocusTarget.index);
-    return { usage, bodyPart, items, materialItems, commentItems };
+    return { usage, bodyPart, items, commentItems };
   }, [orcaWarningsForActiveBundle, resolveWarningFocusTarget, warningFocusTarget]);
 
   const requestWarningFocus = useCallback(
@@ -2188,7 +2114,6 @@ export function OrderBundleEditPanel({
     form.commentItems.length,
     form.documentId,
     form.items.length,
-    form.materialItems.length,
     resolveWarningFocusTarget,
     warningFocusRequest,
   ]);
@@ -2217,18 +2142,12 @@ export function OrderBundleEditPanel({
         Boolean(item.name?.trim() || item.code?.trim() || item.quantity?.trim() || item.unit?.trim() || item.memo?.trim());
       const resolveTargetId = (key: string) => {
         switch (key) {
-          case 'missing_bundle_name':
-            return `${entity}-bundle-name`;
           case 'missing_usage':
             return `${entity}-admin`;
           case 'missing_body_part':
             return `${entity}-bodypart`;
           case 'missing_items':
             return `${entity}-item-name-0`;
-          case 'invalid_material_item': {
-            const idx = bundleForm.materialItems.findIndex((item) => hasAnyValue(item) && !item.name?.trim());
-            return idx >= 0 ? `${entity}-material-name-${idx}` : `${entity}-material-keyword`;
-          }
           case 'invalid_comment_item': {
             const idx = bundleForm.commentItems.findIndex((item) => {
               const hasCode = Boolean(item.code?.trim());
@@ -2303,9 +2222,6 @@ export function OrderBundleEditPanel({
     if (validationIssues.length > 0) {
       setNotice({ tone: 'error', message: validationIssues[0].message });
       setValidationIssues(validationIssues);
-      if (validationIssues.some((issue) => issue.key === 'invalid_material_item')) {
-        setMaterialsFoldOpen(true);
-      }
       if (validationIssues.some((issue) => issue.key === 'invalid_comment_item' || issue.key === 'invalid_comment_code')) {
         setCommentsFoldOpen(true);
       }
@@ -2356,7 +2272,7 @@ export function OrderBundleEditPanel({
   };
 
   const clearItemRows = () => {
-    if (!window.confirm(`${orderUiProfile.mainItemLabel}・材料・コメントの入力をすべてクリアしますか？`)) return;
+    if (!window.confirm(`${orderUiProfile.mainItemLabel}・コメントの入力をすべてクリアしますか？`)) return;
     setForm((prev) => ({
       ...prev,
       items: [buildEmptyItem()],
@@ -2400,30 +2316,11 @@ export function OrderBundleEditPanel({
     });
     return map;
   }, [validationIssues]);
-  const bundleNameError = validationByKey.get('missing_bundle_name');
   const usageError = validationByKey.get('missing_usage');
   const itemsError = validationByKey.get('missing_items');
   const bodyPartError = validationByKey.get('missing_body_part');
-  const materialError = validationByKey.get('invalid_material_item');
   const commentError =
     validationByKey.get('invalid_comment_item') ?? validationByKey.get('invalid_comment_code');
-
-  const invalidMaterialIndices = useMemo(() => {
-    if (!materialError) return new Set<number>();
-    const hasAnyValue = (item: OrderBundleItem) =>
-      Boolean(
-        item.name?.trim() ||
-          item.code?.trim() ||
-          item.quantity?.trim() ||
-          item.unit?.trim() ||
-          item.memo?.trim(),
-      );
-    const indices = new Set<number>();
-    form.materialItems.forEach((item, index) => {
-      if (!item.name?.trim() && hasAnyValue(item)) indices.add(index);
-    });
-    return indices;
-  }, [form.materialItems, materialError]);
 
   const invalidCommentIndices = useMemo(() => {
     if (!commentError) return new Set<number>();
@@ -2490,19 +2387,6 @@ export function OrderBundleEditPanel({
       <header className="charts-side-panel__section-header">
         <div className="charts-side-panel__section-header-main">
           <strong>{title}</strong>
-          <p>{orderUiProfile.formDescription}</p>
-          <div className="charts-side-panel__master-ref-inline">
-            <span className={`charts-side-panel__status charts-side-panel__status--${masterReferenceBadgeTone}`}>
-              参照マスタ: {masterReferenceBadgeLabel}
-            </span>
-            <button
-              type="button"
-              className="charts-side-panel__ghost charts-side-panel__ghost--info"
-              onClick={() => setShowMasterReferenceStatus((prev) => !prev)}
-            >
-              {showMasterReferenceStatus ? '参照マスタ詳細を閉じる' : '参照マスタ詳細'}
-            </button>
-          </div>
         </div>
         <button
           type="button"
@@ -2515,58 +2399,6 @@ export function OrderBundleEditPanel({
       </header>
 
       <div className="charts-side-panel__dock-body" ref={editorScrollRef}>
-      {showMasterReferenceStatus ? (
-        <section className="charts-side-panel__master-ref-panel" aria-label="参照マスタ状態">
-          <div className="charts-side-panel__master-ref-header">
-            <strong>参照DB更新状態</strong>
-            <button
-              type="button"
-              className="charts-side-panel__ghost charts-side-panel__ghost--info"
-              onClick={() => void masterReferenceStatusQuery.refetch()}
-              disabled={masterReferenceStatusQuery.isFetching}
-            >
-              {masterReferenceStatusQuery.isFetching ? '再確認中…' : '再確認'}
-            </button>
-          </div>
-          {masterReferenceStatusQuery.isError ? (
-            <div className="charts-side-panel__notice charts-side-panel__notice--error">
-              参照マスタ状態の取得に失敗しました。通信回復後に再確認してください。
-            </div>
-          ) : null}
-          {masterReferenceStatus?.datasets?.length ? (
-            <div className="charts-side-panel__master-ref-list" role="list">
-              {masterReferenceStatus.datasets.map((dataset) => (
-                <div key={dataset.code} className="charts-side-panel__master-ref-item" role="listitem">
-                  <div className="charts-side-panel__master-ref-item-head">
-                    <strong>{dataset.name}</strong>
-                    <span
-                      className={`charts-side-panel__status charts-side-panel__status--${resolveMasterReferenceStatusTone(dataset.status)}`}
-                    >
-                      {resolveMasterReferenceStatusLabel(dataset.status)}
-                    </span>
-                  </div>
-                  <div className="charts-side-panel__master-ref-item-meta">
-                    <span>最終成功: {formatMasterReferenceTimestamp(dataset.lastSuccessfulAt)}</span>
-                    <span>件数: {dataset.currentRecordCount ?? '―'}</span>
-                    <span>更新検知: {dataset.updateDetected ? 'あり' : 'なし'}</span>
-                  </div>
-                  {dataset.lastFailureReason ? (
-                    <div className="charts-side-panel__master-ref-item-error">{dataset.lastFailureReason}</div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : masterReferenceStatusQuery.isFetching ? (
-            <p className="charts-side-panel__help">参照マスタ状態を確認しています…</p>
-          ) : (
-            <p className="charts-side-panel__help">参照マスタ状態のデータはありません。</p>
-          )}
-          <p className="charts-side-panel__help">
-            診療中の候補提示は院内参照DBを使用し、最終判定は ORCA 応答を優先します。
-          </p>
-        </section>
-      ) : null}
-
       {isBlocked && (
         <div className="charts-side-panel__notice charts-side-panel__notice--info">
           編集はブロックされています: {blockReasons.join(' / ')}
@@ -2681,82 +2513,53 @@ export function OrderBundleEditPanel({
               event.preventDefault();
             }}
           >
-        <div className="charts-side-panel__field" data-invalid={bundleNameError ? 'true' : undefined}>
-          <label htmlFor={`${entity}-bundle-name`}>{bundleLabel}</label>
-          <input
-            id={`${entity}-bundle-name`}
-            value={form.bundleName}
-            aria-invalid={bundleNameError ? 'true' : undefined}
-            onChange={(event) => {
-              clearValidationByKeys(['missing_bundle_name']);
-              setForm((prev) => ({ ...prev, bundleName: event.target.value }));
-            }}
-            placeholder={orderUiProfile.bundleNamePlaceholder}
-            disabled={isBlocked}
-          />
-          {bundleNameError ? (
-            <p className="charts-side-panel__field-error" role="alert">
-              {bundleNameError}
-            </p>
-          ) : null}
-        </div>
         {isMedOrder && (
           <div className="charts-side-panel__field-row">
             <div className="charts-side-panel__field">
               <label>院内/院外</label>
-              <div className="charts-side-panel__field-row">
-                <label className="charts-side-panel__toggle">
-                  <input
-                    type="radio"
-                    name={`${entity}-prescription-location`}
-                    value="in"
-                    checked={form.prescriptionLocation === 'in'}
-                    onChange={() =>
+              <div className="charts-side-panel__switch-group" role="group" aria-label="院内院外">
+                {PRESCRIPTION_LOCATION_OPTIONS.map((option) => (
+                  <button
+                    key={`${entity}-prescription-location-${option.value}`}
+                    type="button"
+                    className="charts-side-panel__switch-button"
+                    data-active={form.prescriptionLocation === option.value ? 'true' : 'false'}
+                    aria-pressed={form.prescriptionLocation === option.value}
+                    onClick={() =>
                       setForm((prev) => ({
                         ...prev,
-                        prescriptionLocation: 'in',
+                        prescriptionLocation: option.value,
                       }))
                     }
                     disabled={isBlocked}
-                  />
-                  院内
-                </label>
-                <label className="charts-side-panel__toggle">
-                  <input
-                    type="radio"
-                    name={`${entity}-prescription-location`}
-                    value="out"
-                    checked={form.prescriptionLocation === 'out'}
-                    onChange={() =>
-                      setForm((prev) => ({
-                        ...prev,
-                        prescriptionLocation: 'out',
-                      }))
-                    }
-                    disabled={isBlocked}
-                  />
-                  院外
-                </label>
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
             </div>
             <div className="charts-side-panel__field">
-              <label htmlFor={`${entity}-prescription-timing`}>剤区分</label>
-              <select
-                id={`${entity}-prescription-timing`}
-                value={form.prescriptionTiming}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    prescriptionTiming: event.target.value as PrescriptionTiming,
-                  }))
-                }
-                disabled={isBlocked}
-              >
-                <option value="regular">内服</option>
-                <option value="tonyo">頓用</option>
-                <option value="gaiyo">外用</option>
-                <option value="temporal">臨時</option>
-              </select>
+              <label>剤区分</label>
+              <div className="charts-side-panel__switch-group" role="group" aria-label="剤区分">
+                {PRESCRIPTION_TIMING_OPTIONS.map((option) => (
+                  <button
+                    key={`${entity}-prescription-timing-${option.value}`}
+                    type="button"
+                    className="charts-side-panel__switch-button"
+                    data-active={form.prescriptionTiming === option.value ? 'true' : 'false'}
+                    aria-pressed={form.prescriptionTiming === option.value}
+                    onClick={() =>
+                      setForm((prev) => ({
+                        ...prev,
+                        prescriptionTiming: option.value,
+                      }))
+                    }
+                    disabled={isBlocked}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -3174,34 +2977,24 @@ export function OrderBundleEditPanel({
               {itemsError}
             </p>
           ) : null}
-          <div className="charts-side-panel__template-actions" aria-label="入力候補マスタ">
-            {masterSearchPresets.map((preset) => (
-              <button
-                key={`master-preset-${preset.type}`}
-                type="button"
-                className="charts-side-panel__chip-button charts-side-panel__chip-button--preset"
-                data-active={masterSearchType === preset.type ? 'true' : 'false'}
-                onClick={() => setMasterSearchType(preset.type)}
-                disabled={isBlocked}
-                aria-pressed={masterSearchType === preset.type}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <p className="charts-side-panel__help">現在の候補対象: {selectedMasterPresetLabel}</p>
+          <p className="charts-side-panel__help">候補対象: {itemPredictiveTargetLabel}</p>
           <p className="charts-side-panel__help">
             {selectedItemPredictionKeyword
                 ? itemPredictiveQuery.isFetching
                 ? '入力候補を検索中...'
                 : itemPredictiveCandidates.length > 0
-                  ? `入力候補 ${itemPredictiveCandidates.length}件（ORCA ${itemPredictiveSearchType} マスタ）`
+                  ? `入力候補 ${itemPredictiveCandidates.length}件`
                   : '入力候補はありません。'
-              : `項目名の入力文字列に対して、${selectedMasterPresetLabel}を部分一致検索します。`}
+              : `項目名の入力確定ごとに、${itemPredictiveTargetLabel}を自動検索します。`}
           </p>
+          {itemPredictiveQuery.data?.failedTypes.length ? (
+            <div className="charts-side-panel__notice charts-side-panel__notice--warning">
+              一部マスタの候補取得に失敗しました: {itemPredictiveFailedTypeLabel}
+            </div>
+          ) : null}
           {itemPredictiveQuery.data && !itemPredictiveQuery.data.ok && (
             <div className="charts-side-panel__notice charts-side-panel__notice--error">
-              {itemPredictiveQuery.data.message ?? '予測候補の検索に失敗しました。'}
+              {itemPredictiveQuery.data.message ?? '入力候補の検索に失敗しました。'}
             </div>
           )}
           {itemPredictiveQuery.data?.ok && isItemCodeSearch && correctionMeta ? (
@@ -3356,7 +3149,7 @@ export function OrderBundleEditPanel({
                   applyPredictiveItemSelection((item as OrderBundleItemWithRowId).rowId, event.target.value)
                 }
                 onFocus={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
-                placeholder="項目名"
+                placeholder={orderUiProfile.mainItemPlaceholder}
                 disabled={isBlocked}
               />
               <input
@@ -3396,35 +3189,46 @@ export function OrderBundleEditPanel({
                 const { meta } = parseOrcaOrderItemMemo(item.memo);
                 const value = meta.genericFlg ?? '';
                 const disabled = isBlocked || !isDrugMedicationCode(code);
+                const updateGenericFlag = (nextValue: '' | 'yes' | 'no') => {
+                  setForm((prev) => {
+                    const next = [...prev.items];
+                    const current = next[index];
+                    if (!current) return prev;
+                    next[index] = {
+                      ...current,
+                      memo: updateOrcaOrderItemMeta(current.memo ?? '', {
+                        genericFlg: nextValue === 'yes' || nextValue === 'no' ? nextValue : undefined,
+                      }),
+                    };
+                    return { ...prev, items: next };
+                  });
+                };
                 return (
-                  <select
-                    id={`${entity}-item-generic-${index}`}
-                    name={`${entity}-item-generic-${index}`}
+                  <div
+                    className="charts-side-panel__switch-group charts-side-panel__switch-group--compact"
+                    role="group"
                     aria-label="一般名"
-                    value={value}
-                    onChange={(event) => {
-                      const nextValue = event.target.value;
-                      setForm((prev) => {
-                        const next = [...prev.items];
-                        const current = next[index];
-                        if (!current) return prev;
-                        next[index] = {
-                          ...current,
-                          memo: updateOrcaOrderItemMeta(current.memo ?? '', {
-                            genericFlg: nextValue === 'yes' || nextValue === 'no' ? (nextValue as 'yes' | 'no') : undefined,
-                          }),
-                        };
-                        return { ...prev, items: next };
-                      });
-                    }}
                     onFocus={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
-                    disabled={disabled}
                     title={disabled ? '薬剤コード確定後に選択できます。' : undefined}
                   >
-                    <option value="">既定</option>
-                    <option value="yes">一般名</option>
-                    <option value="no">一般名なし</option>
-                  </select>
+                    {[
+                      { value: '', label: '既定' },
+                      { value: 'yes', label: '一般名' },
+                      { value: 'no', label: '一般名なし' },
+                    ].map((option) => (
+                      <button
+                        key={`${entity}-item-generic-${index}-${option.value || 'default'}`}
+                        type="button"
+                        className="charts-side-panel__switch-button charts-side-panel__switch-button--compact"
+                        data-active={value === option.value ? 'true' : 'false'}
+                        aria-pressed={value === option.value}
+                        onClick={() => updateGenericFlag(option.value as '' | 'yes' | 'no')}
+                        disabled={disabled}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                 );
               })()}
               <button
@@ -3525,175 +3329,6 @@ export function OrderBundleEditPanel({
             </div>
           </div>
         </div>
-
-        {supportsMaterials && (
-          <details
-            className="charts-side-panel__fold"
-            open={materialsFoldOpen}
-            onToggle={(event) => setMaterialsFoldOpen(event.currentTarget.open)}
-            data-invalid={materialError ? 'true' : undefined}
-          >
-            <summary className="charts-side-panel__fold-summary">
-              <span>材料</span>
-              <span className="charts-side-panel__fold-meta">
-                {materialError ? (
-                  <span className="charts-side-panel__fold-badge charts-side-panel__fold-badge--error">要修正</span>
-                ) : null}
-                <span className="charts-side-panel__fold-count">{countItems(form.materialItems)}件</span>
-              </span>
-            </summary>
-            <div className="charts-side-panel__fold-content">
-              <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
-                <div className="charts-side-panel__subheader">
-                  <strong>材料</strong>
-                  <button
-                    type="button"
-                    className="charts-side-panel__ghost charts-side-panel__ghost--add"
-                    onClick={() =>
-                      setForm((prev) => ({ ...prev, materialItems: [...prev.materialItems, buildEmptyItem()] }))
-                    }
-                    disabled={isBlocked}
-                  >
-                    材料追加
-                  </button>
-                </div>
-                {materialError ? (
-                  <p className="charts-side-panel__field-error" role="alert">
-                    {materialError}
-                  </p>
-                ) : null}
-                <div className="charts-side-panel__field">
-                  <label htmlFor={`${entity}-material-keyword`}>材料キーワード</label>
-                  <input
-                    id={`${entity}-material-keyword`}
-                    value={materialKeyword}
-                    onChange={(event) => setMaterialKeyword(event.target.value)}
-                    placeholder="例: ガーゼ"
-                    disabled={isBlocked}
-                  />
-                </div>
-                {materialSearchQuery.data && !materialSearchQuery.data.ok && (
-                  <div className="charts-side-panel__notice charts-side-panel__notice--error">
-                    {materialSearchQuery.data.message ?? '材料マスタの検索に失敗しました。'}
-                  </div>
-                )}
-                {materialSearchQuery.data?.ok && materialSearchQuery.data.items.length > 0 && (
-                  <div className="charts-side-panel__search-table">
-                    <div className="charts-side-panel__search-header">
-                      <span>コード</span>
-                      <span>名称</span>
-                      <span>単位</span>
-                      <span>分類</span>
-                      <span>備考</span>
-                    </div>
-                    {materialSearchQuery.data.items.map((item) => (
-                      <button
-                        key={`material-${item.code ?? item.name}`}
-                        type="button"
-                        className="charts-side-panel__search-row"
-                        onClick={() =>
-                          appendMaterialItem({
-                            code: item.code,
-                            name: formatMasterLabel(item),
-                            quantity: '',
-                            unit: item.unit ?? '',
-                            memo: item.note ?? '',
-                          })
-                        }
-                        disabled={isBlocked}
-                      >
-                        <span>{item.code ?? '-'}</span>
-                        <span>{item.name}</span>
-                        <span>{item.unit ?? '-'}</span>
-                        <span>{item.category ?? '-'}</span>
-                        <span>{item.note ?? '-'}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {materialSearchQuery.data?.ok && materialSearchQuery.data.items.length === 0 && materialKeyword.trim() && (
-                  <p className="charts-side-panel__empty">該当する材料が見つかりません。</p>
-                )}
-                {form.materialItems.map((item, index) => {
-                  const invalid = invalidMaterialIndices.has(index);
-                  return (
-                    <div
-                      key={`${entity}-material-${index}`}
-                      className={`charts-side-panel__item-row${
-                        orcaWarningTargets.materialItems.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
-                      }${invalid ? ' charts-side-panel__item-row--invalid' : ''}`}
-                      data-invalid={invalid ? 'true' : undefined}
-                    >
-                      <input
-                        id={`${entity}-material-name-${index}`}
-                        name={`${entity}-material-name-${index}`}
-                        value={item.name}
-                        aria-invalid={invalid ? 'true' : undefined}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          clearValidationByKeys(['invalid_material_item']);
-                          setForm((prev) => {
-                            const next = [...prev.materialItems];
-                            next[index] = { ...next[index], name: value };
-                            return { ...prev, materialItems: next };
-                          });
-                        }}
-                        placeholder="材料名"
-                        disabled={isBlocked}
-                      />
-                      <input
-                        id={`${entity}-material-quantity-${index}`}
-                        name={`${entity}-material-quantity-${index}`}
-                        value={item.quantity ?? ''}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setForm((prev) => {
-                            const next = [...prev.materialItems];
-                            next[index] = { ...next[index], quantity: value };
-                            return { ...prev, materialItems: next };
-                          });
-                        }}
-                        placeholder={itemQuantityLabel}
-                        disabled={isBlocked}
-                      />
-                      <input
-                        id={`${entity}-material-unit-${index}`}
-                        name={`${entity}-material-unit-${index}`}
-                        value={item.unit ?? ''}
-                        onChange={(event) => {
-                          const value = event.target.value;
-                          setForm((prev) => {
-                            const next = [...prev.materialItems];
-                            next[index] = { ...next[index], unit: value };
-                            return { ...prev, materialItems: next };
-                          });
-                        }}
-                        placeholder="単位"
-                        disabled={isBlocked}
-                      />
-                      <button
-                        type="button"
-                        className="charts-side-panel__icon"
-                        onClick={() => {
-                          setForm((prev) => ({
-                            ...prev,
-                            materialItems:
-                              prev.materialItems.length > 1
-                                ? prev.materialItems.filter((_, idx) => idx !== index)
-                                : [],
-                          }));
-                        }}
-                        disabled={isBlocked}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </details>
-        )}
 
         {supportsCommentCodes && (
           <details

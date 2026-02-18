@@ -89,12 +89,12 @@ describe('OrderBundleEditPanel contraindication warning', () => {
       totalCount: 0,
     });
     vi.mocked(fetchOrderMasterSearch).mockImplementation(async ({ type }) => {
-      if (type === 'generic-class') {
+      if (type === 'drug') {
         return {
           ok: true,
           items: [
             {
-              type: 'generic-class',
+              type: 'drug',
               code: 'A100',
               name: 'アムロジピン',
               unit: '錠',
@@ -140,7 +140,7 @@ describe('OrderBundleEditPanel contraindication warning', () => {
 
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const itemNameInput = screen.getByPlaceholderText('項目名');
+    const itemNameInput = screen.getByPlaceholderText('薬剤名');
     fireEvent.change(itemNameInput, { target: { value: 'アム' } });
 
     await waitFor(() => expect(screen.getByText('アムロジピン')).toBeInTheDocument());
@@ -173,12 +173,12 @@ describe('OrderBundleEditPanel contraindication warning', () => {
       totalCount: 0,
     });
     vi.mocked(fetchOrderMasterSearch).mockImplementation(async ({ type }) => {
-      if (type === 'generic-class') {
+      if (type === 'drug') {
         return {
           ok: true,
           items: [
             {
-              type: 'generic-class',
+              type: 'drug',
               code: 'A200',
               name: 'ロサルタン',
               unit: '錠',
@@ -224,7 +224,7 @@ describe('OrderBundleEditPanel contraindication warning', () => {
 
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const itemNameInput = screen.getByPlaceholderText('項目名');
+    const itemNameInput = screen.getByPlaceholderText('薬剤名');
     fireEvent.change(itemNameInput, { target: { value: 'ロサ' } });
 
     await waitFor(() => expect(screen.getByText('ロサルタン')).toBeInTheDocument());

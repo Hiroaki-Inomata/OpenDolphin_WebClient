@@ -4,6 +4,7 @@ import type { DataSourceTransition } from './authService';
 import { buildMedicationGetRequestXml, fetchOrcaMedicationGetXml } from './orcaMedicationGetApi';
 
 export type OrderMasterSearchType =
+  | 'drug'
   | 'generic-class'
   | 'youhou'
   | 'material'
@@ -86,6 +87,7 @@ type OrcaTensuEntry = {
 };
 
 const MASTER_ENDPOINT_MAP: Record<OrderMasterSearchType, string> = {
+  drug: '/orca/master/drug',
   'generic-class': '/orca/master/generic-class',
   youhou: '/orca/master/youhou',
   material: '/orca/master/material',
@@ -97,10 +99,57 @@ const MASTER_ENDPOINT_MAP: Record<OrderMasterSearchType, string> = {
 
 const COMMENT_CODE_PATTERN = /^(008[1-6]|8[1-6]|098|099|98|99)/;
 
-const ORCA_MASTER_USER =
-  import.meta.env.VITE_ORCA_MASTER_USER ?? '1.3.6.1.4.1.9414.70.1:admin';
-const ORCA_MASTER_PASSWORD =
-  import.meta.env.VITE_ORCA_MASTER_PASSWORD ?? '21232f297a57a5a743894a0e4a801fc3';
+type ConnectedAuth = {
+  facilityId: string;
+  userId: string;
+  passwordPlain?: string;
+  passwordMd5?: string;
+};
+
+const readStorageItem = (storage: Storage | undefined, key: string): string | undefined => {
+  if (!storage) return undefined;
+  try {
+    return storage.getItem(key) ?? undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const readConnectedAuth = (): ConnectedAuth | null => {
+  const fromStorage = (storage: Storage | undefined): ConnectedAuth | null => {
+    const facilityId = readStorageItem(storage, 'devFacilityId')?.trim();
+    const userId = readStorageItem(storage, 'devUserId')?.trim();
+    if (!facilityId || !userId) return null;
+    return {
+      facilityId,
+      userId,
+      passwordPlain: readStorageItem(storage, 'devPasswordPlain'),
+      passwordMd5: readStorageItem(storage, 'devPasswordMd5'),
+    };
+  };
+
+  const local = fromStorage(typeof localStorage === 'undefined' ? undefined : localStorage);
+  if (local) {
+    const sessionPlain = readStorageItem(typeof sessionStorage === 'undefined' ? undefined : sessionStorage, 'devPasswordPlain');
+    if (sessionPlain && !local.passwordPlain) {
+      return { ...local, passwordPlain: sessionPlain };
+    }
+    return local;
+  }
+  return fromStorage(typeof sessionStorage === 'undefined' ? undefined : sessionStorage);
+};
+
+const buildMasterAuthHeaders = (): Record<string, string> => {
+  const connected = readConnectedAuth();
+  if (!connected) return {};
+  const password = connected.passwordPlain ?? connected.passwordMd5;
+  if (!password) return { 'X-Facility-Id': connected.facilityId };
+  const token = btoa(unescape(encodeURIComponent(`${connected.userId}:${password}`)));
+  return {
+    Authorization: `Basic ${token}`,
+    'X-Facility-Id': connected.facilityId,
+  };
+};
 
 const normalizeDrugEntry = (entry: OrcaDrugMasterEntry, type: OrderMasterSearchType): OrderMasterSearchItem | null => {
   const name = entry.name?.trim();
@@ -142,6 +191,15 @@ const readMessage = (json: unknown, fallback: string) => {
     return (json as { message?: string }).message ?? fallback;
   }
   return fallback;
+};
+
+const readErrorCode = (json: unknown): string | undefined => {
+  if (!json || typeof json !== 'object') return undefined;
+  const source = json as { code?: unknown; errorCode?: unknown; error?: unknown };
+  if (typeof source.code === 'string' && source.code.trim().length > 0) return source.code;
+  if (typeof source.errorCode === 'string' && source.errorCode.trim().length > 0) return source.errorCode;
+  if (typeof source.error === 'string' && source.error.trim().length > 0) return source.error;
+  return undefined;
 };
 
 const extractCodeToken = (value: string) => value.trim().split(/\s+/)[0] ?? '';
@@ -191,7 +249,11 @@ export async function fetchOrderMasterSearch(params: {
   if (params.type === 'comment' && !params.category) {
     query.set('category', '8');
   }
-  if (params.type === 'generic-class') {
+  if (params.type === 'etensu' && !params.category) {
+    // Default tensu lane: avoid category-less queries that return TENSU_NOT_FOUND.
+    query.set('category', '1');
+  }
+  if (params.type === 'drug' || params.type === 'generic-class') {
     query.set('page', String(params.page ?? 1));
     query.set('size', String(params.size ?? 50));
   }
@@ -202,15 +264,31 @@ export async function fetchOrderMasterSearch(params: {
   const endpoint = MASTER_ENDPOINT_MAP[params.type];
   const meta = ensureObservabilityMeta();
   const response = await httpFetch(`${endpoint}?${query.toString()}`, {
-    headers: {
-      userName: ORCA_MASTER_USER,
-      password: ORCA_MASTER_PASSWORD,
-    },
+    headers: buildMasterAuthHeaders(),
+    notifySessionExpired: false,
   });
   const json = (await response.json().catch(() => ({}))) as unknown;
   const latestMeta = getObservabilityMeta();
 
   if (!response.ok) {
+    const errorCode = readErrorCode(json);
+    const isTensuNotFound =
+      response.status === 404 &&
+      errorCode === 'TENSU_NOT_FOUND' &&
+      (params.type === 'etensu' || params.type === 'comment' || params.type === 'bodypart');
+    if (isTensuNotFound) {
+      return {
+        ok: true,
+        items: [],
+        totalCount: 0,
+        runId: latestMeta.runId ?? meta.runId,
+        cacheHit: latestMeta.cacheHit,
+        missingMaster: latestMeta.missingMaster,
+        fallbackUsed: latestMeta.fallbackUsed,
+        dataSourceTransition: latestMeta.dataSourceTransition,
+        raw: json,
+      };
+    }
     return {
       ok: false,
       items: [],
@@ -260,7 +338,7 @@ export async function fetchOrderMasterSearch(params: {
   let correctionCandidates: OrderMasterSearchItem[] | undefined;
   let correctionMeta: OrderMasterSearchResult['correctionMeta'] | undefined;
   let selectionComments: OrderMasterSearchResult['selectionComments'];
-  if ((params.type === 'generic-class' || params.type === 'kensa-sort') && isLikelyCodeSearch(keyword)) {
+  if ((params.type === 'drug' || params.type === 'generic-class' || params.type === 'kensa-sort') && isLikelyCodeSearch(keyword)) {
     const baseDate = params.effective ?? new Date().toISOString().slice(0, 10);
     const requestCode = extractCodeToken(keyword);
     const requestXml = buildMedicationGetRequestXml({ requestNumber: '01', requestCode, baseDate });

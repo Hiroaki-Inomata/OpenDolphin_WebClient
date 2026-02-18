@@ -70,7 +70,7 @@ describe('OrderBundleEditPanel master search UI', () => {
           ok: true,
           items: [
             {
-              type: 'generic-class',
+              type: 'drug',
               code: 'B200',
               name: 'ベルベリン',
               unit: '包',
@@ -83,7 +83,7 @@ describe('OrderBundleEditPanel master search UI', () => {
         ok: true,
         items: [
           {
-            type: 'generic-class',
+            type: 'drug',
             code: 'A100',
             name: 'アムロジピン',
             unit: '錠',
@@ -96,11 +96,11 @@ describe('OrderBundleEditPanel master search UI', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const itemNameInput = screen.getByPlaceholderText('項目名');
+    const itemNameInput = screen.getByPlaceholderText('薬剤名');
     await user.type(itemNameInput, 'アム');
 
     await waitFor(() =>
-      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'generic-class', keyword: 'アム' })),
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'drug', keyword: 'アム' })),
     );
     expect(screen.getByText('アムロジピン')).toBeInTheDocument();
 
@@ -118,7 +118,7 @@ describe('OrderBundleEditPanel master search UI', () => {
       ok: true,
       items: [
         {
-          type: 'generic-class',
+          type: 'drug',
           code: 'A100',
           name: 'アムロジピン',
           unit: '錠',
@@ -130,7 +130,7 @@ describe('OrderBundleEditPanel master search UI', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const itemNameInput = screen.getByPlaceholderText('項目名');
+    const itemNameInput = screen.getByPlaceholderText('薬剤名');
     await user.type(itemNameInput, 'アム');
 
     await waitFor(() => expect(screen.getByText('アムロジピン')).toBeInTheDocument());
@@ -139,7 +139,7 @@ describe('OrderBundleEditPanel master search UI', () => {
     expect(rowButton).not.toBeNull();
     await user.click(rowButton!);
 
-    const selectedItemNameInput = screen.getByPlaceholderText('項目名') as HTMLInputElement;
+    const selectedItemNameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
     expect(selectedItemNameInput.value).toBe('A100 アムロジピン');
   });
 
@@ -148,12 +148,12 @@ describe('OrderBundleEditPanel master search UI', () => {
     localStorage.setItem('devUserId', 'doctor');
     const searchMock = vi.mocked(fetchOrderMasterSearch);
     searchMock.mockImplementation(async ({ type, keyword }) => {
-      if (type === 'generic-class' && keyword.includes('アム')) {
+      if (type === 'drug' && keyword.includes('アム')) {
         return {
           ok: true,
           items: [
             {
-              type: 'generic-class',
+              type: 'drug',
               code: 'A100',
               name: 'アムロジピン',
               unit: '錠',
@@ -169,10 +169,10 @@ describe('OrderBundleEditPanel master search UI', () => {
     const user = userEvent.setup();
     const { container } = renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const itemNameInput = screen.getByPlaceholderText('項目名') as HTMLInputElement;
+    const itemNameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
     await user.type(itemNameInput, 'アム');
     await waitFor(() =>
-      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'generic-class', keyword: 'アム' })),
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'drug', keyword: 'アム' })),
     );
 
     const predictiveOption = container.querySelector('datalist[id$="-item-predictive-list"] option[value="A100 アムロジピン"]');
@@ -201,8 +201,8 @@ describe('OrderBundleEditPanel master search UI', () => {
       />,
     );
 
-    expect(screen.getByPlaceholderText('項目名')).toBeDisabled();
-    expect(screen.getByRole('button', { name: '処方薬剤' })).toBeDisabled();
+    expect(screen.getByPlaceholderText('薬剤名')).toBeDisabled();
+    expect(screen.getByText('候補対象: 処方薬剤')).toBeInTheDocument();
     expect(fetchOrderBundles).toHaveBeenCalled();
   });
 
@@ -321,14 +321,12 @@ describe('OrderBundleEditPanel master search UI', () => {
       />,
     );
 
-    expect(screen.getByText('注射専用フォームです。注射薬剤と注射手技を分けて検索できます。')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '注射薬剤' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '注射手技' })).toBeInTheDocument();
+    expect(screen.getByText('候補対象: 注射薬剤 / 注射手技')).toBeInTheDocument();
     expect(screen.queryByText('用法候補')).toBeNull();
     expect(screen.getByLabelText('投与指示')).toBeInTheDocument();
   });
 
-  it('放射線オーダーでは画像専用フォームの検索プリセットが表示される', async () => {
+  it('放射線オーダーでは統合検索対象が表示される', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
 
@@ -342,10 +340,7 @@ describe('OrderBundleEditPanel master search UI', () => {
       />,
     );
 
-    expect(screen.getByText('画像検査専用フォームです。画像検査点数・器材・造影薬剤を個別に検索できます。')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '画像検査' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '画像器材' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '造影薬剤' })).toBeInTheDocument();
+    expect(screen.getByText('候補対象: 画像検査 / 画像器材 / 造影薬剤')).toBeInTheDocument();
     expect(screen.getByLabelText('検査指示')).toBeInTheDocument();
   });
 
@@ -435,7 +430,7 @@ describe('OrderBundleEditPanel master search UI', () => {
     localStorage.setItem('devUserId', 'doctor');
     const searchMock = vi.mocked(fetchOrderMasterSearch);
     searchMock.mockImplementation(async ({ type, keyword }) => {
-      if (type === 'generic-class' && keyword === '1234') {
+      if (type === 'drug' && keyword === '1234') {
         return {
           ok: true,
           items: [],

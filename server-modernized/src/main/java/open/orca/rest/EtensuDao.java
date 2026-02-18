@@ -55,16 +55,18 @@ public class EtensuDao {
     }
 
     private EtensuQuery buildQuery(EtensuSearchCriteria criteria, EtensuTableMeta meta) {
-        StringBuilder where = new StringBuilder(" FROM TBL_ETENSU_1 WHERE 1=1");
+        StringBuilder where = new StringBuilder(meta.fromClause).append(" WHERE 1=1");
+        String srycdColumn = selectColumn(meta.srycdColumn);
         List<Object> params = new ArrayList<>();
         if (criteria.keyword != null && !criteria.keyword.isBlank()) {
             String keyword = "%" + criteria.keyword.toUpperCase(Locale.ROOT) + "%";
             if (meta.hasName) {
-                where.append(" AND (UPPER(SRYCD) LIKE ? OR UPPER(").append(meta.nameColumn).append(") LIKE ?)");
+                where.append(" AND (UPPER(").append(srycdColumn).append(") LIKE ? OR UPPER(COALESCE(")
+                        .append(meta.nameColumn).append(", '')) LIKE ?)");
                 params.add(keyword);
                 params.add(keyword);
             } else {
-                where.append(" AND UPPER(SRYCD) LIKE ?");
+                where.append(" AND UPPER(").append(srycdColumn).append(") LIKE ?");
                 params.add(keyword);
             }
         }
@@ -81,10 +83,12 @@ public class EtensuDao {
         if (criteria.category != null && !criteria.category.isBlank()) {
             String categoryColumn = meta.categoryColumn();
             if (categoryColumn != null) {
+                String normalizedCategory = "COALESCE(" + categoryColumn + ", '')";
                 where.append(" AND (")
-                        .append(categoryColumn).append(" = ? OR (? LIKE ")
-                        .append(categoryColumn).append(" || '%' AND length(?) > length(")
-                        .append(categoryColumn).append("))");
+                        .append(normalizedCategory).append(" = ? OR (")
+                        .append(normalizedCategory).append(" <> '' AND (")
+                        .append(normalizedCategory).append(" LIKE ? || '%' OR ? LIKE ")
+                        .append(normalizedCategory).append(" || '%')))");
                 params.add(criteria.category);
                 params.add(criteria.category);
                 params.add(criteria.category);
@@ -107,7 +111,7 @@ public class EtensuDao {
     private List<EtensuRecord> fetchRecords(Connection connection, EtensuQuery query, int page, int size,
             EtensuTableMeta meta) throws SQLException {
         String sql = "SELECT "
-                + "SRYCD AS srycd, "
+                + selectColumn(meta.srycdColumn) + " AS srycd, "
                 + selectColumn(meta.kubunColumn) + " AS kubun, "
                 + selectColumn(meta.nameColumn) + " AS name, "
                 + selectColumn(meta.tankaColumn) + " AS tanka, "
@@ -130,7 +134,7 @@ public class EtensuDao {
                 + selectColumn(meta.cKaisuColumn) + " AS cKaisu, "
                 + selectColumn(meta.chgYmdColumn) + " AS chgYmd "
                 + query.whereClause
-                + " ORDER BY SRYCD";
+                + " ORDER BY " + selectColumn(meta.srycdColumn);
         int safeSize = Math.min(size, 2000);
         int safePage = Math.max(1, page);
         int offset = (safePage - 1) * safeSize;
@@ -255,6 +259,9 @@ public class EtensuDao {
 
     private void loadConflicts(Connection connection, String table, String scope, Set<String> srycds, String asOf,
             Map<String, List<EtensuRecord>> recordsBySrycd) throws SQLException {
+        if (!tableExists(connection, table)) {
+            return;
+        }
         String inClause = buildInClause(srycds.size());
         StringBuilder sql = new StringBuilder();
         sql.append("SELECT SRYCD1, SRYCD2, YUKOSTYMD, YUKOEDYMD, HAIHAN, TOKUREI, CHGYMD FROM ")
@@ -293,6 +300,9 @@ public class EtensuDao {
 
     private void loadAdditions(Connection connection, Set<Integer> nGroups, String asOf, List<EtensuRecord> records)
             throws SQLException {
+        if (!tableExists(connection, "TBL_ETENSU_4")) {
+            return;
+        }
         String inClause = buildInClause(nGroups.size());
         StringBuilder sql = new StringBuilder();
         sql.append("SELECT N_GROUP, SRYCD, YUKOSTYMD, YUKOEDYMD, KASAN, CHGYMD FROM TBL_ETENSU_4 WHERE N_GROUP IN (")
@@ -334,6 +344,9 @@ public class EtensuDao {
 
     private void loadCalcUnits(Connection connection, Set<String> srycds, String asOf,
             Map<String, List<EtensuRecord>> recordsBySrycd) throws SQLException {
+        if (!tableExists(connection, "TBL_ETENSU_5")) {
+            return;
+        }
         String inClause = buildInClause(srycds.size());
         StringBuilder sql = new StringBuilder();
         sql.append("SELECT SRYCD, YUKOSTYMD, YUKOEDYMD, TANICD, TANINAME, KAISU, TOKUREI, CHGYMD FROM TBL_ETENSU_5 WHERE SRYCD IN (")
@@ -368,27 +381,29 @@ public class EtensuDao {
 
     private void loadBundlingMembers(Connection connection, Set<String> groupCodes, String asOf, List<EtensuRecord> records)
             throws SQLException {
-        String inClause = buildInClause(groupCodes.size());
-        StringBuilder sql = new StringBuilder();
-        sql.append("SELECT H_GROUP, SRYCD, YUKOSTYMD, YUKOEDYMD, TOKUREI, CHGYMD FROM TBL_ETENSU_2 WHERE H_GROUP IN (")
-                .append(inClause)
-                .append(")");
-        List<Object> params = new ArrayList<>(groupCodes);
-        if (asOf != null && !asOf.isBlank()) {
-            sql.append(" AND YUKOSTYMD <= ? AND YUKOEDYMD >= ?");
-            params.add(asOf);
-            params.add(asOf);
-        }
         Map<String, OrcaEtensuBundlingMember> memberMap = new HashMap<>();
-        try (PreparedStatement ps = connection.prepareStatement(sql.toString())) {
-            bindParams(ps, params, 1);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    OrcaEtensuBundlingMember member = new OrcaEtensuBundlingMember();
-                    member.setGroupCode(rs.getString("H_GROUP"));
-                    member.setSrycd(rs.getString("SRYCD"));
-                    member.setSpecialCondition(getInteger(rs, "TOKUREI"));
-                    memberMap.put(memberKey(member.getGroupCode(), member.getSrycd()), member);
+        if (tableExists(connection, "TBL_ETENSU_2")) {
+            String inClause = buildInClause(groupCodes.size());
+            StringBuilder sql = new StringBuilder();
+            sql.append("SELECT H_GROUP, SRYCD, YUKOSTYMD, YUKOEDYMD, TOKUREI, CHGYMD FROM TBL_ETENSU_2 WHERE H_GROUP IN (")
+                    .append(inClause)
+                    .append(")");
+            List<Object> params = new ArrayList<>(groupCodes);
+            if (asOf != null && !asOf.isBlank()) {
+                sql.append(" AND YUKOSTYMD <= ? AND YUKOEDYMD >= ?");
+                params.add(asOf);
+                params.add(asOf);
+            }
+            try (PreparedStatement ps = connection.prepareStatement(sql.toString())) {
+                bindParams(ps, params, 1);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        OrcaEtensuBundlingMember member = new OrcaEtensuBundlingMember();
+                        member.setGroupCode(rs.getString("H_GROUP"));
+                        member.setSrycd(rs.getString("SRYCD"));
+                        member.setSpecialCondition(getInteger(rs, "TOKUREI"));
+                        memberMap.put(memberKey(member.getGroupCode(), member.getSrycd()), member);
+                    }
                 }
             }
         }
@@ -401,6 +416,9 @@ public class EtensuDao {
 
     private void loadBundlingMembersJma(Connection connection, Set<String> groupCodes, String asOf,
             Map<String, OrcaEtensuBundlingMember> memberMap) throws SQLException {
+        if (!tableExists(connection, "TBL_ETENSU_2_JMA")) {
+            return;
+        }
         String inClause = buildInClause(groupCodes.size());
         StringBuilder sql = new StringBuilder();
         sql.append("SELECT H_GROUP, SRYCD, YUKOSTYMD, YUKOEDYMD, TOKUREI, CHGYMD FROM TBL_ETENSU_2_JMA WHERE H_GROUP IN (")
@@ -428,6 +446,9 @@ public class EtensuDao {
 
     private void applyBundlingExclusions(Connection connection, Set<String> groupCodes, String asOf,
             Map<String, OrcaEtensuBundlingMember> memberMap) throws SQLException {
+        if (!tableExists(connection, "TBL_ETENSU_2_OFF")) {
+            return;
+        }
         String inClause = buildInClause(groupCodes.size());
         StringBuilder sql = new StringBuilder();
         sql.append("SELECT H_GROUP, SRYCD, YUKOSTYMD, YUKOEDYMD FROM TBL_ETENSU_2_OFF WHERE H_GROUP IN (")
@@ -463,6 +484,9 @@ public class EtensuDao {
 
     private void loadSpecimens(Connection connection, Set<String> groupCodes, String asOf, List<EtensuRecord> records)
             throws SQLException {
+        if (!tableExists(connection, "TBL_ETENSU_2_SAMPLE")) {
+            return;
+        }
         String inClause = buildInClause(groupCodes.size());
         StringBuilder sql = new StringBuilder();
         sql.append("SELECT H_GROUP, SRYCD, YUKOSTYMD, YUKOEDYMD, RENNUM, SAMPLECD, CHGYMD FROM TBL_ETENSU_2_SAMPLE WHERE H_GROUP IN (")
@@ -580,8 +604,16 @@ public class EtensuDao {
         return Integer.parseInt(trimmed);
     }
 
-    private static String firstNonBlank(String value) {
-        return (value != null && !value.isBlank()) ? value : null;
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private static int bindParams(PreparedStatement ps, List<Object> params, int startIndex) throws SQLException {
@@ -610,6 +642,22 @@ public class EtensuDao {
             builder.append('?');
         }
         return builder.toString();
+    }
+
+    private static boolean tableExists(Connection connection, String table) throws SQLException {
+        if (connection == null || table == null || table.isBlank()) {
+            return false;
+        }
+        String normalizedTable = table.toLowerCase(Locale.ROOT);
+        try (PreparedStatement ps = connection.prepareStatement("SELECT to_regclass(?)")) {
+            ps.setString(1, normalizedTable);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString(1) != null;
+                }
+            }
+        }
+        return false;
     }
 
     private static Integer getInteger(ResultSet rs, String column) throws SQLException {
@@ -867,6 +915,8 @@ public class EtensuDao {
     }
 
     private static final class EtensuTableMeta {
+        private final String fromClause;
+        private final String srycdColumn;
         private final String kubunColumn;
         private final String nameColumn;
         private final String tankaColumn;
@@ -891,12 +941,15 @@ public class EtensuDao {
         private final boolean hasName;
         private final boolean hasTensuVersion;
 
-        private EtensuTableMeta(String kubunColumn, String nameColumn, String tankaColumn, String unitColumn,
+        private EtensuTableMeta(String fromClause, String srycdColumn,
+                String kubunColumn, String nameColumn, String tankaColumn, String unitColumn,
                 String categoryColumn, String startDateColumn, String endDateColumn, String tensuVersionColumn,
                 String hTani1Column, String hGroup1Column, String hTani2Column, String hGroup2Column,
                 String hTani3Column, String hGroup3Column, String rDayColumn, String rMonthColumn,
                 String rSameColumn, String rWeekColumn, String nGroupColumn, String cKaisuColumn,
                 String chgYmdColumn, boolean hasName, boolean hasTensuVersion) {
+            this.fromClause = fromClause;
+            this.srycdColumn = srycdColumn;
             this.kubunColumn = kubunColumn;
             this.nameColumn = nameColumn;
             this.tankaColumn = tankaColumn;
@@ -924,61 +977,148 @@ public class EtensuDao {
 
         private static EtensuTableMeta load(Connection connection) throws SQLException {
             DatabaseMetaData meta = connection.getMetaData();
-            String kubun = columnOrNull(meta, "TBL_ETENSU_1", "KUBUN");
-            String name = columnOrNull(meta, "TBL_ETENSU_1", "NAME");
-            String tanka = columnOrNull(meta, "TBL_ETENSU_1", "TANKA");
-            String unit = columnOrNull(meta, "TBL_ETENSU_1", "TANI");
-            String category = columnOrNull(meta, "TBL_ETENSU_1", "CATEGORY");
-            String startDate = columnOrNull(meta, "TBL_ETENSU_1", "YMD_START");
-            String endDate = columnOrNull(meta, "TBL_ETENSU_1", "YMD_END");
+            String etensuTable = resolveTable(meta, "TBL_ETENSU_1", "tbl_etensu_1");
+            if (etensuTable == null) {
+                etensuTable = "TBL_ETENSU_1";
+            }
+            String srycd = columnOrNull(meta, etensuTable, "SRYCD");
+            String kubun = columnOrNull(meta, etensuTable, "KUBUN");
+            String name = columnOrNull(meta, etensuTable, "NAME");
+            String tanka = columnOrNull(meta, etensuTable, "TANKA");
+            String unit = columnOrNull(meta, etensuTable, "TANI");
+            String category = columnOrNull(meta, etensuTable, "CATEGORY");
+            String startDate = columnOrNull(meta, etensuTable, "YMD_START");
+            String endDate = columnOrNull(meta, etensuTable, "YMD_END");
             if (startDate == null) {
-                startDate = columnOrNull(meta, "TBL_ETENSU_1", "YUKOSTYMD");
+                startDate = columnOrNull(meta, etensuTable, "YUKOSTYMD");
             }
             if (endDate == null) {
-                endDate = columnOrNull(meta, "TBL_ETENSU_1", "YUKOEDYMD");
+                endDate = columnOrNull(meta, etensuTable, "YUKOEDYMD");
             }
-            String tensuVersion = columnOrNull(meta, "TBL_ETENSU_1", "TENSU_VERSION");
-            String hTani1 = columnOrNull(meta, "TBL_ETENSU_1", "H_TANI1");
-            String hGroup1 = columnOrNull(meta, "TBL_ETENSU_1", "H_GROUP1");
-            String hTani2 = columnOrNull(meta, "TBL_ETENSU_1", "H_TANI2");
-            String hGroup2 = columnOrNull(meta, "TBL_ETENSU_1", "H_GROUP2");
-            String hTani3 = columnOrNull(meta, "TBL_ETENSU_1", "H_TANI3");
-            String hGroup3 = columnOrNull(meta, "TBL_ETENSU_1", "H_GROUP3");
-            String rDay = columnOrNull(meta, "TBL_ETENSU_1", "R_DAY");
-            String rMonth = columnOrNull(meta, "TBL_ETENSU_1", "R_MONTH");
-            String rSame = columnOrNull(meta, "TBL_ETENSU_1", "R_SAME");
-            String rWeek = columnOrNull(meta, "TBL_ETENSU_1", "R_WEEK");
-            String nGroup = columnOrNull(meta, "TBL_ETENSU_1", "N_GROUP");
-            String cKaisu = columnOrNull(meta, "TBL_ETENSU_1", "C_KAISU");
-            String chgYmd = columnOrNull(meta, "TBL_ETENSU_1", "CHGYMD");
-            EtensuTableMeta resolved = new EtensuTableMeta(kubun, name, tanka, unit, category,
-                    startDate != null ? startDate : "YUKOSTYMD",
-                    endDate != null ? endDate : "YUKOEDYMD",
-                    tensuVersion,
-                    hTani1 != null ? hTani1 : "H_TANI1",
-                    hGroup1 != null ? hGroup1 : "H_GROUP1",
-                    hTani2 != null ? hTani2 : "H_TANI2",
-                    hGroup2 != null ? hGroup2 : "H_GROUP2",
-                    hTani3 != null ? hTani3 : "H_TANI3",
-                    hGroup3 != null ? hGroup3 : "H_GROUP3",
-                    rDay != null ? rDay : "R_DAY",
-                    rMonth != null ? rMonth : "R_MONTH",
-                    rSame != null ? rSame : "R_SAME",
-                    rWeek != null ? rWeek : "R_WEEK",
-                    nGroup != null ? nGroup : "N_GROUP",
-                    cKaisu != null ? cKaisu : "C_KAISU",
-                    chgYmd != null ? chgYmd : "CHGYMD",
-                    name != null,
-                    tensuVersion != null);
+            String tensuVersion = columnOrNull(meta, etensuTable, "TENSU_VERSION");
+            String hTani1 = columnOrNull(meta, etensuTable, "H_TANI1");
+            String hGroup1 = columnOrNull(meta, etensuTable, "H_GROUP1");
+            String hTani2 = columnOrNull(meta, etensuTable, "H_TANI2");
+            String hGroup2 = columnOrNull(meta, etensuTable, "H_GROUP2");
+            String hTani3 = columnOrNull(meta, etensuTable, "H_TANI3");
+            String hGroup3 = columnOrNull(meta, etensuTable, "H_GROUP3");
+            String rDay = columnOrNull(meta, etensuTable, "R_DAY");
+            String rMonth = columnOrNull(meta, etensuTable, "R_MONTH");
+            String rSame = columnOrNull(meta, etensuTable, "R_SAME");
+            String rWeek = columnOrNull(meta, etensuTable, "R_WEEK");
+            String nGroup = columnOrNull(meta, etensuTable, "N_GROUP");
+            String cKaisu = columnOrNull(meta, etensuTable, "C_KAISU");
+            String chgYmd = columnOrNull(meta, etensuTable, "CHGYMD");
+            String tensuTable = resolveTable(meta, "TBL_TENSU_MASTER", "tbl_tensu_master");
+            String tensuSrycd = null;
+            String tensuName = null;
+            String tensuKubun = null;
+            String tensuCategory = null;
+            String tensuTanka = null;
+            String tensuUnit = null;
+            String tensuStartDate = null;
+            String tensuEndDate = null;
+            String tensuChgYmd = null;
+            if (tensuTable != null) {
+                tensuSrycd = columnOrNull(meta, tensuTable, "SRYCD");
+                tensuName = columnOrNull(meta, tensuTable, "NAME");
+                tensuKubun = columnOrNull(meta, tensuTable, "SRYKBN");
+                tensuCategory = columnOrNull(meta, tensuTable, "SRYSYUKBN");
+                tensuTanka = columnOrNull(meta, tensuTable, "TEN", "TANKA");
+                tensuUnit = columnOrNull(meta, tensuTable, "TANINAME", "TANI");
+                tensuStartDate = columnOrNull(meta, tensuTable, "YUKOSTYMD");
+                tensuEndDate = columnOrNull(meta, tensuTable, "YUKOEDYMD");
+                tensuChgYmd = columnOrNull(meta, tensuTable, "CHGYMD");
+            }
+            String resolvedSrycd = firstNonBlank(srycd, "SRYCD");
+            String resolvedStartDate = firstNonBlank(startDate, "YUKOSTYMD");
+            String resolvedEndDate = firstNonBlank(endDate, "YUKOEDYMD");
+            String fromClause = " FROM " + etensuTable + " e";
+            if (tensuTable != null && tensuSrycd != null && tensuStartDate != null) {
+                String tensuSortEnd = firstNonBlank(tensuEndDate, tensuStartDate);
+                fromClause = fromClause
+                        + " LEFT JOIN (SELECT DISTINCT ON (tm2." + tensuSrycd + ") tm2.* FROM " + tensuTable
+                        + " tm2 ORDER BY tm2." + tensuSrycd + ", tm2." + tensuStartDate + " DESC, tm2."
+                        + tensuSortEnd + " DESC) tm ON tm." + tensuSrycd + " = e." + resolvedSrycd;
+            }
+            EtensuTableMeta resolved = new EtensuTableMeta(
+                    fromClause,
+                    qualify("e", resolvedSrycd),
+                    coalesceExpr(qualify("e", kubun), qualify("tm", tensuKubun)),
+                    coalesceExpr(qualify("e", name), qualify("tm", tensuName)),
+                    coalesceExpr(qualify("e", tanka), qualify("tm", tensuTanka)),
+                    coalesceExpr(qualify("e", unit), qualify("tm", tensuUnit)),
+                    coalesceExpr(qualify("e", category), qualify("tm", tensuCategory)),
+                    coalesceExpr(qualify("e", resolvedStartDate), qualify("tm", tensuStartDate)),
+                    coalesceExpr(qualify("e", resolvedEndDate), qualify("tm", tensuEndDate)),
+                    qualify("e", tensuVersion),
+                    qualify("e", firstNonBlank(hTani1, "H_TANI1")),
+                    qualify("e", firstNonBlank(hGroup1, "H_GROUP1")),
+                    qualify("e", firstNonBlank(hTani2, "H_TANI2")),
+                    qualify("e", firstNonBlank(hGroup2, "H_GROUP2")),
+                    qualify("e", firstNonBlank(hTani3, "H_TANI3")),
+                    qualify("e", firstNonBlank(hGroup3, "H_GROUP3")),
+                    qualify("e", firstNonBlank(rDay, "R_DAY")),
+                    qualify("e", firstNonBlank(rMonth, "R_MONTH")),
+                    qualify("e", firstNonBlank(rSame, "R_SAME")),
+                    qualify("e", firstNonBlank(rWeek, "R_WEEK")),
+                    qualify("e", firstNonBlank(nGroup, "N_GROUP")),
+                    qualify("e", firstNonBlank(cKaisu, "C_KAISU")),
+                    coalesceExpr(qualify("e", chgYmd), qualify("tm", tensuChgYmd)),
+                    coalesceExpr(qualify("e", name), qualify("tm", tensuName)) != null,
+                    tensuVersion != null
+            );
             return resolved;
         }
 
-        private static String columnOrNull(DatabaseMetaData meta, String table, String column) throws SQLException {
-            String resolved = findColumn(meta, table, column);
-            if (resolved != null) {
-                return resolved;
+        private static String columnOrNull(DatabaseMetaData meta, String table, String... candidates)
+                throws SQLException {
+            if (table == null || candidates == null) {
+                return null;
             }
-            return findColumn(meta, table.toLowerCase(Locale.ROOT), column.toLowerCase(Locale.ROOT));
+            for (String candidate : candidates) {
+                if (candidate == null || candidate.isBlank()) {
+                    continue;
+                }
+                String resolved = findColumn(meta, table, candidate);
+                if (resolved != null) {
+                    return resolved;
+                }
+                resolved = findColumn(meta, table.toLowerCase(Locale.ROOT), candidate.toLowerCase(Locale.ROOT));
+                if (resolved != null) {
+                    return resolved;
+                }
+            }
+            return null;
+        }
+
+        private static String resolveTable(DatabaseMetaData meta, String... candidates) throws SQLException {
+            if (candidates == null) {
+                return null;
+            }
+            for (String candidate : candidates) {
+                if (candidate == null || candidate.isBlank()) {
+                    continue;
+                }
+                String resolved = findTable(meta, candidate);
+                if (resolved != null) {
+                    return resolved;
+                }
+                resolved = findTable(meta, candidate.toLowerCase(Locale.ROOT));
+                if (resolved != null) {
+                    return resolved;
+                }
+            }
+            return null;
+        }
+
+        private static String findTable(DatabaseMetaData meta, String table) throws SQLException {
+            try (ResultSet rs = meta.getTables(null, null, table, new String[] {"TABLE", "VIEW"})) {
+                if (rs.next()) {
+                    return rs.getString("TABLE_NAME");
+                }
+            }
+            return null;
         }
 
         private static String findColumn(DatabaseMetaData meta, String table, String column) throws SQLException {
@@ -988,6 +1128,20 @@ public class EtensuDao {
                 }
             }
             return null;
+        }
+
+        private static String qualify(String alias, String column) {
+            if (column == null || column.isBlank()) {
+                return null;
+            }
+            return alias + "." + column;
+        }
+
+        private static String coalesceExpr(String primary, String secondary) {
+            if (primary != null && secondary != null) {
+                return "COALESCE(" + primary + ", " + secondary + ")";
+            }
+            return primary != null ? primary : secondary;
         }
 
         private String categoryColumn() {

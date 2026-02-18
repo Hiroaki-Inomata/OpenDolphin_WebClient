@@ -70,6 +70,66 @@ class OrcaMasterResourceTest {
     }
 
     @Test
+    void getDrug_returnsPagedResponseWithMeta() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public ListSearchResult<DrugRecord> searchDrug(DrugCriteria criteria) {
+                DrugRecord record = new DrugRecord();
+                record.srycd = "622961200";
+                record.drugName = "ゲンタマイシン硫酸塩１０ｍｇ注射液";
+                record.unit = "管";
+                record.price = 109d;
+                record.startDate = "20250401";
+                record.endDate = "99999999";
+                record.version = "20250401";
+                return new ListSearchResult<>(List.of(record), 1, "20250401");
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("keyword", "ゲンタ");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getDrug(USER, PASSWORD, null, uriInfo, null);
+
+        assertEquals(200, response.getStatus());
+        @SuppressWarnings("unchecked")
+        OrcaMasterListResponse<OrcaDrugMasterEntry> payload =
+                (OrcaMasterListResponse<OrcaDrugMasterEntry>) response.getEntity();
+        assertNotNull(payload);
+        assertEquals(1, payload.getTotalCount());
+        assertNotNull(payload.getItems());
+        assertFalse(payload.getItems().isEmpty());
+        OrcaDrugMasterEntry entry = payload.getItems().get(0);
+        assertEquals("622961200", entry.getCode());
+        assertEquals("ゲンタマイシン硫酸塩１０ｍｇ注射液", entry.getName());
+        assertEquals("drug", entry.getCategory());
+        assertNotNull(entry.getMeta());
+        assertEquals("server", entry.getMeta().getDataSource());
+    }
+
+    @Test
+    void getDrug_dbUnavailable_returnsServiceUnavailable() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public ListSearchResult<DrugRecord> searchDrug(DrugCriteria criteria) {
+                return null;
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("keyword", "ゲンタ");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getDrug(USER, PASSWORD, null, uriInfo, null);
+
+        assertEquals(503, response.getStatus());
+        OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
+        assertNotNull(payload);
+        assertEquals("MASTER_DRUG_UNAVAILABLE", payload.getCode());
+    }
+
+    @Test
     void getGenericPrice_invalidSrycd_returnsValidationError() {
         OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
         MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
@@ -411,7 +471,7 @@ class OrcaMasterResourceTest {
     }
 
     @Test
-    void getEtensu_dbUnavailable_returnsServiceUnavailable() {
+    void getEtensu_dbUnavailable_fallsBackToFixture() {
         OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao() {
             @Override
             public EtensuSearchResult search(EtensuSearchCriteria criteria) {
@@ -422,9 +482,12 @@ class OrcaMasterResourceTest {
 
         Response response = resource.getEtensu(USER, PASSWORD, null, uriInfo, null);
 
-        assertEquals(503, response.getStatus());
-        OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
-        assertEquals("ETENSU_UNAVAILABLE", payload.getCode());
+        assertEquals(200, response.getStatus());
+        @SuppressWarnings("unchecked")
+        OrcaMasterListResponse<OrcaTensuEntry> payload =
+                (OrcaMasterListResponse<OrcaTensuEntry>) response.getEntity();
+        assertNotNull(payload);
+        assertFalse(payload.getItems().isEmpty());
     }
 
     @Test
@@ -526,6 +589,23 @@ class OrcaMasterResourceTest {
     }
 
     @Test
+    void isAuthorized_acceptsAuthenticatedPrincipalWithoutMasterHeaders() throws Exception {
+        OrcaMasterResource resource = new OrcaMasterResource();
+        Method method = OrcaMasterResource.class.getDeclaredMethod(
+                "isAuthorized",
+                HttpServletRequest.class,
+                String.class,
+                String.class
+        );
+        method.setAccessible(true);
+        HttpServletRequest request = createRequestWithRemoteUser("1.3.6.1.4.1.9414.72.103:doctor1");
+
+        boolean authorized = (Boolean) method.invoke(resource, request, null, null);
+
+        assertTrue(authorized);
+    }
+
+    @Test
     void etagMatches_acceptsWeakMultipleAndWildcardValues() throws Exception {
         OrcaMasterResource resource = new OrcaMasterResource();
         Method method = OrcaMasterResource.class.getDeclaredMethod("etagMatches", String.class, String.class);
@@ -597,6 +677,19 @@ class OrcaMasterResourceTest {
                         if ("Authorization".equalsIgnoreCase(headerName)) {
                             return authorization;
                         }
+                    }
+                    return null;
+                }
+        );
+    }
+
+    private HttpServletRequest createRequestWithRemoteUser(String remoteUser) {
+        return (HttpServletRequest) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class[]{HttpServletRequest.class},
+                (proxy, method, args) -> {
+                    if ("getRemoteUser".equals(method.getName())) {
+                        return remoteUser;
                     }
                     return null;
                 }
