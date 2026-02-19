@@ -327,8 +327,9 @@ export const mergeOutpatientMeta = (
     dataSourceTransition: resolvedTransition,
     resolveMasterSource: resolvedSource,
     cacheHit: normalizeBoolean(raw.cacheHit ?? defaults.cacheHit),
-    missingMaster: normalizeBoolean(raw.missingMaster ?? defaults.missingMaster),
-    fallbackUsed: normalizeBoolean(raw.fallbackUsed ?? defaults.fallbackUsed),
+    // When upstream omits flags, normalize to false so UI does not stay blocked by stale state.
+    missingMaster: normalizeBoolean(raw.missingMaster) ?? false,
+    fallbackUsed: normalizeBoolean(raw.fallbackUsed) ?? false,
     fallbackFlagMissing,
     fetchedAt: (raw.fetchedAt as string | undefined) ?? defaults.fetchedAt,
     recordsReturned,

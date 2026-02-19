@@ -1,0 +1,13 @@
+phase\tendpoint\ttrace_id\taction\toutcome\tactor_id\treason\tfacility_header\trun_id
+before\t/orca/master/generic-class (keyword)\ted450049-3c77-4756-b819-de0d4161762d\tREST_UNAUTHORIZED_GUARD\tFAILURE\tanonymous\tauthentication_failed\t\t20260217T102433Z-cmd_20260217_01_sub_8-major-category-rerecheck
+after\t/orca/master/generic-class (keyword)\tc4572c7a-c08b-4f24-b150-9803685e8cde\tREST_UNAUTHORIZED_GUARD\tFAILURE\tanonymous\tauthentication_failed\t\t20260217T203446Z-cmd_20260218_01_sub_1-auth-canonical-retest2
+before\t/orca/master/material (keyword)\t0693c7d2-7655-4664-a8f5-8727f8b44b25\tREST_UNAUTHORIZED_GUARD\tFAILURE\tanonymous\tauthentication_failed\t\t20260217T102433Z-cmd_20260217_01_sub_8-major-category-rerecheck
+after\t/orca/master/material (keyword)\t2ca20b42-33bd-466e-9310-42c053e384f5\tREST_UNAUTHORIZED_GUARD\tFAILURE\tanonymous\tauthentication_failed\t\t20260217T203446Z-cmd_20260218_01_sub_1-auth-canonical-retest2
+before\t/orca/master/youhou (keyword)\t50391b62-1c83-45d8-a62f-f35d8ffb8fc3\tREST_UNAUTHORIZED_GUARD\tFAILURE\tanonymous\tauthentication_failed\t\t20260217T102433Z-cmd_20260217_01_sub_8-major-category-rerecheck
+after\t/orca/master/youhou (keyword)\t6e8f6ad6-c47c-4278-b261-5450a654401f\tREST_UNAUTHORIZED_GUARD\tFAILURE\tanonymous\tauthentication_failed\t\t20260217T203446Z-cmd_20260218_01_sub_1-auth-canonical-retest2
+before\t/orca/master/kensa-sort (keyword)\t568ab2e2-61e8-4bc6-953b-02f6aa7ffe03\tREST_UNAUTHORIZED_GUARD\tFAILURE\tanonymous\tauthentication_failed\t\t20260217T102433Z-cmd_20260217_01_sub_8-major-category-rerecheck
+after\t/orca/master/kensa-sort (keyword)\t070ca80d-1d61-4c25-be17-91a96f03fd7d\tREST_UNAUTHORIZED_GUARD\tFAILURE\tanonymous\tauthentication_failed\t\t20260217T203446Z-cmd_20260218_01_sub_1-auth-canonical-retest2
+before\t/orca/master/etensu (keyword)\t80e7d311-6198-4901-9865-acc6a98abb53\tREST_UNAUTHORIZED_GUARD\tFAILURE\tanonymous\tauthentication_failed\t\t20260217T102433Z-cmd_20260217_01_sub_8-major-category-rerecheck
+after\t/orca/master/etensu (keyword)\t9a746e9b-785c-4ffc-a09f-a62cdd14411f\tREST_UNAUTHORIZED_GUARD\tFAILURE\tanonymous\tauthentication_failed\t\t20260217T203446Z-cmd_20260218_01_sub_1-auth-canonical-retest2
+before\t/orca/master/generic-class (UI)\t68da5dbc-decb-4e10-a95f-b502b8cda010\tREST_ERROR_RESPONSE\tFAILURE\t1.3.6.1.4.1.9414.72.103:doctor1\thttp_401\t1.3.6.1.4.1.9414.72.103\t20260217T202728Z-cmd_20260217_01_sub_9-auth-fix-retest
+after\t/orca/master/generic-class (UI)\t6a185227-4a35-4a25-8c59-ec427a80baf5\tREST_UNAUTHORIZED_GUARD\tFAILURE\tanonymous\tauthentication_failed\t1.3.6.1.4.1.9414.70.1\t20260217T203446Z-cmd_20260218_01_sub_1-auth-canonical-retest2

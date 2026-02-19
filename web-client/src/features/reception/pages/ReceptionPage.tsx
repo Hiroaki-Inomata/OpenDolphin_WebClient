@@ -109,6 +109,7 @@ const FILTER_PANEL_COLLAPSE_KEY = 'reception-filter-panel-collapsed';
 const ACCEPT_DETAILS_COLLAPSE_KEY = 'reception-accept-details-collapsed';
 const ORCA_QUEUE_REFRESH_INTERVAL_MS = 60_000;
 const ORCA_QUEUE_QUERY_KEY = ['orca-queue'] as const;
+const PATIENT_SEARCH_PAGE_SIZE = 50;
 
 const todayString = () => new Date().toISOString().slice(0, 10);
 
@@ -665,8 +666,6 @@ export function ReceptionPage({
   );
   const [keyword, setKeyword] = useState(() => searchParams.get('kw') ?? '');
   const [submittedKeyword, setSubmittedKeyword] = useState(() => searchParams.get('kw') ?? '');
-  const [quickOpenPatientId, setQuickOpenPatientId] = useState('');
-  const [quickOpenPending, setQuickOpenPending] = useState(false);
   const [departmentFilter, setDepartmentFilter] = useState(() => searchParams.get('dept') ?? '');
   const [physicianFilter, setPhysicianFilter] = useState(() => searchParams.get('phys') ?? '');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>(() => normalizePaymentMode(searchParams.get('pay')));
@@ -723,7 +722,7 @@ export function ReceptionPage({
       setAcceptDetailsCollapsed(false);
       window.setTimeout(() => {
         scrollTo('reception-accept');
-        const el = document.getElementById('reception-accept-quick-open-patient-id');
+        const el = document.getElementById('reception-patient-search-patient-id');
         if (el instanceof HTMLInputElement) {
           el.focus();
         }
@@ -776,6 +775,7 @@ export function ReceptionPage({
   const [patientSearchMeta, setPatientSearchMeta] = useState<PatientListResponse | null>(null);
   const [patientSearchError, setPatientSearchError] = useState<string | null>(null);
   const [patientSearchSelected, setPatientSearchSelected] = useState<PatientRecord | null>(null);
+  const [patientSearchPage, setPatientSearchPage] = useState(1);
   const patientSearchFilterRef = useRef<{
     patientId: string;
     nameSei: string;
@@ -1132,6 +1132,7 @@ export function ReceptionPage({
         ...result,
         recordsReturned: filteredPatients.length,
       });
+      setPatientSearchPage(1);
       setPatientSearchError(null);
     },
     onError: (error) => {
@@ -1619,6 +1620,28 @@ export function ReceptionPage({
     [departmentFilter, keyword, paymentMode, physicianFilter, visibleAppointmentEntries],
   );
   const sortedEntries = useMemo(() => sortEntries(filteredEntries, sortKey), [filteredEntries, sortKey]);
+  const patientSearchTotalPages = useMemo(() => {
+    const pages = Math.ceil(patientSearchResults.length / PATIENT_SEARCH_PAGE_SIZE);
+    return Math.max(1, pages);
+  }, [patientSearchResults.length]);
+  const pagedPatientSearchResults = useMemo(() => {
+    const startIndex = (patientSearchPage - 1) * PATIENT_SEARCH_PAGE_SIZE;
+    return patientSearchResults.slice(startIndex, startIndex + PATIENT_SEARCH_PAGE_SIZE);
+  }, [patientSearchPage, patientSearchResults]);
+  const patientSearchRangeLabel = useMemo(() => {
+    if (patientSearchResults.length === 0) return '0 / 0件';
+    const startIndex = (patientSearchPage - 1) * PATIENT_SEARCH_PAGE_SIZE + 1;
+    const endIndex = Math.min(patientSearchPage * PATIENT_SEARCH_PAGE_SIZE, patientSearchResults.length);
+    return `${startIndex}-${endIndex} / ${patientSearchResults.length}件`;
+  }, [patientSearchPage, patientSearchResults.length]);
+  const showPatientSearchPagination = patientSearchResults.length > PATIENT_SEARCH_PAGE_SIZE;
+  useEffect(() => {
+    setPatientSearchPage((prev) => {
+      if (prev < 1) return 1;
+      if (prev > patientSearchTotalPages) return patientSearchTotalPages;
+      return prev;
+    });
+  }, [patientSearchTotalPages]);
   const grouped = useMemo(() => groupByStatus(sortedEntries), [sortedEntries]);
   useEffect(() => {
     if (!selectedDate || visibleAppointmentEntries.length === 0) return;
@@ -2643,6 +2666,7 @@ export function ReceptionPage({
     setPatientSearchResults([]);
     setPatientSearchMeta(null);
     setPatientSearchSelected(null);
+    setPatientSearchPage(1);
     setPatientSearchError(null);
     patientSearchFilterRef.current = null;
   }, []);
@@ -3503,75 +3527,6 @@ export function ReceptionPage({
       mergedMeta.missingMaster,
       mergedMeta.runId,
       receptionCarryover,
-    ],
-  );
-
-  const handleQuickOpenChartsByPatientId = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const raw = quickOpenPatientId.trim();
-      if (!raw) return;
-
-      const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
-      if (guardRunId) bumpRunId(guardRunId);
-
-      const normalized = raw;
-      const todayEntry =
-        sortedEntries.find((entry) => (entry.patientId ?? '').trim() === normalized && entry.status !== '予約') ??
-        sortedEntries.find((entry) => (entry.patientId ?? '').trim() === normalized) ??
-        undefined;
-      if (todayEntry) {
-        handleOpenCharts(todayEntry);
-        return;
-      }
-
-      setQuickOpenPending(true);
-      try {
-        const result = await fetchPatients({ keyword: normalized });
-        const patients = result.patients ?? [];
-        const exact = patients.find((patient) => (patient.patientId ?? '').trim() === normalized);
-        const fallback = patients.length === 1 ? patients[0] : undefined;
-        const matched = exact ?? fallback;
-        const patientId = (matched?.patientId ?? '').trim();
-        if (!patientId) {
-          enqueue({
-            tone: 'warning',
-            message: '患者が見つかりませんでした。',
-            detail: `患者ID=${normalized}`,
-          });
-          return;
-        }
-        const visitDate = matched?.lastVisit?.trim() || undefined;
-        appNav.openCharts({
-          encounter: { patientId, visitDate },
-          carryover: receptionCarryover,
-          runId: guardRunId,
-          navigate: {
-            state: {
-              runId: guardRunId,
-              patientId,
-              visitDate,
-            },
-          },
-        });
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        enqueue({ tone: 'error', message: '患者検索に失敗しました。', detail });
-      } finally {
-        setQuickOpenPending(false);
-      }
-    },
-    [
-      appNav,
-      bumpRunId,
-      enqueue,
-      flags.runId,
-      handleOpenCharts,
-      initialRunId,
-      mergedMeta.runId,
-      quickOpenPatientId,
-      receptionCarryover,
-      sortedEntries,
     ],
   );
 
@@ -4942,30 +4897,6 @@ export function ReceptionPage({
                   <p className="reception-accept__lead">患者検索（AND）→ 選択 → 受付登録。</p>
                 </div>
                 <div className="reception-accept__meta">
-                  <form className="reception-accept__quick-open" onSubmit={handleQuickOpenChartsByPatientId} aria-label="患者IDでカルテを開く">
-                    <label className="sr-only" htmlFor="reception-accept-quick-open-patient-id">
-                      患者IDでカルテを開く
-                    </label>
-                    <input
-                      id="reception-accept-quick-open-patient-id"
-                      name="receptionAcceptQuickOpenPatientId"
-                      type="search"
-                      inputMode="numeric"
-                      autoComplete="off"
-                      value={quickOpenPatientId}
-                      onChange={(event) => setQuickOpenPatientId(event.target.value)}
-                      placeholder="000001"
-                      disabled={quickOpenPending}
-                    />
-                    <button
-                      type="submit"
-                      className="reception-search__button primary"
-                      disabled={quickOpenPending || !quickOpenPatientId.trim()}
-                      title="患者IDでカルテを開く"
-                    >
-                      {quickOpenPending ? '検索中…' : '開く'}
-                    </button>
-                  </form>
                   <RunIdBadge runId={resolvedRunId} />
                 </div>
               </header>
@@ -4979,7 +4910,11 @@ export function ReceptionPage({
                   <h3>患者検索</h3>
                   <div className="reception-patient-search__header-actions">
                     <span className="reception-patient-search__meta" aria-live={infoLive}>
-                      {patientSearchMutation.isPending ? '検索中…' : `${patientSearchResults.length}件`}
+                      {patientSearchMutation.isPending
+                        ? '検索中…'
+                        : showPatientSearchPagination
+                          ? `${patientSearchResults.length}件（${patientSearchRangeLabel}）`
+                          : `${patientSearchResults.length}件`}
                     </span>
                     <button
                       type="button"
@@ -5093,13 +5028,15 @@ export function ReceptionPage({
                   ) : patientSearchResults.length === 0 ? (
                     <p className="reception-sidepane__empty">検索結果がありません。</p>
                   ) : (
-                    patientSearchResults.map((patient, index) => {
+                    pagedPatientSearchResults.map((patient, pageIndex) => {
+                      const index = (patientSearchPage - 1) * PATIENT_SEARCH_PAGE_SIZE + pageIndex;
                       const key = patient.patientId ?? `${patient.name ?? 'unknown'}-${index}`;
                       const resolvedPatientId = patient.patientId?.trim() ?? '';
                       const isSelected =
-                        Boolean(resolvedPatientId) &&
-                        Boolean(patientSearchSelected?.patientId) &&
-                        resolvedPatientId === patientSearchSelected?.patientId;
+                        patientSearchSelected === patient ||
+                        (Boolean(resolvedPatientId) &&
+                          Boolean(patientSearchSelected?.patientId) &&
+                          resolvedPatientId === patientSearchSelected?.patientId);
                       const matchedEntry = resolvedPatientId
                         ? sortedEntries.find((entry) => entry.patientId === resolvedPatientId)
                         : undefined;
@@ -5116,79 +5053,109 @@ export function ReceptionPage({
                             onClick={() => handleSelectPatientSearchResult(patient)}
                             data-test-id={`reception-patient-search-select-${resolvedPatientId || index}`}
                           >
-                            <strong>{patient.name ?? '氏名未登録'}</strong>
-                            <small>
-                              {[patient.kana, patient.patientId]
-                                .filter((value): value is string => Boolean(value))
-                                .join(' / ') || '—'}
-                            </small>
-                            <div className="reception-patient-search__item-meta">
-                              <span>患者ID: {patient.patientId ?? '—'}</span>
-                              {patient.birthDate ? <span>生年月日: {patient.birthDate}</span> : null}
-                              {patient.sex ? <span>性別: {patient.sex}</span> : null}
-                              {patient.insurance ? <span>保険: {patient.insurance}</span> : null}
-                              {patient.lastVisit ? <span>直近: {patient.lastVisit}</span> : null}
-                              {matchedEntry?.status ? <span>今日: {matchedEntry.status}</span> : null}
+                            <div className="reception-patient-search__item-main">
+                              <strong>{patient.name ?? '氏名未登録'}</strong>
+                              <span className="reception-patient-search__item-id">ID: {patient.patientId ?? '—'}</span>
                             </div>
+                            <small>{isSelected ? '選択中（詳細表示）' : '選択して詳細を表示'}</small>
                           </button>
-                          <div className="reception-patient-search__item-actions" role="group" aria-label="カルテ操作">
-                            <button
-                              type="button"
-                              className="reception-search__button ghost"
-                              onClick={() =>
-                                openMedicalRecordsModal({ patientId: patient.patientId, name: patient.name }, 'search')
-                              }
-                              disabled={!resolvedPatientId}
-                              title={
-                                resolvedPatientId
-                                  ? '過去カルテをモーダルで確認'
-                                  : '患者IDが未登録のため過去カルテを表示できません'
-                              }
-                            >
-                              過去カルテ
-                            </button>
-                            <button
-                              type="button"
-                              className="reception-search__button primary"
-                              onClick={() => {
-                                if (!resolvedPatientId) return;
-                                if (matchedTodayEntry) {
-                                  handleOpenCharts(matchedTodayEntry);
-                                  return;
-                                }
-                                const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
-                                if (guardRunId) bumpRunId(guardRunId);
-                                const visitDate = patient.lastVisit?.trim() || undefined;
-                                appNav.openCharts({
-                                  encounter: { patientId: resolvedPatientId, visitDate },
-                                  carryover: receptionCarryover,
-                                  runId: guardRunId,
-                                  navigate: {
-                                    state: {
+                          {isSelected ? (
+                            <div className="reception-patient-search__item-details" aria-label="患者詳細">
+                              <div className="reception-patient-search__item-meta">
+                                <span>患者ID: {patient.patientId ?? '—'}</span>
+                                {patient.kana ? <span>カナ: {patient.kana}</span> : null}
+                                {patient.birthDate ? <span>生年月日: {patient.birthDate}</span> : null}
+                                {patient.sex ? <span>性別: {patient.sex}</span> : null}
+                                {patient.insurance ? <span>保険: {patient.insurance}</span> : null}
+                                {patient.lastVisit ? <span>直近: {patient.lastVisit}</span> : null}
+                                {matchedEntry?.status ? <span>今日: {matchedEntry.status}</span> : null}
+                              </div>
+                              <div className="reception-patient-search__item-actions" role="group" aria-label="カルテ操作">
+                                <button
+                                  type="button"
+                                  className="reception-search__button ghost"
+                                  onClick={() =>
+                                    openMedicalRecordsModal({ patientId: patient.patientId, name: patient.name }, 'search')
+                                  }
+                                  disabled={!resolvedPatientId}
+                                  title={
+                                    resolvedPatientId
+                                      ? '過去カルテをモーダルで確認'
+                                      : '患者IDが未登録のため過去カルテを表示できません'
+                                  }
+                                >
+                                  過去カルテ
+                                </button>
+                                <button
+                                  type="button"
+                                  className="reception-search__button primary"
+                                  onClick={() => {
+                                    if (!resolvedPatientId) return;
+                                    if (matchedTodayEntry) {
+                                      handleOpenCharts(matchedTodayEntry);
+                                      return;
+                                    }
+                                    const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
+                                    if (guardRunId) bumpRunId(guardRunId);
+                                    const visitDate = patient.lastVisit?.trim() || undefined;
+                                    appNav.openCharts({
+                                      encounter: { patientId: resolvedPatientId, visitDate },
+                                      carryover: receptionCarryover,
                                       runId: guardRunId,
-                                      patientId: resolvedPatientId,
-                                      visitDate,
-                                    },
-                                  },
-                                });
-                              }}
-                              disabled={!resolvedPatientId}
-                              title={
-                                resolvedPatientId
-                                  ? matchedTodayEntry
-                                    ? '当日のカルテを開く'
-                                    : '直近来院日のカルテを開く'
-                                  : '患者IDが未登録のためカルテを開けません'
-                              }
-                            >
-                              カルテを開く
-                            </button>
-                          </div>
+                                      navigate: {
+                                        state: {
+                                          runId: guardRunId,
+                                          patientId: resolvedPatientId,
+                                          visitDate,
+                                        },
+                                      },
+                                    });
+                                  }}
+                                  disabled={!resolvedPatientId}
+                                  title={
+                                    resolvedPatientId
+                                      ? matchedTodayEntry
+                                        ? '当日のカルテを開く'
+                                        : '直近来院日のカルテを開く'
+                                      : '患者IDが未登録のためカルテを開けません'
+                                  }
+                                >
+                                  カルテを開く
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })
                   )}
                 </div>
+                {showPatientSearchPagination ? (
+                  <nav className="reception-patient-search__pagination" aria-label="検索結果ページ">
+                    <span className="reception-patient-search__pagination-range">{patientSearchRangeLabel}</span>
+                    <div className="reception-patient-search__pagination-actions">
+                      <button
+                        type="button"
+                        className="reception-search__button ghost"
+                        onClick={() => setPatientSearchPage((prev) => Math.max(1, prev - 1))}
+                        disabled={patientSearchPage <= 1}
+                      >
+                        前へ
+                      </button>
+                      <span className="reception-patient-search__pagination-page" data-test-id="reception-patient-search-page-indicator">
+                        {patientSearchPage} / {patientSearchTotalPages}
+                      </span>
+                      <button
+                        type="button"
+                        className="reception-search__button ghost"
+                        onClick={() => setPatientSearchPage((prev) => Math.min(patientSearchTotalPages, prev + 1))}
+                        disabled={patientSearchPage >= patientSearchTotalPages}
+                      >
+                        次へ
+                      </button>
+                    </div>
+                  </nav>
+                ) : null}
               </section>
 
               <div className="reception-accept__acceptbar" data-test-id="reception-accept-bar" aria-live={infoLive}>

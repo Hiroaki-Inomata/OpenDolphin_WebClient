@@ -134,6 +134,14 @@ container_name() {
 POSTGRES_CONTAINER_NAME="$(container_name opendolphin-postgres-modernized)"
 SERVER_CONTAINER_NAME="$(container_name opendolphin-server-modernized-dev)"
 MINIO_CONTAINER_NAME="$(container_name opendolphin-minio)"
+ORCA_DB_CONTAINER_NAME="${ORCA_DB_CONTAINER_NAME:-jma-receipt-docker-db-1}"
+ORCA_DB_HOST="${ORCA_DB_HOST:-$ORCA_DB_CONTAINER_NAME}"
+ORCA_DB_PORT="${ORCA_DB_PORT:-5432}"
+ORCA_DB_NAME="${ORCA_DB_NAME:-orca}"
+ORCA_DB_USER="${ORCA_DB_USER:-orca}"
+ORCA_DB_PASSWORD="${ORCA_DB_PASSWORD:-orca_password}"
+ORCA_DB_SSLMODE="${ORCA_DB_SSLMODE:-disable&currentSchema=master,public}"
+ORCA_DB_SSLROOTCERT="${ORCA_DB_SSLROOTCERT:-}"
 DB_REPAIR_APPLIED=0
 SEARCH_PATH_FIXED=0
 
@@ -491,6 +499,7 @@ generate_custom_properties() {
 
 generate_compose_override() {
   log "Generating $COMPOSE_OVERRIDE_FILE..."
+  log "ORCADS route host=${ORCA_DB_HOST} port=${ORCA_DB_PORT} db=${ORCA_DB_NAME} user=${ORCA_DB_USER} sslmode=${ORCA_DB_SSLMODE}"
   cat > "$COMPOSE_OVERRIDE_FILE" <<EOF
 services:
   server-modernized-dev:
@@ -509,6 +518,13 @@ services:
       ORCA_API_WEBORCA: ${ORCA_API_WEBORCA:-}
       ORCA_API_RETRY_MAX: ${ORCA_API_RETRY_MAX:-}
       ORCA_API_RETRY_BACKOFF_MS: ${ORCA_API_RETRY_BACKOFF_MS:-}
+      ORCA_DB_HOST: ${ORCA_DB_HOST}
+      ORCA_DB_PORT: ${ORCA_DB_PORT}
+      ORCA_DB_NAME: ${ORCA_DB_NAME}
+      ORCA_DB_USER: ${ORCA_DB_USER}
+      ORCA_DB_PASSWORD: ${ORCA_DB_PASSWORD}
+      ORCA_DB_SSLMODE: ${ORCA_DB_SSLMODE}
+      ORCA_DB_SSLROOTCERT: ${ORCA_DB_SSLROOTCERT}
       OPENDOLPHIN_SCHEMA_ACTION: ${OPENDOLPHIN_SCHEMA_ACTION}
       JAVA_OPTS_APPEND: \${JAVA_OPTS_APPEND:-} -Dhibernate.hbm2ddl.auto=${OPENDOLPHIN_SCHEMA_ACTION} -Djakarta.persistence.schema-generation.database.action=${OPENDOLPHIN_SCHEMA_ACTION} -Dmicrometer.export.otlp.enabled=false -Dio.micrometer.export.otlp.enabled=false -Dotlp.enabled=false -Dotel.metrics.exporter=none -Dotel.sdk.disabled=true
     volumes:
@@ -529,6 +545,29 @@ EOF
 start_modernized_server() {
   log "Starting Modernized Server..."
   docker compose -f docker-compose.modernized.dev.yml -f "$COMPOSE_OVERRIDE_FILE" up -d
+}
+
+ensure_orca_db_bridge() {
+  if ! docker ps -a --format '{{.Names}}' | grep -Fx "$ORCA_DB_CONTAINER_NAME" >/dev/null 2>&1; then
+    log "Warning: ORCA DB container not found (${ORCA_DB_CONTAINER_NAME}). ORCA master APIs may fail."
+    return
+  fi
+  local server_network
+  server_network="$(docker inspect "${SERVER_CONTAINER_NAME}" --format '{{range $name, $_ := .NetworkSettings.Networks}}{{printf "%s\n" $name}}{{end}}' 2>/dev/null | head -n 1 | tr -d '\r')"
+  if [[ -z "$server_network" ]]; then
+    log "Warning: could not resolve server network for ORCA DB bridge."
+    return
+  fi
+  if docker inspect "${ORCA_DB_CONTAINER_NAME}" --format '{{json .NetworkSettings.Networks}}' | grep -q "\"${server_network}\""; then
+    log "ORCA DB container already attached to ${server_network}."
+    return
+  fi
+  log "Connecting ORCA DB container ${ORCA_DB_CONTAINER_NAME} to ${server_network}..."
+  if [[ "$ORCA_DB_HOST" != "$ORCA_DB_CONTAINER_NAME" ]]; then
+    docker network connect --alias "${ORCA_DB_HOST}" "${server_network}" "${ORCA_DB_CONTAINER_NAME}" >/dev/null
+  else
+    docker network connect "${server_network}" "${ORCA_DB_CONTAINER_NAME}" >/dev/null
+  fi
 }
 
 schema_table_exists() {
@@ -1116,6 +1155,7 @@ main() {
   generate_custom_properties
   generate_compose_override
   start_modernized_server
+  ensure_orca_db_bridge
   initialize_schema_if_needed
   ensure_search_path
   run_db_init_repair

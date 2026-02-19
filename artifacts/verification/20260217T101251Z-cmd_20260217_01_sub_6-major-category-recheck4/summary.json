@@ -1,0 +1,125 @@
+{
+  "runId": "20260217T101251Z-cmd_20260217_01_sub_6-major-category-recheck4",
+  "executedAt": "2026-02-17T10:14:57.877Z",
+  "baseURL": "http://localhost:5173",
+  "categoryResults": [
+    {
+      "name": "prescription",
+      "endpointPart": "/orca/master/generic-class",
+      "keyword": "アム",
+      "panel": "medOrder",
+      "status": "fail",
+      "selected": false,
+      "itemFilled": false,
+      "traceId": null,
+      "responseStatus": null,
+      "screenshot": "screenshots/prescription_error.png",
+      "note": "TimeoutError: locator.fill: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-test-id=\"medOrder-edit-panel\"]').locator('#medOrder-bundle-name')\u001b[22m\n"
+    },
+    {
+      "name": "injection",
+      "endpointPart": "/orca/master/generic-class",
+      "keyword": "アム",
+      "panel": "injectionOrder",
+      "status": "fail",
+      "selected": false,
+      "itemFilled": false,
+      "traceId": null,
+      "responseStatus": null,
+      "screenshot": "screenshots/injection_error.png",
+      "note": "TimeoutError: locator.fill: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-test-id=\"injectionOrder-edit-panel\"]').locator('#injectionOrder-bundle-name')\u001b[22m\n"
+    },
+    {
+      "name": "procedure",
+      "endpointPart": "/orca/master/material",
+      "keyword": "ガーゼ",
+      "panel": "treatmentOrder",
+      "status": "fail",
+      "selected": false,
+      "itemFilled": false,
+      "traceId": null,
+      "responseStatus": null,
+      "screenshot": "screenshots/procedure_error.png",
+      "note": "TimeoutError: locator.fill: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-test-id=\"treatmentOrder-edit-panel\"]').locator('#treatmentOrder-bundle-name')\u001b[22m\n"
+    },
+    {
+      "name": "test",
+      "endpointPart": "/orca/master/kensa-sort",
+      "keyword": "血液",
+      "panel": "testOrder",
+      "status": "fail",
+      "selected": false,
+      "itemFilled": false,
+      "traceId": null,
+      "responseStatus": null,
+      "screenshot": "screenshots/test_error.png",
+      "note": "TimeoutError: locator.click: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: '+検査' }).first()\u001b[22m\n\u001b[2m    - locator resolved to <button type=\"button\" class=\"order-dock__mini-add\">+検査</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <header class=\"charts-actions__header\">…</header> from <div class=\"charts-workbench__sticky\">…</div> subtree intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <strong>登録済みセット</strong> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <div class=\"charts-side-panel__subsection\">…</div> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m  2 × retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m      - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <p id=\"charts-docked-panel-desc\" class=\"charts-docked-panel__desc\">セット/スタンプ・文書・画像入力をまとめて呼び出します。</p> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m  7 × retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n\u001b[2m      - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n\u001b[2m      - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <label for=\"charts-order-set-name\">セット名称</label> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n\u001b[2m      - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <p id=\"charts-docked-panel-desc\" class=\"charts-docked-panel__desc\">セット/スタンプ・文書・画像入力をまとめて呼び出します。</p> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n\u001b[2m      - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <p id=\"charts-docked-panel-desc\" class=\"charts-docked-panel__desc\">セット/スタンプ・文書・画像入力をまとめて呼び出します。</p> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 500ms\u001b[22m\n"
+    },
+    {
+      "name": "charge",
+      "endpointPart": "/orca/master/etensu",
+      "keyword": "腹",
+      "panel": "baseChargeOrder",
+      "status": "fail",
+      "selected": false,
+      "itemFilled": false,
+      "traceId": null,
+      "responseStatus": null,
+      "screenshot": "screenshots/charge_error.png",
+      "note": "TimeoutError: locator.click: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: '+算定' }).first()\u001b[22m\n\u001b[2m    - locator resolved to <button type=\"button\" class=\"order-dock__mini-add\">+算定</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <label for=\"charts-order-set-name\">セット名称</label> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <label for=\"charts-order-set-name\">セット名称</label> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m  2 × retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m      - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <p id=\"charts-docked-panel-desc\" class=\"charts-docked-panel__desc\">セット/スタンプ・文書・画像入力をまとめて呼び出します。</p> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m  6 × retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n\u001b[2m      - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n\u001b[2m      - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <label for=\"charts-order-set-name\">セット名称</label> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n\u001b[2m      - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <p id=\"charts-docked-panel-desc\" class=\"charts-docked-panel__desc\">セット/スタンプ・文書・画像入力をまとめて呼び出します。</p> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 500ms\u001b[22m\n\u001b[2m      - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <p id=\"charts-docked-panel-desc\" class=\"charts-docked-panel__desc\">セット/スタンプ・文書・画像入力をまとめて呼び出します。</p> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 500ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 500ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <label for=\"charts-order-set-name\">セット名称</label> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 500ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\u001b[2m    - <p id=\"charts-docked-panel-desc\" class=\"charts-docked-panel__desc\">セット/スタンプ・文書・画像入力をまとめて呼び出します。</p> from <aside tabindex=\"-1\" aria-label=\"ユーティリティ\" data-panel-open=\"true\" id=\"charts-utility-pane\" data-focus-anchor=\"true\" class=\"charts-workbench__side\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m  - retrying click action\u001b[22m\n\u001b[2m    - waiting 500ms\u001b[22m\n"
+    }
+  ],
+  "keywordRetest": [
+    {
+      "path": "/orca/master/generic-class?keyword=アム&page=1&size=50",
+      "status": 401,
+      "traceId": "2c3d32df-4b92-419b-931b-4c8b390d615b"
+    },
+    {
+      "path": "/orca/master/material?keyword=ガーゼ",
+      "status": 401,
+      "traceId": "ab494886-330e-4d33-b7e6-75fd65c4509c"
+    },
+    {
+      "path": "/orca/master/youhou?keyword=朝食",
+      "status": 401,
+      "traceId": "c5713c66-929b-4d8d-8fde-70e9f0b20f5d"
+    },
+    {
+      "path": "/orca/master/kensa-sort?keyword=血液",
+      "status": 401,
+      "traceId": "9656e720-c7b2-41e8-85da-a06033bc53c7"
+    },
+    {
+      "path": "/orca/master/etensu?keyword=腹&category=2",
+      "status": 401,
+      "traceId": "0ee9ed0c-4a34-4c39-ac11-1908677d25b6"
+    }
+  ],
+  "masterResponses": [
+    {
+      "url": "http://localhost:5173/orca/master/generic-class?keyword=%E3%82%A2%E3%83%A0&page=1&size=50",
+      "status": 401,
+      "method": "GET",
+      "traceId": "2c3d32df-4b92-419b-931b-4c8b390d615b"
+    },
+    {
+      "url": "http://localhost:5173/orca/master/material?keyword=%E3%82%AC%E3%83%BC%E3%82%BC",
+      "status": 401,
+      "method": "GET",
+      "traceId": "ab494886-330e-4d33-b7e6-75fd65c4509c"
+    },
+    {
+      "url": "http://localhost:5173/orca/master/youhou?keyword=%E6%9C%9D%E9%A3%9F",
+      "status": 401,
+      "method": "GET",
+      "traceId": "c5713c66-929b-4d8d-8fde-70e9f0b20f5d"
+    },
+    {
+      "url": "http://localhost:5173/orca/master/kensa-sort?keyword=%E8%A1%80%E6%B6%B2",
+      "status": 401,
+      "method": "GET",
+      "traceId": "9656e720-c7b2-41e8-85da-a06033bc53c7"
+    }
+  ]
+}

@@ -132,7 +132,7 @@ export function MedicalSetSearchCard({
         </AdminField>
       </div>
 
-      {hasRangeError ? <p className="admin-error">Start_Date > End_Date のため検索できません。</p> : null}
+      {hasRangeError ? <p className="admin-error">Start_Date &gt; End_Date のため検索できません。</p> : null}
 
       <div className="admin-scroll">
         <table className="admin-table" aria-label="診療セット検索結果">

@@ -1,0 +1,336 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - link "本文へスキップ" [ref=e34] [cursor=pointer]:
+      - /url: "#app-shell-main"
+    - generic [ref=e35]:
+      - status [ref=e36]:
+        - generic [ref=e37]:
+          - generic [ref=e38]: OpenDolphin Web
+          - generic [ref=e39]: 電子カルテデモシェル
+        - generic [ref=e40]:
+          - generic [ref=e41]: "施設ID: 1.3.6.1.4.1.9414.10.1"
+          - generic [ref=e42]: "ユーザー: OR Master Admin"
+          - generic [ref=e43]: "role: admin 認可ロール"
+          - 'button "RUN_ID をコピー: 20260218T145648Z" [ref=e44] [cursor=pointer]':
+            - text: "RUN_ID: 20260218T145648Z"
+            - generic [ref=e45]: クリックでコピー
+          - group "画面ショートカット" [ref=e46]:
+            - button "受付" [ref=e47] [cursor=pointer]:
+              - img [ref=e48]
+              - text: 受付
+            - button "カルテ" [ref=e50] [cursor=pointer]:
+              - img [ref=e51]
+              - text: カルテ
+            - button "患者管理" [ref=e55] [cursor=pointer]:
+              - img [ref=e56]
+              - text: 患者管理
+          - 'status "HTTP 200 / Api_Result 00 / 最終確認: 2026/2/18 23:56:49" [ref=e61]': "ORCA: 接続OK"
+          - button "管理画面を開く" [ref=e62] [cursor=pointer]: 管理画面
+          - button "施設/ユーザー切替" [ref=e63] [cursor=pointer]
+          - button "ログアウト" [ref=e64] [cursor=pointer]
+      - generic [ref=e65]:
+        - link "本文へスキップ" [ref=e213] [cursor=pointer]:
+          - /url: "#charts-main"
+        - main [ref=e214]:
+          - region "外来カルテ作業台" [ref=e215]:
+            - generic "患者情報と診療操作" [ref=e218]:
+              - status [ref=e219]:
+                - generic [ref=e220]:
+                  - strong [ref=e221]: ✅ 編集可能
+                  - generic [ref=e222]: 未保存なし。
+                - group "編集状態の操作"
+              - generic "開いているカルテ" [ref=e223]:
+                - list "カルテタブ一覧" [ref=e224]:
+                  - generic [ref=e225]: タブなし
+              - generic [ref=e228]:
+                - group "診療操作" [ref=e229]:
+                  - button "診察終了" [disabled] [ref=e230]
+                  - button "診察中断" [disabled] [ref=e231]
+                - generic [ref=e232]:
+                  - heading "患者未選択" [level=2] [ref=e234]
+                  - generic [ref=e235]:
+                    - generic [ref=e236]: —
+                    - generic [ref=e237]: 生:—
+                    - generic [ref=e238]: ID:—
+                    - generic [ref=e239]: 診療日:2026-02-18
+                  - generic "臨床注意" [ref=e240]:
+                    - generic [ref=e241]: アレルギーなし
+                - generic [ref=e242]:
+                  - generic [ref=e243]:
+                    - button "患者/受付" [ref=e244] [cursor=pointer]
+                    - button "詳細を開く" [ref=e245] [cursor=pointer]:
+                      - generic [ref=e246]: ">"
+                      - text: 詳細を開く
+                  - generic "診療情報サマリー" [ref=e247]:
+                    - generic [ref=e248]: 状態:—
+                    - generic [ref=e249]: 診療科:—
+                    - generic [ref=e250]: 担当:—
+                  - generic [ref=e254]:
+                    - paragraph [ref=e255]: 診療操作
+                    - heading "診察状況・送信" [level=2] [ref=e256]
+                    - group "Charts クイック操作" [ref=e257]:
+                      - button "操作を開く" [ref=e258] [cursor=pointer]
+            - generic [ref=e259]:
+              - generic [ref=e260]:
+                - generic [ref=e261]:
+                  - generic [ref=e262]:
+                    - generic [ref=e263]: 病名・過去カルテ
+                    - generic [ref=e264]: 保険病名 / Past Hub / Do
+                  - paragraph [ref=e266]: 患者IDが未選択のため病名編集を開始できません。
+                  - region "Past Hub（過去カルテとオーダー）" [ref=e268]:
+                    - generic [ref=e270]:
+                      - strong [ref=e271]: Past Hub
+                      - paragraph [ref=e272]: 患者未選択のため過去参照は表示できません。
+                    - status [ref=e273]: 患者未選択です。
+                - generic [ref=e274]:
+                  - generic [ref=e275]:
+                    - generic [ref=e276]: カルテ記載
+                    - generic [ref=e277]: SOAP / 履歴 / オーダー
+                  - region "SOAP 記載" [ref=e279]:
+                    - generic [ref=e280]:
+                      - generic [ref=e281]:
+                        - heading "SOAP 記載" [level=2] [ref=e282]
+                        - paragraph [ref=e283]: "記載者: OR Master Admin ／ role: admin ／ 受付: —"
+                        - status [ref=e284]:
+                          - generic [ref=e285]: サーバ反映済
+                      - generic [ref=e286]:
+                        - button "履歴" [ref=e287] [cursor=pointer]
+                        - button "表示:両方" [ref=e288] [cursor=pointer]
+                        - button "保存" [ref=e289] [cursor=pointer]
+                        - group [ref=e290]:
+                          - generic "その他" [ref=e291] [cursor=pointer]
+                    - generic [ref=e292]:
+                      - generic [ref=e293]:
+                        - generic [ref=e294]:
+                          - article [ref=e295]:
+                            - generic [ref=e296]:
+                              - strong [ref=e297]: Free
+                              - generic [ref=e298]: 記載履歴なし
+                            - textbox "Free を記載してください。" [ref=e299]
+                            - generic [ref=e300]:
+                              - generic [ref=e301]:
+                                - text: テンプレ
+                                - combobox "テンプレ" [ref=e302]:
+                                  - option "選択してください" [selected]
+                                  - option "フリー追記"
+                              - button "テンプレ挿入" [ref=e303] [cursor=pointer]
+                              - button "新規カード" [ref=e304] [cursor=pointer]
+                          - article [ref=e305]:
+                            - generic [ref=e306]:
+                              - strong [ref=e307]: Subjective
+                              - generic [ref=e308]: 記載履歴なし
+                            - textbox "Subjective を記載してください。" [ref=e309]
+                            - generic [ref=e310]:
+                              - generic [ref=e311]:
+                                - text: テンプレ
+                                - combobox "テンプレ" [ref=e312]:
+                                  - option "選択してください" [selected]
+                                  - option "一般診療テンプレ"
+                                  - option "フォローアップ"
+                              - button "テンプレ挿入" [ref=e313] [cursor=pointer]
+                          - article [ref=e314]:
+                            - generic [ref=e315]:
+                              - strong [ref=e316]: Objective
+                              - generic [ref=e317]: 記載履歴なし
+                            - textbox "Objective を記載してください。" [ref=e318]
+                            - generic [ref=e319]:
+                              - generic [ref=e320]:
+                                - text: テンプレ
+                                - combobox "テンプレ" [ref=e321]:
+                                  - option "選択してください" [selected]
+                                  - option "一般診療テンプレ"
+                                  - option "フォローアップ"
+                              - button "テンプレ挿入" [ref=e322] [cursor=pointer]
+                          - article [ref=e323]:
+                            - generic [ref=e324]:
+                              - strong [ref=e325]: Assessment
+                              - generic [ref=e326]: 記載履歴なし
+                            - textbox "Assessment を記載してください。" [ref=e327]
+                            - generic [ref=e328]:
+                              - generic [ref=e329]:
+                                - text: テンプレ
+                                - combobox "テンプレ" [ref=e330]:
+                                  - option "選択してください" [selected]
+                                  - option "一般診療テンプレ"
+                                  - option "フォローアップ"
+                              - button "テンプレ挿入" [ref=e331] [cursor=pointer]
+                          - article [ref=e332]:
+                            - generic [ref=e333]:
+                              - strong [ref=e334]: Plan
+                              - generic [ref=e335]: 記載履歴なし
+                            - textbox "Plan を記載してください。" [ref=e336]
+                            - generic [ref=e337]:
+                              - generic [ref=e338]:
+                                - text: テンプレ
+                                - combobox "テンプレ" [ref=e339]:
+                                  - option "選択してください" [selected]
+                                  - option "一般診療テンプレ"
+                                  - option "フォローアップ"
+                              - button "テンプレ挿入" [ref=e340] [cursor=pointer]
+                        - group [ref=e341]:
+                          - generic "症状詳記（ORCA） >" [ref=e342] [cursor=pointer]
+                      - complementary "オーダー入力" [ref=e343]:
+                        - generic [ref=e344]:
+                          - generic [ref=e345]:
+                            - generic [ref=e346]:
+                              - strong [ref=e347]: オーダー入力
+                              - generic [ref=e348]: 診療日:—
+                            - group "頻用オーダー" [ref=e349]:
+                              - button "頻用" [disabled] [ref=e350]
+                          - generic "検索して追加" [ref=e351]:
+                            - generic [ref=e352]:
+                              - generic [ref=e353]: 検索して追加
+                              - searchbox "オーダー検索" [disabled] [ref=e354]
+                              - combobox "カテゴリ選択" [disabled] [ref=e355]:
+                                - option "全カテゴリ" [selected]
+                                - option "処方"
+                                - option "注射"
+                                - option "処置"
+                                - option "検査"
+                                - option "算定"
+                          - group "オーダー追加" [ref=e356]:
+                            - button "+処方" [disabled] [ref=e357]
+                            - button "+注射" [disabled] [ref=e358]
+                            - button "+処置" [disabled] [ref=e359]
+                            - button "+検査" [disabled] [ref=e360]
+                            - button "+算定" [disabled] [ref=e361]
+                            - button "頻用" [disabled] [ref=e362]
+                  - generic [ref=e363]:
+                    - generic [ref=e364]: ORCAサマリ
+                    - generic [ref=e365]: 会計 / 送信 / 確認
+                  - generic [ref=e367]:
+                    - 'alert "注意、dataSourceTransition=server ｜ tone=server carry over dataSourceTransition=server を監査ログへ再送出します。、送信先: ORCA master" [ref=e368]':
+                      - generic [ref=e369]: 注意
+                      - paragraph [ref=e370]: "dataSourceTransition=server ｜ tone=server carry over dataSourceTransition=server を監査ログへ再送出します。 ｜ 送信先: ORCA master"
+                    - status [ref=e371]:
+                      - generic [ref=e372]: "送信状況: 未送信"
+                      - generic [ref=e373]: 警告なし
+                      - generic [ref=e374]: "最終更新: 2026-02-18T14:57:23.394203379Z"
+                    - group [ref=e375]:
+                      - generic "詳細を表示" [ref=e376] [cursor=pointer]
+                    - group "OrcaSummary アクション" [ref=e377]:
+                      - button "予約へ" [ref=e378]
+                      - button "会計へ" [ref=e379]
+                      - button "再取得" [ref=e380]
+                      - button "新規予約" [ref=e381]
+              - complementary "ユーティリティ" [ref=e382]:
+                - generic [ref=e383]:
+                  - generic [ref=e384]:
+                    - tablist "ユーティリティ" [ref=e385]:
+                      - tab "セット/スタンプ Ctrl+Shift+1" [ref=e386] [cursor=pointer]:
+                        - generic [ref=e387]: ★
+                        - generic [ref=e388]:
+                          - generic [ref=e389]: セット/スタンプ
+                          - generic [ref=e390]: Ctrl+Shift+1
+                      - tab "文書 Ctrl+Shift+2" [disabled] [ref=e391]:
+                        - generic [ref=e392]: 文
+                        - generic [ref=e393]:
+                          - generic [ref=e394]: 文書
+                          - generic [ref=e395]: Ctrl+Shift+2
+                    - group "補助メニュー" [ref=e396]:
+                      - button "? ショートカット" [ref=e397] [cursor=pointer]:
+                        - text: "?"
+                        - generic [ref=e398]: ショートカット
+                  - tabpanel:
+                    - generic:
+                      - generic: ⋮⋮
+                      - generic:
+                        - paragraph: ユーティリティ
+                        - heading [level=2]: ユーティリティ
+                        - paragraph: セット/スタンプ・文書・画像入力をまとめて呼び出します。
+                        - paragraph: "Ctrl+Shift+U: 開閉 / Ctrl+Shift+1〜2: タブ切替 / Esc: 閉じる"
+                      - button: 閉じる
+                    - paragraph: ユーティリティを選択してください。
+      - complementary
+  - dialog "患者・受付" [ref=e400]:
+    - banner [ref=e401]:
+      - heading "患者・受付" [level=2] [ref=e402]
+      - button "ダイアログを閉じる" [active] [ref=e403] [cursor=pointer]: ×
+    - paragraph [ref=e404]: 患者選択/受付履歴/監査/Patients連携をまとめて確認します。
+    - generic [ref=e406]:
+      - group "患者パネル操作" [ref=e407]:
+        - button "閉じる" [ref=e408] [cursor=pointer]
+        - button "Receptionへ" [ref=e409] [cursor=pointer]
+      - generic [ref=e410]:
+        - alert "注意、dataSourceTransition=server ｜ tone=server carry over" [ref=e411]:
+          - generic [ref=e412]: 注意
+          - paragraph [ref=e413]: dataSourceTransition=server ｜ tone=server carry over
+        - 'status "情報、予約/来院データがありません。（2026-02-18）、送信先: 予約/来院リスト、次アクション: 必要に応じて再取得" [ref=e414]':
+          - generic [ref=e415]: 情報
+          - paragraph [ref=e416]: "予約/来院データがありません。（2026-02-18） ｜ 送信先: 予約/来院リスト ｜ 次アクション: 必要に応じて再取得"
+        - generic [ref=e417]:
+          - button "患者基本情報へ移動" [ref=e418] [cursor=pointer]:
+            - strong [ref=e419]: 患者未選択
+            - generic [ref=e420]: 患者未選択
+          - group "患者サイドペイン操作" [ref=e421]:
+            - button "基本/保険へ" [ref=e422] [cursor=pointer]
+            - button "差分へ" [ref=e423] [cursor=pointer]
+            - button "保存履歴" [ref=e424] [cursor=pointer]
+        - group [ref=e425]:
+          - generic "運用メタ（dataSourceTransition / master / cache） >" [ref=e426] [cursor=pointer]
+        - generic [ref=e427]:
+          - generic [ref=e428]:
+            - generic "外来一覧の更新時刻と件数" [ref=e429]:
+              - generic [ref=e430]:
+                - text: "最終更新:"
+                - strong [ref=e431]: 2026-02-18 23:57:23
+              - generic [ref=e432]:
+                - text: "表示:"
+                - strong [ref=e433]: "0"
+                - text: "件 / 取得:"
+                - strong [ref=e434]: "0"
+                - text: 件
+            - group "外来一覧操作" [ref=e435]:
+              - button "更新" [ref=e436] [cursor=pointer]
+              - button "さらに読み込む" [disabled] [ref=e437]
+          - generic "外来一覧フィルタ" [ref=e438]:
+            - generic [ref=e439]:
+              - generic [ref=e440]: 検索（氏名/カナ/ID）
+              - searchbox "患者検索キーワード" [ref=e441]
+            - generic [ref=e442]:
+              - group "ステータスフィルタ" [ref=e443]:
+                - button "すべて 0" [ref=e444] [cursor=pointer]:
+                  - text: すべて
+                  - generic [ref=e445]: "0"
+                - button "予約 0" [ref=e446] [cursor=pointer]:
+                  - text: 予約
+                  - generic [ref=e447]: "0"
+                - button "受付中 0" [ref=e448] [cursor=pointer]:
+                  - text: 受付中
+                  - generic [ref=e449]: "0"
+                - button "診療中 0" [ref=e450] [cursor=pointer]:
+                  - text: 診療中
+                  - generic [ref=e451]: "0"
+                - button "会計待ち 0" [ref=e452] [cursor=pointer]:
+                  - text: 会計待ち
+                  - generic [ref=e453]: "0"
+                - button "会計済み 0" [ref=e454] [cursor=pointer]:
+                  - text: 会計済み
+                  - generic [ref=e455]: "0"
+              - generic [ref=e456]:
+                - generic [ref=e457]: 診療科
+                - combobox "診療科" [ref=e458]:
+                  - option "すべて" [selected]
+              - generic [ref=e459]:
+                - generic [ref=e460]: 担当
+                - combobox "担当" [ref=e461]:
+                  - option "すべて" [selected]
+              - generic [ref=e462]:
+                - generic [ref=e463]: 並び替え
+                - combobox "並び替え" [ref=e464]:
+                  - option "時刻順" [selected]
+                  - option "ステータス順"
+                  - option "氏名"
+                  - option "ID"
+              - button "クリア" [disabled] [ref=e465]
+            - generic [ref=e466]: "編集不可（受付ステータス=不明）: 会計待ち以降は編集できません。"
+        - generic [ref=e467]:
+          - list "外来一覧（患者切替）" [ref=e468]:
+            - article [ref=e469] [cursor=pointer]:
+              - generic [ref=e470]:
+                - generic [ref=e471]: 患者データなし
+                - strong [ref=e472]: 外来 API 応答を待機
+              - paragraph [ref=e473]: Reception からの取得結果がまだ届いていません。
+              - generic [ref=e474]: tone=warning
+          - group "患者サイドペイン（基本/保険/履歴/差分）" [ref=e475]:
+            - paragraph [ref=e476]: 患者を選択すると詳細が表示されます。

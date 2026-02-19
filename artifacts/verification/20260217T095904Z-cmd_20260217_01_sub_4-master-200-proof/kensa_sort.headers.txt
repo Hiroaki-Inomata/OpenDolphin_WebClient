@@ -1,0 +1,16 @@
+HTTP/1.1 200 OK
+vary: userName,password
+cache-control: public, max-age=300, stale-while-revalidate=86400
+x-request-id: ba8ffe4c-06be-4b37-81e5-eca72e77fcaa
+referrer-policy: no-referrer
+content-security-policy: default-src 'self'
+x-trace-id: ba8ffe4c-06be-4b37-81e5-eca72e77fcaa
+date: Tue, 17 Feb 2026 09:59:05 GMT
+connection: close
+etag: "03b3cc52063b71914aaa642678376bfc01b50ec3f58a654696ade3a2cf171c91"
+x-run-id: 20260217T095905Z
+x-content-type-options: nosniff
+strict-transport-security: max-age=63072000; includeSubDomains
+content-type: application/json
+content-length: 346
+

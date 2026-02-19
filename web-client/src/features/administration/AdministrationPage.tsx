@@ -462,6 +462,21 @@ const formatDeliveryValue = (value: boolean | string | undefined) => (value === 
 const DEFAULT_DELIVERY_SECTION: DeliverySection = 'dashboard';
 const isDeliverySection = (value: string | null): value is DeliverySection =>
   DELIVERY_SECTION_ITEMS.some((item) => item.id === value);
+const resolveAdministrationTabFromSearch = (params: URLSearchParams): AdministrationTab => {
+  const tab = params.get('tab');
+  if (tab === 'access') return 'orca-users';
+  if (tab === 'orca-users' || tab === 'master-updates') return tab;
+  return 'delivery';
+};
+const resolveDeliverySectionFromSearch = (params: URLSearchParams): DeliverySection => {
+  const section = params.get('section');
+  if (isDeliverySection(section)) return section;
+  return DEFAULT_DELIVERY_SECTION;
+};
+const readCurrentSearchParams = () => {
+  if (typeof window === 'undefined') return new URLSearchParams();
+  return new URLSearchParams(window.location.search);
+};
 
 const buildMedicationTemplateXml = (baseDate: string) =>
   [
@@ -477,46 +492,43 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const isSystemAdmin = isSystemAdminRole(role);
   const session = useSession();
   const { enqueue } = useAppToast();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = (() => {
-    const tab = searchParams.get('tab');
-    if (tab === 'access') return 'orca-users';
-    if (tab === 'orca-users' || tab === 'master-updates') return tab;
-    return 'delivery';
-  })() as AdministrationTab;
-  const activeDeliverySection = (() => {
-    const section = searchParams.get('section');
-    if (isDeliverySection(section)) return section;
-    return DEFAULT_DELIVERY_SECTION;
-  })();
+  const [, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<AdministrationTab>(() => resolveAdministrationTabFromSearch(readCurrentSearchParams()));
+  const [activeDeliverySection, setActiveDeliverySection] = useState<DeliverySection>(() =>
+    resolveDeliverySectionFromSearch(readCurrentSearchParams()),
+  );
+  useEffect(() => {
+    const syncFromLocation = () => {
+      const params = readCurrentSearchParams();
+      setActiveTab(resolveAdministrationTabFromSearch(params));
+      setActiveDeliverySection(resolveDeliverySectionFromSearch(params));
+    };
+    window.addEventListener('popstate', syncFromLocation);
+    return () => window.removeEventListener('popstate', syncFromLocation);
+  }, []);
   const handleTabChange = (next: AdministrationTab) => {
-    setSearchParams(
-      (prev) => {
-        const updated = new URLSearchParams(prev);
-        if (next === 'delivery') {
-          updated.delete('tab');
-          if (!isDeliverySection(updated.get('section'))) {
-            updated.set('section', DEFAULT_DELIVERY_SECTION);
-          }
-        } else {
-          updated.set('tab', next);
-          updated.delete('section');
-        }
-        return updated;
-      },
-      { replace: false },
-    );
+    setActiveTab(next);
+    if (next === 'delivery') {
+      const params = readCurrentSearchParams();
+      const nextSection = resolveDeliverySectionFromSearch(params);
+      setActiveDeliverySection(nextSection);
+      params.delete('tab');
+      params.set('section', nextSection);
+      setSearchParams(params, { replace: false });
+      return;
+    }
+    const params = readCurrentSearchParams();
+    params.set('tab', next);
+    params.delete('section');
+    setSearchParams(params, { replace: false });
   };
   const handleDeliverySectionChange = (next: DeliverySection) => {
-    setSearchParams(
-      (prev) => {
-        const updated = new URLSearchParams(prev);
-        updated.delete('tab');
-        updated.set('section', next);
-        return updated;
-      },
-      { replace: false },
-    );
+    setActiveTab('delivery');
+    setActiveDeliverySection(next);
+    const params = readCurrentSearchParams();
+    params.delete('tab');
+    params.set('section', next);
+    setSearchParams(params, { replace: false });
   };
   const appliedMeta = useRef<Partial<AuthServiceFlags>>({});
   const guardLogRef = useRef<{ runId?: string; role?: string }>({});
@@ -1960,7 +1972,9 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const masterVersionDiffs = countVersionDiffs(masterLastUpdateResult?.versions);
   const systemVersionDiffs = countVersionDiffs(systemInfoResult?.versions);
   const masterStatusTone = resolveStatusTone(masterLastUpdateResult, masterLastUpdateMutation.isPending);
+  const masterStatusLabel = resolveStatusLabel(masterLastUpdateResult, masterLastUpdateMutation.isPending);
   const medicationStatusTone = resolveStatusTone(medicationSyncResult, medicationModMutation.isPending);
+  const medicationStatusLabel = resolveStatusLabel(medicationSyncResult, medicationModMutation.isPending);
   const systemInfoStatusTone = resolveStatusTone(systemInfoResult, systemHealthMutation.isPending);
   const systemDailyStatusTone = resolveStatusTone(systemDailyResult, systemHealthMutation.isPending);
   const medicalSetStatusTone = resolveStatusTone(medicalSetResult, medicalSetMutation.isPending);
@@ -1970,34 +1984,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const isMasterUpdateDetected = masterUpdateLabel === '更新あり';
   const masterUpdateHeadline = isMasterUpdateDetected ? '更新検知: 同期推奨' : `更新検知: ${masterUpdateLabel}`;
   const traceId = queueQuery.data?.traceId ?? orcaConnectionTestResult?.traceId;
-  const deliveryMode = configQuery.data?.deliveryMode ?? rawDelivery?.deliveryMode ?? rawConfig?.deliveryMode;
-  const effectiveDeliveryEtag = configQuery.data?.deliveryEtag ?? configQuery.data?.deliveryVersion;
-  const deliveryStatus = buildChartsDeliveryStatus(rawConfig, rawDelivery);
-  const deliverySummary = summarizeDeliveryStatus(deliveryStatus);
-  const lastDeliveredAt = rawDelivery?.deliveredAt ?? configQuery.data?.deliveredAt;
-  const deliveryFlagRows = [
-    {
-      key: 'chartsDisplayEnabled',
-      label: 'Charts表示',
-      configValue: rawConfig?.chartsDisplayEnabled,
-      deliveryValue: rawDelivery?.chartsDisplayEnabled,
-      state: deliveryStatus.chartsDisplayEnabled ?? 'unknown',
-    },
-    {
-      key: 'chartsSendEnabled',
-      label: 'Charts送信',
-      configValue: rawConfig?.chartsSendEnabled,
-      deliveryValue: rawDelivery?.chartsSendEnabled,
-      state: deliveryStatus.chartsSendEnabled ?? 'unknown',
-    },
-    {
-      key: 'chartsMasterSource',
-      label: 'Charts masterSource',
-      configValue: rawConfig?.chartsMasterSource,
-      deliveryValue: rawDelivery?.chartsMasterSource,
-      state: deliveryStatus.chartsMasterSource ?? 'unknown',
-    },
-  ];
   const queueSummary = useMemo(() => {
     let pending = 0;
     let failed = 0;
@@ -2024,16 +2010,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
       : orcaConnectionAuthBlocked
         ? '認証要確認'
         : '未確認';
-  const masterVersionDiffs = countVersionDiffs(masterLastUpdateResult?.versions);
-  const masterStatusTone = resolveStatusTone(masterLastUpdateResult, masterLastUpdateMutation.isPending);
-  const masterStatusLabel = resolveStatusLabel(masterLastUpdateResult, masterLastUpdateMutation.isPending);
-  const medicationStatusTone = resolveStatusTone(medicationSyncResult, medicationModMutation.isPending);
-  const medicationStatusLabel = resolveStatusLabel(medicationSyncResult, medicationModMutation.isPending);
-  const systemInfoStatusTone = resolveStatusTone(systemInfoResult, systemHealthMutation.isPending);
-  const systemDailyStatusTone = resolveStatusTone(systemDailyResult, systemHealthMutation.isPending);
-  const medicalSetStatusTone = resolveStatusTone(medicalSetResult, medicalSetMutation.isPending);
-  const orcaConnectionStatusTone = resolveStatusTone(orcaConnectionTestResult, orcaConnectionTestMutation.isPending);
-  const orcaConnectionStatusLabel = resolveStatusLabel(orcaConnectionTestResult, orcaConnectionTestMutation.isPending);
   const abnormalSummary = (() => {
     const fragments: string[] = [];
     const dbDiffs = countVersionDiffs(systemInfoResult?.versions);

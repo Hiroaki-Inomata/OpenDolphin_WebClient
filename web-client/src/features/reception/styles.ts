@@ -1175,35 +1175,6 @@ export const receptionStyles = css`
     align-items: center;
   }
 
-  .reception-accept__quick-open {
-    display: inline-flex;
-    gap: 0.45rem;
-    align-items: center;
-  }
-
-  .reception-accept__quick-open input {
-    width: 8.25rem;
-    border-radius: 999px;
-    border: 1px solid #cbd5e1;
-    padding: 0.45rem 0.7rem;
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-    font-size: 0.9rem;
-    font-weight: 800;
-    background: #ffffff;
-    color: #0f172a;
-  }
-
-  .reception-accept__quick-open input:focus-visible {
-    outline: 3px solid rgba(37, 99, 235, 0.45);
-    outline-offset: 2px;
-  }
-
-  .reception-accept__quick-open .reception-search__button {
-    padding: 0.45rem 0.85rem;
-    font-size: 0.85rem;
-    font-weight: 900;
-  }
-
   .reception-selection__button.danger {
     border-color: #b91c1c;
     background: #b91c1c;
@@ -2796,12 +2767,38 @@ export const receptionStyles = css`
     padding: 0;
     text-align: left;
     cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .reception-patient-search__item-main {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.6rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+
+  .reception-patient-search__item-id {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #475569;
   }
 
   .reception-patient-search__item-select:focus-visible {
     outline: 3px solid rgba(37, 99, 235, 0.45);
     outline-offset: 2px;
     border-radius: 12px;
+  }
+
+  .reception-patient-search__item-details {
+    border-top: 1px solid rgba(148, 163, 184, 0.25);
+    padding-top: 0.55rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
   }
 
   .reception-patient-search__item-actions {
@@ -2840,13 +2837,47 @@ export const receptionStyles = css`
   }
 
   .reception-patient-search__item-meta {
-    margin-top: 0.35rem;
     display: flex;
     flex-wrap: wrap;
     gap: 0.35rem 0.75rem;
     font-size: 0.85rem;
     color: #475569;
     font-weight: 600;
+  }
+
+  .reception-patient-search__pagination {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    padding-top: 0.6rem;
+  }
+
+  .reception-patient-search__pagination-range {
+    font-size: 0.82rem;
+    color: #64748b;
+    font-weight: 700;
+  }
+
+  .reception-patient-search__pagination-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .reception-patient-search__pagination-actions .reception-search__button {
+    padding: 0.4rem 0.65rem;
+    font-size: 0.8rem;
+  }
+
+  .reception-patient-search__pagination-page {
+    min-width: 4.6rem;
+    text-align: center;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #334155;
   }
 
   .reception-history {

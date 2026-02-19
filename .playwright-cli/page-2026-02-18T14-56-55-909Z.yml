@@ -1,0 +1,173 @@
+- generic [ref=e2]:
+  - link "本文へスキップ" [ref=e34] [cursor=pointer]:
+    - /url: "#app-shell-main"
+  - generic [ref=e35]:
+    - status [ref=e36]:
+      - generic [ref=e37]:
+        - generic [ref=e38]: OpenDolphin Web
+        - generic [ref=e39]: 電子カルテデモシェル
+      - generic [ref=e40]:
+        - generic [ref=e41]: "施設ID: 1.3.6.1.4.1.9414.10.1"
+        - generic [ref=e42]: "ユーザー: OR Master Admin"
+        - generic [ref=e43]: "role: admin 認可ロール"
+        - 'button "RUN_ID をコピー: 20260218T145648Z" [ref=e44] [cursor=pointer]':
+          - text: "RUN_ID: 20260218T145648Z"
+          - generic [ref=e45]: クリックでコピー
+        - group "画面ショートカット" [ref=e46]:
+          - button "受付" [ref=e47] [cursor=pointer]:
+            - img [ref=e48]
+            - text: 受付
+          - button "カルテ" [ref=e50] [cursor=pointer]:
+            - img [ref=e51]
+            - text: カルテ
+          - button "患者管理" [ref=e55] [cursor=pointer]:
+            - img [ref=e56]
+            - text: 患者管理
+        - 'status "HTTP 200 / Api_Result 00 / 最終確認: 2026/2/18 23:56:49" [ref=e61]': "ORCA: 接続OK"
+        - button "管理画面を開く" [ref=e62] [cursor=pointer]: 管理画面
+        - button "施設/ユーザー切替" [ref=e63] [cursor=pointer]
+        - button "ログアウト" [ref=e64] [cursor=pointer]
+    - main [ref=e66]:
+      - link "検索結果へスキップ" [ref=e67] [cursor=pointer]:
+        - /url: "#reception-results"
+      - link "右ペインへスキップ" [ref=e68] [cursor=pointer]:
+        - /url: "#reception-sidepane"
+      - region "戻り導線" [ref=e69]:
+        - generic [ref=e70]:
+          - button "◀︎ 戻る" [ref=e71] [cursor=pointer]
+          - generic [ref=e72]: 戻り先がないため安全な画面へ戻ります
+        - group "主要画面へ" [ref=e73]:
+          - button "患者管理へ" [ref=e74] [cursor=pointer]
+          - button "カルテへ" [ref=e75] [cursor=pointer]
+      - generic [ref=e76]:
+        - generic [ref=e77]:
+          - generic [ref=e78]:
+            - heading "Reception 受付一覧と更新状況" [level=1] [ref=e79]
+            - paragraph [ref=e80]: 受付一覧の状態と更新時刻をひと目で確認し、例外対応とカルテ起動の優先度を判断します。選択した患者は右ペインで詳細を確認できます。
+          - 'button "日次状態: 未取得（カレンダー）" [ref=e83] [cursor=pointer]':
+            - generic [ref=e84]: "日次状態: 未取得"
+            - generic [ref=e85]: 2026-02-18
+        - status [ref=e86]:
+          - status [ref=e87]:
+            - generic [ref=e88]: RUN_ID
+            - generic [ref=e89]: 20260218T145648Z
+            - button "RUN_ID をコピー" [ref=e90] [cursor=pointer]: コピー
+          - 'status "dataSourceTransition: server" [ref=e91]':
+            - generic [ref=e92]: dataSourceTransition
+            - generic [ref=e93]: server
+          - 'status "missingMaster: false" [ref=e94]':
+            - generic [ref=e95]: missingMaster
+            - generic [ref=e96]: "false"
+          - 'status "cacheHit: false" [ref=e97]':
+            - generic [ref=e98]: cacheHit
+            - generic [ref=e99]: "false"
+          - status [ref=e100]:
+            - generic [ref=e101]: "監査サマリ:"
+            - generic [ref=e102]: APPOINTMENT_OUTPATIENT_FETCH(success)
+          - 'status "最終更新: 2026/2/18 23:56:50" [ref=e103]':
+            - generic [ref=e104]: 最終更新
+            - generic [ref=e105]: 2026/2/18 23:56:50
+          - button "例外一覧を開く（0件）" [ref=e106] [cursor=pointer]:
+            - generic [ref=e107]: "!"
+            - generic [ref=e108]: 例外
+            - generic [ref=e109]: "0"
+        - region "検索とフィルタ" [ref=e110]:
+          - generic [ref=e111]:
+            - generic [ref=e112]:
+              - heading "検索/フィルタ" [level=2] [ref=e113]
+              - generic [ref=e114]:
+                - generic [ref=e115]: "日付: 2026-02-18"
+                - generic [ref=e116]: "kw: —"
+                - generic [ref=e117]: "科: すべて"
+                - generic [ref=e118]: "医: すべて"
+                - generic [ref=e119]: "支払: すべて"
+                - generic [ref=e120]: "src: 未取得"
+                - generic [ref=e121]: "sort: time"
+              - generic [ref=e122]: "検索結果 0件（予約: 0件 / 診察待ち: 0件 / 診察中: 0件 / 診察終了: 0件 / 会計済み: 0件）"
+            - button "開く" [ref=e123] [cursor=pointer]
+      - generic [ref=e124]:
+        - region "ステータス別患者一覧" [ref=e126]:
+          - region "予約 0件" [ref=e127]:
+            - generic [ref=e128]:
+              - generic [ref=e129]:
+                - heading "予約" [level=2] [ref=e130]
+                - generic [ref=e131]: 0件
+              - button "折りたたむ" [expanded] [ref=e132] [cursor=pointer]
+            - list "予約の患者一覧" [ref=e133]:
+              - paragraph [ref=e134]: 該当なし
+          - region "診察待ち 0件" [ref=e135]:
+            - generic [ref=e136]:
+              - generic [ref=e137]:
+                - heading "診察待ち" [level=2] [ref=e138]
+                - generic [ref=e139]: 0件
+              - button "折りたたむ" [expanded] [ref=e140] [cursor=pointer]
+            - list "診察待ちの患者一覧" [ref=e141]:
+              - paragraph [ref=e142]: 該当なし
+          - region "診察中 0件" [ref=e143]:
+            - generic [ref=e144]:
+              - generic [ref=e145]:
+                - heading "診察中" [level=2] [ref=e146]
+                - generic [ref=e147]: 0件
+              - button "折りたたむ" [expanded] [ref=e148] [cursor=pointer]
+            - list "診察中の患者一覧" [ref=e149]:
+              - paragraph [ref=e150]: 該当なし
+          - region "診察終了 0件" [ref=e151]:
+            - generic [ref=e152]:
+              - generic [ref=e153]:
+                - heading "診察終了" [level=2] [ref=e154]
+                - generic [ref=e155]: 0件
+              - button "折りたたむ" [expanded] [ref=e156] [cursor=pointer]
+            - list "診察終了の患者一覧" [ref=e157]:
+              - paragraph [ref=e158]: 該当なし
+          - region "会計済み 0件" [ref=e159]:
+            - generic [ref=e160]:
+              - generic [ref=e161]:
+                - heading "会計済み" [level=2] [ref=e162]
+                - generic [ref=e163]: 0件
+              - button "開く" [ref=e164] [cursor=pointer]
+        - complementary "右ペイン" [ref=e165]:
+          - region "当日受付" [ref=e166]:
+            - generic [ref=e167]:
+              - generic [ref=e168]:
+                - heading "当日受付" [level=2] [ref=e169]
+                - paragraph [ref=e170]: 患者検索（AND）→ 選択 → 受付登録。
+              - status [ref=e172]:
+                - generic [ref=e173]: RUN_ID
+                - generic [ref=e174]: 20260218T145648Z
+                - button "RUN_ID をコピー" [ref=e175] [cursor=pointer]: コピー
+            - region "患者検索" [ref=e176]:
+              - generic [ref=e177]:
+                - heading "患者検索" [level=3] [ref=e178]
+                - generic [ref=e179]:
+                  - generic [ref=e180]: 0件
+                  - button "クリア" [ref=e181] [cursor=pointer]
+              - generic [ref=e182]:
+                - generic [ref=e184]:
+                  - generic [ref=e185]: 患者ID
+                  - searchbox "患者ID" [ref=e186]
+                - generic [ref=e187]:
+                  - generic [ref=e188]:
+                    - generic [ref=e189]: 氏名（姓）
+                    - searchbox "氏名（姓）" [ref=e190]
+                  - generic [ref=e191]:
+                    - generic [ref=e192]: 氏名（名）
+                    - searchbox "氏名（名）" [ref=e193]
+                - generic [ref=e194]:
+                  - generic [ref=e195]:
+                    - generic [ref=e196]: カナ（セイ）
+                    - searchbox "カナ（セイ）" [ref=e197]
+                  - generic [ref=e198]:
+                    - generic [ref=e199]: カナ（メイ）
+                    - searchbox "カナ（メイ）" [ref=e200]
+                - button "検索" [ref=e202] [cursor=pointer]
+              - list "検索結果" [ref=e203]:
+                - paragraph [ref=e204]: 検索結果がありません。
+            - generic [ref=e205]:
+              - generic [ref=e206]:
+                - generic [ref=e207]: 受付対象
+                - strong [ref=e208]: 未選択
+                - generic [ref=e209]: "患者ID: —"
+              - generic [ref=e210]:
+                - button "詳細" [ref=e211] [cursor=pointer]
+                - button "受付登録" [disabled] [ref=e212] [cursor=pointer]
+    - complementary

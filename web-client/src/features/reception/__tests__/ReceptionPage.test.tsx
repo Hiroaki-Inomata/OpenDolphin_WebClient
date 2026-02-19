@@ -33,6 +33,7 @@ const baseAppointmentData: AppointmentPayload = {
 let mockClaimData = { ...baseClaimData };
 let mockAppointmentData = { ...baseAppointmentData };
 let mockMutationResult: any = null;
+let mockMutationQueue: any[] = [];
 let mockMutationPending = false;
 let mockClaimSendCache: Record<string, { invoiceNumber?: string; dataId?: string; sendStatus?: 'success' | 'error' }> =
   {};
@@ -247,9 +248,20 @@ vi.mock('@tanstack/react-query', () => ({
       refetch: vi.fn(),
     };
   },
-  useMutation: () => ({
+  useMutation: (options?: {
+    onSuccess?: (data: any, variables: any, context: unknown) => void;
+    onError?: (error: unknown, variables: any, context: unknown) => void;
+  }) => ({
     mutate: vi.fn(),
-    mutateAsync: vi.fn(async () => mockMutationResult ?? {}),
+    mutateAsync: vi.fn(async (variables?: unknown) => {
+      const nextResult = mockMutationQueue.length > 0 ? mockMutationQueue.shift() : (mockMutationResult ?? {});
+      if (nextResult instanceof Error) {
+        options?.onError?.(nextResult, variables, undefined);
+        throw nextResult;
+      }
+      options?.onSuccess?.(nextResult, variables, undefined);
+      return nextResult;
+    }),
     isPending: mockMutationPending,
   }),
   useQueryClient: () => ({
@@ -285,6 +297,7 @@ beforeEach(() => {
   mockClaimData = { ...baseClaimData };
   mockAppointmentData = { ...baseAppointmentData };
   mockMutationResult = null;
+  mockMutationQueue = [];
   mockMutationPending = false;
   mockClaimSendCache = {};
   mockSearchParams = new URLSearchParams();
@@ -572,6 +585,98 @@ describe('ReceptionPage list and side pane guidance', () => {
     // Debug panels should not be visible by default.
     expect(screen.queryByTestId('order-console')).toBeNull();
     expect(screen.queryByTestId('reception-audit')).toBeNull();
+  });
+
+  it('removes direct chart-open form from 当日受付 header', () => {
+    renderReceptionPage();
+    const acceptSection = screen.getByRole('region', { name: '当日受付' });
+    expect(within(acceptSection).queryByLabelText('患者IDでカルテを開く')).toBeNull();
+  });
+
+  it('shows patient-search details only for selected result', async () => {
+    mockMutationQueue.push({
+      patients: [
+        {
+          patientId: 'P-101',
+          name: '検索患者一',
+          kana: 'ケンサクカンジャイチ',
+          birthDate: '1980-01-01',
+          sex: 'M',
+          insurance: '保険',
+          lastVisit: '2026-02-10',
+        },
+        {
+          patientId: 'P-102',
+          name: '検索患者二',
+          kana: 'ケンサクカンジャニ',
+          birthDate: '1990-02-02',
+          sex: 'F',
+          insurance: '自費',
+          lastVisit: '2026-02-12',
+        },
+      ],
+      recordsReturned: 2,
+      runId: 'RUN-SEARCH',
+    });
+
+    const user = userEvent.setup();
+    renderReceptionPage();
+
+    const patientSearch = screen.getByRole('region', { name: '患者検索' });
+    await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-1');
+    await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
+
+    await waitFor(() => {
+      expect(within(patientSearch).getByText('検索患者一')).toBeInTheDocument();
+    });
+
+    expect(within(patientSearch).queryByText('生年月日: 1980-01-01')).toBeNull();
+    expect(within(patientSearch).queryByRole('button', { name: 'カルテを開く' })).toBeNull();
+
+    await user.click(within(patientSearch).getByRole('button', { name: /検索患者一/ }));
+
+    expect(within(patientSearch).getByText('生年月日: 1980-01-01')).toBeInTheDocument();
+    expect(within(patientSearch).getByRole('button', { name: 'カルテを開く' })).toBeInTheDocument();
+    expect(within(patientSearch).queryByText('生年月日: 1990-02-02')).toBeNull();
+  });
+
+  it('paginates patient-search results when the hit count is large', async () => {
+    mockMutationQueue.push({
+      patients: Array.from({ length: 55 }, (_, index) => {
+        const suffix = String(index + 1).padStart(3, '0');
+        return {
+          patientId: `P-${suffix}`,
+          name: `ページ患者${suffix}`,
+        };
+      }),
+      recordsReturned: 55,
+      runId: 'RUN-SEARCH-PAGE',
+    });
+
+    const user = userEvent.setup();
+    renderReceptionPage();
+
+    const patientSearch = screen.getByRole('region', { name: '患者検索' });
+    await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-');
+    await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
+
+    await waitFor(() => {
+      expect(within(patientSearch).getByText('ページ患者001')).toBeInTheDocument();
+      expect(within(patientSearch).getByRole('navigation', { name: '検索結果ページ' })).toBeInTheDocument();
+    });
+
+    expect(within(patientSearch).getByText('ページ患者050')).toBeInTheDocument();
+    expect(within(patientSearch).queryByText('ページ患者051')).toBeNull();
+    expect(within(patientSearch).getByText('1 / 2')).toBeInTheDocument();
+
+    const pager = within(patientSearch).getByRole('navigation', { name: '検索結果ページ' });
+    await user.click(within(pager).getByRole('button', { name: '次へ' }));
+
+    await waitFor(() => {
+      expect(within(patientSearch).getByText('ページ患者051')).toBeInTheDocument();
+    });
+    expect(within(patientSearch).queryByText('ページ患者001')).toBeNull();
+    expect(within(patientSearch).getByText('2 / 2')).toBeInTheDocument();
   });
 });
 

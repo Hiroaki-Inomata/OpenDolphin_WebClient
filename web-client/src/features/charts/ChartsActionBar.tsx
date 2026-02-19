@@ -678,7 +678,7 @@ export function ChartsActionBar({
       });
     }
 
-    if (hasUnsavedDraft) {
+    if (!embedded && hasUnsavedDraft) {
       reasons.push({
         key: 'draft_unsaved',
         summary: '未保存ドラフト: 保存前で送信不可',
@@ -738,6 +738,7 @@ export function ChartsActionBar({
     requirePatientForSend,
     sendDisabledReason,
     sendEnabled,
+    embedded,
     uiLocked,
     isServerRoute,
     resolvedPatientId,
@@ -937,7 +938,7 @@ export function ChartsActionBar({
       return `${ACTION_LABEL[runningAction]}を実行中… dataSourceTransition=${dataSourceTransition}`;
     }
     if (approvalLocked) {
-      return `承認済み（署名確定）: 編集不可（runId=${approvalLock?.runId ?? runId}）`;
+      return '承認済み（署名確定）: 編集不可';
     }
     if (resolvedLockReason) return resolvedLockReason;
     if (readOnly) return readOnlyReason;
@@ -954,7 +955,7 @@ export function ChartsActionBar({
       return `診察終了ガード: ${summary?.summary ?? finishPrecheckReasons[0].summary}`;
     }
     if (sendQueueLabel) {
-      return `送信状態: ${sendQueueLabel}（runId=${runId} / traceId=${resolvedTraceId ?? 'unknown'}${queueEntry?.requestId ? ` / requestId=${queueEntry.requestId}` : ''}）`;
+      return `送信状態: ${sendQueueLabel}${queueEntry?.requestId ? `（requestId=${queueEntry.requestId}）` : ''}`;
     }
     return 'アクションを選択できます';
   }, [
@@ -2492,23 +2493,24 @@ export function ChartsActionBar({
     onForceTakeover?.();
   };
 
-  // In compact header mode we collapse the actionbar details by default to reclaim vertical space.
-  // However, "Draft save" must remain reachable (and focusable via `#charts-action-draft`) even while collapsed.
-  const draftSaveButton = (
-    <button
-      type="button"
-      id="charts-action-draft"
-      className={`charts-actions__button charts-actions__button--draft${
-        compactHeader && isHeaderCollapsed ? ' charts-actions__button--compact' : ''
-      }`}
-      disabled={otherBlocked}
-      data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
-      onClick={() => handleAction('draft')}
-      aria-keyshortcuts="Shift+Enter"
-    >
-      ドラフト保存
-    </button>
-  );
+  const showDraftAction = !embedded;
+  const draftSaveButton = !showDraftAction
+    ? null
+    : (
+        <button
+          type="button"
+          id="charts-action-draft"
+          className={`charts-actions__button charts-actions__button--draft${
+            compactHeader && isHeaderCollapsed ? ' charts-actions__button--compact' : ''
+          }`}
+          disabled={otherBlocked}
+          data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
+          onClick={() => handleAction('draft')}
+          aria-keyshortcuts="Shift+Enter"
+        >
+          ドラフト保存
+        </button>
+      );
 
   return (
     <section
@@ -2528,13 +2530,13 @@ export function ChartsActionBar({
           <p className="charts-actions__kicker">
             {embedded ? '診療操作' : compactHeader ? '診察状況・送信パネル' : '診察状況更新と送信制御'}
           </p>
-          <h2>{embedded ? '診察状況・送信' : compactHeader ? '診察状況・送信' : '診察状況更新・送信・ドラフト'}</h2>
+          <h2>診察状況・送信</h2>
           <p className={`charts-actions__status charts-actions__status--${statusTone}`} role="status">
             {statusLine}
           </p>
           {compactHeader ? (
             <div className="charts-actions__quick-controls" role="group" aria-label="Charts クイック操作">
-              {isHeaderCollapsed ? draftSaveButton : null}
+              {showDraftAction && isHeaderCollapsed ? draftSaveButton : null}
               <button
                 type="button"
                 className="charts-actions__toggle"
@@ -2837,7 +2839,7 @@ export function ChartsActionBar({
       ) : null}
 
       <div className="charts-actions__controls">
-        <div className="charts-actions__group" data-group="encounter" role="group" aria-label="診察状況更新">
+        <div className="charts-actions__group" data-group="encounter" role="group" aria-label={embedded ? '診察開始' : '診察状況更新'}>
           <button
             type="button"
             id="charts-action-start"
@@ -2855,34 +2857,38 @@ export function ChartsActionBar({
           >
             診察開始
           </button>
-          <button
-            type="button"
-            id="charts-action-pause"
-            className="charts-actions__button charts-actions__button--encounter-pause"
-            disabled={otherBlocked || !resolvedPatientId}
-            data-disabled-reason={
-              otherBlocked
-                ? (isLocked ? 'locked' : undefined)
-                : !resolvedPatientId
-                  ? 'patient_not_selected'
-                  : undefined
-            }
-            onClick={() => handleAction('pause')}
-          >
-            診察中断
-          </button>
-          <button
-            type="button"
-            id="charts-action-finish"
-            className={`charts-actions__button charts-actions__button--encounter-finish${primaryAction === 'finish' ? ' charts-actions__button--primary-route' : ''}`}
-            disabled={otherBlocked}
-            data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
-            title={otherBlocked ? statusLine : undefined}
-            onClick={() => handleAction('finish')}
-            aria-keyshortcuts="Alt+E"
-          >
-            診察終了
-          </button>
+          {embedded ? null : (
+            <>
+              <button
+                type="button"
+                id="charts-action-pause"
+                className="charts-actions__button charts-actions__button--encounter-pause"
+                disabled={otherBlocked || !resolvedPatientId}
+                data-disabled-reason={
+                  otherBlocked
+                    ? (isLocked ? 'locked' : undefined)
+                    : !resolvedPatientId
+                      ? 'patient_not_selected'
+                      : undefined
+                }
+                onClick={() => handleAction('pause')}
+              >
+                診察中断
+              </button>
+              <button
+                type="button"
+                id="charts-action-finish"
+                className={`charts-actions__button charts-actions__button--encounter-finish${primaryAction === 'finish' ? ' charts-actions__button--primary-route' : ''}`}
+                disabled={otherBlocked}
+                data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
+                title={otherBlocked ? statusLine : undefined}
+                onClick={() => handleAction('finish')}
+                aria-keyshortcuts="Alt+E"
+              >
+                診察終了
+              </button>
+            </>
+          )}
         </div>
         <div className="charts-actions__group" data-group="send" role="group" aria-label="主要送信操作">
           <button
@@ -2914,7 +2920,7 @@ export function ChartsActionBar({
       <details className="charts-actions__more">
         <summary className="charts-actions__more-summary">その他</summary>
         <div className="charts-actions__more-actions" role="group" aria-label="補助操作">
-          {compactHeader && isHeaderCollapsed ? null : draftSaveButton}
+          {showDraftAction && (compactHeader && isHeaderCollapsed ? null : draftSaveButton)}
           <button
             type="button"
             id="charts-action-print"

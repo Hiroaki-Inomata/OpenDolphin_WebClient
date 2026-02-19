@@ -101,7 +101,7 @@ describe('OrderBundleEditPanel bundle number UI', () => {
     await selectUsage(user);
     expect(screen.getByLabelText('日数')).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText('剤区分'), 'tonyo');
+    await user.click(screen.getByRole('button', { name: '頓用' }));
 
     const bundleNumberInput = screen.getByLabelText('回数') as HTMLInputElement;
     expect(bundleNumberInput).toBeInTheDocument();
@@ -115,13 +115,12 @@ describe('OrderBundleEditPanel bundle number UI', () => {
     vi.mocked(mutateOrderBundles).mockResolvedValueOnce({ ok: true, runId: 'RUN-ORDER' });
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    await user.type(screen.getByPlaceholderText('項目名'), 'アムロジピン');
+    await user.type(screen.getByPlaceholderText('薬剤名'), 'アムロジピン');
     await selectUsage(user);
-    await user.click(screen.getByLabelText('院内'));
-    await user.selectOptions(screen.getByLabelText('剤区分'), 'tonyo');
+    await user.click(screen.getByRole('button', { name: '院内' }));
+    await user.click(screen.getByRole('button', { name: '頓用' }));
     await user.clear(screen.getByLabelText('回数'));
     await user.type(screen.getByLabelText('回数'), '3');
-    await user.type(screen.getByLabelText('RP名'), 'RP-A');
 
     await user.click(screen.getByRole('button', { name: '保存して追加' }));
 

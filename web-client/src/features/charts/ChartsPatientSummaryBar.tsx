@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { resolveAriaLive } from '../../libs/observability/observability';
 import type { DataSourceTransition } from '../../libs/observability/types';
-import { RunIdBadge } from '../shared/RunIdBadge';
 import { PatientMetaRow } from '../shared/PatientMetaRow';
 import type { AllergyEntry } from './karteExtrasApi';
 
@@ -45,10 +44,10 @@ type ChartsPatientSummaryBarProps = {
   };
   onToggleSafetyDetail?: (open: boolean) => void;
   onOpenPatientPanel?: () => void;
-  quickOpenPatientId?: string;
-  quickOpenPending?: boolean;
-  onQuickOpenPatientIdChange?: (value: string) => void;
-  onQuickOpenSubmit?: (event: FormEvent<HTMLFormElement>) => void;
+  onFinishEncounter?: () => void;
+  onPauseEncounter?: () => void;
+  encounterActionDisabled?: boolean;
+  inlineActionBar?: ReactNode;
 };
 
 const normalizeValue = (value?: string): string | undefined => {
@@ -83,31 +82,6 @@ const truncate = (value: string, max: number): string => {
   return `${value.slice(0, max)}...`;
 };
 
-const resolveSafetyTone = (params: {
-  missingMaster?: boolean;
-  fallbackUsed?: boolean;
-  cacheHit?: boolean;
-  dataSourceTransition?: DataSourceTransition;
-}): 'warning' | 'info' | 'neutral' => {
-  if (params.missingMaster || params.fallbackUsed) return 'warning';
-  if (params.dataSourceTransition && params.dataSourceTransition !== 'server') return 'info';
-  if (params.cacheHit) return 'info';
-  return 'neutral';
-};
-
-const resolveSafetyLabel = (params: {
-  missingMaster?: boolean;
-  fallbackUsed?: boolean;
-  cacheHit?: boolean;
-  dataSourceTransition?: DataSourceTransition;
-}): string => {
-  if (params.missingMaster) return 'master未同期';
-  if (params.fallbackUsed) return 'fallback';
-  if (params.cacheHit) return 'cache';
-  if (params.dataSourceTransition && params.dataSourceTransition !== 'server') return params.dataSourceTransition;
-  return 'OK';
-};
-
 export function ChartsPatientSummaryBar({
   patientDisplay,
   patientId,
@@ -128,23 +102,21 @@ export function ChartsPatientSummaryBar({
   lockStatus,
   onToggleSafetyDetail,
   onOpenPatientPanel,
-  quickOpenPatientId,
-  quickOpenPending = false,
-  onQuickOpenPatientIdChange,
-  onQuickOpenSubmit,
+  onFinishEncounter,
+  onPauseEncounter,
+  encounterActionDisabled = false,
+  inlineActionBar,
 }: ChartsPatientSummaryBarProps) {
   const [detailOpen, setDetailOpen] = useState(false);
   const [allergyOpen, setAllergyOpen] = useState(false);
-  const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
+  const [memoOpen, setMemoOpen] = useState(false);
 
   useEffect(() => {
     setDetailOpen(false);
     setAllergyOpen(false);
-    setQuickSwitchOpen(false);
+    setMemoOpen(false);
   }, [appointmentId, patientDisplay.name, patientId, receptionId]);
 
-  const safetyTone = resolveSafetyTone({ missingMaster, fallbackUsed, cacheHit, dataSourceTransition });
-  const safetyLabel = resolveSafetyLabel({ missingMaster, fallbackUsed, cacheHit, dataSourceTransition });
   const kana = normalizeValue(patientDisplay.kana);
   const sexAge = formatSexAge(patientDisplay.sex, patientDisplay.age);
   const birthEra = normalizeValue(patientDisplay.birthDateEra);
@@ -154,8 +126,10 @@ export function ChartsPatientSummaryBar({
     return birthEra ?? birthIso;
   }, [birthEra, birthIso]);
   const memo = normalizeMemo(patientDisplay.note);
-  const memoSnippet = memo ? truncate(memo, 26) : undefined;
   const hasAllergyHint = memo ? /アレル|allerg/i.test(memo) : false;
+  const memoChipLabel = memo
+    ? `${hasAllergyHint ? 'アレルギー/メモ' : 'メモ'}: ${truncate(memo, 14)}`
+    : undefined;
   const allergyItems = useMemo(() => (allergies ?? []).filter(Boolean), [allergies]);
   const allergyCount = allergyItems.length;
 
@@ -163,15 +137,10 @@ export function ChartsPatientSummaryBar({
     () =>
       [
         birthLabel ? { label: '生年月日', value: birthLabel } : undefined,
-        typeof missingMaster === 'boolean' ? { label: 'missingMaster', value: String(missingMaster) } : undefined,
-        typeof fallbackUsed === 'boolean' ? { label: 'fallbackUsed', value: String(fallbackUsed) } : undefined,
-        typeof cacheHit === 'boolean' ? { label: 'cacheHit', value: String(cacheHit) } : undefined,
-        dataSourceTransition ? { label: 'dataSourceTransition', value: dataSourceTransition } : undefined,
         typeof recordsReturned === 'number' ? { label: 'recordsReturned', value: String(recordsReturned) } : undefined,
         fetchedAt ? { label: 'fetchedAt', value: fetchedAt } : undefined,
-        runId ? { label: 'runId', value: runId } : undefined,
       ].filter((item): item is { label: string; value: string } => Boolean(item)),
-    [birthLabel, cacheHit, dataSourceTransition, fallbackUsed, fetchedAt, missingMaster, recordsReturned, runId],
+    [birthLabel, fetchedAt, recordsReturned],
   );
 
   const toggleDetail = () => {
@@ -184,9 +153,6 @@ export function ChartsPatientSummaryBar({
 
   const toggleLabel = detailOpen ? '詳細を閉じる' : '詳細を開く';
   const toggleIcon = detailOpen ? 'v' : '>';
-  const ariaLive = resolveAriaLive(safetyTone === 'warning' ? 'warning' : 'info');
-  const hasQuickSwitch = Boolean(onQuickOpenPatientIdChange && onQuickOpenSubmit);
-
   return (
     <div
       className="charts-patient-summary"
@@ -197,7 +163,26 @@ export function ChartsPatientSummaryBar({
       data-source-transition={dataSourceTransition}
     >
       <div className="charts-patient-summary__top">
-        <div className="charts-patient-summary__identity">
+        <div className="charts-patient-summary__encounter-actions" role="group" aria-label="診療操作">
+          <button
+            type="button"
+            className="charts-patient-summary__encounter-action charts-patient-summary__encounter-action--finish"
+            onClick={onFinishEncounter}
+            disabled={encounterActionDisabled || !onFinishEncounter}
+          >
+            診察終了
+          </button>
+          <button
+            type="button"
+            className="charts-patient-summary__encounter-action charts-patient-summary__encounter-action--pause"
+            onClick={onPauseEncounter}
+            disabled={encounterActionDisabled || !onPauseEncounter}
+          >
+            診察中断
+          </button>
+        </div>
+
+        <div className="charts-patient-summary__identity-section">
           <div className="charts-patient-summary__name-row">
             <h2 className="charts-patient-summary__name">{patientDisplay.name}</h2>
             {kana ? <span className="charts-patient-summary__kana">{kana}</span> : null}
@@ -208,17 +193,6 @@ export function ChartsPatientSummaryBar({
               生:{birthIso ?? '—'}
             </span>
             <span className="charts-patient-summary__fact">ID:{patientId ?? '—'}</span>
-            {hasQuickSwitch ? (
-              <button
-                type="button"
-                className="charts-patient-summary__fact-button"
-                aria-expanded={quickSwitchOpen}
-                aria-controls="charts-patient-summary-quick-switch"
-                onClick={() => setQuickSwitchOpen((prev) => !prev)}
-              >
-                患者ID切替
-              </button>
-            ) : null}
             <span className="charts-patient-summary__fact">
               診療日:{formatVisitDate(patientDisplay.visitDate, patientDisplay.appointmentTime)}
             </span>
@@ -247,102 +221,85 @@ export function ChartsPatientSummaryBar({
                 アレルギーなし
               </span>
             )}
-          </div>
-          {hasQuickSwitch ? (
-            <form
-              id="charts-patient-summary-quick-switch"
-              className="charts-patient-summary__quick-switch"
-              hidden={!quickSwitchOpen}
-              onSubmit={onQuickOpenSubmit}
-              aria-label="患者IDでカルテを開く"
-            >
-              <label className="charts-patient-summary__quick-switch-field" htmlFor="charts-quick-open-patient-id">
-                <span>患者ID</span>
-                <input
-                  id="charts-quick-open-patient-id"
-                  name="chartsQuickOpenPatientId"
-                  type="search"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  value={quickOpenPatientId ?? ''}
-                  onChange={(event) => onQuickOpenPatientIdChange?.(event.target.value)}
-                  placeholder="000001"
-                  disabled={quickOpenPending}
-                />
-              </label>
+            {memoChipLabel ? (
               <button
-                type="submit"
-                className="charts-patient-summary__quick-switch-button"
-                disabled={quickOpenPending || !(quickOpenPatientId ?? '').trim()}
+                type="button"
+                className="charts-patient-summary__clinical-chip charts-patient-summary__clinical-chip--memo"
+                aria-expanded={memoOpen}
+                aria-controls="charts-patient-summary-memo"
+                onClick={() => setMemoOpen((prev) => !prev)}
+                title={memo}
               >
-                {quickOpenPending ? '検索中…' : '開く'}
+                {memoChipLabel}
               </button>
-            </form>
-          ) : null}
-          {memoSnippet ? (
-            <div className="charts-patient-summary__memo" data-allergy={hasAllergyHint ? '1' : '0'}>
-              <span className="charts-patient-summary__memo-label">{hasAllergyHint ? 'アレルギー/メモ' : 'メモ'}</span>
-              <span className="charts-patient-summary__memo-text">{memoSnippet}</span>
-            </div>
-          ) : null}
-          <div id="charts-patient-summary-allergies" className="charts-patient-summary__allergies" hidden={!allergyOpen}>
-            {allergiesError ? (
-              <p className="charts-patient-summary__allergies-empty">アレルギー取得に失敗しました。</p>
-            ) : allergyItems.length === 0 ? (
-              <p className="charts-patient-summary__allergies-empty">アレルギーは登録されていません。</p>
-            ) : (
-              <ul className="charts-patient-summary__allergies-list" aria-label="アレルギー一覧">
-                {allergyItems.slice(0, 6).map((item, index) => {
-                  const label = item.factor?.trim() || '要因未設定';
-                  const severity = item.severity?.trim();
-                  const date = item.identifiedDate?.trim();
-                  const memoText = item.memo?.trim();
-                  return (
-                    <li key={`${label}-${date ?? 'none'}-${index}`} className="charts-patient-summary__allergy-item">
-                      <span className="charts-patient-summary__allergy-factor">{label}</span>
-                      {severity ? <span className="charts-patient-summary__allergy-severity">{severity}</span> : null}
-                      {date ? <span className="charts-patient-summary__allergy-date">{date}</span> : null}
-                      {memoText ? (
-                        <span className="charts-patient-summary__allergy-memo" title={memoText}>
-                          {truncate(memoText, 18)}
-                        </span>
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {allergyCount > 6 ? <small className="charts-patient-summary__allergies-hint">他 {allergyCount - 6} 件</small> : null}
+            ) : null}
           </div>
         </div>
 
-        <div className="charts-patient-summary__actions">
-          {onOpenPatientPanel ? (
-            <button type="button" className="charts-patient-summary__action" onClick={onOpenPatientPanel}>
-              患者/受付
+        <div className="charts-patient-summary__ops-section">
+          <div className="charts-patient-summary__actions">
+            {onOpenPatientPanel ? (
+              <button type="button" className="charts-patient-summary__action" onClick={onOpenPatientPanel}>
+                患者/受付
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="charts-patient-summary__safety-toggle"
+              aria-expanded={detailOpen}
+              aria-controls="charts-patient-summary-detail"
+              onClick={toggleDetail}
+            >
+              <span className="charts-patient-summary__safety-toggle-icon" aria-hidden="true">
+                {toggleIcon}
+              </span>
+              {toggleLabel}
             </button>
-          ) : null}
-          <div
-            className={`charts-patient-summary__safety-summary charts-patient-summary__safety-summary--${safetyTone}`}
-            role="status"
-            aria-live={ariaLive}
-          >
-            <span className="charts-patient-summary__safety-label">データ状態</span>
-            <span className="charts-patient-summary__safety-state">{safetyLabel}</span>
           </div>
-          <RunIdBadge runId={runId} className="charts-patient-summary__runid" />
-          <button
-            type="button"
-            className="charts-patient-summary__safety-toggle"
-            aria-expanded={detailOpen}
-            aria-controls="charts-patient-summary-detail"
-            onClick={toggleDetail}
-          >
-            <span className="charts-patient-summary__safety-toggle-icon" aria-hidden="true">
-              {toggleIcon}
-            </span>
-            {toggleLabel}
-          </button>
+          <div className="charts-patient-summary__ops-meta" aria-label="診療情報サマリー">
+            <span className="charts-patient-summary__ops-item">状態:{normalizeValue(patientDisplay.status) ?? '—'}</span>
+            <span className="charts-patient-summary__ops-item">診療科:{normalizeValue(patientDisplay.department) ?? '—'}</span>
+            <span className="charts-patient-summary__ops-item">担当:{normalizeValue(patientDisplay.physician) ?? '—'}</span>
+          </div>
+          {inlineActionBar ? <div className="charts-patient-summary__inline-actionbar">{inlineActionBar}</div> : null}
+        </div>
+      </div>
+
+      <div className="charts-patient-summary__expand-panels">
+        {memo ? (
+          <div id="charts-patient-summary-memo" className="charts-patient-summary__memo" data-allergy={hasAllergyHint ? '1' : '0'} hidden={!memoOpen}>
+            <span className="charts-patient-summary__memo-label">{hasAllergyHint ? 'アレルギー/メモ' : 'メモ'}</span>
+            <span className="charts-patient-summary__memo-text">{memo}</span>
+          </div>
+        ) : null}
+        <div id="charts-patient-summary-allergies" className="charts-patient-summary__allergies" hidden={!allergyOpen}>
+          {allergiesError ? (
+            <p className="charts-patient-summary__allergies-empty">アレルギー取得に失敗しました。</p>
+          ) : allergyItems.length === 0 ? (
+            <p className="charts-patient-summary__allergies-empty">アレルギーは登録されていません。</p>
+          ) : (
+            <ul className="charts-patient-summary__allergies-list" aria-label="アレルギー一覧">
+              {allergyItems.slice(0, 6).map((item, index) => {
+                const label = item.factor?.trim() || '要因未設定';
+                const severity = item.severity?.trim();
+                const date = item.identifiedDate?.trim();
+                const memoText = item.memo?.trim();
+                return (
+                  <li key={`${label}-${date ?? 'none'}-${index}`} className="charts-patient-summary__allergy-item">
+                    <span className="charts-patient-summary__allergy-factor">{label}</span>
+                    {severity ? <span className="charts-patient-summary__allergy-severity">{severity}</span> : null}
+                    {date ? <span className="charts-patient-summary__allergy-date">{date}</span> : null}
+                    {memoText ? (
+                      <span className="charts-patient-summary__allergy-memo" title={memoText}>
+                        {truncate(memoText, 18)}
+                      </span>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {allergyCount > 6 ? <small className="charts-patient-summary__allergies-hint">他 {allergyCount - 6} 件</small> : null}
         </div>
       </div>
 

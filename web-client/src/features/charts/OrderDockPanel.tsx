@@ -184,6 +184,14 @@ const resolveWarningBadge = (warnings: OrcaMedicalWarningUi[]): BundleWarningBad
 
 const buildRequestId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
+const quickAddCategories = [
+  { key: 'prescription', label: '+処方', entity: 'medOrder' as const },
+  { key: 'injection', label: '+注射', entity: 'injectionOrder' as const },
+  { key: 'treatment', label: '+処置', entity: null },
+  { key: 'test', label: '+検査', entity: null },
+  { key: 'charge', label: '+算定', entity: null },
+] as const;
+
 export function OrderDockPanel(props: {
   patientId?: string;
   meta: OrderBundleEditPanelMeta;
@@ -300,6 +308,16 @@ export function OrderDockPanel(props: {
 
   const [activeEntity, setActiveEntity] = useState<PastOrderEntity | null>(null);
   const [activeRequest, setActiveRequest] = useState<OrderBundleEditPanelRequest | null>(null);
+  const quickAddEntityByGroup = useMemo<Record<OrderGroupKey, PastOrderEntity>>(
+    () => ({
+      prescription: 'medOrder',
+      injection: 'injectionOrder',
+      treatment: treatmentEntity,
+      test: testEntity,
+      charge: chargeEntity,
+    }),
+    [chargeEntity, testEntity, treatmentEntity],
+  );
 
   const activeTitleMeta = useMemo(() => {
     if (!activeEntity) return null;
@@ -566,20 +584,13 @@ export function OrderDockPanel(props: {
 
   const renderQuickAdds = () => (
     <div className="order-dock__quick-add" role="group" aria-label="オーダー追加">
-      {(
-        [
-          { label: '+処方', entity: 'medOrder' as const },
-          { label: '+注射', entity: 'injectionOrder' as const },
-          { label: '+処置', entity: treatmentEntity as PastOrderEntity },
-          { label: '+検査', entity: testEntity as PastOrderEntity },
-          { label: '+算定', entity: chargeEntity as PastOrderEntity },
-        ] as const
-      ).map((item) => (
+      {quickAddCategories.map((item) => (
         <button
           key={item.label}
           type="button"
           className="order-dock__mini-add"
-          onClick={() => openEditor(item.entity, { requestId: buildRequestId(), kind: 'new' })}
+          data-test-id={`order-dock-quick-add-${item.key}`}
+          onClick={() => openEditor(quickAddEntityByGroup[item.key], { requestId: buildRequestId(), kind: 'new' })}
           disabled={!canEdit}
           title={!canEdit ? editDisabledReason : undefined}
         >
@@ -1017,7 +1028,7 @@ export function OrderDockPanel(props: {
       {orderBundlesLoading ? <p className="order-dock__empty">オーダー情報を取得しています...</p> : null}
       {orderBundlesError ? <p className="order-dock__empty">オーダー情報の取得に失敗しました: {orderBundlesError}</p> : null}
 
-      {!orderBundlesLoading && !orderBundlesError && !hasAnyOrders && !activeEntity ? renderQuickAdds() : null}
+      {!orderBundlesLoading && !orderBundlesError ? renderQuickAdds() : null}
       {!orderBundlesLoading && !orderBundlesError && (hasAnyOrders || activeEntity) ? (
         <div className="order-dock__groups">{groupBundles.map(renderGroup)}</div>
       ) : null}

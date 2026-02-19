@@ -1,5 +1,5 @@
 import { Global } from '@emotion/react';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -524,9 +524,6 @@ function ChartsContent() {
   const stampboxMvpEnabled = stampboxMvpPhase > 0;
   const [isTopbarCollapsed, setIsTopbarCollapsed] = useState<boolean>(() => isChartsCompactHeader);
   const [isShortcutsDialogOpen, setIsShortcutsDialogOpen] = useState(false);
-  const [chartsQuickOpenPatientId, setChartsQuickOpenPatientId] = useState('');
-  const [chartsQuickOpenPending, setChartsQuickOpenPending] = useState(false);
-  const [pendingQuickOpenPatientId, setPendingQuickOpenPatientId] = useState<string | null>(null);
   type ChartsNavigationState = Partial<OutpatientEncounterContext> & { runId?: string };
   const navigationState = (location.state as ChartsNavigationState | null) ?? {};
   const urlMeta = useMemo(() => parseChartsNavigationMeta(location.search), [location.search]);
@@ -665,9 +662,8 @@ function ChartsContent() {
   const [tabGuard, setTabGuard] = useState<
     | null
     | {
-        action: 'switch' | 'close' | 'quick-open';
+        action: 'switch' | 'close';
         targetKey?: string;
-        targetPatientId?: string;
       }
   >(null);
   const showDebugUi = import.meta.env.VITE_ENABLE_DEBUG_UI === '1' && isSystemAdminRole(session.role);
@@ -875,7 +871,7 @@ function ChartsContent() {
       }
 
       setEncounterContext({});
-      setContextAlert({ tone: 'info', message: '患者が未選択です。Reception から患者を選択するか、IDでカルテを開いてください。' });
+      setContextAlert({ tone: 'info', message: '患者が未選択です。Reception から患者を選択してください。' });
       navigate({ pathname: chartsBasePath, search: '' }, { replace: true });
     },
     [activePatientTabKey, chartsBasePath, navigate, patientTabs],
@@ -944,7 +940,7 @@ function ChartsContent() {
 
   const handleTabGuardConfirm = useCallback(() => {
     if (!tabGuard) return;
-    const { action, targetKey, targetPatientId } = tabGuard;
+    const { action, targetKey } = tabGuard;
     setTabGuard(null);
     setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
     if (action === 'switch') {
@@ -955,12 +951,6 @@ function ChartsContent() {
     if (action === 'close') {
       if (!targetKey) return;
       forceClosePatientTab(targetKey);
-      return;
-    }
-    if (action === 'quick-open') {
-      if (!targetPatientId) return;
-      setChartsQuickOpenPatientId(targetPatientId);
-      setPendingQuickOpenPatientId(targetPatientId);
     }
   }, [forceClosePatientTab, forceSelectPatientTab, tabGuard]);
 
@@ -2000,103 +1990,6 @@ function ChartsContent() {
     [appointmentPages],
   );
 
-  const performChartsQuickOpenByPatientId = useCallback(
-    async (rawPatientId: string) => {
-      const normalized = rawPatientId.trim();
-      if (!normalized) return;
-      setChartsQuickOpenPending(true);
-      try {
-        const resolveEntryPatientId = (entry: ReceptionEntry) => {
-          const pid = (entry.patientId ?? '').trim();
-          if (pid) return pid;
-          const fallback = (entry.id ?? '').trim();
-          return /^\d+$/.test(fallback) ? fallback : undefined;
-        };
-
-        const todayEntry =
-          patientEntries.find((entry) => resolveEntryPatientId(entry) === normalized && entry.status !== '予約') ??
-          patientEntries.find((entry) => resolveEntryPatientId(entry) === normalized) ??
-          undefined;
-        if (todayEntry) {
-          openEncounterInTabs(
-            {
-              patientId: normalized,
-              appointmentId: todayEntry.appointmentId,
-              receptionId: todayEntry.receptionId,
-              visitDate: normalizeVisitDate(todayEntry.visitDate) ?? today,
-            },
-            { name: todayEntry.name },
-          );
-          setChartsQuickOpenPatientId('');
-          return;
-        }
-
-        const result = await fetchPatients({ keyword: normalized });
-        const patients = result.patients ?? [];
-        const exact = patients.find((patient) => (patient.patientId ?? '').trim() === normalized);
-        const fallback = patients.length === 1 ? patients[0] : undefined;
-        const matched = exact ?? fallback;
-        const patientId = (matched?.patientId ?? '').trim();
-        if (!patientId) {
-          setContextAlert({ tone: 'warning', message: `患者が見つかりませんでした（患者ID=${normalized}）。` });
-          return;
-        }
-        const visitDate = normalizeVisitDate(matched?.lastVisit) ?? today;
-        openEncounterInTabs({ patientId, visitDate }, { name: matched?.name });
-        setChartsQuickOpenPatientId('');
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        setContextAlert({ tone: 'warning', message: `患者検索に失敗しました: ${detail}` });
-      } finally {
-        setChartsQuickOpenPending(false);
-      }
-    },
-    [openEncounterInTabs, patientEntries, today],
-  );
-
-  const handleChartsQuickOpenSubmit = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const raw = chartsQuickOpenPatientId.trim();
-      if (!raw) return;
-      if (chartsQuickOpenPending) return;
-      if (tabLockReadOnlyRef.current) {
-        setContextAlert({
-          tone: 'warning',
-          message: '別タブが編集中のため患者切替をブロックしました。別タブを閉じるか、強制引き継ぎを実行してください。',
-        });
-        return;
-      }
-      if (lockState.locked) {
-        setContextAlert({
-          tone: 'warning',
-          message: lockState.reason ?? '処理中のため患者切替をブロックしました。',
-        });
-        return;
-      }
-      if (draftState.dirty) {
-        setTabGuard({ action: 'quick-open', targetPatientId: raw });
-        return;
-      }
-      void performChartsQuickOpenByPatientId(raw);
-    },
-    [
-      chartsQuickOpenPatientId,
-      chartsQuickOpenPending,
-      draftState.dirty,
-      lockState.locked,
-      lockState.reason,
-      performChartsQuickOpenByPatientId,
-    ],
-  );
-
-  useEffect(() => {
-    if (!pendingQuickOpenPatientId) return;
-    void Promise.resolve(performChartsQuickOpenByPatientId(pendingQuickOpenPatientId)).finally(() => {
-      setPendingQuickOpenPatientId(null);
-    });
-  }, [pendingQuickOpenPatientId, performChartsQuickOpenByPatientId]);
-
   const selectedEntry = useMemo(() => {
     if (!encounterContext.patientId && !encounterContext.appointmentId && !encounterContext.receptionId) return undefined;
     const byReception = encounterContext.receptionId
@@ -3004,7 +2897,7 @@ function ChartsContent() {
     storageScope,
   ]);
 
-  const handleAfterFinish = useCallback(async () => {
+  const handleAfterFinish = useCallback(async (options?: { forceClose?: boolean }) => {
     if (patientId && actionVisitDate) {
       upsertReceptionStatusOverride({
         date: actionVisitDate,
@@ -3026,9 +2919,12 @@ function ChartsContent() {
     const activeKey = activePatientTabKey;
     if (!activeKey) return;
     // 診療終了 = この患者のタブを閉じて次へ進む運用。
-    if (draftState.dirty) {
+    if (draftState.dirty && !options?.forceClose) {
       setTabGuard({ action: 'close', targetKey: activeKey });
       return;
+    }
+    if (options?.forceClose) {
+      setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
     }
     forceClosePatientTab(activeKey);
   }, [
@@ -3042,6 +2938,7 @@ function ChartsContent() {
     resolvedRunId,
     selectedEntry,
     storageScope,
+    setDraftState,
   ]);
 
   const editStateBar = useMemo(() => {
@@ -4280,113 +4177,116 @@ function ChartsContent() {
                       approvalDetail={approvalDetail}
                       lockStatus={lockStatus}
                       onOpenPatientPanel={() => setIsPatientPanelOpen(true)}
-                      quickOpenPatientId={chartsQuickOpenPatientId}
-                      quickOpenPending={chartsQuickOpenPending}
-                      onQuickOpenPatientIdChange={setChartsQuickOpenPatientId}
-                      onQuickOpenSubmit={handleChartsQuickOpenSubmit}
+                      onFinishEncounter={() => {
+                        void handleAfterFinish({ forceClose: true });
+                      }}
+                      onPauseEncounter={() => {
+                        void handleAfterPause();
+                      }}
+                      encounterActionDisabled={!activePatientTabKey || lockState.locked}
+                      inlineActionBar={
+                        <ChartsActionBar
+                          runId={resolvedRunId ?? flags.runId}
+                          cacheHit={resolvedCacheHit ?? false}
+                          missingMaster={resolvedMissingMaster ?? false}
+                          dataSourceTransition={resolvedTransition ?? 'snapshot'}
+                          fallbackUsed={resolvedFallbackUsed}
+                          selectedEntry={selectedEntry}
+                          sendEnabled={sendAllowedByDelivery}
+                          compactHeader
+                          defaultCollapsed
+                          embedded
+                          sendDisabledReason={sendDisabledReason}
+                          patientId={patientId}
+                          visitDate={actionVisitDate}
+                          queueEntry={actionBarQueueEntry}
+                          hasUnsavedDraft={draftState.dirty}
+                          hasPermission={hasPermission}
+                          requireServerRouteForSend
+                          requirePatientForSend
+                          networkDegradedReason={networkDegradedReason}
+                          approvalLock={{
+                            locked: approvalLocked,
+                            approvedAt: approvalState.record?.approvedAt,
+                            runId: approvalState.record?.runId,
+                            action: approvalState.record?.action,
+                          }}
+                          editLock={{
+                            readOnly: tabLock.isReadOnly,
+                            reason: tabLock.readOnlyReason,
+                            ownerRunId: tabLock.ownerRunId,
+                            expiresAt: tabLock.expiresAt,
+                            lockStatus: tabLock.status,
+                          }}
+                          onReloadLatest={handleRefreshSummary}
+                          onDiscardChanges={() => {
+                            setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
+                            recordChartsAuditEvent({
+                              action: 'CHARTS_CONFLICT',
+                              outcome: 'discarded',
+                              subject: 'charts-tab-lock',
+                              patientId: lockTarget.patientId,
+                              appointmentId: lockTarget.appointmentId,
+                              runId: resolvedRunId ?? flags.runId,
+                              cacheHit: resolvedCacheHit,
+                              missingMaster: resolvedMissingMaster,
+                              fallbackUsed: resolvedFallbackUsed,
+                              dataSourceTransition: resolvedTransition,
+                              details: {
+                                operationPhase: 'lock',
+                                trigger: 'tab',
+                                resolution: 'discard',
+                                lockStatus: tabLock.status,
+                                tabSessionId: tabLock.tabSessionId,
+                                lockOwnerRunId: tabLock.ownerRunId,
+                                lockExpiresAt: tabLock.expiresAt,
+                                receptionId: lockTarget.receptionId,
+                                facilityId: session.facilityId,
+                                userId: session.userId,
+                              },
+                            });
+                          }}
+                          onForceTakeover={() => {
+                            const wasReadOnly = tabLock.isReadOnly;
+                            tabLock.forceTakeover();
+                            recordChartsAuditEvent({
+                              action: 'CHARTS_EDIT_LOCK',
+                              outcome: wasReadOnly ? 'stolen' : 'acquired',
+                              subject: 'charts-tab-lock',
+                              patientId: lockTarget.patientId,
+                              appointmentId: lockTarget.appointmentId,
+                              runId: resolvedRunId ?? flags.runId,
+                              cacheHit: resolvedCacheHit,
+                              missingMaster: resolvedMissingMaster,
+                              fallbackUsed: resolvedFallbackUsed,
+                              dataSourceTransition: resolvedTransition,
+                              details: {
+                                operationPhase: 'lock',
+                                trigger: 'tab',
+                                resolution: 'force_takeover',
+                                lockStatus: tabLock.status,
+                                tabSessionId: tabLock.tabSessionId,
+                                lockOwnerRunId: tabLock.ownerRunId,
+                                lockExpiresAt: tabLock.expiresAt,
+                                receptionId: lockTarget.receptionId,
+                                facilityId: session.facilityId,
+                                userId: session.userId,
+                              },
+                            });
+                          }}
+                          onApprovalConfirmed={handleApprovalConfirmed}
+                          onApprovalUnlock={handleApprovalUnlock}
+                          showOperationalMeta={showOperationalMeta}
+                          onAfterSend={handleRefreshSummary}
+                          onAfterStart={handleAfterStart}
+                          onAfterPause={handleAfterPause}
+                          onAfterFinish={handleAfterFinish}
+                          sendConfirmSummary={sendConfirmSummary}
+                          onDraftSaved={() => setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }))}
+                          onLockChange={handleLockChange}
+                        />
+                      }
                     />
-                    <div className="charts-patient-summary__embedded-actions">
-                      <ChartsActionBar
-                        runId={resolvedRunId ?? flags.runId}
-                        cacheHit={resolvedCacheHit ?? false}
-                        missingMaster={resolvedMissingMaster ?? false}
-                        dataSourceTransition={resolvedTransition ?? 'snapshot'}
-                        fallbackUsed={resolvedFallbackUsed}
-                        selectedEntry={selectedEntry}
-                        sendEnabled={sendAllowedByDelivery}
-                        compactHeader
-                        defaultCollapsed
-                        embedded
-                        sendDisabledReason={sendDisabledReason}
-                        patientId={patientId}
-                        visitDate={actionVisitDate}
-                        queueEntry={actionBarQueueEntry}
-                        hasUnsavedDraft={draftState.dirty}
-                        hasPermission={hasPermission}
-                        requireServerRouteForSend
-                        requirePatientForSend
-                        networkDegradedReason={networkDegradedReason}
-                        approvalLock={{
-                          locked: approvalLocked,
-                          approvedAt: approvalState.record?.approvedAt,
-                          runId: approvalState.record?.runId,
-                          action: approvalState.record?.action,
-                        }}
-                        editLock={{
-                          readOnly: tabLock.isReadOnly,
-                          reason: tabLock.readOnlyReason,
-                          ownerRunId: tabLock.ownerRunId,
-                          expiresAt: tabLock.expiresAt,
-                          lockStatus: tabLock.status,
-                        }}
-                        onReloadLatest={handleRefreshSummary}
-                        onDiscardChanges={() => {
-                          setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
-                          recordChartsAuditEvent({
-                            action: 'CHARTS_CONFLICT',
-                            outcome: 'discarded',
-                            subject: 'charts-tab-lock',
-                            patientId: lockTarget.patientId,
-                            appointmentId: lockTarget.appointmentId,
-                            runId: resolvedRunId ?? flags.runId,
-                            cacheHit: resolvedCacheHit,
-                            missingMaster: resolvedMissingMaster,
-                            fallbackUsed: resolvedFallbackUsed,
-                            dataSourceTransition: resolvedTransition,
-                            details: {
-                              operationPhase: 'lock',
-                              trigger: 'tab',
-                              resolution: 'discard',
-                              lockStatus: tabLock.status,
-                              tabSessionId: tabLock.tabSessionId,
-                              lockOwnerRunId: tabLock.ownerRunId,
-                              lockExpiresAt: tabLock.expiresAt,
-                              receptionId: lockTarget.receptionId,
-                              facilityId: session.facilityId,
-                              userId: session.userId,
-                            },
-                          });
-                        }}
-                        onForceTakeover={() => {
-                          const wasReadOnly = tabLock.isReadOnly;
-                          tabLock.forceTakeover();
-                          recordChartsAuditEvent({
-                            action: 'CHARTS_EDIT_LOCK',
-                            outcome: wasReadOnly ? 'stolen' : 'acquired',
-                            subject: 'charts-tab-lock',
-                            patientId: lockTarget.patientId,
-                            appointmentId: lockTarget.appointmentId,
-                            runId: resolvedRunId ?? flags.runId,
-                            cacheHit: resolvedCacheHit,
-                            missingMaster: resolvedMissingMaster,
-                            fallbackUsed: resolvedFallbackUsed,
-                            dataSourceTransition: resolvedTransition,
-                            details: {
-                              operationPhase: 'lock',
-                              trigger: 'tab',
-                              resolution: 'force_takeover',
-                              lockStatus: tabLock.status,
-                              tabSessionId: tabLock.tabSessionId,
-                              lockOwnerRunId: tabLock.ownerRunId,
-                              lockExpiresAt: tabLock.expiresAt,
-                              receptionId: lockTarget.receptionId,
-                              facilityId: session.facilityId,
-                              userId: session.userId,
-                            },
-                          });
-                        }}
-                        onApprovalConfirmed={handleApprovalConfirmed}
-                        onApprovalUnlock={handleApprovalUnlock}
-                        showOperationalMeta={showOperationalMeta}
-                        onAfterSend={handleRefreshSummary}
-                        onAfterStart={handleAfterStart}
-                        onAfterPause={handleAfterPause}
-                        onAfterFinish={handleAfterFinish}
-                        sendConfirmSummary={sendConfirmSummary}
-                        onDraftSaved={() => setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }))}
-                        onLockChange={handleLockChange}
-                      />
-                    </div>
                   </div>
                 </div>
                 <div className="charts-workbench__sticky-side" aria-hidden="true" />

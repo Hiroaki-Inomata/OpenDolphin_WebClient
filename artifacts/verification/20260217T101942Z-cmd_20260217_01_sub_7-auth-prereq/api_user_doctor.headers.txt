@@ -1,0 +1,13 @@
+HTTP/1.1 200 OK
+Vary: Origin
+x-request-id: c5af578f-1835-4638-a2fc-e77789160fac
+referrer-policy: no-referrer
+content-security-policy: default-src 'self'
+x-trace-id: c5af578f-1835-4638-a2fc-e77789160fac
+date: Tue, 17 Feb 2026 10:19:42 GMT
+connection: close
+x-content-type-options: nosniff
+strict-transport-security: max-age=63072000; includeSubDomains
+content-type: application/json
+content-length: 1049
+

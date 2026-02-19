@@ -82,6 +82,36 @@ describe('AppRouter navigation guard', () => {
     expect(window.location.pathname).toBe('/f/0001/administration');
   });
 
+  it('Administration のタブ/サブナビ切替が即時反映される', async () => {
+    prepareSession('system_admin');
+    const user = userEvent.setup();
+    const queryClient = new QueryClient();
+    window.history.pushState({}, '', '/f/0001/administration?section=dashboard');
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AppRouter />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole('navigation', { name: '設定配信サブナビ' })).toBeInTheDocument();
+
+    const usersTab = screen.getByRole('tab', { name: 'ORCAユーザー連携・権限' });
+    await user.click(usersTab);
+    expect(window.location.search).toContain('tab=orca-users');
+    expect(await screen.findByRole('heading', { name: 'ORCAユーザー連携（職員マスタ）' })).toBeInTheDocument();
+
+    const masterTab = screen.getByRole('tab', { name: 'マスタ更新' });
+    await user.click(masterTab);
+    expect(window.location.search).toContain('tab=master-updates');
+    expect(await screen.findByRole('heading', { name: 'マスタ更新ダッシュボード' })).toBeInTheDocument();
+
+    const deliveryTab = screen.getByRole('tab', { name: '設定配信' });
+    await user.click(deliveryTab);
+    expect(window.location.search).toContain('section=dashboard');
+    expect(await screen.findByRole('navigation', { name: '設定配信サブナビ' })).toBeInTheDocument();
+  });
+
   it('system_admin 以外の直アクセスは Administration を遮断する', async () => {
     prepareSession('doctor');
     const queryClient = new QueryClient();

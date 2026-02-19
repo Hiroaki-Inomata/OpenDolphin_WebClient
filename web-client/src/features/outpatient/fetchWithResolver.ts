@@ -85,6 +85,8 @@ export async function fetchWithResolver(options: FetchWithResolverOptions): Prom
       const response = responseResult.response;
       const json = responseResult.json;
       const after = getObservabilityMeta();
+      const missingMaster = normalizeBoolean(json.missingMaster) ?? false;
+      const fallbackUsed = normalizeBoolean(json.fallbackUsed) ?? false;
       const meta: OutpatientMeta = {
         runId: (json.runId as string | undefined) ?? after.runId ?? runId,
         traceId: (json.traceId as string | undefined) ?? after.traceId,
@@ -92,8 +94,9 @@ export async function fetchWithResolver(options: FetchWithResolverOptions): Prom
         dataSourceTransition: (json.dataSourceTransition as DataSourceTransition | undefined) ?? candidate.source,
         resolveMasterSource: candidate.source,
         cacheHit: normalizeBoolean(json.cacheHit ?? cacheHitHint ?? after.cacheHit),
-        missingMaster: normalizeBoolean(json.missingMaster ?? after.missingMaster),
-        fallbackUsed: normalizeBoolean(json.fallbackUsed ?? after.fallbackUsed),
+        // Missing flags must not inherit stale state from a previous request.
+        missingMaster,
+        fallbackUsed,
         fallbackFlagMissing: json.fallbackUsed === undefined ? true : undefined,
         fetchedAt: (json.fetchedAt as string | undefined) ?? after.fetchedAt,
         recordsReturned: typeof json.recordsReturned === 'number' ? (json.recordsReturned as number) : undefined,
@@ -150,6 +153,8 @@ export async function fetchWithResolver(options: FetchWithResolverOptions): Prom
           });
           const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
           const after = getObservabilityMeta();
+          const missingMaster = normalizeBoolean(json.missingMaster) ?? false;
+          const fallbackUsed = normalizeBoolean(json.fallbackUsed) ?? false;
           const meta: OutpatientMeta = {
             runId: (json.runId as string | undefined) ?? after.runId ?? runId,
             traceId: (json.traceId as string | undefined) ?? after.traceId,
@@ -157,8 +162,9 @@ export async function fetchWithResolver(options: FetchWithResolverOptions): Prom
             dataSourceTransition: (json.dataSourceTransition as DataSourceTransition | undefined) ?? candidate.source,
             resolveMasterSource: candidate.source,
             cacheHit: normalizeBoolean(json.cacheHit ?? cacheHitHint ?? after.cacheHit),
-            missingMaster: normalizeBoolean(json.missingMaster ?? after.missingMaster),
-            fallbackUsed: normalizeBoolean(json.fallbackUsed ?? after.fallbackUsed),
+            // Missing flags must not inherit stale state from a previous request.
+            missingMaster,
+            fallbackUsed,
             fallbackFlagMissing: json.fallbackUsed === undefined ? true : undefined,
             fetchedAt: (json.fetchedAt as string | undefined) ?? after.fetchedAt,
             recordsReturned: typeof json.recordsReturned === 'number' ? (json.recordsReturned as number) : undefined,

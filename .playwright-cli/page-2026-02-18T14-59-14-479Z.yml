@@ -1,0 +1,200 @@
+- generic [ref=e2]:
+  - link "本文へスキップ" [ref=e34] [cursor=pointer]:
+    - /url: "#app-shell-main"
+  - generic [ref=e35]:
+    - status [ref=e36]:
+      - generic [ref=e37]:
+        - generic [ref=e38]: OpenDolphin Web
+        - generic [ref=e39]: 電子カルテデモシェル
+      - generic [ref=e40]:
+        - generic [ref=e41]: "施設ID: 1.3.6.1.4.1.9414.10.1"
+        - generic [ref=e42]: "ユーザー: OR Master Admin"
+        - generic [ref=e43]: "role: admin 認可ロール"
+        - 'button "RUN_ID をコピー: 20260218T145648Z" [ref=e44] [cursor=pointer]':
+          - text: "RUN_ID: 20260218T145648Z"
+          - generic [ref=e45]: クリックでコピー
+        - group "画面ショートカット" [ref=e46]:
+          - button "受付" [ref=e47] [cursor=pointer]:
+            - img [ref=e48]
+            - text: 受付
+          - button "カルテ" [ref=e50] [cursor=pointer]:
+            - img [ref=e51]
+            - text: カルテ
+          - button "患者管理" [ref=e55] [cursor=pointer]:
+            - img [ref=e56]
+            - text: 患者管理
+        - 'status "HTTP 200 / Api_Result 00 / 最終確認: 2026/2/18 23:56:49" [ref=e61]': "ORCA: 接続OK"
+        - button "管理画面を開く" [ref=e62] [cursor=pointer]: 管理画面
+        - button "施設/ユーザー切替" [ref=e63] [cursor=pointer]
+        - button "ログアウト" [ref=e64] [cursor=pointer]
+    - generic [ref=e65]:
+      - link "本文へスキップ" [ref=e477] [cursor=pointer]:
+        - /url: "#patients-search"
+      - main [ref=e478]:
+        - region "戻り導線" [ref=e479]:
+          - generic [ref=e480]:
+            - button "◀︎ カルテへ戻る" [ref=e481] [cursor=pointer]
+            - generic [ref=e482]: カルテに戻れます
+          - group "主要画面へ" [ref=e483]:
+            - button "受付へ" [ref=e484] [cursor=pointer]
+            - button "カルテへ" [ref=e485] [cursor=pointer]
+        - generic [ref=e486]:
+          - generic [ref=e487]:
+            - paragraph [ref=e488]: Patients 検索・管理
+            - heading "患者管理" [level=1] [ref=e489]
+            - status [ref=e490]: 患者一覧から対象を選択し、右ペインのタブで目的別に操作してください。患者保存は「基本情報」タブのみです。
+          - status [ref=e491]:
+            - generic [ref=e492]: "患者件数: 0件"
+            - generic [ref=e493]: "更新時刻: 2026/2/18 23:59:12"
+            - generic [ref=e494]: "状態: OK"
+        - group [ref=e495]:
+          - generic "通信詳細を表示" [ref=e496] [cursor=pointer]
+        - alert "注意、dataSourceTransition=server ｜ tone=server carry over" [ref=e497]:
+          - generic [ref=e498]: 注意
+          - paragraph [ref=e499]: dataSourceTransition=server ｜ tone=server carry over
+        - 'alert "注意、Charts から患者管理へ移動しました。受付フィルタを維持しているため、操作前に対象患者を確認してください。、送信先: Patients、次アクション: 対象患者を確認" [ref=e500]':
+          - generic [ref=e501]: 注意
+          - paragraph [ref=e502]: "Charts から患者管理へ移動しました。受付フィルタを維持しているため、操作前に対象患者を確認してください。 ｜ 送信先: Patients ｜ 次アクション: 対象患者を確認"
+        - region "検索とフィルタ" [ref=e503]:
+          - generic [ref=e504]:
+            - generic [ref=e505]:
+              - generic [ref=e506]:
+                - generic [ref=e507]: キーワード
+                - searchbox "患者検索キーワード" [ref=e508]
+              - generic [ref=e509]:
+                - generic [ref=e510]: 診療科
+                - textbox "診療科" [ref=e511]:
+                  - /placeholder: "例: 内科"
+              - generic [ref=e512]:
+                - generic [ref=e513]: 担当医
+                - textbox "担当医" [ref=e514]:
+                  - /placeholder: "例: 藤井"
+              - generic [ref=e515]:
+                - generic [ref=e516]: 保険/自費
+                - combobox "保険/自費" [ref=e517]:
+                  - option "すべて" [selected]
+                  - option "保険"
+                  - option "自費"
+            - generic [ref=e518]:
+              - button "検索を更新" [ref=e519] [cursor=pointer]
+              - button "再取得" [ref=e520] [cursor=pointer]
+              - button "クリア" [ref=e521] [cursor=pointer]
+          - region "ORCA患者取り込み" [ref=e522]:
+            - generic [ref=e523]:
+              - generic [ref=e524]: ORCA患者番号で取り込み
+              - textbox "ORCA患者番号で取り込み" [ref=e525]:
+                - /placeholder: "数字のみ（例: 00001234）"
+                - text: "1"
+            - button "ORCAから取り込み" [ref=e526] [cursor=pointer]
+          - generic "保存ビュー" [ref=e527]:
+            - status [ref=e528]:
+              - generic [ref=e529]: Reception ↔ Patients で共有
+              - generic [ref=e530]: 選択中のビューはありません
+            - generic [ref=e531]:
+              - generic [ref=e532]:
+                - generic [ref=e533]: 保存ビュー
+                - combobox "保存ビュー" [ref=e534]:
+                  - option "選択してください" [selected]
+              - button "適用" [disabled] [ref=e535]
+              - button "削除" [disabled] [ref=e536]
+            - generic [ref=e537]:
+              - generic [ref=e538]:
+                - generic [ref=e539]: ビュー名
+                - textbox "ビュー名" [ref=e540]:
+                  - /placeholder: "例: 内科/午前/保険"
+              - button "現在の条件を保存" [ref=e541] [cursor=pointer]
+          - status [ref=e542]:
+            - generic [ref=e543]:
+              - generic [ref=e544]: 検索結果
+              - strong [ref=e545]: 0件
+            - generic [ref=e546]:
+              - generic [ref=e547]: "更新完了: 2026/2/18 23:59:12"
+              - generic [ref=e548]: "自動更新: 90秒"
+              - generic [ref=e549]: "適用条件: キーワードなし"
+              - generic [ref=e550]: "検索状態: 最新条件で表示中"
+            - status [ref=e621]: 取り込みは完了しましたが、現在の検索条件では患者番号 1 が一覧に見つかりません。
+        - generic [ref=e551]:
+          - list "患者一覧" [ref=e552]:
+            - status [ref=e553]:
+              - strong [ref=e554]: 0件（未登録）
+              - generic [ref=e555]: 患者が未登録、または連携元にデータがありません。
+              - group "次アクション" [ref=e556]:
+                - button "再取得" [ref=e557] [cursor=pointer]
+                - button "ORCAから取り込み" [ref=e620] [cursor=pointer]
+                - button "Reception へ" [ref=e558] [cursor=pointer]
+              - generic [ref=e559]: ORCA で患者登録後に取り込み、Reception で受付登録してから再取得してください。
+              - generic [ref=e560]: "ヒント: ID/氏名/カナ・診療科・担当医で絞れます。"
+          - generic [ref=e561]:
+            - tablist "患者詳細タブ" [ref=e562]:
+              - tab "基本情報" [selected] [ref=e563] [cursor=pointer]
+              - tab "ORCA更新/原本" [ref=e564] [cursor=pointer]
+              - tab "保険" [ref=e565] [cursor=pointer]
+              - tab "ORCAメモ" [ref=e566] [cursor=pointer]
+              - tab "監査/ログ" [ref=e567] [cursor=pointer]
+            - tabpanel "基本情報" [ref=e568]:
+              - generic [ref=e569]:
+                - generic [ref=e570]:
+                  - generic [ref=e571]:
+                    - paragraph [ref=e572]: 患者情報（編集）
+                    - heading "患者未選択" [level=2] [ref=e574]
+                    - paragraph [ref=e575]: ORCA で患者登録後、検索または ORCA から取り込みしてください。
+                  - generic [ref=e576]:
+                    - button "ORCAから更新" [disabled] [ref=e577] [cursor=pointer]
+                    - button "保存（ORCAへ反映）" [disabled] [ref=e578] [cursor=pointer]
+                - generic [ref=e579]:
+                  - generic [ref=e580]: 変更点
+                  - generic [ref=e581]: 変更なし
+                - group [ref=e582]:
+                  - generic [ref=e583]:
+                    - generic [ref=e584]: ORCA患者番号（Patient_ID）
+                    - 'textbox "ORCA患者番号（Patient_ID） 数字のみ・最大16桁（例: 00001234）。" [disabled] [ref=e585]':
+                      - /placeholder: ORCA患者番号（Patient_ID）
+                    - generic [ref=e586]: "数字のみ・最大16桁（例: 00001234）。"
+                  - generic [ref=e587]:
+                    - generic [ref=e588]: 氏名
+                    - 'textbox "氏名 必須項目です（例: 山田 花子）。" [disabled] [ref=e589]':
+                      - /placeholder: 山田 花子
+                    - generic [ref=e590]: "必須項目です（例: 山田 花子）。"
+                  - generic [ref=e591]:
+                    - generic [ref=e592]: カナ
+                    - textbox "カナ 全角カタカナ（長音・空白可）で入力してください。" [disabled] [ref=e593]:
+                      - /placeholder: ヤマダ ハナコ
+                    - generic [ref=e594]: 全角カタカナ（長音・空白可）で入力してください。
+                  - generic [ref=e595]:
+                    - generic [ref=e596]: 生年月日
+                    - 'textbox "生年月日 YYYY-MM-DD 形式（例: 1980-04-01）。" [disabled] [ref=e597]'
+                    - generic [ref=e598]: "YYYY-MM-DD 形式（例: 1980-04-01）。"
+                  - generic [ref=e599]:
+                    - generic [ref=e600]: 性別
+                    - combobox "性別 M/F から選択します（未選択可）。" [disabled] [ref=e601]:
+                      - option "未選択" [disabled] [selected]
+                      - option "男性" [disabled]
+                      - option "女性" [disabled]
+                    - generic [ref=e602]: M/F から選択します（未選択可）。
+                  - generic [ref=e603]:
+                    - generic [ref=e604]: 電話
+                    - textbox "電話 数字/括弧/ハイフン/空白のみ（6〜24文字）。" [disabled] [ref=e605]:
+                      - /placeholder: 03-1234-5678
+                    - generic [ref=e606]: 数字/括弧/ハイフン/空白のみ（6〜24文字）。
+                  - generic [ref=e607]:
+                    - generic [ref=e608]: 郵便番号
+                    - textbox "郵便番号 123-4567 形式（ハイフンは任意）。" [disabled] [ref=e609]:
+                      - /placeholder: "1000001"
+                    - generic [ref=e610]: 123-4567 形式（ハイフンは任意）。
+                  - generic [ref=e611]:
+                    - generic [ref=e612]: 住所
+                    - textbox "住所" [disabled] [ref=e613]:
+                      - /placeholder: 東京都千代田区...
+                  - generic [ref=e614]:
+                    - generic [ref=e615]: 保険/自費
+                    - textbox "保険/自費" [disabled] [ref=e616]:
+                      - /placeholder: 社保12 / 自費など
+                  - generic [ref=e617]:
+                    - generic [ref=e618]: メモ
+                    - textbox "メモ" [disabled] [ref=e619]:
+                      - /placeholder: アレルギー、受診メモなど
+    - complementary [ref=e622]:
+      - status [ref=e623]:
+        - generic [ref=e624]: ORCAから患者を取り込みました
+        - generic [ref=e625]: 患者番号=1
+        - button "通知を閉じる" [ref=e626] [cursor=pointer]: ×

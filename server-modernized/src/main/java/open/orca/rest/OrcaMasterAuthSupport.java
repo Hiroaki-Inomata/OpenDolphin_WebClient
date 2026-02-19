@@ -1,6 +1,7 @@
 package open.orca.rest;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.security.Principal;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Objects;
@@ -17,6 +18,9 @@ final class OrcaMasterAuthSupport {
     }
 
     static boolean isAuthorized(HttpServletRequest request, String userName, String password) {
+        if (hasAuthenticatedPrincipal(request)) {
+            return true;
+        }
         String resolvedUser = firstNonBlank(userName);
         String resolvedPassword = firstNonBlank(password);
         if (resolvedUser == null || resolvedPassword == null) {
@@ -44,6 +48,26 @@ final class OrcaMasterAuthSupport {
                 DEFAULT_PASSWORD
         );
         return Objects.equals(expectedUser, resolvedUser) && Objects.equals(expectedPassword, resolvedPassword);
+    }
+
+    private static boolean hasAuthenticatedPrincipal(HttpServletRequest request) {
+        if (request == null) {
+            return false;
+        }
+        try {
+            String remoteUser = request.getRemoteUser();
+            if (remoteUser != null && !remoteUser.isBlank()) {
+                return true;
+            }
+        } catch (IllegalStateException ignored) {
+            // fall through and inspect user principal.
+        }
+        try {
+            Principal principal = request.getUserPrincipal();
+            return principal != null && principal.getName() != null && !principal.getName().isBlank();
+        } catch (IllegalStateException ignored) {
+            return false;
+        }
     }
 
     private static BasicAuth resolveBasicAuth(HttpServletRequest request) {
@@ -102,4 +126,3 @@ final class OrcaMasterAuthSupport {
         }
     }
 }
-

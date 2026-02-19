@@ -1,0 +1,27 @@
+HTTP/1.1 301 Moved Permanently
+Vary: Origin
+x-request-id: c8408534-7a96-4b8b-b170-fa129977368e
+location: http://localhost:9080/openDolphin/resources/orca/master/etensu?keyword=%E8%85%B9&category=2
+referrer-policy: no-referrer
+content-security-policy: default-src 'self'
+x-trace-id: c8408534-7a96-4b8b-b170-fa129977368e
+date: Tue, 17 Feb 2026 23:48:32 GMT
+connection: close
+x-run-id: 20260217T234832Z
+strict-transport-security: max-age=63072000; includeSubDomains
+x-content-type-options: nosniff
+content-length: 0
+
+HTTP/1.1 404 Not Found
+X-Request-Id: bbbae6cc-532b-419e-897c-67a6b4d3c7f3
+Referrer-Policy: no-referrer
+Content-Security-Policy: default-src 'self'
+X-Trace-Id: bbbae6cc-532b-419e-897c-67a6b4d3c7f3
+Date: Tue, 17 Feb 2026 23:48:32 GMT
+Connection: keep-alive
+X-Run-Id: 20260217T234832Z
+Strict-Transport-Security: max-age=63072000; includeSubDomains
+X-Content-Type-Options: nosniff
+Content-Length: 388
+Content-Type: application/json
+

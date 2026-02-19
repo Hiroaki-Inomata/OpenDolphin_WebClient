@@ -1,4 +1,4 @@
-# 開発状況（単一参照, 更新日: 2026-02-16）
+# 開発状況（単一参照, 更新日: 2026-02-18）
 
 ## 現行ステータス
 - Phase2 開発ドキュメントは **Legacy/Archive（参照専用）**。Phase2 を現行フェーズとして扱わない。
@@ -35,6 +35,14 @@
   - ドキュメント: `docs/server-modernization/orca-api-contract-unification-20260218.md` を追加し、旧->新マッピングを明記。ハブ更新: `docs/web-client/CURRENT.md` / `docs/server-modernization/README.md`。
   - 検証: `npm run check:orca-api01rv2` PASS、`npm -C web-client run typecheck` PASS、`npm -C web-client run test -- --run src/features/administration/orcaXmlProxyApi.test.ts src/features/charts/print/__tests__/useOrcaReportPrint.test.tsx src/features/charts/__tests__/subjectivesWarning.test.tsx --silent=true` PASS。
   - 既知の既存課題（今回差分外）: `src/features/charts/__tests__/contraindicationWarning.test.tsx` 実行時に `AdministrationPage.tsx` の重複宣言で transform 失敗、`mvn -pl server-modernized -Dtest=OrcaAcceptanceListResourceTest test` は `AdminAccessResource` の `UserAccessProfile` 未解決で compile 失敗。
+- 2026-02-18: Reception 当日受付の患者検索導線を再編（RUN_ID=20260218T125130Z）。
+  - 内容: 右ペイン「当日受付」ヘッダの **患者IDでカルテを直接開く**（クイック導線）を削除し、カルテ起動導線を患者検索結果内に統一。患者検索結果は「氏名 + 患者ID」の最小表示へ変更し、選択時のみ詳細（カナ/生年月日/性別/保険/直近/当日状態）と操作（過去カルテ/カルテを開く）を展開する仕様へ更新。大量件数（例: 400件）を想定し、検索結果を 50件/ページでページング（前へ/次へ、表示レンジ）できるようにした。
+  - 成果物: `web-client/src/features/reception/pages/ReceptionPage.tsx` / `web-client/src/features/reception/styles.ts` / `web-client/src/features/reception/__tests__/ReceptionPage.test.tsx`。
+  - 検証: `npm -C web-client run test -- --run src/features/reception/__tests__/ReceptionPage.test.tsx --silent=true`、`npm -C web-client run typecheck` PASS。
+- 2026-02-18: Charts オーダー候補UIと予約外受付エラーを修正（RUN_ID=20260218T124301Z）。
+  - 内容: `orderMasterSearchApi` の認証ヘッダを接続中アカウント由来に統一し、`OrderBundleEditPanel` の入力候補をカテゴリ横断（処方/注射/処置/検査/算定）で取得できるよう再整理。`OrderDockPanel` の quick-add を常時表示に変更し、カテゴリ選択導線を安定化。`fetchWithResolver` / `mergeOutpatientMeta` は `missingMaster` / `fallbackUsed` 未返却時を `false` 正規化して stale フラグ残留を解消し、予約外患者受付での `Reception` エラー誘発を防止。
+  - 追加修正: `OrderBundleEditPanel` の `radiologyOrder` バリデーションで `requiresBodyPart` が上書きされる不具合を修正（部位必須を維持）。
+  - テスト: `npm -C web-client run typecheck`、`NODE_OPTIONS=--require=$(pwd)/tmp/node-localhost-patch.cjs npm -C web-client run test -- --run src/features/charts/__tests__/orderBundleHistoryCopy.test.tsx src/features/charts/__tests__/orderBundleTwoTableLayout.test.tsx src/features/charts/__tests__/orderBundleUsageSearch.test.tsx src/features/charts/__tests__/orderBundleMasterSearch.test.tsx src/features/charts/__tests__/chartsPatientSummaryBar.test.tsx src/features/charts/__tests__/orderBundleBodyPart.test.tsx src/features/charts/__tests__/orderBundleAudit.test.tsx src/features/charts/__tests__/orderBundleItemActions.test.tsx src/features/charts/__tests__/orderBundleBundleNumberUi.test.tsx src/features/charts/__tests__/orderBundlePrescription.test.ts src/features/charts/__tests__/orderBundleValidation.test.ts src/features/charts/__tests__/orderBundleStampFlow.test.tsx src/features/charts/__tests__/orderDockPanel.categoryButtons.test.tsx src/features/charts/orderMasterSearchApi.test.ts src/features/outpatient/__tests__/fetchWithResolver.test.ts src/features/outpatient/__tests__/appointmentDataBanner.test.ts --silent=true` PASS。
 - 2026-02-16: Administration 設定配信タブを運用向けに再構成（RUN_ID=20260216T122953Z）。
   - 内容: `delivery` タブに `section` サブナビ（概要/接続/配信設定/配信キュー/マスタ・ヘルス/診療セット/診断・デバッグ）を追加し、`?tab=delivery&section=...` の deep link と履歴遷移に対応。`AdministrationPage` の巨大UIを `web-client/src/features/administration/delivery/*` / `web-client/src/features/administration/components/*` へ分割（WebORCA接続カード、配信設定カード、差分テーブル、キュー監視カード、ConfirmDialog 等）。
   - UX改善: ヘッダを「運用KPI/識別子/詳細フラグ」に整理、`syncMismatch` を「不整合あり」単一導線へ集約。非 `system_admin` は入力欄を原則 `readOnly` でコピー可能にし、依頼テンプレのコピー導線を追加。WebORCA 接続カードに「接続テストは保存済み設定」を固定表示し、保存済み/編集中（Dirty）と mTLS バリデーション（port範囲/p12必須）を可視化。配信操作とキュー破棄に ConfirmDialog を必須化。

@@ -1,0 +1,2 @@
+trace_id	action	outcome	actor_id	resource	run_id	reason	facility_header
+6cd6eb20-e1fa-4713-a7c7-9e3fe3b3f42a	REST_UNAUTHORIZED_GUARD	FAILURE	anonymous	/openDolphin/resources/orca/master/generic-class		authentication_failed	1.3.6.1.4.1.9414.70.1

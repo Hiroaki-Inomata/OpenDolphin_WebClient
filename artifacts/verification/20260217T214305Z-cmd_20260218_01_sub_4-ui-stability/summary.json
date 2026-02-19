@@ -1,0 +1,23 @@
+{
+  "cmd": "cmd_20260218_01_sub_4",
+  "timestampUtc": "2026-02-17T21:43:05Z",
+  "runId": "RUN-ORDER-DOCK",
+  "traceId": "3cf324ca-b73f-41f7-8108-181ff771fcb7",
+  "testCommand": "npm test -- src/features/charts/__tests__/orderDockPanel.categoryButtons.test.tsx",
+  "testResult": {
+    "filesPassed": 1,
+    "testsPassed": 2,
+    "testsFailed": 0
+  },
+  "verifiedScreens": [
+    "charts/medOrder-edit",
+    "charts/injectionOrder-edit",
+    "charts/treatmentOrder-edit",
+    "charts/testOrder-edit",
+    "charts/baseChargeOrder-edit"
+  ],
+  "artifacts": [
+    "artifacts/verification/20260217T214305Z-cmd_20260218_01_sub_4-ui-stability/vitest.log",
+    "artifacts/verification/20260217T214305Z-cmd_20260218_01_sub_4-ui-stability/summary.md"
+  ]
+}

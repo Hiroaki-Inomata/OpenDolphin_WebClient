@@ -1,0 +1,13 @@
+RUN_ID=20260218T223845Z
+## drug
+{"totalCount":220,"firstCode":"620003210","firstName":"ゲンタシン注４０　４０ｍｇ","dataSource":"server","fallbackUsed":false,"runId":"20260218T224631Z"}
+## comment
+{"totalCount":1,"firstCode":"820000001","firstName":"別途コメントあり","dataSource":"server","fallbackUsed":false,"runId":"20260218T224631Z"}
+## etensu_cat5
+{"totalCount":30,"firstCode":"130007970","firstName":"抗悪性腫瘍剤動脈内持続注入用植込型カテーテル設置（開腹）","dataSource":"server","fallbackUsed":false,"runId":"20260218T224633Z"}
+## bodypart
+{"totalCount":3,"firstCode":"820183500","firstName":"撮影部位（ＭＲＩ撮影）：膝","dataSource":"server","fallbackUsed":false,"runId":"20260218T224633Z"}
+## material
+{"totalCount":2020,"firstCode":"705000000","firstName":"脈管造影用カテーテル（標準（１））","dataSource":"server","fallbackUsed":false,"runId":"20260218T224633Z"}
+## kensa-sort
+{"totalCount":40,"firstCode":"160008010","firstName":"末梢血液一般検査","dataSource":"server","fallbackUsed":false,"runId":"20260218T224634Z"}

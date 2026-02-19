@@ -1,0 +1,125 @@
+{
+  "runId": "20260217T100933Z-cmd_20260217_01_sub_6-major-category-recheck3",
+  "executedAt": "2026-02-17T10:11:36.299Z",
+  "baseURL": "http://localhost:5173",
+  "categoryResults": [
+    {
+      "name": "prescription",
+      "endpointPart": "/orca/master/generic-class",
+      "keyword": "アム",
+      "panel": "medOrder",
+      "status": "fail",
+      "selected": false,
+      "itemFilled": false,
+      "traceId": null,
+      "responseStatus": null,
+      "screenshot": "screenshots/prescription_error.png",
+      "note": "TimeoutError: locator.waitFor: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.charts-page') to be visible\u001b[22m\n"
+    },
+    {
+      "name": "injection",
+      "endpointPart": "/orca/master/generic-class",
+      "keyword": "アム",
+      "panel": "injectionOrder",
+      "status": "fail",
+      "selected": false,
+      "itemFilled": false,
+      "traceId": null,
+      "responseStatus": null,
+      "screenshot": "screenshots/injection_error.png",
+      "note": "TimeoutError: locator.waitFor: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.charts-page') to be visible\u001b[22m\n"
+    },
+    {
+      "name": "procedure",
+      "endpointPart": "/orca/master/material",
+      "keyword": "ガーゼ",
+      "panel": "treatmentOrder",
+      "status": "fail",
+      "selected": false,
+      "itemFilled": false,
+      "traceId": null,
+      "responseStatus": null,
+      "screenshot": "screenshots/procedure_error.png",
+      "note": "TimeoutError: locator.waitFor: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.charts-page') to be visible\u001b[22m\n"
+    },
+    {
+      "name": "test",
+      "endpointPart": "/orca/master/kensa-sort",
+      "keyword": "血液",
+      "panel": "testOrder",
+      "status": "fail",
+      "selected": false,
+      "itemFilled": false,
+      "traceId": null,
+      "responseStatus": null,
+      "screenshot": "screenshots/test_error.png",
+      "note": "TimeoutError: locator.waitFor: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.charts-page') to be visible\u001b[22m\n"
+    },
+    {
+      "name": "charge",
+      "endpointPart": "/orca/master/etensu",
+      "keyword": "腹",
+      "panel": "baseChargeOrder",
+      "status": "fail",
+      "selected": false,
+      "itemFilled": false,
+      "traceId": null,
+      "responseStatus": null,
+      "screenshot": "screenshots/charge_error.png",
+      "note": "TimeoutError: locator.waitFor: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.charts-page') to be visible\u001b[22m\n"
+    }
+  ],
+  "keywordRetest": [
+    {
+      "path": "/orca/master/generic-class?keyword=アム&page=1&size=50",
+      "status": 401,
+      "traceId": "5c42c1c7-69c4-4b2a-9819-7c246ddf2faa"
+    },
+    {
+      "path": "/orca/master/material?keyword=ガーゼ",
+      "status": 401,
+      "traceId": "1969b50c-a4d2-4e78-aec4-5b5967265f24"
+    },
+    {
+      "path": "/orca/master/youhou?keyword=朝食",
+      "status": 401,
+      "traceId": "35e91810-756c-4083-b6f7-b14733332f0c"
+    },
+    {
+      "path": "/orca/master/kensa-sort?keyword=血液",
+      "status": 401,
+      "traceId": "289b3336-02da-4f02-936a-4a9ef940423d"
+    },
+    {
+      "path": "/orca/master/etensu?keyword=腹&category=2",
+      "status": 401,
+      "traceId": "f8241f13-e449-48a8-b960-5199fa5b8478"
+    }
+  ],
+  "masterResponses": [
+    {
+      "url": "http://localhost:5173/orca/master/generic-class?keyword=%E3%82%A2%E3%83%A0&page=1&size=50",
+      "status": 401,
+      "method": "GET",
+      "traceId": "5c42c1c7-69c4-4b2a-9819-7c246ddf2faa"
+    },
+    {
+      "url": "http://localhost:5173/orca/master/material?keyword=%E3%82%AC%E3%83%BC%E3%82%BC",
+      "status": 401,
+      "method": "GET",
+      "traceId": "1969b50c-a4d2-4e78-aec4-5b5967265f24"
+    },
+    {
+      "url": "http://localhost:5173/orca/master/youhou?keyword=%E6%9C%9D%E9%A3%9F",
+      "status": 401,
+      "method": "GET",
+      "traceId": "35e91810-756c-4083-b6f7-b14733332f0c"
+    },
+    {
+      "url": "http://localhost:5173/orca/master/kensa-sort?keyword=%E8%A1%80%E6%B6%B2",
+      "status": 401,
+      "method": "GET",
+      "traceId": "289b3336-02da-4f02-936a-4a9ef940423d"
+    }
+  ]
+}

@@ -20,9 +20,9 @@ const baseForm: BundleFormState = {
 };
 
 describe('validateBundleForm', () => {
-  it('medOrder: RP名・薬剤/項目・用法を必須として判定する', () => {
+  it('medOrder: 薬剤/項目・用法を必須として判定する', () => {
     const issues = validateBundleForm({ form: baseForm, entity: 'medOrder', bundleLabel: 'RP名' });
-    expect(issues.map((issue) => issue.key)).toEqual(['missing_items', 'missing_usage', 'missing_bundle_name']);
+    expect(issues.map((issue) => issue.key)).toEqual(['missing_items', 'missing_usage']);
   });
 
   it('medOrder: 必須条件を満たす場合はエラーなし', () => {
@@ -53,7 +53,7 @@ describe('validateBundleForm', () => {
     expect(issues.map((issue) => issue.key)).toEqual(['missing_usage']);
   });
 
-  it('medOrder: RP名が未入力の場合にエラー', () => {
+  it('medOrder: RP名未入力でも項目/用法があればエラーにしない', () => {
     const issues = validateBundleForm({
       form: {
         ...baseForm,
@@ -64,7 +64,7 @@ describe('validateBundleForm', () => {
       entity: 'medOrder',
       bundleLabel: 'RP名',
     });
-    expect(issues.map((issue) => issue.key)).toEqual(['missing_bundle_name']);
+    expect(issues.map((issue) => issue.key)).toEqual([]);
   });
 
   it('generalOrder: 項目が必須で、用法は必須にしない', () => {
@@ -85,7 +85,7 @@ describe('validateBundleForm', () => {
     expect(issues.map((issue) => issue.key)).toEqual(['missing_items']);
   });
 
-  it('generalOrder: オーダー名が未入力の場合にエラー', () => {
+  it('generalOrder: オーダー名が未入力でも項目があればエラーにしない', () => {
     const issues = validateBundleForm({
       form: {
         ...baseForm,
@@ -95,7 +95,7 @@ describe('validateBundleForm', () => {
       entity: 'generalOrder',
       bundleLabel: 'オーダー名',
     });
-    expect(issues.map((issue) => issue.key)).toEqual(['missing_bundle_name']);
+    expect(issues.map((issue) => issue.key)).toEqual([]);
   });
 
   it('injectionOrder: 手技料なしフラグがあっても必須条件を満たせばエラーなし', () => {
@@ -181,7 +181,7 @@ describe('validateBundleForm', () => {
     expect(issues).toHaveLength(0);
   });
 
-  it('materialItems: 材料名が空の場合にエラー', () => {
+  it('materialItems: 材料名が空でもエラーにしない（材料は項目行へ統合）', () => {
     const issues = validateBundleForm({
       form: {
         ...baseForm,
@@ -192,7 +192,7 @@ describe('validateBundleForm', () => {
       entity: 'generalOrder',
       bundleLabel: 'オーダー名',
     });
-    expect(issues.map((issue) => issue.key)).toEqual(['invalid_material_item']);
+    expect(issues.map((issue) => issue.key)).toEqual([]);
   });
 
   it('materialItems: 行を削除するとエラーが解消される', () => {

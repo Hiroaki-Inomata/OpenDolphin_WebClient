@@ -1,0 +1,17 @@
+- main [ref=e16]:
+  - region [ref=e17]:
+    - img "OpenDolphin システムアイコン" [ref=e21]
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - generic [ref=e24]: 施設ID
+        - textbox "施設ID" [ref=e25]:
+          - /placeholder: "例: 0001"
+          - text: 1.3.6.1.4.1.9414.10.1
+      - generic [ref=e26]:
+        - generic [ref=e27]: ユーザーID
+        - textbox "ユーザーID" [ref=e28]:
+          - /placeholder: "例: doctor01"
+      - generic [ref=e29]:
+        - generic [ref=e30]: パスワード
+        - textbox "パスワード" [ref=e31]
+      - button "ログイン" [disabled] [ref=e33]

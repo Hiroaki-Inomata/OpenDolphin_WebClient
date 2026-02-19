@@ -178,8 +178,7 @@ describe('OrderBundleEditPanel body part search', () => {
       />,
     );
 
-    await user.type(screen.getByLabelText('オーダー名'), 'テストオーダー');
-    await user.type(screen.getByPlaceholderText('項目名'), 'テスト項目');
+    await user.type(screen.getByPlaceholderText('処置項目名'), 'テスト項目');
 
     const keywordInput = screen.getByLabelText('部位検索', {
       selector: 'input[id$="-bodypart-keyword"]',

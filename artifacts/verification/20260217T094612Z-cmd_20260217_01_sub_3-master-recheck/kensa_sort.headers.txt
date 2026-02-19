@@ -1,0 +1,14 @@
+HTTP/1.1 503 Service Unavailable
+Vary: Origin
+x-request-id: 48567bc0-2797-49de-947c-a5a55d806b64
+referrer-policy: no-referrer
+content-security-policy: default-src 'self'
+x-trace-id: 48567bc0-2797-49de-947c-a5a55d806b64
+date: Tue, 17 Feb 2026 09:46:12 GMT
+connection: close
+x-run-id: 20260217T094612Z
+strict-transport-security: max-age=63072000; includeSubDomains
+x-content-type-options: nosniff
+content-length: 466
+content-type: application/json
+

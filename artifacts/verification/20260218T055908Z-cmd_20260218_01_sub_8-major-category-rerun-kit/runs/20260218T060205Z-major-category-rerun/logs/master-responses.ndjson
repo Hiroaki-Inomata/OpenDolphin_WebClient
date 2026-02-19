@@ -1,0 +1,2 @@
+{"at":"2026-02-18T06:02:22.823Z","method":"GET","status":200,"url":"http://localhost:5173/orca/master/generic-class?keyword=%E3%82%A2%E3%83%A0&page=1&size=20","traceId":null,"bodySize":27}
+{"at":"2026-02-18T06:02:22.880Z","method":"GET","status":404,"url":"http://localhost:5173/orca/master/etensu?keyword=%E3%82%A2%E3%83%A0","traceId":"090b5fa8-f230-42e3-a18a-7579a8ec93c7","bodySize":409}

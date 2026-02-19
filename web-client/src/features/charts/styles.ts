@@ -675,23 +675,69 @@ export const chartsStyles = css`
   .charts-patient-summary {
     display: flex;
     flex-direction: column;
-    gap: var(--charts-space-sm);
+    gap: var(--charts-space-xs);
   }
 
   .charts-patient-summary__top {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: minmax(104px, 120px) minmax(0, 1fr) minmax(260px, auto);
+    align-items: stretch;
     gap: var(--charts-space-sm);
-    flex-wrap: wrap;
   }
 
-  .charts-patient-summary__identity {
-    flex: 1;
-    min-width: min(520px, 100%);
+  .charts-patient-summary__encounter-actions {
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-2xs);
+    padding-right: var(--charts-space-sm);
+    border-right: 1px solid rgba(148, 163, 184, 0.32);
+  }
+
+  .charts-patient-summary__encounter-action {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.82rem;
+    font-weight: 900;
+    line-height: 1.2;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .charts-patient-summary__encounter-action--finish {
+    border-color: rgba(185, 28, 28, 0.54);
+    background: rgba(254, 226, 226, 0.95);
+    color: #991b1b;
+  }
+
+  .charts-patient-summary__encounter-action--finish:hover {
+    background: rgba(254, 202, 202, 0.95);
+  }
+
+  .charts-patient-summary__encounter-action--pause {
+    border-color: rgba(217, 119, 6, 0.48);
+    background: rgba(255, 247, 237, 0.95);
+    color: #9a3412;
+  }
+
+  .charts-patient-summary__encounter-action--pause:hover {
+    background: rgba(255, 237, 213, 0.96);
+  }
+
+  .charts-patient-summary__encounter-action:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .charts-patient-summary__identity-section {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-2xs);
+    padding-right: var(--charts-space-sm);
+    border-right: 1px solid rgba(148, 163, 184, 0.26);
   }
 
   .charts-patient-summary__name-row {
@@ -703,7 +749,7 @@ export const chartsStyles = css`
 
   .charts-patient-summary__name {
     margin: 0;
-    font-size: 1.35rem;
+    font-size: 1.2rem;
     color: #0f172a;
   }
 
@@ -716,7 +762,7 @@ export const chartsStyles = css`
   .charts-patient-summary__facts {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--charts-space-xs);
+    gap: var(--charts-space-2xs);
     align-items: center;
   }
 
@@ -724,12 +770,12 @@ export const chartsStyles = css`
     display: inline-flex;
     align-items: center;
     gap: var(--charts-space-2xs);
-    padding: 0.15rem 0.5rem;
+    padding: 0.1rem 0.45rem;
     border-radius: 999px;
     border: 1px solid rgba(148, 163, 184, 0.35);
     background: #f8fafc;
     color: #0f172a;
-    font-size: 0.82rem;
+    font-size: 0.8rem;
     font-weight: 800;
     white-space: nowrap;
   }
@@ -738,12 +784,12 @@ export const chartsStyles = css`
     display: inline-flex;
     align-items: center;
     gap: var(--charts-space-2xs);
-    padding: 0.15rem 0.5rem;
+    padding: 0.12rem 0.48rem;
     border-radius: 999px;
     border: 1px solid rgba(59, 130, 246, 0.35);
     background: #eff6ff;
     color: #1d4ed8;
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     font-weight: 800;
     cursor: pointer;
     white-space: nowrap;
@@ -753,17 +799,34 @@ export const chartsStyles = css`
     background: #dbeafe;
   }
 
+  .charts-patient-summary__fact-button--compact {
+    border-color: rgba(8, 145, 178, 0.38);
+    background: #ecfeff;
+    color: #155e75;
+  }
+
+  .charts-patient-summary__fact-button--compact:hover {
+    background: #cffafe;
+  }
+
   .charts-patient-summary__fact-button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  .charts-patient-summary__ops-section {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-2xs);
+    align-self: center;
   }
 
   .charts-patient-summary__clinical-alerts {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: var(--charts-space-xs);
-    margin-top: 2px;
+    gap: var(--charts-space-2xs);
   }
 
   .charts-patient-summary__clinical-chip {
@@ -773,9 +836,9 @@ export const chartsStyles = css`
     border: 1px solid rgba(148, 163, 184, 0.35);
     background: #f8fafc;
     color: #334155;
-    font-size: 0.8rem;
+    font-size: 0.76rem;
     font-weight: 800;
-    padding: 2px 10px;
+    padding: 2px 8px;
   }
 
   .charts-patient-summary__clinical-chip--neutral {
@@ -801,59 +864,24 @@ export const chartsStyles = css`
     background: rgba(254, 226, 226, 0.96);
   }
 
-  .charts-patient-summary__quick-switch {
-    margin-top: var(--charts-space-2xs);
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: var(--charts-space-xs);
-    padding: var(--charts-space-xs);
-    border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.32);
-    background: rgba(248, 250, 252, 0.95);
-  }
-
-  .charts-patient-summary__quick-switch-field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    font-weight: 800;
-    color: #0f172a;
-    font-size: 0.8rem;
-  }
-
-  .charts-patient-summary__quick-switch-field span {
-    color: #475569;
-    font-size: 0.72rem;
-    letter-spacing: 0.02em;
-  }
-
-  .charts-patient-summary__quick-switch-field input {
-    width: 8.2rem;
-    border-radius: 10px;
-    border: 1px solid rgba(148, 163, 184, 0.5);
-    padding: 0.42rem 0.55rem;
-    background: #ffffff;
-    font-size: 0.88rem;
-  }
-
-  .charts-patient-summary__quick-switch-button {
-    border-radius: 999px;
-    border: 1px solid rgba(37, 99, 235, 0.7);
-    background: rgba(37, 99, 235, 0.96);
-    color: #ffffff;
-    font-weight: 900;
-    padding: 0.5rem 0.9rem;
+  .charts-patient-summary__clinical-chip--memo {
+    border-color: rgba(14, 116, 144, 0.36);
+    background: #ecfeff;
+    color: #155e75;
     cursor: pointer;
   }
 
-  .charts-patient-summary__quick-switch-button:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
+  .charts-patient-summary__clinical-chip--memo:hover {
+    background: #cffafe;
+  }
+
+  .charts-patient-summary__expand-panels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--charts-space-xs);
   }
 
   .charts-patient-summary__allergies {
-    margin-top: var(--charts-space-xs);
     border-radius: var(--charts-radius-sm);
     border: 1px dashed rgba(245, 158, 11, 0.4);
     background: rgba(254, 243, 199, 0.35);
@@ -916,17 +944,16 @@ export const chartsStyles = css`
   }
 
   .charts-patient-summary__memo {
-    margin-top: var(--charts-space-2xs);
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
+    flex-direction: column;
+    align-items: flex-start;
     gap: var(--charts-space-xs);
-    padding: 0.25rem 0.6rem;
+    padding: var(--charts-space-xs) var(--charts-space-sm);
     border-radius: var(--charts-radius-sm);
     border: 1px solid rgba(148, 163, 184, 0.3);
     background: #f8fafc;
     color: #334155;
-    font-size: 0.82rem;
+    font-size: 0.8rem;
     line-height: 1.35;
   }
 
@@ -938,11 +965,15 @@ export const chartsStyles = css`
 
   .charts-patient-summary__memo-label {
     font-weight: 900;
+    font-size: 0.74rem;
+    letter-spacing: 0.02em;
   }
 
   .charts-patient-summary__memo-text {
     color: inherit;
     word-break: break-word;
+    max-height: 5.2rem;
+    overflow: auto;
   }
 
   .charts-patient-summary__memo-full {
@@ -962,26 +993,121 @@ export const chartsStyles = css`
 
   .charts-patient-summary__actions {
     display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--charts-space-xs);
     flex-wrap: wrap;
+    align-items: center;
+    gap: var(--charts-space-xs);
   }
 
   .charts-patient-summary__action {
     border-radius: 999px;
     border: 1px solid rgba(59, 130, 246, 0.35);
     background: #eff6ff;
-    padding: 0.25rem 0.6rem;
+    padding: 0.2rem 0.58rem;
     font-weight: 800;
     cursor: pointer;
     color: #0f172a;
-    font-size: 0.82rem;
+    font-size: 0.78rem;
     white-space: nowrap;
   }
 
   .charts-patient-summary__action:hover {
     background: #dbeafe;
+  }
+
+  .charts-patient-summary__ops-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--charts-space-2xs);
+    align-items: center;
+  }
+
+  .charts-patient-summary__ops-item {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.12rem 0.46rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.34);
+    background: #f8fafc;
+    color: #334155;
+    font-size: 0.76rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .charts-patient-summary__inline-actionbar {
+    border-top: 1px dashed rgba(148, 163, 184, 0.32);
+    padding-top: var(--charts-space-2xs);
+  }
+
+  .charts-patient-summary__inline-actionbar .charts-actions {
+    gap: 0.35rem;
+  }
+
+  .charts-patient-summary__inline-actionbar .charts-actions__header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+    align-items: center;
+  }
+
+  .charts-patient-summary__inline-actionbar .charts-actions__header > div:first-of-type {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 0.12rem 0.45rem;
+    align-items: center;
+  }
+
+  .charts-patient-summary__inline-actionbar .charts-actions__kicker {
+    margin: 0;
+    font-size: 0.64rem;
+    line-height: 1.1;
+  }
+
+  .charts-patient-summary__inline-actionbar .charts-actions__header h2 {
+    margin: 0;
+    font-size: 0.92rem;
+    line-height: 1.2;
+  }
+
+  .charts-patient-summary__inline-actionbar .charts-actions__status {
+    margin: 0;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.74rem;
+  }
+
+  .charts-patient-summary__inline-actionbar .charts-actions__quick-controls {
+    margin-top: 0;
+    justify-content: flex-end;
+    gap: 0.35rem;
+  }
+
+  .charts-patient-summary__inline-actionbar .charts-actions__toggle {
+    margin-top: 0;
+    padding: 0.2rem 0.56rem;
+    font-size: 0.74rem;
+  }
+
+  .charts-patient-summary__inline-actionbar .charts-actions__button--compact {
+    padding: 0.24rem 0.55rem;
+    font-size: 0.74rem;
+    line-height: 1.2;
+  }
+
+  .charts-patient-summary__inline-actionbar .charts-actions__meta {
+    display: none;
+  }
+
+  .charts-patient-summary__inline-actionbar .charts-actions__guard-summary,
+  .charts-patient-summary__inline-actionbar .charts-actions__banner,
+  .charts-patient-summary__inline-actionbar .charts-actions__banner-actions,
+  .charts-patient-summary__inline-actionbar .charts-actions__conflict,
+  .charts-patient-summary__inline-actionbar .charts-actions__controls,
+  .charts-patient-summary__inline-actionbar .charts-actions__more,
+  .charts-patient-summary__inline-actionbar .charts-actions__guard,
+  .charts-patient-summary__inline-actionbar .charts-actions__skeleton,
+  .charts-patient-summary__inline-actionbar .charts-actions__toast {
+    margin-top: 0.25rem;
   }
 
   .charts-patient-summary__detail {
@@ -1193,7 +1319,7 @@ export const chartsStyles = css`
     display: inline-flex;
     align-items: center;
     gap: var(--charts-space-xs);
-    font-size: 0.85rem;
+    font-size: 0.78rem;
     font-weight: 700;
     padding: var(--charts-space-2xs) var(--charts-space-sm);
     border-radius: 999px;
@@ -1229,7 +1355,7 @@ export const chartsStyles = css`
   }
 
   .charts-patient-summary__runid {
-    font-size: 0.7rem;
+    font-size: 0.66rem;
   }
 
   .charts-patient-summary__runid .runid-badge__value {
@@ -1242,22 +1368,24 @@ export const chartsStyles = css`
   }
 
   .charts-patient-summary__safety-toggle {
-    align-self: flex-start;
-    border: none;
-    background: transparent;
+    align-self: center;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    border-radius: 999px;
+    background: #eff6ff;
     color: #1d4ed8;
-    font-size: 0.8rem;
-    font-weight: 600;
+    font-size: 0.74rem;
+    font-weight: 800;
     display: inline-flex;
     align-items: center;
-    gap: var(--charts-space-xs);
+    gap: var(--charts-space-2xs);
     cursor: pointer;
-    padding: 0;
+    padding: 0.18rem 0.56rem;
+    white-space: nowrap;
   }
 
   .charts-patient-summary__safety-toggle:hover,
   .charts-patient-summary__safety-toggle:focus-visible {
-    text-decoration: underline;
+    background: #dbeafe;
   }
 
   .charts-patient-summary__safety-toggle-icon {
@@ -1294,6 +1422,67 @@ export const chartsStyles = css`
   .charts-patient-summary__safety-empty {
     color: #94a3b8;
     font-size: 0.8rem;
+  }
+
+  @media (max-width: 1080px) {
+    .charts-patient-summary__top {
+      grid-template-columns: 1fr;
+      gap: var(--charts-space-xs);
+    }
+
+    .charts-patient-summary__encounter-actions {
+      flex-direction: row;
+      padding-right: 0;
+      padding-bottom: var(--charts-space-xs);
+      border-right: none;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.32);
+    }
+
+    .charts-patient-summary__encounter-action {
+      width: auto;
+      min-width: 8rem;
+    }
+
+    .charts-patient-summary__identity-section {
+      padding-right: 0;
+      border-right: none;
+    }
+
+    .charts-patient-summary__actions {
+      justify-content: flex-start;
+    }
+
+    .charts-patient-summary__inline-actionbar .charts-actions__header > div:first-of-type {
+      grid-template-columns: 1fr;
+    }
+
+    .charts-patient-summary__inline-actionbar .charts-actions__quick-controls {
+      justify-content: flex-start;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .charts-patient-summary__encounter-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .charts-patient-summary__encounter-action {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .charts-patient-summary__name {
+      font-size: 1.05rem;
+    }
+
+    .charts-patient-summary__facts {
+      gap: 4px;
+    }
+
+    .charts-patient-summary__expand-panels {
+      grid-template-columns: 1fr;
+    }
   }
 
   .charts-patient-memo {
@@ -2073,6 +2262,11 @@ export const chartsStyles = css`
   }
 
   .charts-side-panel__dock-body {
+    min-height: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-sm);
     padding-bottom: calc(var(--charts-space-lg) + 4.5rem);
   }
 
@@ -2916,19 +3110,17 @@ export const chartsStyles = css`
 
   .charts-side-panel__workspace {
     display: grid;
-    grid-template-columns: minmax(300px, 0.92fr) minmax(0, 1.58fr);
+    grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.72fr);
     gap: var(--charts-space-md);
     min-height: 0;
-    align-items: start;
+    align-items: stretch;
   }
 
   .charts-side-panel__workspace-left,
   .charts-side-panel__workspace-right {
     min-height: 0;
-    max-height: min(72vh, 880px);
-    overflow: auto;
+    overflow: visible;
     padding-right: var(--charts-space-xs);
-    scrollbar-gutter: stable both-edges;
   }
 
   .charts-side-panel__workspace-left {
@@ -2957,6 +3149,16 @@ export const chartsStyles = css`
     max-height: none;
     overflow: visible;
     padding-right: 0;
+  }
+
+  .charts-side-panel__workspace[data-variant='embedded'] .charts-side-panel__two-table-scroll {
+    max-height: none;
+    overflow: visible;
+    padding-right: var(--charts-space-sm);
+  }
+
+  .charts-side-panel__workspace[data-variant='embedded'] .charts-side-panel__two-table-scroll .charts-side-panel__subheader {
+    position: static;
   }
 
   @media (max-width: 1360px) {
@@ -3321,7 +3523,7 @@ export const chartsStyles = css`
 
   .charts-side-panel__field-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: var(--charts-space-sm);
   }
 
@@ -3331,6 +3533,51 @@ export const chartsStyles = css`
     gap: var(--charts-space-xs);
     font-size: 0.85rem;
     color: #334155;
+  }
+
+  .charts-side-panel__switch-group {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap: var(--charts-space-xs);
+  }
+
+  .charts-side-panel__switch-button {
+    border: 1px solid rgba(148, 163, 184, 0.5);
+    border-radius: 10px;
+    min-height: 38px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    padding: 0.3rem 0.55rem;
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+    white-space: nowrap;
+  }
+
+  .charts-side-panel__switch-button[data-active='true'] {
+    border-color: rgba(37, 99, 235, 0.55);
+    background: #dbeafe;
+    color: #1d4ed8;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+  }
+
+  .charts-side-panel__switch-button:hover:not(:disabled) {
+    border-color: rgba(59, 130, 246, 0.5);
+    background: #eff6ff;
+  }
+
+  .charts-side-panel__switch-group--compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-width: 0;
+  }
+
+  .charts-side-panel__switch-button--compact {
+    min-height: 34px;
+    padding: 0.28rem 0.4rem;
+    font-size: 0.74rem;
+    line-height: 1.25;
   }
 
   .charts-side-panel__subsection {
@@ -3431,7 +3678,7 @@ export const chartsStyles = css`
 
   .charts-side-panel__two-table-scroll {
     min-height: 0;
-    max-height: min(48vh, 520px);
+    max-height: min(62vh, 760px);
     overflow: auto;
     padding: var(--charts-space-sm);
     padding-right: var(--charts-space-xs);
@@ -3556,7 +3803,7 @@ export const chartsStyles = css`
 
   .charts-side-panel__item-row {
     display: grid;
-    grid-template-columns: auto 1.4fr 0.8fr 0.6fr auto;
+    grid-template-columns: 32px minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 0.6fr) 32px;
     gap: var(--charts-space-xs);
     align-items: center;
     padding: var(--charts-space-2xs);
@@ -3564,11 +3811,21 @@ export const chartsStyles = css`
   }
 
   .charts-side-panel__item-row--med {
-    grid-template-columns: auto 1.4fr 0.8fr 0.6fr 0.7fr auto;
+    grid-template-columns: 32px minmax(0, 1.45fr) minmax(82px, 0.72fr) minmax(72px, 0.58fr) minmax(160px, 1.05fr) 32px;
   }
 
   .charts-side-panel__item-row--comment {
     grid-template-columns: 0.7fr 1.6fr 0.6fr 0.6fr auto;
+  }
+
+  .charts-side-panel__item-row input,
+  .charts-side-panel__item-row select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .charts-side-panel__item-row .charts-side-panel__switch-group {
+    min-width: 0;
   }
 
   .charts-side-panel__item-row--drag-over {
@@ -3660,6 +3917,7 @@ export const chartsStyles = css`
   .charts-side-panel__actions button:disabled,
   .charts-side-panel__action:disabled,
   .charts-side-panel__chip-button:disabled,
+  .charts-side-panel__switch-button:disabled,
   .charts-side-panel__item-actions button:disabled,
   .charts-side-panel__row-delete:disabled,
   .charts-side-panel__drag-handle:disabled,
@@ -5445,7 +5703,7 @@ export const chartsStyles = css`
 
   .soap-note__body {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(260px, clamp(340px, 32vw, 520px));
+    grid-template-columns: minmax(0, 1fr) minmax(420px, clamp(520px, 43vw, 760px));
     gap: var(--charts-space-md);
     align-items: start;
   }
@@ -5724,8 +5982,8 @@ export const chartsStyles = css`
     flex-direction: column;
     gap: var(--charts-space-sm);
     min-width: 0;
-    max-height: min(62dvh, 520px);
-    overflow: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   .order-dock {
@@ -6685,7 +6943,7 @@ export const chartsStyles = css`
 
     .soap-note__paper {
       position: static;
-      max-height: clamp(180px, 38dvh, 360px);
+      max-height: none;
     }
   }
 

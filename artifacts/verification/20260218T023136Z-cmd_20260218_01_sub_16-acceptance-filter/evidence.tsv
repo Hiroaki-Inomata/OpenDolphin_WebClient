@@ -1,0 +1,9 @@
+source	endpoint_or_ref	status	trace_or_line	note
+sub_9_trace	http://localhost:5173/orca/master/etensu?keyword=%E8%85%B9&category=2	404	d29ad692-3125-4f90-822a-831f6f64a3af	body.code=TENSU_NOT_FOUND
+sub_9_trace	http://localhost:5173/orca/master/etensu?category=2	404	75b69458-307a-40a3-80b2-da094bc5cfe8	body.code=TENSU_NOT_FOUND
+sub_9_trace	http://localhost:5173/orca/master/etensu?page=1&size=1	200	9e5fc208-b7ba-49be-bc4a-8ab3d3519816	endpoint health check
+spec_ref	docs/server-modernization/MODERNIZED_REST_API_INVENTORY.md	-	line 260	404 is TENSU_NOT_FOUND for etensu search
+impl_ref	server-modernized/src/main/java/open/orca/rest/OrcaMasterResource.java	404	line 739-744	fallback 0-hit => TENSU_NOT_FOUND
+impl_ref	server-modernized/src/main/java/open/orca/rest/OrcaMasterResource.java	404	line 774-779	DB 0-hit => TENSU_NOT_FOUND
+impl_ref	server-modernized/src/main/java/open/orca/rest/OrcaResource.java	301	line 681	/orca/tensu/etensu redirects to /orca/master/etensu
+client_ref	web-client/src/features/charts/orderMasterSearchApi.ts	-	line 93	etensu endpoint uses /orca/master/etensu

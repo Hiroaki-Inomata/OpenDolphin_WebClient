@@ -1,0 +1,6 @@
+check	status	source	detail
+rule_404_exclusion_ready	PASS	20260218T023136Z-cmd_20260218_01_sub_16-acceptance-filter/evidence.tsv	TENSU_NOT_FOUND 404 traces exist (d29ad692-3125-4f90-822a-831f6f64a3af,75b69458-307a-40a3-80b2-da094bc5cfe8) and etensu health 200 trace exists (9e5fc208-b7ba-49be-bc4a-8ab3d3519816)
+sub18_trace_bundle_present	FAIL	artifacts/verification	cmd_20260218_01_sub_18 artifact directory is absent as of 2026-02-18T05:03:10Z
+ng_condition_401_mixed	PENDING	sub_18 summary/master-responses	Cannot evaluate until sub_18 traces are produced
+ng_condition_trace_missing	FAIL	cmd_20260218_01_sub_18	Required traces are missing (sub_18 not submitted)
+ng_condition_skip_gt_zero	PENDING	sub_18 summary.json	Cannot evaluate until sub_18 summary.json is produced
