@@ -15,7 +15,7 @@ import {
 } from './orderMasterSearchApi';
 import { buildContraindicationCheckRequestXml, fetchContraindicationCheckXml } from './contraindicationCheckApi';
 import { buildMedicationGetRequestXml, fetchOrcaMedicationGetXml } from './orcaMedicationGetApi';
-import { parseOrcaOrderItemMemo, updateOrcaOrderItemMeta } from './orcaOrderItemMeta';
+import { parseOrcaOrderItemMemo, type OrcaOrderItemMeta, updateOrcaOrderItemMeta } from './orcaOrderItemMeta';
 import {
   fetchOrderRecommendations,
   type OrderRecommendationCandidate,
@@ -104,6 +104,7 @@ type BundleValidationRule = {
 type ContraindicationNotice = { tone: 'info' | 'warning' | 'error'; message: string; detail?: string };
 
 type OrderBundleItemWithRowId = OrderBundleItem & { rowId?: string };
+type RecentUsageStorageScope = { facilityId?: string; userId?: string };
 
 const createRowId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -178,6 +179,8 @@ const PRESCRIPTION_TIMING_OPTIONS: Array<{ value: PrescriptionTiming; label: str
 ];
 const DEFAULT_USAGE_SUGGESTION_LIMIT = 12;
 const DEFAULT_PREDICTIVE_LIMIT = 20;
+const RECENT_USAGE_STORAGE_PREFIX = 'charts-order-recent-usage';
+const RECENT_USAGE_MAX = 10;
 
 const isDrugMedicationCode = (code: string) => /^6\d{8}$/.test(code.trim());
 
@@ -568,6 +571,49 @@ const matchesMasterItemByPartial = (item: OrderMasterSearchItem, keyword: string
   return candidates.some((candidate) => candidate.toLowerCase().includes(normalizedKeyword));
 };
 
+const buildRecentUsageStorageKey = (scope: RecentUsageStorageScope, entity: string) => {
+  const facilityId = scope.facilityId?.trim() || 'unknown-facility';
+  const userId = scope.userId?.trim() || 'unknown-user';
+  return `${RECENT_USAGE_STORAGE_PREFIX}:${facilityId}:${userId}:${entity}`;
+};
+
+const dedupeRecentUsages = (values: string[]) => {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  values.forEach((value) => {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    next.push(normalized);
+  });
+  return next.slice(0, RECENT_USAGE_MAX);
+};
+
+const loadRecentUsageHistory = (storageKey: string): string[] => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return dedupeRecentUsages(parsed.filter((value): value is string => typeof value === 'string'));
+  } catch {
+    return [];
+  }
+};
+
+const saveRecentUsageHistory = (storageKey: string, values: string[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(dedupeRecentUsages(values)));
+  } catch {
+    // Ignore storage failures in private mode or quota exceeded cases.
+  }
+};
+
+const appendRecentUsageHistory = (values: string[], value: string) =>
+  dedupeRecentUsages([value, ...values]);
+
 export const resolvePrescriptionClassCode = (timing: PrescriptionTiming, location: PrescriptionLocation) =>
   PRESCRIPTION_CLASS_CODES[timing][location];
 
@@ -833,6 +879,16 @@ export function OrderBundleEditPanel({
     () => ({ facilityId: session?.facilityId, userId: session?.userId }),
     [session?.facilityId, session?.userId],
   );
+  const recentUsageStorageKey = useMemo(
+    () => buildRecentUsageStorageKey(storageScope, entity),
+    [entity, storageScope],
+  );
+  const [recentUsageHistory, setRecentUsageHistory] = useState<string[]>(() =>
+    loadRecentUsageHistory(recentUsageStorageKey),
+  );
+  useEffect(() => {
+    setRecentUsageHistory(loadRecentUsageHistory(recentUsageStorageKey));
+  }, [recentUsageStorageKey]);
   const [orcaSendEntry, setOrcaSendEntry] = useState<ReturnType<typeof getOrcaClaimSendEntry> | null>(() =>
     getOrcaClaimSendEntry(storageScope, patientId),
   );
@@ -1339,6 +1395,18 @@ export function OrderBundleEditPanel({
   };
 
   const usageNormalizationSeqRef = useRef(0);
+  const pushRecentUsage = useCallback(
+    (value: string) => {
+      const normalized = value.trim();
+      if (!normalized) return;
+      setRecentUsageHistory((prev) => {
+        const next = appendRecentUsageHistory(prev, normalized);
+        saveRecentUsageHistory(recentUsageStorageKey, next);
+        return next;
+      });
+    },
+    [recentUsageStorageKey],
+  );
 
   const applyUsage = (item: OrderMasterSearchItem) => {
     const label = formatUsageLabel(item);
@@ -1359,6 +1427,17 @@ export function OrderBundleEditPanel({
     if (!selected) return false;
     applyUsage(selected);
     return true;
+  };
+
+  const applyRecentUsageSelection = (value: string) => {
+    const nextValue = value.trim();
+    if (!nextValue) return;
+    clearValidationByKeys(['missing_usage']);
+    setForm((prev) => ({
+      ...prev,
+      admin: nextValue,
+      adminMemo: '',
+    }));
   };
 
   const normalizeUsageInput = async (rawValue: string) => {
@@ -1864,6 +1943,9 @@ export function OrderBundleEditPanel({
         },
       });
       if (result.ok) {
+        if (supportsUsageSearch) {
+          pushRecentUsage(payload.form.admin);
+        }
         queryClient.invalidateQueries({ queryKey: recommendationQueryKey });
         if (operation === 'create' && result.createdDocumentIds && result.createdDocumentIds.length > 0) {
           const createdDocumentId = result.createdDocumentIds[0];
@@ -2710,6 +2792,24 @@ export function OrderBundleEditPanel({
                 disabled={isBlocked}
               />
             )}
+            {supportsUsageSearch && (
+              <>
+                <label htmlFor={`${entity}-admin-recent`}>最近使った用法</label>
+                <select
+                  id={`${entity}-admin-recent`}
+                  value=""
+                  onChange={(event) => applyRecentUsageSelection(event.target.value)}
+                  disabled={isBlocked || recentUsageHistory.length === 0}
+                >
+                  <option value="">候補を選択</option>
+                  {recentUsageHistory.map((usage) => (
+                    <option key={`${entity}-recent-usage-${usage}`} value={usage}>
+                      {usage}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
             {usageError ? (
               <p className="charts-side-panel__field-error" role="alert">
                 {usageError}
@@ -3215,47 +3315,68 @@ export function OrderBundleEditPanel({
               {isMedOrder && (() => {
                 const code = item.code?.trim() ?? '';
                 const { meta } = parseOrcaOrderItemMemo(item.memo);
-                const value = meta.genericFlg ?? '';
-                const disabled = isBlocked || !isDrugMedicationCode(code);
-                const updateGenericFlag = (nextValue: '' | 'yes' | 'no') => {
+                const genericValue = meta.genericFlg ?? '';
+                const userCommentValue = meta.userComment ?? '';
+                const genericDisabled = isBlocked || !isDrugMedicationCode(code);
+                const updateItemMeta = (patch: Partial<OrcaOrderItemMeta>) => {
                   setForm((prev) => {
                     const next = [...prev.items];
                     const current = next[index];
                     if (!current) return prev;
                     next[index] = {
                       ...current,
-                      memo: updateOrcaOrderItemMeta(current.memo ?? '', {
-                        genericFlg: nextValue === 'yes' || nextValue === 'no' ? nextValue : undefined,
-                      }),
+                      memo: updateOrcaOrderItemMeta(current.memo ?? '', patch),
                     };
                     return { ...prev, items: next };
                   });
                 };
+                const updateGenericFlag = (nextValue: '' | 'yes' | 'no') => {
+                  updateItemMeta({
+                    genericFlg: nextValue === 'yes' || nextValue === 'no' ? nextValue : undefined,
+                  });
+                };
+                const updateUserComment = (nextValue: string) => {
+                  updateItemMeta({ userComment: nextValue });
+                };
                 return (
                   <div
-                    className="charts-side-panel__switch-group charts-side-panel__switch-group--compact"
-                    role="group"
-                    aria-label="一般名"
+                    className="charts-side-panel__med-item-meta"
                     onFocus={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
-                    title={disabled ? '薬剤コード確定後に選択できます。' : undefined}
                   >
-                    {[
-                      { value: '', label: '既定' },
-                      { value: 'yes', label: '一般名' },
-                      { value: 'no', label: '一般名なし' },
-                    ].map((option) => (
-                      <button
-                        key={`${entity}-item-generic-${index}-${option.value || 'default'}`}
-                        type="button"
-                        className="charts-side-panel__switch-button charts-side-panel__switch-button--compact"
-                        data-active={value === option.value ? 'true' : 'false'}
-                        aria-pressed={value === option.value}
-                        onClick={() => updateGenericFlag(option.value as '' | 'yes' | 'no')}
-                        disabled={disabled}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
+                    <div
+                      className="charts-side-panel__switch-group charts-side-panel__switch-group--compact"
+                      role="group"
+                      aria-label="一般名"
+                      title={genericDisabled ? '薬剤コード確定後に選択できます。' : undefined}
+                    >
+                      {[
+                        { value: '', label: '既定' },
+                        { value: 'yes', label: '一般名' },
+                        { value: 'no', label: '一般名なし' },
+                      ].map((option) => (
+                        <button
+                          key={`${entity}-item-generic-${index}-${option.value || 'default'}`}
+                          type="button"
+                          className="charts-side-panel__switch-button charts-side-panel__switch-button--compact"
+                          data-active={genericValue === option.value ? 'true' : 'false'}
+                          aria-pressed={genericValue === option.value}
+                          onClick={() => updateGenericFlag(option.value as '' | 'yes' | 'no')}
+                          disabled={genericDisabled}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      id={`${entity}-item-user-comment-${index}`}
+                      name={`${entity}-item-user-comment-${index}`}
+                      value={userCommentValue}
+                      onChange={(event) => updateUserComment(event.target.value)}
+                      onFocus={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
+                      placeholder="薬剤ごとのコメント入力"
+                      aria-label={`薬剤コメント ${index + 1}`}
+                      disabled={isBlocked}
+                    />
                   </div>
                 );
               })()}

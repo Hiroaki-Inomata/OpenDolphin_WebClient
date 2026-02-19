@@ -147,9 +147,9 @@ describe('OrderDockPanel category quick-add', () => {
       />,
     );
 
-    const commentChip = screen.getByTitle(`コメント:${fullComment}`);
-    expect(commentChip).toHaveTextContent(/^コメント:/);
-    expect(commentChip.textContent).not.toBe(`コメント:${fullComment}`);
+    const commentChip = screen.getByTitle(`アムロジピン 1錠 コメント:${fullComment}`);
+    expect(commentChip).toHaveTextContent(/コメント:/);
+    expect(commentChip.textContent).not.toBe(`アムロジピン 1錠 コメント:${fullComment}`);
     expect(screen.queryByText(/__orca_meta__/)).not.toBeInTheDocument();
   });
 });

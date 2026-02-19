@@ -131,23 +131,7 @@ const truncateChipText = (value: string, maxLength: number) => {
 
 const resolveMedItemUserComment = (memo?: string | null): string => {
   const parsed = parseOrcaOrderItemMemo(memo);
-  const userCommentFromMeta = (parsed.meta as { userComment?: unknown })?.userComment;
-  if (typeof userCommentFromMeta === 'string') {
-    const normalized = normalizeInline(userCommentFromMeta);
-    if (normalized) return normalized;
-  }
-  const raw = typeof memo === 'string' ? memo : '';
-  if (!raw.startsWith('__orca_meta__:')) return '';
-  const firstLine = raw.split('\n', 1)[0] ?? '';
-  const jsonPart = firstLine.slice('__orca_meta__:'.length).trim();
-  if (!jsonPart) return '';
-  try {
-    const parsedMeta = JSON.parse(jsonPart) as { userComment?: unknown };
-    if (typeof parsedMeta.userComment !== 'string') return '';
-    return normalizeInline(parsedMeta.userComment);
-  } catch {
-    return '';
-  }
+  return normalizeInline(parsed.meta.userComment ?? '');
 };
 
 type BundleCardChip = {
@@ -164,41 +148,32 @@ type BundleCardSummary = {
 
 const summarizeBundleForCard = (bundle: OrderBundle, entity: PastOrderEntity): BundleCardSummary => {
   const items = (bundle.items ?? []).filter((item) => Boolean(item?.name?.trim?.()));
-  const chipsAll = items
-    .map(formatBundleItemChip)
-    .filter((chip) => chip.trim().length > 0)
-    .map(
-      (chip) =>
-        ({
-          label: chip,
-          title: chip,
-        }) satisfies BundleCardChip,
-    );
+  const chipsAll = items.reduce<BundleCardChip[]>((acc, item) => {
+    const baseChip = formatBundleItemChip(item);
+    if (!baseChip) return acc;
+    const userComment = resolveMedItemUserComment(item.memo);
+    if (!userComment) {
+      acc.push({ label: baseChip, title: baseChip });
+      return acc;
+    }
+    const shortComment = truncateChipText(userComment, 12);
+    acc.push({
+      label: `${baseChip} コメント:${shortComment}`,
+      title: `${baseChip} コメント:${userComment}`,
+      className: 'order-dock__chip--comment',
+    });
+    return acc;
+  }, []);
   const usage = normalizeInline(bundle.admin ?? '');
   const bundleNumber = normalizeInline(bundle.bundleNumber ?? '');
   const memo = normalizeInline(bundle.memo ?? '');
 
   if (entity === 'medOrder') {
-    const commentChips = Array.from(
-      new Set(
-        items
-          .map((item) => resolveMedItemUserComment(item.memo))
-          .filter((comment) => comment.length > 0),
-      ),
-    ).map((comment) => {
-      const title = `コメント:${comment}`;
-      return {
-        label: `コメント:${truncateChipText(comment, 18)}`,
-        title,
-        className: 'order-dock__chip--comment',
-      } satisfies BundleCardChip;
-    });
-    const merged = [...chipsAll, ...commentChips];
     const metaParts = [usage || null, bundleNumber ? `日数:${bundleNumber}` : null].filter(Boolean) as string[];
     return {
       metaLine: metaParts.length > 0 ? metaParts.join(' / ') : undefined,
-      chips: merged.slice(0, 6),
-      moreLabel: merged.length > 6 ? `他${merged.length - 6}` : undefined,
+      chips: chipsAll.slice(0, 6),
+      moreLabel: chipsAll.length > 6 ? `他${chipsAll.length - 6}` : undefined,
     };
   }
 
@@ -530,6 +505,7 @@ export function OrderDockPanel(props: {
       if (!section) return;
       const inlineEditor = section.querySelector('.order-dock__inline-editor');
       if (!(inlineEditor instanceof HTMLElement)) return;
+      if (typeof inlineEditor.scrollIntoView !== 'function') return;
       inlineEditor.scrollIntoView({ block: 'nearest' });
     });
   }, [activeEntity]);

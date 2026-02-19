@@ -7,6 +7,7 @@ import type { ReactElement } from 'react';
 import { OrderBundleEditPanel } from '../OrderBundleEditPanel';
 import { mutateOrderBundles } from '../orderBundleApi';
 import { fetchOrderMasterSearch } from '../orderMasterSearchApi';
+import { parseOrcaOrderItemMemo } from '../orcaOrderItemMeta';
 
 vi.mock('../orderBundleApi', async () => ({
   fetchOrderBundles: vi.fn().mockResolvedValue({
@@ -65,6 +66,8 @@ const baseProps = {
     dataSourceTransition: 'server' as const,
   },
 };
+
+const recentUsageStorageKey = 'charts-order-recent-usage:unknown-facility:unknown-user:medOrder';
 
 afterEach(() => {
   cleanup();
@@ -180,7 +183,7 @@ describe('OrderBundleEditPanel item actions', () => {
     );
   });
 
-  it('一般名指示が薬剤行ごとに memo へ保存される', async () => {
+  it('一般名指示と薬剤コメントが薬剤行ごとに memo meta へ共存保存される', async () => {
     const user = userEvent.setup();
     const searchMock = vi.mocked(fetchOrderMasterSearch);
     searchMock.mockImplementation(async ({ type, keyword }) => {
@@ -221,6 +224,7 @@ describe('OrderBundleEditPanel item actions', () => {
     const genericOnButton = within(genericGroup).getByRole('button', { name: '一般名' });
     await waitFor(() => expect(genericOnButton).toBeEnabled());
     await user.click(genericOnButton);
+    await user.type(screen.getByLabelText('薬剤コメント 1'), '食後');
 
     const usageInput = screen.getByLabelText('用法') as HTMLInputElement;
     await user.type(usageInput, '1回');
@@ -234,7 +238,60 @@ describe('OrderBundleEditPanel item actions', () => {
 
     const payload = mutateMock.mock.calls[0]?.[0];
     const items = payload?.operations?.[0]?.items ?? [];
-    expect(items[0]?.memo).toBe('__orca_meta__:{"genericFlg":"yes"}\n元メモ');
+    const { meta, memoText } = parseOrcaOrderItemMemo(items[0]?.memo);
+    expect(meta).toMatchObject({
+      genericFlg: 'yes',
+      userComment: '食後',
+    });
+    expect(memoText).toBe('元メモ');
+  });
+
+  it('空白のみ薬剤コメントは memo meta から除去される', async () => {
+    mockUsageMaster();
+    const user = userEvent.setup();
+    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    await user.type(screen.getByPlaceholderText('薬剤名'), 'アムロジピン');
+    await user.type(screen.getByLabelText('薬剤コメント 1'), '   ');
+    await selectUsage(user);
+
+    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+
+    const mutateMock = vi.mocked(mutateOrderBundles);
+    await waitFor(() => expect(mutateMock).toHaveBeenCalled());
+
+    const payload = mutateMock.mock.calls[0]?.[0];
+    const items = payload?.operations?.[0]?.items ?? [];
+    const itemMemo = items[0]?.memo ?? '';
+    const { meta, memoText } = parseOrcaOrderItemMemo(itemMemo);
+
+    expect(itemMemo.startsWith('__orca_meta__:')).toBe(false);
+    expect(meta.userComment).toBeUndefined();
+    expect(memoText).toBe('');
+  });
+
+  it('最近使った用法セレクトで用法欄を上書きできる', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(recentUsageStorageKey, JSON.stringify(['1日2回 朝夕食後', '1日1回 朝']));
+    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    await user.selectOptions(screen.getByLabelText('最近使った用法'), '1日2回 朝夕食後');
+    expect((screen.getByLabelText('用法') as HTMLInputElement).value).toBe('1日2回 朝夕食後');
+  });
+
+  it('保存成功時に最近使った用法履歴へ追加される', async () => {
+    mockUsageMaster();
+    const user = userEvent.setup();
+    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    await user.type(screen.getByPlaceholderText('薬剤名'), 'アムロジピン');
+    await selectUsage(user);
+    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+
+    await waitFor(() => expect(vi.mocked(mutateOrderBundles)).toHaveBeenCalled());
+    const stored = localStorage.getItem(recentUsageStorageKey);
+    expect(stored).toBeTruthy();
+    expect(JSON.parse(stored ?? '[]')[0]).toBe('1回');
   });
 
   it.each([

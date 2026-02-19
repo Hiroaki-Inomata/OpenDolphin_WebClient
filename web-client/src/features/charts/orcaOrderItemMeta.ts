@@ -1,6 +1,8 @@
 export type OrcaOrderItemMeta = {
   // "yes"/"no" only. When omitted, ORCA uses its own default setting.
   genericFlg?: 'yes' | 'no';
+  // User comment for each medication row. Kept in memo meta to avoid colliding with free-text memo.
+  userComment?: string;
 };
 
 const META_PREFIX = '__orca_meta__:';
@@ -10,7 +12,13 @@ const normalizeGenericFlg = (value: unknown): OrcaOrderItemMeta['genericFlg'] =>
   return undefined;
 };
 
-const isEmptyMeta = (meta: OrcaOrderItemMeta) => !meta.genericFlg;
+const normalizeUserComment = (value: unknown): OrcaOrderItemMeta['userComment'] =>
+  typeof value === 'string' ? value : undefined;
+
+const hasUserComment = (value: OrcaOrderItemMeta['userComment']) =>
+  typeof value === 'string' && value.trim().length > 0;
+
+const isEmptyMeta = (meta: OrcaOrderItemMeta) => !meta.genericFlg && !hasUserComment(meta.userComment);
 
 export function parseOrcaOrderItemMemo(memo?: string | null): { meta: OrcaOrderItemMeta; memoText: string } {
   const raw = typeof memo === 'string' ? memo : '';
@@ -26,6 +34,7 @@ export function parseOrcaOrderItemMemo(memo?: string | null): { meta: OrcaOrderI
     return {
       meta: {
         genericFlg: normalizeGenericFlg(parsed.genericFlg),
+        userComment: normalizeUserComment(parsed.userComment),
       },
       memoText,
     };
@@ -38,7 +47,10 @@ export function parseOrcaOrderItemMemo(memo?: string | null): { meta: OrcaOrderI
 export function formatOrcaOrderItemMemo(meta: OrcaOrderItemMeta, memoText: string): string {
   const body = memoText ?? '';
   if (isEmptyMeta(meta)) return body;
-  const metaLine = `${META_PREFIX}${JSON.stringify({ genericFlg: meta.genericFlg })}`;
+  const json: OrcaOrderItemMeta = {};
+  if (meta.genericFlg) json.genericFlg = meta.genericFlg;
+  if (hasUserComment(meta.userComment)) json.userComment = meta.userComment;
+  const metaLine = `${META_PREFIX}${JSON.stringify(json)}`;
   if (!body.trim()) return metaLine;
   return `${metaLine}\n${body}`;
 }
@@ -49,6 +61,8 @@ export function updateOrcaOrderItemMeta(memo: string | undefined, patch: Partial
   if (!next.genericFlg) {
     delete next.genericFlg;
   }
+  if (!hasUserComment(next.userComment)) {
+    delete next.userComment;
+  }
   return formatOrcaOrderItemMemo(next, memoText);
 }
-

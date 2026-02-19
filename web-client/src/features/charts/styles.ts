@@ -3828,6 +3828,18 @@ export const chartsStyles = css`
     min-width: 0;
   }
 
+  .charts-side-panel__med-item-meta {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .charts-side-panel__med-item-meta input {
+    min-width: 0;
+    width: 100%;
+  }
+
   .charts-side-panel__item-row--drag-over {
     background: rgba(59, 130, 246, 0.08);
     outline: 1px dashed rgba(59, 130, 246, 0.45);
