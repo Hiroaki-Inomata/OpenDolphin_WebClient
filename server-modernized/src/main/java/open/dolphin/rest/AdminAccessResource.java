@@ -37,7 +37,6 @@ import open.dolphin.infomodel.Factor2Credential;
 import open.dolphin.infomodel.Factor2CredentialType;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.RoleModel;
-import open.dolphin.infomodel.UserAccessProfile;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
 import open.dolphin.security.SecondFactorSecurityConfig;
@@ -85,7 +84,7 @@ public class AdminAccessResource extends AbstractResource {
 
         List<UserModel> users = userServiceBean.getAllUser(facilityId);
         List<Long> userPks = users.stream().mapToLong(UserModel::getId).boxed().toList();
-        Map<Long, UserAccessProfile> profileMap = loadProfiles(userPks);
+        Map<Long, UserAccessProfileRow> profileMap = loadProfiles(userPks);
         Map<Long, OrcaLinkStatus> orcaLinkMap = loadOrcaLinks(userPks);
 
         List<Map<String, Object>> rows = users.stream()
@@ -187,7 +186,7 @@ public class AdminAccessResource extends AbstractResource {
         // so ensure the shadow row exists before we insert roles.
         upsertPublicShadowUser(user);
         persistRoles(user, roles);
-        UserAccessProfile profile = upsertProfile(user.getId(), sex, staffRole, Instant.now());
+        UserAccessProfileRow profile = upsertProfile(user.getId(), sex, staffRole, Instant.now());
         OrcaLinkStatus orcaLink = null;
         if (orcaUserId != null) {
             orcaLink = upsertOrcaLink(request, user.getId(), orcaUserId, actor);
@@ -283,7 +282,7 @@ public class AdminAccessResource extends AbstractResource {
         }
 
         Instant now = Instant.now();
-        UserAccessProfile profile = upsertProfile(userPk, sexToken, staffRole, now);
+        UserAccessProfileRow profile = upsertProfile(userPk, sexToken, staffRole, now);
         if (orcaLink == null) {
             orcaLink = findOrcaLinkByUserPk(userPk);
         }
@@ -482,18 +481,28 @@ public class AdminAccessResource extends AbstractResource {
         }
     }
 
-    private Map<Long, UserAccessProfile> loadProfiles(List<Long> userPks) {
-        if (userPks == null || userPks.isEmpty()) {
+    private Map<Long, UserAccessProfileRow> loadProfiles(List<Long> userPks) {
+        if (userPks == null || userPks.isEmpty() || !isUserAccessProfileTablePresent()) {
             return Map.of();
         }
-        List<UserAccessProfile> profiles = em.createQuery(
-                        "from UserAccessProfile p where p.userPk in :ids", UserAccessProfile.class)
+        List<?> rows = em.createNativeQuery(
+                        "select user_pk, sex, staff_role, created_at, updated_at "
+                                + "from opendolphin.d_user_access_profile where user_pk in :ids")
                 .setParameter("ids", userPks)
                 .getResultList();
-        Map<Long, UserAccessProfile> map = new HashMap<>();
-        for (UserAccessProfile profile : profiles) {
-            if (profile.getUserPk() != null) {
-                map.put(profile.getUserPk(), profile);
+        Map<Long, UserAccessProfileRow> map = new HashMap<>();
+        for (Object rowObj : rows) {
+            if (!(rowObj instanceof Object[] row) || row.length < 5) {
+                continue;
+            }
+            Long userPk = asLong(row[0]);
+            if (userPk != null) {
+                map.put(userPk, new UserAccessProfileRow(
+                        userPk,
+                        trimToNull(asString(row[1])),
+                        trimToNull(asString(row[2])),
+                        asInstant(row[3]),
+                        asInstant(row[4])));
             }
         }
         return map;
@@ -545,7 +554,7 @@ public class AdminAccessResource extends AbstractResource {
         return new OrcaLinkStatus(orcaUserId, toIsoTimestamp(row[1]));
     }
 
-    private Map<String, Object> toUserRow(UserModel user, UserAccessProfile profile, OrcaLinkStatus orcaLink) {
+    private Map<String, Object> toUserRow(UserModel user, UserAccessProfileRow profile, OrcaLinkStatus orcaLink) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("userPk", user.getId());
         row.put("userId", user.getUserId());
@@ -561,11 +570,10 @@ public class AdminAccessResource extends AbstractResource {
         row.put("factor2Auth", user.getFactor2Auth());
         row.put("registeredDate", user.getRegisteredDateAsString());
         if (profile != null) {
-            row.put("sex", profile.getSex());
-            row.put("staffRole", profile.getStaffRole());
-            // RESTEasy Jackson in this project isn't configured with JavaTimeModule, so avoid Instant directly.
-            row.put("profileCreatedAt", profile.getCreatedAt() != null ? profile.getCreatedAt().toString() : null);
-            row.put("profileUpdatedAt", profile.getUpdatedAt() != null ? profile.getUpdatedAt().toString() : null);
+            row.put("sex", profile.sex());
+            row.put("staffRole", profile.staffRole());
+            row.put("profileCreatedAt", profile.createdAt() != null ? profile.createdAt().toString() : null);
+            row.put("profileUpdatedAt", profile.updatedAt() != null ? profile.updatedAt().toString() : null);
         } else {
             row.put("sex", null);
             row.put("staffRole", null);
@@ -643,26 +651,64 @@ public class AdminAccessResource extends AbstractResource {
         em.merge(user);
     }
 
-    private UserAccessProfile upsertProfile(long userPk, String sex, String staffRole, Instant now) {
-        UserAccessProfile profile = em.find(UserAccessProfile.class, userPk);
-        if (profile == null) {
-            profile = new UserAccessProfile();
-            profile.setUserPk(userPk);
-            profile.setCreatedAt(now);
+    private UserAccessProfileRow upsertProfile(long userPk, String sex, String staffRole, Instant now) {
+        if (!isUserAccessProfileTablePresent()) {
+            return null;
         }
-        if (sex != null) {
-            profile.setSex(sex.isBlank() ? null : sex);
+        UserAccessProfileRow existing = findProfileByUserPk(userPk);
+        String effectiveSex = sex != null ? (sex.isBlank() ? null : sex)
+                : (existing != null ? existing.sex() : null);
+        String effectiveStaffRole = staffRole != null ? (staffRole.isBlank() ? null : staffRole)
+                : (existing != null ? existing.staffRole() : null);
+        Instant createdAt = existing != null && existing.createdAt() != null ? existing.createdAt() : now;
+
+        em.createNativeQuery(
+                        "insert into opendolphin.d_user_access_profile (user_pk, sex, staff_role, created_at, updated_at) "
+                                + "values (:userPk, :sex, :staffRole, :createdAt, :updatedAt) "
+                                + "on conflict (user_pk) do update set "
+                                + "sex=excluded.sex, staff_role=excluded.staff_role, updated_at=excluded.updated_at")
+                .setParameter("userPk", userPk)
+                .setParameter("sex", effectiveSex)
+                .setParameter("staffRole", effectiveStaffRole)
+                .setParameter("createdAt", Timestamp.from(createdAt))
+                .setParameter("updatedAt", Timestamp.from(now))
+                .executeUpdate();
+
+        return new UserAccessProfileRow(
+                userPk,
+                effectiveSex,
+                effectiveStaffRole,
+                createdAt,
+                now);
+    }
+
+    private UserAccessProfileRow findProfileByUserPk(long userPk) {
+        if (!isUserAccessProfileTablePresent()) {
+            return null;
         }
-        if (staffRole != null) {
-            profile.setStaffRole(staffRole.isBlank() ? null : staffRole);
+        List<?> rows = em.createNativeQuery(
+                        "select user_pk, sex, staff_role, created_at, updated_at "
+                                + "from opendolphin.d_user_access_profile where user_pk=:userPk")
+                .setParameter("userPk", userPk)
+                .setMaxResults(1)
+                .getResultList();
+        if (rows.isEmpty()) {
+            return null;
         }
-        profile.setUpdatedAt(now);
-        if (em.contains(profile)) {
-            em.merge(profile);
-        } else {
-            em.persist(profile);
+        Object rowObj = rows.get(0);
+        if (!(rowObj instanceof Object[] row) || row.length < 5) {
+            return null;
         }
-        return profile;
+        Long foundUserPk = asLong(row[0]);
+        if (foundUserPk == null) {
+            return null;
+        }
+        return new UserAccessProfileRow(
+                foundUserPk,
+                trimToNull(asString(row[1])),
+                trimToNull(asString(row[2])),
+                asInstant(row[3]),
+                asInstant(row[4]));
     }
 
     private void verifyAdminTotp(HttpServletRequest request, long actorPk, String totpCode) {
@@ -757,6 +803,14 @@ public class AdminAccessResource extends AbstractResource {
         return !rows.isEmpty();
     }
 
+    private boolean isUserAccessProfileTablePresent() {
+        List<?> rows = em.createNativeQuery(
+                        "select 1 from information_schema.tables where table_schema='opendolphin' and table_name='d_user_access_profile'")
+                .setMaxResults(1)
+                .getResultList();
+        return !rows.isEmpty();
+    }
+
     private Long findOwnerByOrcaUserId(String orcaUserId) {
         if (!isOrcaLinkTablePresent()) {
             return null;
@@ -830,6 +884,23 @@ public class AdminAccessResource extends AbstractResource {
             return instant.toString();
         }
         return String.valueOf(value);
+    }
+
+    private Instant asInstant(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Timestamp timestamp) {
+            return timestamp.toInstant();
+        }
+        if (value instanceof Instant instant) {
+            return instant;
+        }
+        try {
+            return Instant.parse(String.valueOf(value));
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     private boolean containsAdminRole(List<String> roles) {
@@ -968,6 +1039,15 @@ public class AdminAccessResource extends AbstractResource {
     private record OrcaLinkStatus(
             String orcaUserId,
             String updatedAt
+    ) {
+    }
+
+    private record UserAccessProfileRow(
+            Long userPk,
+            String sex,
+            String staffRole,
+            Instant createdAt,
+            Instant updatedAt
     ) {
     }
 }
