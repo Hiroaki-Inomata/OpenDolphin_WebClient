@@ -24,7 +24,7 @@ const baseMeta = {
 };
 
 describe('OrderDockPanel category quick-add', () => {
-  it('主要カテゴリ導線を常時表示し data-test-id を保持する', () => {
+  it('主要カテゴリ導線を常時表示し quick-add / group-add の data-test-id を保持する', () => {
     renderWithClient(
       <OrderDockPanel
         patientId="P-100"
@@ -51,9 +51,14 @@ describe('OrderDockPanel category quick-add', () => {
     expect(document.querySelector('[data-test-id="order-dock-quick-add-treatment"]')).not.toBeNull();
     expect(document.querySelector('[data-test-id="order-dock-quick-add-test"]')).not.toBeNull();
     expect(document.querySelector('[data-test-id="order-dock-quick-add-charge"]')).not.toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-prescription"]')).not.toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-injection"]')).not.toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-treatment"]')).not.toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-test"]')).not.toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-charge"]')).not.toBeNull();
   });
 
-  it('カテゴリ候補の表示→選択で編集画面へ反映される', async () => {
+  it('カテゴリ候補からインライン編集を開いても検索UIが残り、閉じるで閉じる', async () => {
     const user = userEvent.setup();
     renderWithClient(<OrderDockPanel patientId="P-100" meta={baseMeta} visitDate="2026-02-17" orderBundles={[]} />);
 
@@ -77,8 +82,11 @@ describe('OrderDockPanel category quick-add', () => {
       await user.click(candidateButton);
 
       expect(screen.getByLabelText(`${scenario.expectedTitle}入力`)).toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: '一覧へ' }));
-      expect(await screen.findByRole('searchbox', { name: 'オーダー検索' })).toBeInTheDocument();
+      expect(screen.getByRole('searchbox', { name: 'オーダー検索' })).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: '閉じる' }));
+      expect(screen.queryByLabelText(`${scenario.expectedTitle}入力`)).not.toBeInTheDocument();
+      expect(screen.getByRole('searchbox', { name: 'オーダー検索' })).toBeInTheDocument();
     }
   });
 
@@ -102,13 +110,46 @@ describe('OrderDockPanel category quick-add', () => {
 
     await user.click(screen.getByRole('button', { name: '+処置' }));
     expect(screen.getByLabelText('処置入力')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '一覧へ' }));
+    expect(screen.getByRole('searchbox', { name: 'オーダー検索' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '閉じる' }));
 
     await user.click(screen.getByRole('button', { name: '+検査' }));
     expect(screen.getByLabelText('検査入力')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '一覧へ' }));
+    expect(screen.getByRole('searchbox', { name: 'オーダー検索' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '閉じる' }));
 
     await user.click(screen.getByRole('button', { name: '+算定' }));
     expect(screen.getByLabelText('基本料入力')).toBeInTheDocument();
+  });
+
+  it('medOrder item memo の userComment を表示し __orca_meta__ は露出しない', () => {
+    const fullComment = '朝夕食後に服用してください。眠気が強い場合は中止してください。';
+    renderWithClient(
+      <OrderDockPanel
+        patientId="P-100"
+        meta={baseMeta}
+        visitDate="2026-02-17"
+        orderBundles={[
+          {
+            entity: 'medOrder',
+            bundleName: 'コメント付き処方',
+            started: '2026-02-17',
+            items: [
+              {
+                name: 'A100 アムロジピン',
+                quantity: '1',
+                unit: '錠',
+                memo: `__orca_meta__:${JSON.stringify({ userComment: fullComment })}\n内部メモ`,
+              },
+            ],
+          } as any,
+        ]}
+      />,
+    );
+
+    const commentChip = screen.getByTitle(`コメント:${fullComment}`);
+    expect(commentChip).toHaveTextContent(/^コメント:/);
+    expect(commentChip.textContent).not.toBe(`コメント:${fullComment}`);
+    expect(screen.queryByText(/__orca_meta__/)).not.toBeInTheDocument();
   });
 });

@@ -8,6 +8,7 @@ import type { OrderRecommendationCandidate } from './orderRecommendationApi';
 import { OrderRecommendationModal } from './OrderRecommendationModal';
 import type { RpHistoryEntry } from './karteExtrasApi';
 import { getOrcaClaimSendEntry, type OrcaMedicalWarningUi } from './orcaClaimSendCache';
+import { parseOrcaOrderItemMemo } from './orcaOrderItemMeta';
 
 type PastOrderEntity =
   | 'medOrder'
@@ -123,25 +124,81 @@ const formatBundleItemChip = (item: OrderBundleItem) => {
   return qty ? `${name} ${qty}` : name;
 };
 
+const truncateChipText = (value: string, maxLength: number) => {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(1, maxLength - 1))}…`;
+};
+
+const resolveMedItemUserComment = (memo?: string | null): string => {
+  const parsed = parseOrcaOrderItemMemo(memo);
+  const userCommentFromMeta = (parsed.meta as { userComment?: unknown })?.userComment;
+  if (typeof userCommentFromMeta === 'string') {
+    const normalized = normalizeInline(userCommentFromMeta);
+    if (normalized) return normalized;
+  }
+  const raw = typeof memo === 'string' ? memo : '';
+  if (!raw.startsWith('__orca_meta__:')) return '';
+  const firstLine = raw.split('\n', 1)[0] ?? '';
+  const jsonPart = firstLine.slice('__orca_meta__:'.length).trim();
+  if (!jsonPart) return '';
+  try {
+    const parsedMeta = JSON.parse(jsonPart) as { userComment?: unknown };
+    if (typeof parsedMeta.userComment !== 'string') return '';
+    return normalizeInline(parsedMeta.userComment);
+  } catch {
+    return '';
+  }
+};
+
+type BundleCardChip = {
+  label: string;
+  title: string;
+  className?: string;
+};
+
 type BundleCardSummary = {
   metaLine?: string;
-  chips: string[];
+  chips: BundleCardChip[];
   moreLabel?: string;
 };
 
 const summarizeBundleForCard = (bundle: OrderBundle, entity: PastOrderEntity): BundleCardSummary => {
   const items = (bundle.items ?? []).filter((item) => Boolean(item?.name?.trim?.()));
-  const chipsAll = items.map(formatBundleItemChip).filter((chip) => chip.trim().length > 0);
+  const chipsAll = items
+    .map(formatBundleItemChip)
+    .filter((chip) => chip.trim().length > 0)
+    .map(
+      (chip) =>
+        ({
+          label: chip,
+          title: chip,
+        }) satisfies BundleCardChip,
+    );
   const usage = normalizeInline(bundle.admin ?? '');
   const bundleNumber = normalizeInline(bundle.bundleNumber ?? '');
   const memo = normalizeInline(bundle.memo ?? '');
 
   if (entity === 'medOrder') {
+    const commentChips = Array.from(
+      new Set(
+        items
+          .map((item) => resolveMedItemUserComment(item.memo))
+          .filter((comment) => comment.length > 0),
+      ),
+    ).map((comment) => {
+      const title = `コメント:${comment}`;
+      return {
+        label: `コメント:${truncateChipText(comment, 18)}`,
+        title,
+        className: 'order-dock__chip--comment',
+      } satisfies BundleCardChip;
+    });
+    const merged = [...chipsAll, ...commentChips];
     const metaParts = [usage || null, bundleNumber ? `日数:${bundleNumber}` : null].filter(Boolean) as string[];
     return {
       metaLine: metaParts.length > 0 ? metaParts.join(' / ') : undefined,
-      chips: chipsAll.slice(0, 6),
-      moreLabel: chipsAll.length > 6 ? `他${chipsAll.length - 6}` : undefined,
+      chips: merged.slice(0, 6),
+      moreLabel: merged.length > 6 ? `他${merged.length - 6}` : undefined,
     };
   }
 
@@ -371,7 +428,7 @@ export function OrderDockPanel(props: {
         const summary = summarizeBundleForCard(bundle, entity);
         const label = formatBundleName(bundle);
         const detail = [resolveEntityLabel(entity), summary.metaLine].filter(Boolean).join(' / ');
-        const haystack = [label, detail, summary.chips.join(' ')].join(' ').toLowerCase();
+        const haystack = [label, detail, summary.chips.map((chip) => chip.title).join(' ')].join(' ').toLowerCase();
         if (keyword && !haystack.includes(keyword)) return [];
         return [
           {
@@ -466,12 +523,14 @@ export function OrderDockPanel(props: {
   useEffect(() => {
     if (typeof document === 'undefined') return;
     if (!activeEntity) return;
-    const el = document.getElementById('charts-order-pane');
-    if (!el) return;
+    const groupKey = resolveGroupKeyByEntity(activeEntity);
+    if (!groupKey) return;
     requestAnimationFrame(() => {
-      el.scrollIntoView({ block: 'nearest' });
-      (el as HTMLElement).scrollTop = 0;
-      el.focus();
+      const section = document.querySelector(`section.order-dock__group[data-group="${groupKey}"]`);
+      if (!section) return;
+      const inlineEditor = section.querySelector('.order-dock__inline-editor');
+      if (!(inlineEditor instanceof HTMLElement)) return;
+      inlineEditor.scrollIntoView({ block: 'nearest' });
     });
   }, [activeEntity]);
 
@@ -656,6 +715,10 @@ export function OrderDockPanel(props: {
         (group.key === 'test' && testShowAll) ||
         (group.key === 'charge' && chargeShowAll),
     );
+    const isInlineEditorVisible = Boolean(activeEntity && (group.entities as readonly string[]).includes(activeEntity));
+    const inlineEntity = isInlineEditorVisible ? activeEntity : null;
+    const inlineTitleMeta = isInlineEditorVisible ? activeTitleMeta : null;
+    const inlineBundlesOverride = inlineEntity ? bundlesByEntity.get(inlineEntity) ?? [] : [];
 
     return (
       <section key={group.key} className="order-dock__group" data-group={group.key}>
@@ -669,6 +732,16 @@ export function OrderDockPanel(props: {
             </span>
           </div>
           <div className="order-dock__group-actions" role="group" aria-label={`${group.label}操作`}>
+            <button
+              type="button"
+              className="order-dock__group-action order-dock__group-action--add"
+              data-test-id={`order-dock-group-add-${group.key}`}
+              onClick={() => openEditor(defaultEntity as PastOrderEntity, { requestId: buildRequestId(), kind: 'new' })}
+              disabled={!canOpenEditor}
+              title={!canOpenEditor ? editDisabledReason : undefined}
+            >
+              追加
+            </button>
             <button
               type="button"
               className="order-dock__group-action"
@@ -784,6 +857,31 @@ export function OrderDockPanel(props: {
             </button>
           </div>
         ) : null}
+        {inlineEntity && inlineTitleMeta ? (
+          <div className="order-dock__inline-editor" aria-label={`${resolveEntityLabel(inlineEntity)}入力`}>
+            <OrderBundleEditPanel
+              patientId={patientId}
+              entity={inlineEntity}
+              title={inlineTitleMeta.title}
+              bundleLabel={inlineTitleMeta.bundleLabel}
+              itemQuantityLabel={inlineTitleMeta.itemQuantityLabel}
+              meta={meta}
+              variant="embedded"
+              bundlesOverride={inlineBundlesOverride}
+              request={activeRequest}
+              onRequestConsumed={(requestId) => {
+                setActiveRequest((prev) => (prev?.requestId === requestId ? null : prev));
+              }}
+              historyCopyRequest={
+                historyCopyRequest?.entity === inlineEntity
+                  ? { requestId: historyCopyRequest.requestId, bundle: historyCopyRequest.bundle }
+                  : null
+              }
+              onHistoryCopyConsumed={(requestId) => onHistoryCopyConsumed?.(requestId)}
+              onClose={closeEditor}
+            />
+          </div>
+        ) : null}
 
         <div className="order-dock__bundle-list" role="list" aria-label={`${group.label}オーダー一覧`}>
           {group.bundles.length === 0 ? (
@@ -828,8 +926,12 @@ export function OrderDockPanel(props: {
                     {summary.chips.length > 0 ? (
                       <div className="order-dock__chips" aria-label="項目">
                         {summary.chips.map((chip, chipIndex) => (
-                          <span key={`${chip}-${chipIndex}`} className="order-dock__chip" title={chip}>
-                            {chip}
+                          <span
+                            key={`${chip.title}-${chipIndex}`}
+                            className={`order-dock__chip${chip.className ? ` ${chip.className}` : ''}`}
+                            title={chip.title}
+                          >
+                            {chip.label}
                           </span>
                         ))}
                         {summary.moreLabel ? (
@@ -878,81 +980,9 @@ export function OrderDockPanel(props: {
             })
           )}
         </div>
-
-        <div className="order-dock__adder">
-          <button
-            type="button"
-            className="order-dock__add"
-            onClick={() => openEditor(defaultEntity as PastOrderEntity, { requestId: buildRequestId(), kind: 'new' })}
-            disabled={!canOpenEditor}
-            title={!canOpenEditor ? editDisabledReason : undefined}
-          >
-            ＋
-          </button>
-        </div>
       </section>
     );
   };
-
-  if (activeEntity && activeTitleMeta) {
-    const bundlesOverride = bundlesByEntity.get(activeEntity) ?? [];
-    return (
-      <div className="order-dock order-dock--editing" data-has-orders={hasAnyOrders ? '1' : '0'}>
-        <header className="order-dock__edit-header" aria-label="オーダー編集">
-          <button type="button" className="order-dock__edit-back" onClick={closeEditor}>
-            一覧へ
-          </button>
-          <div className="order-dock__edit-title">
-            <strong>{activeTitleMeta.title}</strong>
-            <span className="order-dock__meta">診療日:{orderVisitDate || '—'}</span>
-          </div>
-          <button type="button" className="order-dock__edit-close" onClick={closeEditor}>
-            閉じる
-          </button>
-        </header>
-
-        {notice ? <div className={`order-dock__notice order-dock__notice--${notice.tone}`}>{notice.message}</div> : null}
-
-        <div className="order-dock__editor order-dock__editor--full" aria-label={`${resolveEntityLabel(activeEntity)}入力`}>
-          <OrderBundleEditPanel
-            patientId={patientId}
-            entity={activeEntity}
-            title={activeTitleMeta.title}
-            bundleLabel={activeTitleMeta.bundleLabel}
-            itemQuantityLabel={activeTitleMeta.itemQuantityLabel}
-            meta={meta}
-            variant="embedded"
-            bundlesOverride={bundlesOverride}
-            request={activeRequest}
-            onRequestConsumed={(requestId) => {
-              setActiveRequest((prev) => (prev?.requestId === requestId ? null : prev));
-            }}
-            historyCopyRequest={
-              historyCopyRequest?.entity === activeEntity
-                ? { requestId: historyCopyRequest.requestId, bundle: historyCopyRequest.bundle }
-                : null
-            }
-            onHistoryCopyConsumed={(requestId) => onHistoryCopyConsumed?.(requestId)}
-            onClose={closeEditor}
-          />
-        </div>
-
-        <details className="order-dock__today-fold" aria-label="当日一覧">
-          <summary className="order-dock__today-summary">当日一覧</summary>
-          <div className="order-dock__groups">{groupBundles.map(renderGroup)}</div>
-        </details>
-
-        <OrderRecommendationModal
-          open={recommendModalOpen}
-          patientId={patientId}
-          defaultEntity={recommendModalEntity || undefined}
-          defaultScope={recommendModalEntity ? 'category' : 'all'}
-          onClose={() => setRecommendModalOpen(false)}
-          onApply={handleApplyRecommendation}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="order-dock" data-has-orders={hasAnyOrders ? '1' : '0'}>

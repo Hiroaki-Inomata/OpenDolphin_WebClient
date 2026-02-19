@@ -6293,6 +6293,12 @@ export const chartsStyles = css`
     white-space: nowrap;
   }
 
+  .order-dock__group-action--add {
+    border-color: rgba(148, 163, 184, 0.45);
+    background: #ffffff;
+    color: #0f172a;
+  }
+
   .order-dock__subtype {
     display: flex;
     align-items: center;
@@ -6341,6 +6347,13 @@ export const chartsStyles = css`
     background: rgba(239, 246, 255, 0.95);
     color: #1d4ed8;
     box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+  }
+
+  .order-dock__inline-editor {
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.88) 0%, rgba(255, 255, 255, 0.96) 100%);
+    padding: var(--charts-space-xs);
   }
 
   .order-dock__bundle-list {
@@ -6450,6 +6463,12 @@ export const chartsStyles = css`
     color: #475569;
   }
 
+  .order-dock__chip--comment {
+    border-color: rgba(59, 130, 246, 0.28);
+    background: rgba(239, 246, 255, 0.92);
+    color: #1e3a8a;
+  }
+
   .order-dock__bundle-items {
     font-size: 0.75rem;
     color: #475569;
@@ -6483,27 +6502,6 @@ export const chartsStyles = css`
     border-color: rgba(239, 68, 68, 0.35);
     background: rgba(254, 242, 242, 0.9);
     color: #991b1b;
-  }
-
-  .order-dock__adder {
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  .order-dock__add {
-    width: 2.2rem;
-    height: 2.2rem;
-    border-radius: 999px;
-    border: 1px dashed rgba(59, 130, 246, 0.55);
-    background: #eff6ff;
-    color: #1d4ed8;
-    cursor: pointer;
-    font-size: 1.25rem;
-    font-weight: 900;
-    line-height: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
   }
 
   .order-dock__editor {
