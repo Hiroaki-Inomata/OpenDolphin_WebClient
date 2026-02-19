@@ -67,6 +67,38 @@ describe('validateBundleForm', () => {
     expect(issues.map((issue) => issue.key)).toEqual([]);
   });
 
+  it('medOrder: 内服/外用で用法上限日数を超過するとエラー', () => {
+    const issues = validateBundleForm({
+      form: {
+        ...baseForm,
+        admin: '1日1回',
+        bundleNumber: '15',
+        items: [{ name: 'アムロジピン', quantity: '1', unit: '錠', memo: '' }],
+        prescriptionTiming: 'regular',
+      },
+      entity: 'medOrder',
+      bundleLabel: 'RP名',
+      usageDaysLimit: 14,
+    });
+    expect(issues.map((issue) => issue.key)).toEqual(['usage_days_limit_exceeded']);
+  });
+
+  it('medOrder: 頓用/臨時は用法上限日数の判定対象外', () => {
+    const issues = validateBundleForm({
+      form: {
+        ...baseForm,
+        admin: '必要時',
+        bundleNumber: '15',
+        items: [{ name: 'ロキソニン', quantity: '1', unit: '錠', memo: '' }],
+        prescriptionTiming: 'tonyo',
+      },
+      entity: 'medOrder',
+      bundleLabel: 'RP名',
+      usageDaysLimit: 7,
+    });
+    expect(issues).toHaveLength(0);
+  });
+
   it('generalOrder: 項目が必須で、用法は必須にしない', () => {
     const issues = validateBundleForm({
       form: { ...baseForm, bundleName: '処置オーダー', admin: '' },

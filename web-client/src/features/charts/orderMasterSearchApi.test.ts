@@ -152,6 +152,24 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(requestUrl).not.toContain('category=1');
   });
 
+  it('etensu 検索で page/size を明示した場合はクエリへ反映する', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'etensu', keyword: 'カテーテル', page: 2, size: 500 });
+
+    expect(result.ok).toBe(true);
+    const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    expect(requestUrl).toContain('/orca/master/etensu?');
+    expect(requestUrl).toContain('page=2');
+    expect(requestUrl).toContain('size=500');
+  });
+
   it('treats TENSU_NOT_FOUND as empty result for etensu family searches', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(
@@ -172,5 +190,52 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(result.ok).toBe(true);
     expect(result.items).toEqual([]);
     expect(result.totalCount).toBe(0);
+  });
+
+  it('youhou 検索で effective を付与し、拡張項目をマッピングする', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          totalCount: 1,
+          items: [
+            {
+              code: '0010001',
+              name: '1日3回 毎食後',
+              timingCode: '05',
+              routeCode: 'PO',
+              daysLimit: 14,
+              dosePerDay: 3,
+              youhouCode: '0101',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    const result = await fetchOrderMasterSearch({
+      type: 'youhou',
+      keyword: '毎食後',
+      effective: '2026-02-19',
+    });
+
+    const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    expect(requestUrl).toContain('/orca/master/youhou?');
+    expect(requestUrl).toContain('effective=2026-02-19');
+    expect(result.ok).toBe(true);
+    expect(result.items[0]).toMatchObject({
+      type: 'youhou',
+      code: '0010001',
+      name: '1日3回 毎食後',
+      timingCode: '05',
+      routeCode: 'PO',
+      daysLimit: 14,
+      dosePerDay: 3,
+      youhouCode: '0101',
+    });
   });
 });

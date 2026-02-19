@@ -2147,6 +2147,14 @@ export const receptionStyles = css`
     scroll-snap-type: x proximity;
   }
 
+  .reception-board--table {
+    flex-direction: column;
+    gap: 0.9rem;
+    overflow: visible;
+    padding-bottom: 0;
+    scroll-snap-type: none;
+  }
+
   .reception-board__column {
     flex: 0 0 360px;
     max-width: 420px;
@@ -2740,6 +2748,64 @@ export const receptionStyles = css`
     flex-wrap: wrap;
   }
 
+  .reception-patient-search-panel {
+    position: fixed;
+    z-index: 2400;
+    width: min(420px, 80vw);
+    max-height: 70vh;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: #ffffff;
+    box-shadow: 0 22px 56px rgba(15, 23, 42, 0.22);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .reception-patient-search-panel__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.8rem 0.9rem 0.7rem;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+    background: #f8fafc;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+  }
+
+  .reception-patient-search-panel__header.is-dragging {
+    cursor: grabbing;
+    background: #f1f5f9;
+  }
+
+  .reception-patient-search-panel__title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+
+  .reception-patient-search-panel__title h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #0f172a;
+  }
+
+  .reception-patient-search-panel__meta {
+    font-size: 0.82rem;
+    color: #64748b;
+  }
+
+  .reception-patient-search-panel__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    padding: 0 0.9rem 0.9rem;
+    min-height: 0;
+  }
+
   .reception-patient-search__list {
     display: flex;
     flex-direction: column;
@@ -2747,6 +2813,10 @@ export const receptionStyles = css`
     max-height: 300px;
     overflow: auto;
     padding-right: 0.25rem;
+  }
+
+  .reception-patient-search-panel .reception-patient-search__list {
+    max-height: min(420px, calc(70vh - 170px));
   }
 
   .reception-patient-search__item {
@@ -2948,8 +3018,18 @@ export const receptionStyles = css`
     overflow: hidden;
   }
 
+  .reception-board--table .reception-section {
+    display: grid;
+    grid-template-columns: 132px minmax(0, 1fr);
+    align-items: stretch;
+  }
+
   .reception-section + .reception-section {
     margin-top: 1rem;
+  }
+
+  .reception-board--table .reception-section + .reception-section {
+    margin-top: 0;
   }
 
   .reception-section__header {
@@ -2960,9 +3040,26 @@ export const receptionStyles = css`
     background: linear-gradient(90deg, #eef2ff 0%, #ffffff 60%);
   }
 
+  .reception-board--table .reception-section__header {
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: flex-start;
+    gap: 0.55rem;
+    padding: 0.9rem 0.85rem;
+    background: transparent;
+    border-right: 1px solid rgba(148, 163, 184, 0.22);
+  }
+
   .reception-section__header h2 {
     margin: 0;
     color: #0f172a;
+  }
+
+  .reception-board--table .reception-section__header h2 {
+    font-size: 0.86rem;
+    line-height: 1.2;
+    color: #334155;
+    letter-spacing: 0.02em;
   }
 
   .reception-section__count {
@@ -2977,6 +3074,12 @@ export const receptionStyles = css`
     font-weight: 700;
   }
 
+  .reception-board--table .reception-section__count {
+    margin-left: 0;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.82rem;
+  }
+
   .reception-section__toggle {
     border: 1px solid #cbd5e1;
     background: #ffffff;
@@ -2987,7 +3090,11 @@ export const receptionStyles = css`
   }
 
   .reception-table__wrapper {
-    overflow-x: auto;
+    overflow: auto;
+  }
+
+  .reception-board--table .reception-table__wrapper {
+    max-height: clamp(180px, 28vh, 360px);
   }
 
   .reception-table__wrapper:focus-visible {
@@ -3015,6 +3122,12 @@ export const receptionStyles = css`
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: #475569;
+  }
+
+  .reception-board--table .reception-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
   }
 
   .reception-table tr:hover {
@@ -3109,7 +3222,7 @@ export const receptionStyles = css`
   }
 
   .reception-table__action {
-    white-space: nowrap;
+    white-space: normal;
   }
 
   .reception-table__action-button {
@@ -3120,10 +3233,39 @@ export const receptionStyles = css`
     font-weight: 700;
     padding: 0.35rem 0.75rem;
     cursor: pointer;
+    margin: 0 0.35rem 0.25rem 0;
   }
 
   .reception-table__action-button:hover {
     background: #eef2ff;
+  }
+
+  .reception-table__action-button.primary {
+    border-color: #1d4ed8;
+    background: #1d4ed8;
+    color: #ffffff;
+  }
+
+  .reception-table__action-button.primary:hover {
+    background: #1e40af;
+  }
+
+  .reception-table__action-button.warning {
+    border-color: rgba(234, 88, 12, 0.95);
+    color: rgba(234, 88, 12, 0.95);
+  }
+
+  .reception-table__action-button.warning:hover {
+    background: #fff7ed;
+  }
+
+  .reception-table__action-button.danger {
+    border-color: rgba(220, 38, 38, 0.95);
+    color: rgba(220, 38, 38, 0.95);
+  }
+
+  .reception-table__action-button.danger:hover {
+    background: #fef2f2;
   }
 
   .reception-table__action-button:disabled {
@@ -3380,12 +3522,34 @@ export const receptionStyles = css`
       padding-right: 0;
     }
 
+    .reception-patient-search-panel {
+      width: min(420px, calc(100vw - 1rem));
+      max-height: 68vh;
+    }
+
+    .reception-patient-search-panel__body {
+      padding: 0 0.7rem 0.7rem;
+    }
+
+    .reception-patient-search-panel .reception-patient-search__list {
+      max-height: calc(68vh - 170px);
+    }
+
     .reception-table {
       min-width: 840px;
     }
 
     .reception-board__column {
       flex: 0 0 300px;
+    }
+
+    .reception-board--table .reception-section {
+      grid-template-columns: 1fr;
+    }
+
+    .reception-board--table .reception-section__header {
+      border-right: none;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.22);
     }
   }
 `;

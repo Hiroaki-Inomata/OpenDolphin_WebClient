@@ -140,7 +140,7 @@ describe('OrderBundleEditPanel master search UI', () => {
     await user.click(rowButton!);
 
     const selectedItemNameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
-    expect(selectedItemNameInput.value).toBe('A100 アムロジピン');
+    expect(selectedItemNameInput.value).toBe('アムロジピン');
   });
 
   it('項目名入力のリアルタイム候補で主項目を補完できる', async () => {
@@ -175,16 +175,48 @@ describe('OrderBundleEditPanel master search UI', () => {
       expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'drug', keyword: 'アム' })),
     );
 
-    const predictiveOption = container.querySelector('datalist[id$="-item-predictive-list"] option[value="A100 アムロジピン"]');
+    const predictiveOption = container.querySelector('datalist[id$="-item-predictive-list"] option[value="アムロジピン"]');
     expect(predictiveOption).not.toBeNull();
 
     await user.clear(itemNameInput);
-    await user.type(itemNameInput, 'A100 アムロジピン');
+    await user.type(itemNameInput, 'アムロジピン');
     await user.tab();
 
-    await waitFor(() => expect(itemNameInput.value).toBe('A100 アムロジピン'));
+    await waitFor(() => expect(itemNameInput.value).toBe('アムロジピン'));
     const itemUnitInput = container.querySelector<HTMLInputElement>('input[id$="-item-unit-0"]');
     expect(itemUnitInput?.value).toBe('錠');
+  });
+
+  it('候補が多い場合はページ切替で全件を確認できる', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const items = Array.from({ length: 60 }, (_, index) => ({
+      type: 'drug' as const,
+      code: `A${String(index + 1).padStart(3, '0')}`,
+      name: `薬剤${index + 1}`,
+      unit: '錠',
+    }));
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({
+      ok: true,
+      items,
+      totalCount: items.length,
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    const itemNameInput = screen.getByPlaceholderText('薬剤名');
+    await user.type(itemNameInput, '薬剤');
+
+    await waitFor(() => expect(screen.getByText('60件')).toBeInTheDocument());
+    expect(screen.getByText('1 / 2')).toBeInTheDocument();
+    expect(screen.getByText('薬剤1')).toBeInTheDocument();
+    expect(screen.queryByText('薬剤60')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '次へ' }));
+    await waitFor(() => expect(screen.getByText('2 / 2')).toBeInTheDocument());
+    expect(screen.getByText('薬剤60')).toBeInTheDocument();
   });
 
   it('readOnly の場合は検索入力が無効化される', async () => {
@@ -322,7 +354,7 @@ describe('OrderBundleEditPanel master search UI', () => {
     );
 
     expect(screen.getByText('候補対象: 注射薬剤 / 注射手技')).toBeInTheDocument();
-    expect(screen.queryByText('用法候補')).toBeNull();
+    expect(screen.getByText('用法候補')).toBeInTheDocument();
     expect(screen.getByLabelText('投与指示')).toBeInTheDocument();
   });
 

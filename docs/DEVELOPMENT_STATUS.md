@@ -1,4 +1,4 @@
-# 開発状況（単一参照, 更新日: 2026-02-18）
+# 開発状況（単一参照, 更新日: 2026-02-19）
 
 ## 現行ステータス
 - Phase2 開発ドキュメントは **Legacy/Archive（参照専用）**。Phase2 を現行フェーズとして扱わない。
@@ -29,6 +29,15 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-02-20: Reception 一覧の他端末同期を SSE で本実装化（RUN_ID=20260219T210316Z）。
+  - 内容: `server-modernized` に `GET /realtime/reception`（SSE）と in-memory broadcaster を追加し、`POST /orca/visits/mutation` 成功時（requestNumber `00` 以外）に `reception.updated` を配信。payload は `type/facilityId/date/patientId/requestNumber/revision/updatedAt/runId` を含む。keep-alive は 20 秒間隔、履歴ギャップ時は `reception.replay-gap` を送信。
+  - Web対応: `ReceptionPage` で `EventSource` 購読を追加し、受信時に `['outpatient-appointments']` と `['orca-queue']` を invalidate。`receptionDailyState` はイベント受信時に status override を解除してサーバー優先表示へ寄せ、メタバーに `RT同期` ステータスを追加。
+  - 成果物: `server-modernized/src/main/java/open/dolphin/rest/ReceptionRealtimeSseSupport.java` / `server-modernized/src/main/java/open/dolphin/rest/ReceptionRealtimeStreamResource.java` / `server-modernized/src/main/java/open/dolphin/orca/rest/OrcaVisitResource.java` / `web-client/src/features/reception/receptionRealtimeStream.ts` / `web-client/src/features/reception/pages/ReceptionPage.tsx` / `web-client/src/features/reception/receptionDailyState.ts` / テスト更新（Reception）。
+  - 検証: `npm -C web-client run typecheck` PASS、`NODE_OPTIONS=--require=$(pwd)/tmp/node-localhost-patch.cjs npm -C web-client run test -- --run src/features/reception/__tests__/ReceptionPage.test.tsx src/features/reception/__tests__/ReceptionPage.recovery-order.test.tsx src/features/reception/__tests__/receptionDailyState.test.ts --silent=true` PASS。`mvn -pl server-modernized -o -Dmaven.repo.local=/Users/Hayato/.m2/repository -DskipTests compile` PASS。server-modernized の JUnit はこの環境（JDK25）で Mockito inline agent attach が失敗するため実行不能（既存制約）。
+- 2026-02-19: Charts オーダー画面で ORCA 用法マスタ拡張項目の活用を実装（RUN_ID=20260219T204335Z）。
+  - 内容: `orderMasterSearchApi` に `timingCode/routeCode/daysLimit/dosePerDay/youhouCode` を追加し、`youhou` 検索の `effective` を `OrderBundleEditPanel` から送信。用法候補UIにタイミング/経路/上限日数/1日量を表示し、`medOrder` の内服/外用で `bundleNumber > daysLimit` のバリデーションを追加。`injectionOrder` でも用法検索を有効化し、経路コードの優先度テーブルで候補順を制御（未知コードはフォールバックで保持）。薬剤候補に `youhouCode` がある場合は、用法欄の自動補完（非破壊）を追加。
+  - 成果物: `web-client/src/features/charts/orderMasterSearchApi.ts` / `web-client/src/features/charts/OrderBundleEditPanel.tsx` / `web-client/src/features/charts/styles.ts` / `web-client/src/features/charts/orderMasterSearchApi.test.ts` / `web-client/src/features/charts/__tests__/orderBundleUsageSearch.test.tsx` / `web-client/src/features/charts/__tests__/orderBundleValidation.test.ts` / `web-client/src/features/charts/__tests__/orderBundleItemActions.test.tsx` / `web-client/src/features/charts/__tests__/orderBundleMasterSearch.test.tsx`。
+  - 検証: `npm -C web-client run typecheck` PASS、`NODE_OPTIONS=--require=$(pwd)/tmp/node-localhost-patch.cjs npm -C web-client run test -- --run src/features/charts/orderMasterSearchApi.test.ts src/features/charts/__tests__/orderBundleUsageSearch.test.tsx src/features/charts/__tests__/orderBundleValidation.test.ts src/features/charts/__tests__/orderBundleItemActions.test.tsx src/features/charts/__tests__/chartsActionBar.orca-send.test.tsx --silent=true` PASS、追加確認として `NODE_OPTIONS=--require=$(pwd)/tmp/node-localhost-patch.cjs npm -C web-client run test -- --run src/features/charts/__tests__/orderBundleMasterSearch.test.tsx --silent=true` PASS。
 - 2026-02-18: ORCA API 契約統一として `web-client` の `/api01rv2` 依存を `/orca/*` へ置換（RUN_ID=20260218T133538Z）。
   - 内容: `web-client` の業務コード/デバッグUI/MSW/QAスクリプトで使用していた `/api01rv2*` と `/api/api01rv2*` を `/orca/*` へ統一。`server-modernized` 側には `OrcaPatientApiResource` / `OrcaDiseaseApiResource` / `OrcaMedicalApiResource` / `OrcaAdditionalApiResource` / `OrcaReportResource` / `OrcaSystemManagementResource` / `OrcaAcceptanceListResource` に `/orca/*` と `/api/orca/*` の受け口を追加し、既存 `respond*` ロジックを再利用して監査メタ（runId/traceId/requestId）を継承。
   - 再発防止: `scripts/check-no-api01rv2.sh` と `npm run check:orca-api01rv2` を追加し、`.github/workflows/e2e.yml` にガードステップを追加（`web-client` 内に `/api01rv2` が残るとCI失敗）。

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 
@@ -69,8 +69,26 @@ describe('OrderBundleEditPanel usage search UI', () => {
         return {
           ok: true,
           items: [
-            { type: 'youhou', code: '0010001', name: '1日1回 朝食後' },
-            { type: 'youhou', code: '0010002', name: '1日2回 朝夕食後' },
+            {
+              type: 'youhou',
+              code: '0010001',
+              name: '1日1回 朝食後',
+              timingCode: '01',
+              routeCode: 'PO',
+              daysLimit: 7,
+              dosePerDay: 1,
+              note: '朝のみ',
+            },
+            {
+              type: 'youhou',
+              code: '0010002',
+              name: '1日2回 朝夕食後',
+              timingCode: '05',
+              routeCode: 'PO',
+              daysLimit: 14,
+              dosePerDay: 2,
+              note: '朝夕の2回投与',
+            },
           ],
           totalCount: 2,
         };
@@ -80,13 +98,19 @@ describe('OrderBundleEditPanel usage search UI', () => {
 
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+    fireEvent.change(screen.getByLabelText('開始日'), { target: { value: '2026-02-19' } });
 
     const usageInput = screen.getByLabelText('用法') as HTMLInputElement;
     await user.type(usageInput, '朝');
 
     await waitFor(() =>
-      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'youhou', keyword: '朝' })),
+      expect(searchMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'youhou', keyword: '朝', effective: '2026-02-19' }),
+      ),
     );
+    expect(screen.getByText('上限日数')).toBeInTheDocument();
+    expect(screen.getByText('1日量 / 備考')).toBeInTheDocument();
+    expect(screen.getByText('朝夕の2回投与', { exact: false })).toBeInTheDocument();
     expect(screen.getByText('1日2回 朝夕食後')).toBeInTheDocument();
 
     await user.click(screen.getByText('1日2回 朝夕食後').closest('button')!);

@@ -66,6 +66,13 @@ const baseProps = {
     dataSourceTransition: 'server' as const,
   },
 };
+const injectionProps = {
+  ...baseProps,
+  entity: 'injectionOrder',
+  title: '注射編集',
+  bundleLabel: '注射オーダー名',
+  itemQuantityLabel: '回数',
+};
 
 const recentUsageStorageKey = 'charts-order-recent-usage:unknown-facility:unknown-user:medOrder';
 
@@ -292,6 +299,37 @@ describe('OrderBundleEditPanel item actions', () => {
     const stored = localStorage.getItem(recentUsageStorageKey);
     expect(stored).toBeTruthy();
     expect(JSON.parse(stored ?? '[]')[0]).toBe('1回');
+  });
+
+  it('injectionOrder でも用法候補を利用でき、経路コード順で表示される', async () => {
+    const user = userEvent.setup();
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type, keyword }) => {
+      if (type === 'youhou' && keyword.trim().length > 0) {
+        return {
+          ok: true,
+          items: [
+            { type: 'youhou', code: 'Y900', name: '外用候補', routeCode: 'TOP', timingCode: '03' },
+            { type: 'youhou', code: 'Y100', name: '静注候補', routeCode: 'IV', timingCode: '03' },
+          ],
+          totalCount: 2,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+
+    renderWithClient(<OrderBundleEditPanel {...injectionProps} />);
+
+    const usageInput = screen.getByLabelText('投与指示') as HTMLInputElement;
+    await user.type(usageInput, '候補');
+
+    const rows = await screen.findAllByRole('button', { name: /候補/ });
+    expect(rows[0]).toHaveTextContent('静注候補');
+    expect(rows[1]).toHaveTextContent('外用候補');
+
+    await user.click(rows[0]);
+    expect(usageInput.value).toBe('Y100 静注候補');
+    expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'youhou', keyword: '候補' }));
   });
 
   it.each([

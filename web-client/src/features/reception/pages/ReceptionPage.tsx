@@ -1,5 +1,5 @@
 import { Global } from '@emotion/react';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 
@@ -82,11 +82,17 @@ import {
 } from '../../outpatient/savedViews';
 import type { StorageScope } from '../../../libs/session/storageScope';
 import {
+  clearReceptionStatusOverridesForDate,
   listReceptionSnapshotDates,
   resolveReceptionEntriesForDate,
   saveReceptionEntriesForDate,
   upsertReceptionStatusOverride,
 } from '../receptionDailyState';
+import {
+  startReceptionRealtimeStream,
+  type ReceptionRealtimeConnectionStatus,
+  type ReceptionRealtimeEvent,
+} from '../receptionRealtimeStream';
 import { useAppToast } from '../../../libs/ui/appToast';
 import { buildMedicalModV2RequestXml, postOrcaMedicalModV2Xml, type MedicalModV2Information } from '../../charts/orcaClaimApi';
 import { saveOrcaClaimSendCache } from '../../charts/orcaClaimSendCache';
@@ -110,8 +116,49 @@ const ACCEPT_DETAILS_COLLAPSE_KEY = 'reception-accept-details-collapsed';
 const ORCA_QUEUE_REFRESH_INTERVAL_MS = 60_000;
 const ORCA_QUEUE_QUERY_KEY = ['orca-queue'] as const;
 const PATIENT_SEARCH_PAGE_SIZE = 50;
+const PATIENT_SEARCH_PANEL_MARGIN = 12;
+const PATIENT_SEARCH_PANEL_DEFAULT_TOP = 112;
+const PATIENT_SEARCH_PANEL_MAX_WIDTH = 420;
+const PATIENT_SEARCH_PANEL_WIDTH_RATIO = 0.8;
+const PATIENT_SEARCH_PANEL_MIN_VISIBLE_HEADER_HEIGHT = 72;
+
+type PatientSearchPanelPosition = {
+  left: number;
+  top: number;
+};
 
 const todayString = () => new Date().toISOString().slice(0, 10);
+
+const resolvePatientSearchPanelWidth = (viewportWidth: number) =>
+  Math.min(PATIENT_SEARCH_PANEL_MAX_WIDTH, viewportWidth * PATIENT_SEARCH_PANEL_WIDTH_RATIO);
+
+const clampPatientSearchPanelPosition = (
+  position: PatientSearchPanelPosition,
+  viewportWidth: number,
+  viewportHeight: number,
+): PatientSearchPanelPosition => {
+  const panelWidth = resolvePatientSearchPanelWidth(viewportWidth);
+  const minLeft = PATIENT_SEARCH_PANEL_MARGIN;
+  const maxLeft = Math.max(minLeft, viewportWidth - panelWidth - PATIENT_SEARCH_PANEL_MARGIN);
+  const minTop = PATIENT_SEARCH_PANEL_MARGIN;
+  const maxTop = Math.max(minTop, viewportHeight - PATIENT_SEARCH_PANEL_MIN_VISIBLE_HEADER_HEIGHT);
+  return {
+    left: Math.min(Math.max(position.left, minLeft), maxLeft),
+    top: Math.min(Math.max(position.top, minTop), maxTop),
+  };
+};
+
+const buildDefaultPatientSearchPanelPosition = (viewportWidth: number, viewportHeight: number): PatientSearchPanelPosition => {
+  const panelWidth = resolvePatientSearchPanelWidth(viewportWidth);
+  return clampPatientSearchPanelPosition(
+    {
+      left: viewportWidth - panelWidth - PATIENT_SEARCH_PANEL_MARGIN,
+      top: PATIENT_SEARCH_PANEL_DEFAULT_TOP,
+    },
+    viewportWidth,
+    viewportHeight,
+  );
+};
 
 const receptionStatusMvpPhase = (() => {
   const raw = import.meta.env.VITE_RECEPTION_STATUS_MVP ?? '';
@@ -176,6 +223,25 @@ const paymentModeLabel = (insurance?: string | null) => {
   if (mode === 'insurance') return '保険';
   if (mode === 'self') return '自費';
   return '不明';
+};
+
+const RECEPTION_REALTIME_STATUS_LABEL: Record<ReceptionRealtimeConnectionStatus, string> = {
+  connecting: '接続中',
+  open: '接続済み',
+  reconnecting: '再接続中',
+  closed: '停止',
+  unavailable: '未対応',
+};
+
+const RECEPTION_REALTIME_STATUS_TONE: Record<
+  ReceptionRealtimeConnectionStatus,
+  'neutral' | 'info' | 'warning' | 'success' | 'error'
+> = {
+  connecting: 'info',
+  open: 'success',
+  reconnecting: 'warning',
+  closed: 'neutral',
+  unavailable: 'warning',
 };
 
 const ACCEPT_SUCCESS_RESULTS = new Set(['00', '0000', 'K3']);
@@ -776,6 +842,27 @@ export function ReceptionPage({
   const [patientSearchError, setPatientSearchError] = useState<string | null>(null);
   const [patientSearchSelected, setPatientSearchSelected] = useState<PatientRecord | null>(null);
   const [patientSearchPage, setPatientSearchPage] = useState(1);
+  const [patientSearchPanelOpen, setPatientSearchPanelOpen] = useState(false);
+  const [patientSearchPanelPosition, setPatientSearchPanelPosition] = useState<PatientSearchPanelPosition>(() => {
+    if (typeof window === 'undefined') {
+      return {
+        left: PATIENT_SEARCH_PANEL_MARGIN,
+        top: PATIENT_SEARCH_PANEL_DEFAULT_TOP,
+      };
+    }
+    return buildDefaultPatientSearchPanelPosition(window.innerWidth, window.innerHeight);
+  });
+  const patientSearchPanelPositionRef = useRef<PatientSearchPanelPosition>(patientSearchPanelPosition);
+  const patientSearchPanelMoveRef = useRef<
+    | null
+    | {
+        pointerId: number;
+        startX: number;
+        startY: number;
+        startPosition: PatientSearchPanelPosition;
+      }
+  >(null);
+  const [isPatientSearchPanelDragging, setIsPatientSearchPanelDragging] = useState(false);
   const patientSearchFilterRef = useRef<{
     patientId: string;
     nameSei: string;
@@ -815,9 +902,16 @@ export function ReceptionPage({
   const [claimSendingPatientId, setClaimSendingPatientId] = useState<string | null>(null);
   const [dailyStateRevision, setDailyStateRevision] = useState(0);
   const [openCardActionMenuKey, setOpenCardActionMenuKey] = useState<string | null>(null);
+  const [receptionRealtimeStatus, setReceptionRealtimeStatus] =
+    useState<ReceptionRealtimeConnectionStatus>('connecting');
+  const selectedDateRef = useRef(selectedDate);
+  const storageScopeRef = useRef(storageScope);
 
   const debugUiEnabled =
     (import.meta.env.DEV && searchParams.get('debug') === '1') || session.role === 'system_admin';
+
+  const statusListLayout: 'table' | 'cards' =
+    debugUiEnabled && searchParams.get('receptionList') === 'cards' ? 'cards' : 'table';
 
   const resolvePatientIdFromRaw = useCallback(
     (name?: string, kana?: string): string | undefined => {
@@ -993,6 +1087,54 @@ export function ReceptionPage({
     if (!Number.isFinite(resolved) || resolved <= 0) return '停止';
     return `${Math.round(resolved / 1000)}秒`;
   }, []);
+
+  useEffect(() => {
+    selectedDateRef.current = selectedDate;
+  }, [selectedDate]);
+
+  useEffect(() => {
+    storageScopeRef.current = storageScope;
+  }, [storageScope]);
+
+  const handleReceptionRealtimeEvent = useCallback(
+    (event: ReceptionRealtimeEvent) => {
+      const eventType = event.type ?? 'reception.updated';
+      if (eventType !== 'reception.updated' && eventType !== 'reception.replay-gap') {
+        return;
+      }
+      const activeDate = selectedDateRef.current;
+      const eventDate = event.date?.trim();
+      const shouldRefreshAppointment = !eventDate || !activeDate || eventDate === activeDate;
+
+      if (eventType === 'reception.updated' && eventDate) {
+        clearReceptionStatusOverridesForDate({
+          date: eventDate,
+          patientId: event.patientId,
+          scope: storageScopeRef.current,
+        });
+        setDailyStateRevision((prev) => prev + 1);
+      }
+
+      if (shouldRefreshAppointment || eventType === 'reception.replay-gap') {
+        void queryClient.invalidateQueries({ queryKey: ['outpatient-appointments'] }).catch(() => undefined);
+      }
+      void queryClient.invalidateQueries({ queryKey: ORCA_QUEUE_QUERY_KEY }).catch(() => undefined);
+    },
+    [queryClient],
+  );
+
+  useEffect(() => {
+    const stopStream = startReceptionRealtimeStream({
+      onStatusChange: setReceptionRealtimeStatus,
+      onMessage: handleReceptionRealtimeEvent,
+      onError: () => {
+        setReceptionRealtimeStatus('reconnecting');
+      },
+    });
+    return () => {
+      stopStream();
+    };
+  }, [handleReceptionRealtimeEvent]);
 
   useEffect(() => {
     if (!broadcast?.updatedAt) return;
@@ -1421,6 +1563,32 @@ export function ReceptionPage({
       };
     });
   }, [liveAppointmentEntries, reservationTimeByPatientId]);
+
+  useEffect(() => {
+    if (!selectedDate) return;
+    if (!appointmentQuery.dataUpdatedAt) return;
+    if (appointmentQuery.isError) return;
+    const outcome = appointmentQuery.data?.outcome;
+    if (outcome === 'error') return;
+    const httpStatus = appointmentQuery.data?.httpStatus;
+    if (typeof httpStatus === 'number' && httpStatus >= 400) return;
+    if (normalizedLiveEntries.length > 0) return;
+
+    saveReceptionEntriesForDate({
+      date: selectedDate,
+      entries: [],
+      scope: storageScope,
+    });
+    setDailyStateRevision((prev) => prev + 1);
+  }, [
+    appointmentQuery.data?.httpStatus,
+    appointmentQuery.data?.outcome,
+    appointmentQuery.dataUpdatedAt,
+    appointmentQuery.isError,
+    normalizedLiveEntries.length,
+    selectedDate,
+    storageScope,
+  ]);
   const dailyEntriesState = useMemo(
     () =>
       resolveReceptionEntriesForDate({
@@ -1642,6 +1810,57 @@ export function ReceptionPage({
       return prev;
     });
   }, [patientSearchTotalPages]);
+  useEffect(() => {
+    patientSearchPanelPositionRef.current = patientSearchPanelPosition;
+  }, [patientSearchPanelPosition]);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => {
+      setPatientSearchPanelPosition((prev) => clampPatientSearchPanelPosition(prev, window.innerWidth, window.innerHeight));
+    };
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handlePointerMove = (event: PointerEvent) => {
+      const moveState = patientSearchPanelMoveRef.current;
+      if (!moveState || event.pointerId !== moveState.pointerId) return;
+      const deltaX = event.clientX - moveState.startX;
+      const deltaY = event.clientY - moveState.startY;
+      setPatientSearchPanelPosition(
+        clampPatientSearchPanelPosition(
+          {
+            left: moveState.startPosition.left + deltaX,
+            top: moveState.startPosition.top + deltaY,
+          },
+          window.innerWidth,
+          window.innerHeight,
+        ),
+      );
+    };
+    const handlePointerEnd = (event: PointerEvent) => {
+      const moveState = patientSearchPanelMoveRef.current;
+      if (!moveState || event.pointerId !== moveState.pointerId) return;
+      patientSearchPanelMoveRef.current = null;
+      setIsPatientSearchPanelDragging(false);
+    };
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+    };
+  }, []);
+  useEffect(() => {
+    if (patientSearchPanelOpen) return;
+    patientSearchPanelMoveRef.current = null;
+    setIsPatientSearchPanelDragging(false);
+  }, [patientSearchPanelOpen]);
   const grouped = useMemo(() => groupByStatus(sortedEntries), [sortedEntries]);
   useEffect(() => {
     if (!selectedDate || visibleAppointmentEntries.length === 0) return;
@@ -1651,7 +1870,7 @@ export function ReceptionPage({
       scope: storageScope,
     });
   }, [selectedDate, storageScope, visibleAppointmentEntries]);
-  const tableColCount = claimOutpatientEnabled ? 10 : 9;
+  const tableColCount = claimOutpatientEnabled ? 9 : 8;
 
   const claimBundles = claimOutpatientEnabled ? claimQuery.data?.bundles ?? [] : [];
   const claimQueueEntries = claimOutpatientEnabled ? claimQuery.data?.queueEntries ?? [] : [];
@@ -2417,7 +2636,7 @@ export function ReceptionPage({
         const durationMs = Math.round(performance.now() - started);
         setAcceptDurationMs(durationMs);
         const apiResult = normalizeApiResult(payload.apiResult);
-        const isSuccess = ACCEPT_SUCCESS_RESULTS.has(apiResult);
+        const isSuccess = isApiResultOk(apiResult) || ACCEPT_SUCCESS_RESULTS.has(apiResult);
         const isNoAcceptance = apiResult === '21';
         const isAlreadyAccepted = apiResult === '16';
 
@@ -2511,108 +2730,132 @@ export function ReceptionPage({
     ],
   );
 
-  const cancelEntry = useCallback(async (entry: ReceptionEntry | null | undefined, source: 'selection' | 'card') => {
-    setAcceptResult(null);
-    setAcceptErrors({});
-    setAcceptDurationMs(null);
-    if (!entry) {
-      enqueue({ tone: 'warning', message: '取消する患者を選択してください。' });
-      return;
-    }
-    if (entry.status === '予約') {
-      enqueue({ tone: 'warning', message: '予約は受付取消できません。' });
-      return;
-    }
-    const patientId = entry.patientId?.trim() ?? '';
-    const acceptanceId = entry.receptionId?.trim() ?? '';
-    if (!patientId) {
-      enqueue({ tone: 'warning', message: '患者IDが未登録のため取消できません。' });
-      return;
-    }
-    if (!acceptanceId) {
-      enqueue({ tone: 'warning', message: '受付IDが未登録のため取消できません。' });
-      return;
-    }
-    const now = new Date();
-    const params: VisitMutationParams = {
-      patientId,
-      requestNumber: '02',
-      acceptanceDate: selectedDate || todayString(),
-      acceptanceTime: now.toISOString().slice(11, 19),
-      acceptancePush: resolveAcceptancePush('1'),
-      acceptanceId,
-    };
-    const started = performance.now();
-    try {
-      const payload = await (visitMutation.mutateAsync ? visitMutation.mutateAsync(params) : mutateVisit(params));
-      const durationMs = Math.round(performance.now() - started);
-      setAcceptDurationMs(durationMs);
-      const apiResult = normalizeApiResult(payload.apiResult);
-      const isSuccess = ACCEPT_SUCCESS_RESULTS.has(apiResult);
-      const isNoAcceptance = apiResult === '21';
-      if (isSuccess) {
-        applyMutationResultToList(payload, params);
-        void refetchAppointment();
-        if (claimOutpatientEnabled) {
-          void refetchClaim();
-        }
+  const cancelEntry = useCallback(
+    async (entry: ReceptionEntry | null | undefined, source: 'selection' | 'card' | 'table') => {
+      setAcceptResult(null);
+      setAcceptErrors({});
+      setAcceptDurationMs(null);
+      if (!entry) {
+        enqueue({ tone: 'warning', message: '取消する患者を選択してください。' });
+        return;
       }
-      const toneResult: 'info' | 'warning' | 'error' =
-        isSuccess ? 'info' : ACCEPT_WARNING_RESULTS.has(apiResult) ? 'warning' : 'error';
-      const message = isSuccess
-        ? '受付取消が完了しました'
-        : isNoAcceptance
-          ? 'ORCA から「受付なし」が返却されました'
-          : '受付取消でエラーが返却されました';
-      setAcceptResult({
-        tone: toneResult,
-        message,
-        detail: payload.apiResultMessage ?? payload.apiResult ?? 'status unknown',
-        runId: payload.runId ?? mergedMeta.runId,
-        apiResult: payload.apiResult,
-      });
-      enqueue({
-        tone: toneResult === 'info' ? 'info' : toneResult,
-        message,
-        detail: payload.apiResultMessage ?? payload.apiResult ?? undefined,
-      });
-      logUiState({
-        action: 'cancel',
-        screen: 'reception/acceptmodv2',
-        controlId: source === 'card' ? 'card-cancel' : 'selection-cancel',
-        runId: payload.runId ?? mergedMeta.runId,
+      if (entry.status === '予約') {
+        enqueue({ tone: 'warning', message: '予約は受付取消できません。' });
+        return;
+      }
+      const patientId = entry.patientId?.trim() ?? '';
+      const acceptanceId = entry.receptionId?.trim() ?? '';
+      if (!patientId) {
+        enqueue({ tone: 'warning', message: '患者IDが未登録のため取消できません。' });
+        return;
+      }
+      if (!acceptanceId) {
+        enqueue({ tone: 'warning', message: '受付IDが未登録のため取消できません。' });
+        return;
+      }
+      const now = new Date();
+      const params: VisitMutationParams = {
         patientId,
-        details: { acceptanceId, apiResult: payload.apiResult, apiResultMessage: payload.apiResultMessage },
-      });
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      setAcceptResult({
-        tone: 'error',
-        message: '受付取消に失敗しました',
-        detail,
-        runId: mergedMeta.runId,
-      });
-      enqueue({ tone: 'error', message: '受付取消に失敗しました', detail });
-      // eslint-disable-next-line no-console
-      console.error('[acceptmodv2]', detail);
-    }
-  }, [
-    applyMutationResultToList,
-    claimOutpatientEnabled,
-    enqueue,
-    flags.runId,
-    mergedMeta.runId,
-    refetchAppointment,
-    refetchClaim,
-    selectedDate,
-    visitMutation,
-  ]);
+        requestNumber: '02',
+        acceptanceDate: selectedDate || todayString(),
+        acceptanceTime: now.toISOString().slice(11, 19),
+        acceptancePush: resolveAcceptancePush('1'),
+        acceptanceId,
+      };
+      const started = performance.now();
+      try {
+        const payload = await (visitMutation.mutateAsync ? visitMutation.mutateAsync(params) : mutateVisit(params));
+        const durationMs = Math.round(performance.now() - started);
+        setAcceptDurationMs(durationMs);
+        const apiResult = normalizeApiResult(payload.apiResult);
+        const isSuccess = isApiResultOk(apiResult) || ACCEPT_SUCCESS_RESULTS.has(apiResult);
+        const isNoAcceptance = apiResult === '21';
+        if (isSuccess) {
+          applyMutationResultToList(payload, params);
+          void refetchAppointment();
+          if (claimOutpatientEnabled) {
+            void refetchClaim();
+          }
+        }
+        const toneResult: 'info' | 'warning' | 'error' =
+          isSuccess ? 'info' : ACCEPT_WARNING_RESULTS.has(apiResult) ? 'warning' : 'error';
+        const message = isSuccess
+          ? '受付取消が完了しました'
+          : isNoAcceptance
+            ? 'ORCA から「受付なし」が返却されました'
+            : '受付取消でエラーが返却されました';
+        setAcceptResult({
+          tone: toneResult,
+          message,
+          detail: payload.apiResultMessage ?? payload.apiResult ?? 'status unknown',
+          runId: payload.runId ?? mergedMeta.runId,
+          apiResult: payload.apiResult,
+        });
+        enqueue({
+          tone: toneResult === 'info' ? 'info' : toneResult,
+          message,
+          detail: payload.apiResultMessage ?? payload.apiResult ?? undefined,
+        });
+        logUiState({
+          action: 'cancel',
+          screen: 'reception/acceptmodv2',
+          controlId: source === 'card' ? 'card-cancel' : source === 'table' ? 'table-cancel' : 'selection-cancel',
+          runId: payload.runId ?? mergedMeta.runId,
+          patientId,
+          details: { acceptanceId, apiResult: payload.apiResult, apiResultMessage: payload.apiResultMessage },
+        });
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        setAcceptResult({
+          tone: 'error',
+          message: '受付取消に失敗しました',
+          detail,
+          runId: mergedMeta.runId,
+        });
+        enqueue({ tone: 'error', message: '受付取消に失敗しました', detail });
+        // eslint-disable-next-line no-console
+        console.error('[acceptmodv2]', detail);
+      }
+    },
+    [
+      applyMutationResultToList,
+      claimOutpatientEnabled,
+      enqueue,
+      flags.runId,
+      mergedMeta.runId,
+      refetchAppointment,
+      refetchClaim,
+      selectedDate,
+      visitMutation,
+    ],
+  );
 
   const handleCancelSelectedEntry = useCallback(() => {
     void cancelEntry(selectedEntry, 'selection');
   }, [cancelEntry, selectedEntry]);
 
 
+
+  const beginPatientSearchPanelMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0 || !patientSearchPanelOpen) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('button, input, select, textarea, a')) return;
+      event.preventDefault();
+      setIsPatientSearchPanelDragging(true);
+      patientSearchPanelMoveRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startPosition: patientSearchPanelPositionRef.current,
+      };
+    },
+    [patientSearchPanelOpen],
+  );
+
+  const closePatientSearchPanel = useCallback(() => {
+    setPatientSearchPanelOpen(false);
+  }, []);
 
   const handlePatientSearchSubmit = useCallback(
     async (event?: FormEvent<HTMLFormElement>) => {
@@ -2637,6 +2880,7 @@ export function ReceptionPage({
       patientSearchFilterRef.current = filters;
       setPatientSearchError(null);
       setPatientSearchSelected(null);
+      setPatientSearchPanelOpen(true);
       await patientSearchMutation.mutateAsync({ keyword: primaryKeyword });
       logUiState({
         action: 'patient_search',
@@ -2667,6 +2911,7 @@ export function ReceptionPage({
     setPatientSearchMeta(null);
     setPatientSearchSelected(null);
     setPatientSearchPage(1);
+    setPatientSearchPanelOpen(false);
     setPatientSearchError(null);
     patientSearchFilterRef.current = null;
   }, []);
@@ -3328,7 +3573,7 @@ export function ReceptionPage({
         logUiState({
           action: 'claim_send',
           screen: 'reception/claim-send',
-          controlId: 'claim-send-card',
+          controlId: 'claim-send-list',
           runId: nextRunId,
           cacheHit: mergedMeta.cacheHit,
           missingMaster: mergedMeta.missingMaster,
@@ -3743,6 +3988,13 @@ export function ReceptionPage({
               tone="neutral"
               runId={resolvedRunId}
             />
+            <StatusPill
+              className="reception-pill"
+              label="RT同期"
+              value={RECEPTION_REALTIME_STATUS_LABEL[receptionRealtimeStatus]}
+              tone={RECEPTION_REALTIME_STATUS_TONE[receptionRealtimeStatus]}
+              runId={resolvedRunId}
+            />
             <button
               type="button"
               className={`reception-exception-indicator${exceptionCounts.total > 0 ? ' is-active' : ''}`}
@@ -4009,6 +4261,7 @@ export function ReceptionPage({
                   <div className="reception-summary__meta">
                     <span>最終更新: {appointmentUpdatedAtLabel}</span>
                     <span>自動更新: {autoRefreshIntervalLabel}</span>
+                    <span>RT同期: {RECEPTION_REALTIME_STATUS_LABEL[receptionRealtimeStatus]}</span>
                     <span>選択保持: {selectedEntry ? '保持中' : '未選択'}</span>
                   </div>
                 </div>
@@ -4278,6 +4531,7 @@ export function ReceptionPage({
             </section>
             ) : null}
 
+            {statusListLayout === 'cards' ? (
             <div className="reception-board" role="region" aria-label="ステータス別患者一覧">
               {grouped.map(({ status, items }) => (
                 <section
@@ -4632,9 +4886,10 @@ export function ReceptionPage({
                 </section>
               ))}
             </div>
+            ) : null}
 
-            {debugUiEnabled ? (
-              <>
+            {statusListLayout === 'table' ? (
+              <div className="reception-board reception-board--table" role="region" aria-label="ステータス別患者一覧">
                 {grouped.map(({ status, items }, index) => {
               const sectionId = `reception-section-${index}`;
               const tableHelpId = `${sectionId}-help`;
@@ -4678,7 +4933,6 @@ export function ReceptionPage({
                     <table className="reception-table" aria-describedby={`${tableHelpId} ${tableStatusId}`}>
                       <thead>
                         <tr>
-                          <th scope="col">状態</th>
                           <th scope="col">ID</th>
                           <th scope="col">氏名</th>
                           <th scope="col">来院/科</th>
@@ -4687,7 +4941,7 @@ export function ReceptionPage({
                           <th scope="col">メモ/参照</th>
                           <th scope="col">直近</th>
                           <th scope="col">ORCA</th>
-                          <th scope="col">Charts</th>
+                          <th scope="col">操作</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -4733,33 +4987,10 @@ export function ReceptionPage({
                               }}
                               aria-selected={isSelected}
                               aria-label={`${entry.name ?? '患者'} ${entry.appointmentTime ?? ''} ${entry.department ?? ''}`}
+                              data-test-id="reception-entry-row"
+                              data-patient-id={entry.patientId ?? ''}
+                              data-reception-status={status}
                             >
-                              <td>
-                                <div className="reception-table__status">
-                                  <span
-                                    className={`reception-badge reception-badge--${status}`}
-                                    aria-label={`状態: ${SECTION_LABEL[status]}`}
-                                  >
-                                    {isReceptionStatusMvpEnabled ? (
-                                      <span className="reception-status-mvp" data-test-id="reception-status-mvp">
-                                        <span className="reception-status-mvp__dot" aria-hidden="true" data-status={status} />
-                                        <span className="reception-status-mvp__label">{SECTION_LABEL[status]}</span>
-                                      </span>
-                                    ) : (
-                                      SECTION_LABEL[status]
-                                    )}
-                                  </span>
-                                  {isReceptionStatusMvpPhase2 && mvpDecision ? (
-                                    <div className="reception-status-mvp__next" data-tone={mvpDecision.tone}>
-                                      <span className="reception-status-mvp__next-label">次:</span>
-                                      <strong className="reception-status-mvp__next-action">{mvpDecision.nextAction}</strong>
-                                      {mvpDecision.detail ? (
-                                        <small className="reception-status-mvp__next-detail">{truncateText(mvpDecision.detail, 44)}</small>
-                                      ) : null}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              </td>
                               <td>
                                 <PatientMetaRow
                                   as="div"
@@ -4778,7 +5009,7 @@ export function ReceptionPage({
                               <td>
                                 <div className="reception-table__patient">
                                   <strong>{entry.name ?? '未登録'}</strong>
-                                  {entry.kana && <small>{entry.kana}</small>}
+                                  <small className="reception-table__sub">{entry.kana ?? '—'}</small>
                                 </div>
                               </td>
                               <td>
@@ -4816,7 +5047,6 @@ export function ReceptionPage({
                               )}
                               <td className="reception-table__note">
                                 {entry.note ? truncateText(entry.note, 36) : '—'}
-                                <div className="reception-table__source">src: {entry.source}</div>
                               </td>
                               <td className="reception-table__last">{resolveLastVisitForEntry(entry)}</td>
                               <td className="reception-table__queue">
@@ -4843,6 +5073,26 @@ export function ReceptionPage({
                                 )}
                               </td>
                               <td className="reception-table__action">
+                                {status === '会計待ち' ? (
+                                  <button
+                                    type="button"
+                                    className="reception-table__action-button primary"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void handleSendBilling(entry);
+                                    }}
+                                    disabled={!entry.patientId || claimSendingPatientId === entry.patientId}
+                                    title={
+                                      !entry.patientId
+                                        ? '患者IDが未登録のため会計送信できません'
+                                        : claimSendingPatientId === entry.patientId
+                                          ? '送信中です'
+                                          : 'ORCAへ会計送信します'
+                                    }
+                                  >
+                                    {claimSendingPatientId === entry.patientId ? '会計送信中…' : '会計送信'}
+                                  </button>
+                                ) : null}
                                 {isReceptionStatusMvpPhase2 && mvpDecision?.canRetry ? (
                                   <button
                                     type="button"
@@ -4862,12 +5112,48 @@ export function ReceptionPage({
                                   className="reception-table__action-button"
                                   onClick={(event) => {
                                     event.stopPropagation();
+                                    openMedicalRecordsModal({ patientId: entry.patientId, name: entry.name }, 'selection');
+                                  }}
+                                  disabled={!entry.patientId}
+                                  title={
+                                    entry.patientId ? '過去カルテをモーダルで確認' : '患者IDが未登録のため過去カルテを表示できません'
+                                  }
+                                >
+                                  過去カルテ
+                                </button>
+                                <button
+                                  type="button"
+                                  className="reception-table__action-button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
                                     handleOpenCharts(entry);
                                   }}
                                   disabled={!canOpenCharts}
                                   title={canOpenCharts ? 'カルテを開く' : '患者IDが未登録のためカルテを開けません'}
                                 >
                                   カルテを開く
+                                </button>
+                                <button
+                                  type="button"
+                                  className="reception-table__action-button danger"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void cancelEntry(entry, 'table');
+                                  }}
+                                  disabled={isAcceptSubmitting || !entry.patientId || !entry.receptionId || status === '予約'}
+                                  title={
+                                    isAcceptSubmitting
+                                      ? '送信中です'
+                                      : !entry.patientId
+                                        ? '患者IDが未登録のため取消できません'
+                                        : status === '予約'
+                                          ? '予約は受付取消できません'
+                                          : entry.receptionId
+                                            ? '受付取消'
+                                            : '受付IDが未登録のため取消できません'
+                                  }
+                                >
+                                  受付取消
                                 </button>
                               </td>
                             </tr>
@@ -4879,7 +5165,7 @@ export function ReceptionPage({
                 )}
               </section>
             )})}
-              </>
+              </div>
             ) : null}
           </div>
 
@@ -5021,142 +5307,182 @@ export function ReceptionPage({
                     ariaLive="assertive"
                   />
                 ) : null}
-
-                <div className="reception-patient-search__list" role="list" aria-label="検索結果">
-                  {patientSearchMutation.isPending ? (
-                    <p className="reception-sidepane__empty">検索中…</p>
-                  ) : patientSearchResults.length === 0 ? (
-                    <p className="reception-sidepane__empty">検索結果がありません。</p>
-                  ) : (
-                    pagedPatientSearchResults.map((patient, pageIndex) => {
-                      const index = (patientSearchPage - 1) * PATIENT_SEARCH_PAGE_SIZE + pageIndex;
-                      const key = patient.patientId ?? `${patient.name ?? 'unknown'}-${index}`;
-                      const resolvedPatientId = patient.patientId?.trim() ?? '';
-                      const isSelected =
-                        patientSearchSelected === patient ||
-                        (Boolean(resolvedPatientId) &&
-                          Boolean(patientSearchSelected?.patientId) &&
-                          resolvedPatientId === patientSearchSelected?.patientId);
-                      const matchedEntry = resolvedPatientId
-                        ? sortedEntries.find((entry) => entry.patientId === resolvedPatientId)
-                        : undefined;
-                      const matchedTodayEntry = matchedEntry && matchedEntry.status !== '予約' ? matchedEntry : undefined;
-                      return (
-                        <div
-                          key={key}
-                          className={`reception-patient-search__item${isSelected ? ' is-selected' : ''}`}
-                          role="listitem"
-                        >
-                          <button
-                            type="button"
-                            className="reception-patient-search__item-select"
-                            onClick={() => handleSelectPatientSearchResult(patient)}
-                            data-test-id={`reception-patient-search-select-${resolvedPatientId || index}`}
-                          >
-                            <div className="reception-patient-search__item-main">
-                              <strong>{patient.name ?? '氏名未登録'}</strong>
-                              <span className="reception-patient-search__item-id">ID: {patient.patientId ?? '—'}</span>
-                            </div>
-                            <small>{isSelected ? '選択中（詳細表示）' : '選択して詳細を表示'}</small>
-                          </button>
-                          {isSelected ? (
-                            <div className="reception-patient-search__item-details" aria-label="患者詳細">
-                              <div className="reception-patient-search__item-meta">
-                                <span>患者ID: {patient.patientId ?? '—'}</span>
-                                {patient.kana ? <span>カナ: {patient.kana}</span> : null}
-                                {patient.birthDate ? <span>生年月日: {patient.birthDate}</span> : null}
-                                {patient.sex ? <span>性別: {patient.sex}</span> : null}
-                                {patient.insurance ? <span>保険: {patient.insurance}</span> : null}
-                                {patient.lastVisit ? <span>直近: {patient.lastVisit}</span> : null}
-                                {matchedEntry?.status ? <span>今日: {matchedEntry.status}</span> : null}
-                              </div>
-                              <div className="reception-patient-search__item-actions" role="group" aria-label="カルテ操作">
-                                <button
-                                  type="button"
-                                  className="reception-search__button ghost"
-                                  onClick={() =>
-                                    openMedicalRecordsModal({ patientId: patient.patientId, name: patient.name }, 'search')
-                                  }
-                                  disabled={!resolvedPatientId}
-                                  title={
-                                    resolvedPatientId
-                                      ? '過去カルテをモーダルで確認'
-                                      : '患者IDが未登録のため過去カルテを表示できません'
-                                  }
-                                >
-                                  過去カルテ
-                                </button>
-                                <button
-                                  type="button"
-                                  className="reception-search__button primary"
-                                  onClick={() => {
-                                    if (!resolvedPatientId) return;
-                                    if (matchedTodayEntry) {
-                                      handleOpenCharts(matchedTodayEntry);
-                                      return;
-                                    }
-                                    const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
-                                    if (guardRunId) bumpRunId(guardRunId);
-                                    const visitDate = patient.lastVisit?.trim() || undefined;
-                                    appNav.openCharts({
-                                      encounter: { patientId: resolvedPatientId, visitDate },
-                                      carryover: receptionCarryover,
-                                      runId: guardRunId,
-                                      navigate: {
-                                        state: {
-                                          runId: guardRunId,
-                                          patientId: resolvedPatientId,
-                                          visitDate,
-                                        },
-                                      },
-                                    });
-                                  }}
-                                  disabled={!resolvedPatientId}
-                                  title={
-                                    resolvedPatientId
-                                      ? matchedTodayEntry
-                                        ? '当日のカルテを開く'
-                                        : '直近来院日のカルテを開く'
-                                      : '患者IDが未登録のためカルテを開けません'
-                                  }
-                                >
-                                  カルテを開く
-                                </button>
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-                {showPatientSearchPagination ? (
-                  <nav className="reception-patient-search__pagination" aria-label="検索結果ページ">
-                    <span className="reception-patient-search__pagination-range">{patientSearchRangeLabel}</span>
-                    <div className="reception-patient-search__pagination-actions">
-                      <button
-                        type="button"
-                        className="reception-search__button ghost"
-                        onClick={() => setPatientSearchPage((prev) => Math.max(1, prev - 1))}
-                        disabled={patientSearchPage <= 1}
-                      >
-                        前へ
-                      </button>
-                      <span className="reception-patient-search__pagination-page" data-test-id="reception-patient-search-page-indicator">
-                        {patientSearchPage} / {patientSearchTotalPages}
-                      </span>
-                      <button
-                        type="button"
-                        className="reception-search__button ghost"
-                        onClick={() => setPatientSearchPage((prev) => Math.min(patientSearchTotalPages, prev + 1))}
-                        disabled={patientSearchPage >= patientSearchTotalPages}
-                      >
-                        次へ
-                      </button>
-                    </div>
-                  </nav>
+                {patientSearchPanelOpen ? (
+                  <p className="reception-patient-search__collapsed-hint">検索結果はフローティングパネルに表示しています。</p>
+                ) : patientSearchResults.length > 0 ? (
+                  <p className="reception-patient-search__collapsed-hint">
+                    検索結果パネルは閉じています。再検索すると表示されます。
+                  </p>
                 ) : null}
               </section>
+
+              {patientSearchPanelOpen ? (
+                <section
+                  className="reception-patient-search-panel"
+                  role="region"
+                  aria-label="患者検索結果パネル"
+                  data-run-id={resolvedRunId}
+                  style={{
+                    left: `${patientSearchPanelPosition.left}px`,
+                    top: `${patientSearchPanelPosition.top}px`,
+                  }}
+                >
+                  <header
+                    className={`reception-patient-search-panel__header${isPatientSearchPanelDragging ? ' is-dragging' : ''}`}
+                    onPointerDown={beginPatientSearchPanelMove}
+                  >
+                    <div className="reception-patient-search-panel__title">
+                      <h3>患者検索結果</h3>
+                      <span className="reception-patient-search-panel__meta" aria-live={infoLive}>
+                        {patientSearchMutation.isPending
+                          ? '検索中…'
+                          : showPatientSearchPagination
+                            ? `${patientSearchResults.length}件（${patientSearchRangeLabel}）`
+                            : `${patientSearchResults.length}件`}
+                      </span>
+                    </div>
+                    <button type="button" className="reception-search__button ghost" onClick={closePatientSearchPanel}>
+                      閉じる
+                    </button>
+                  </header>
+                  <div className="reception-patient-search-panel__body">
+                    <div className="reception-patient-search__list" role="list" aria-label="検索結果">
+                      {patientSearchMutation.isPending ? (
+                        <p className="reception-sidepane__empty">検索中…</p>
+                      ) : patientSearchResults.length === 0 ? (
+                        <p className="reception-sidepane__empty">検索結果がありません。</p>
+                      ) : (
+                        pagedPatientSearchResults.map((patient, pageIndex) => {
+                          const index = (patientSearchPage - 1) * PATIENT_SEARCH_PAGE_SIZE + pageIndex;
+                          const key = patient.patientId ?? `${patient.name ?? 'unknown'}-${index}`;
+                          const resolvedPatientId = patient.patientId?.trim() ?? '';
+                          const isSelected =
+                            patientSearchSelected === patient ||
+                            (Boolean(resolvedPatientId) &&
+                              Boolean(patientSearchSelected?.patientId) &&
+                              resolvedPatientId === patientSearchSelected?.patientId);
+                          const matchedEntry = resolvedPatientId
+                            ? sortedEntries.find((entry) => entry.patientId === resolvedPatientId)
+                            : undefined;
+                          const matchedTodayEntry = matchedEntry && matchedEntry.status !== '予約' ? matchedEntry : undefined;
+                          return (
+                            <div
+                              key={key}
+                              className={`reception-patient-search__item${isSelected ? ' is-selected' : ''}`}
+                              role="listitem"
+                            >
+                              <button
+                                type="button"
+                                className="reception-patient-search__item-select"
+                                onClick={() => handleSelectPatientSearchResult(patient)}
+                                data-test-id={`reception-patient-search-select-${resolvedPatientId || index}`}
+                              >
+                                <div className="reception-patient-search__item-main">
+                                  <strong>{patient.name ?? '氏名未登録'}</strong>
+                                  <span className="reception-patient-search__item-id">ID: {patient.patientId ?? '—'}</span>
+                                </div>
+                                <small>{isSelected ? '選択中（詳細表示）' : '選択して詳細を表示'}</small>
+                              </button>
+                              {isSelected ? (
+                                <div className="reception-patient-search__item-details" aria-label="患者詳細">
+                                  <div className="reception-patient-search__item-meta">
+                                    <span>患者ID: {patient.patientId ?? '—'}</span>
+                                    {patient.kana ? <span>カナ: {patient.kana}</span> : null}
+                                    {patient.birthDate ? <span>生年月日: {patient.birthDate}</span> : null}
+                                    {patient.sex ? <span>性別: {patient.sex}</span> : null}
+                                    {patient.insurance ? <span>保険: {patient.insurance}</span> : null}
+                                    {patient.lastVisit ? <span>直近: {patient.lastVisit}</span> : null}
+                                    {matchedEntry?.status ? <span>今日: {matchedEntry.status}</span> : null}
+                                  </div>
+                                  <div className="reception-patient-search__item-actions" role="group" aria-label="カルテ操作">
+                                    <button
+                                      type="button"
+                                      className="reception-search__button ghost"
+                                      onClick={() =>
+                                        openMedicalRecordsModal({ patientId: patient.patientId, name: patient.name }, 'search')
+                                      }
+                                      disabled={!resolvedPatientId}
+                                      title={
+                                        resolvedPatientId
+                                          ? '過去カルテをモーダルで確認'
+                                          : '患者IDが未登録のため過去カルテを表示できません'
+                                      }
+                                    >
+                                      過去カルテ
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="reception-search__button primary"
+                                      onClick={() => {
+                                        if (!resolvedPatientId) return;
+                                        if (matchedTodayEntry) {
+                                          handleOpenCharts(matchedTodayEntry);
+                                          return;
+                                        }
+                                        const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
+                                        if (guardRunId) bumpRunId(guardRunId);
+                                        const visitDate = patient.lastVisit?.trim() || undefined;
+                                        appNav.openCharts({
+                                          encounter: { patientId: resolvedPatientId, visitDate },
+                                          carryover: receptionCarryover,
+                                          runId: guardRunId,
+                                          navigate: {
+                                            state: {
+                                              runId: guardRunId,
+                                              patientId: resolvedPatientId,
+                                              visitDate,
+                                            },
+                                          },
+                                        });
+                                      }}
+                                      disabled={!resolvedPatientId}
+                                      title={
+                                        resolvedPatientId
+                                          ? matchedTodayEntry
+                                            ? '当日のカルテを開く'
+                                            : '直近来院日のカルテを開く'
+                                          : '患者IDが未登録のためカルテを開けません'
+                                      }
+                                    >
+                                      カルテを開く
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                    {showPatientSearchPagination ? (
+                      <nav className="reception-patient-search__pagination" aria-label="検索結果ページ">
+                        <span className="reception-patient-search__pagination-range">{patientSearchRangeLabel}</span>
+                        <div className="reception-patient-search__pagination-actions">
+                          <button
+                            type="button"
+                            className="reception-search__button ghost"
+                            onClick={() => setPatientSearchPage((prev) => Math.max(1, prev - 1))}
+                            disabled={patientSearchPage <= 1}
+                          >
+                            前へ
+                          </button>
+                          <span className="reception-patient-search__pagination-page" data-test-id="reception-patient-search-page-indicator">
+                            {patientSearchPage} / {patientSearchTotalPages}
+                          </span>
+                          <button
+                            type="button"
+                            className="reception-search__button ghost"
+                            onClick={() => setPatientSearchPage((prev) => Math.min(patientSearchTotalPages, prev + 1))}
+                            disabled={patientSearchPage >= patientSearchTotalPages}
+                          >
+                            次へ
+                          </button>
+                        </div>
+                      </nav>
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
 
               <div className="reception-accept__acceptbar" data-test-id="reception-accept-bar" aria-live={infoLive}>
                 <div className="reception-accept__acceptbar-main">

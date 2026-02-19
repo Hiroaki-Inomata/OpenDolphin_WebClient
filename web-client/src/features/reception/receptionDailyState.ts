@@ -365,6 +365,29 @@ export const saveReceptionEntriesForDate = (params: {
   writeStore(params.scope, store);
 };
 
+export const clearReceptionStatusOverridesForDate = (params: {
+  date: string;
+  patientId?: string;
+  scope?: StorageScope;
+}) => {
+  const date = normalizeDate(params.date);
+  if (!date) return;
+  const store = readStore(params.scope);
+  const bucket = store.days[date];
+  if (!bucket) return;
+  const patientId = normalizeOptionalString(params.patientId);
+  if (patientId) {
+    if (!(patientId in bucket.statusByPatientId)) return;
+    delete bucket.statusByPatientId[patientId];
+  } else {
+    if (Object.keys(bucket.statusByPatientId).length === 0) return;
+    bucket.statusByPatientId = {};
+  }
+  bucket.entries = dedupeEntries(bucket.entries ?? []);
+  bucket.updatedAt = new Date().toISOString();
+  writeStore(params.scope, store);
+};
+
 export const upsertReceptionStatusOverride = (params: {
   date: string;
   patientId: string;

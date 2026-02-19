@@ -23,6 +23,11 @@ export type OrderMasterSearchItem = {
   note?: string;
   validFrom?: string;
   validTo?: string;
+  timingCode?: string;
+  routeCode?: string;
+  daysLimit?: number;
+  dosePerDay?: number;
+  youhouCode?: string;
 };
 
 export type OrderMasterSearchResult = {
@@ -64,6 +69,10 @@ type OrcaDrugMasterEntry = {
   unit?: string;
   minPrice?: number;
   youhouCode?: string;
+  timingCode?: string;
+  routeCode?: string;
+  daysLimit?: number;
+  dosePerDay?: number;
   materialCategory?: string;
   kensaSort?: string;
   validFrom?: string;
@@ -155,6 +164,9 @@ const normalizeDrugEntry = (entry: OrcaDrugMasterEntry, type: OrderMasterSearchT
   const name = entry.name?.trim();
   if (!name) return null;
   const code = entry.code?.trim();
+  const timingCode = entry.timingCode?.trim();
+  const routeCode = entry.routeCode?.trim();
+  const youhouCode = entry.youhouCode?.trim();
   const category = entry.category ?? entry.materialCategory ?? entry.kensaSort ?? entry.youhouCode;
   return {
     type,
@@ -166,6 +178,11 @@ const normalizeDrugEntry = (entry: OrcaDrugMasterEntry, type: OrderMasterSearchT
     note: entry.note ?? undefined,
     validFrom: entry.validFrom ?? undefined,
     validTo: entry.validTo ?? undefined,
+    timingCode: timingCode || undefined,
+    routeCode: routeCode || undefined,
+    daysLimit: typeof entry.daysLimit === 'number' ? entry.daysLimit : undefined,
+    dosePerDay: typeof entry.dosePerDay === 'number' ? entry.dosePerDay : undefined,
+    youhouCode: youhouCode || undefined,
   };
 };
 
@@ -246,13 +263,22 @@ export async function fetchOrderMasterSearch(params: {
   if (params.type === 'comment' && params.category) {
     query.set('category', params.category);
   }
-  if (params.type === 'drug' || params.type === 'generic-class') {
-    query.set('page', String(params.page ?? 1));
-    query.set('size', String(params.size ?? 50));
+  const hasExplicitPage = typeof params.page === 'number' && Number.isFinite(params.page);
+  const hasExplicitSize = typeof params.size === 'number' && Number.isFinite(params.size);
+  if (hasExplicitPage) {
+    query.set('page', String(params.page));
   }
-  if (params.type === 'comment') {
-    query.set('page', String(params.page ?? 1));
-    query.set('size', String(params.size ?? 100));
+  if (hasExplicitSize) {
+    query.set('size', String(params.size));
+  }
+  const shouldApplyDefaultPaging = !hasExplicitPage && !hasExplicitSize;
+  if (shouldApplyDefaultPaging && (params.type === 'drug' || params.type === 'generic-class')) {
+    query.set('page', '1');
+    query.set('size', '50');
+  }
+  if (shouldApplyDefaultPaging && params.type === 'comment') {
+    query.set('page', '1');
+    query.set('size', '100');
   }
   const endpoint = MASTER_ENDPOINT_MAP[params.type];
   const meta = ensureObservabilityMeta();

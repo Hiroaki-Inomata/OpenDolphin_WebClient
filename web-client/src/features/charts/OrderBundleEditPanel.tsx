@@ -11,6 +11,7 @@ import { getOrcaClaimSendEntry, type OrcaMedicalWarningUi } from './orcaClaimSen
 import {
   fetchOrderMasterSearch,
   type OrderMasterSearchItem,
+  type OrderMasterSearchResult,
   type OrderMasterSearchType,
 } from './orderMasterSearchApi';
 import { buildContraindicationCheckRequestXml, fetchContraindicationCheckXml } from './contraindicationCheckApi';
@@ -92,6 +93,16 @@ type OrderBundleSubmitPayload = {
 type BundleValidationIssue = {
   key: string;
   message: string;
+};
+
+type UsageMasterMeta = {
+  code?: string;
+  label: string;
+  timingCode?: string;
+  routeCode?: string;
+  daysLimit?: number;
+  dosePerDay?: number;
+  youhouCode?: string;
 };
 
 type BundleValidationRule = {
@@ -178,9 +189,40 @@ const PRESCRIPTION_TIMING_OPTIONS: Array<{ value: PrescriptionTiming; label: str
   { value: 'temporal', label: '臨時' },
 ];
 const DEFAULT_USAGE_SUGGESTION_LIMIT = 12;
-const DEFAULT_PREDICTIVE_LIMIT = 20;
+const PREDICTIVE_FETCH_PAGE_SIZE = 2000;
+const PREDICTIVE_DISPLAY_PAGE_SIZE = 50;
+const PAGINATED_MASTER_SEARCH_TYPES = new Set<OrderMasterSearchType>([
+  'drug',
+  'generic-class',
+  'comment',
+  'bodypart',
+  'etensu',
+]);
 const RECENT_USAGE_STORAGE_PREFIX = 'charts-order-recent-usage';
 const RECENT_USAGE_MAX = 10;
+const USAGE_DAYS_LIMIT_ERROR_KEY = 'usage_days_limit_exceeded';
+const USAGE_TIMING_LABELS: Record<string, string> = {
+  '01': '朝',
+  '02': '昼',
+  '03': '夕',
+  '04': '眠前',
+  '05': '毎食後',
+  '06': '毎食前',
+  '07': '食間',
+};
+const USAGE_ROUTE_CLASSIFICATION_TABLE: Record<string, { label: string; injectionPriority: number }> = {
+  IV: { label: '静注', injectionPriority: 10 },
+  DIV: { label: '点滴', injectionPriority: 20 },
+  DRIP: { label: '点滴', injectionPriority: 20 },
+  IM: { label: '筋注', injectionPriority: 30 },
+  SC: { label: '皮下注', injectionPriority: 40 },
+  IA: { label: '動注', injectionPriority: 50 },
+  IT: { label: '髄注', injectionPriority: 60 },
+  IH: { label: '吸入', injectionPriority: 70 },
+  PO: { label: '内服', injectionPriority: 80 },
+  TOP: { label: '外用', injectionPriority: 90 },
+};
+const UNKNOWN_USAGE_ROUTE_CLASSIFICATION = { label: '未分類', injectionPriority: 999 };
 
 const isDrugMedicationCode = (code: string) => /^6\d{8}$/.test(code.trim());
 
@@ -230,7 +272,7 @@ const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
       masterSectionTitle: '注射マスタ検索',
       mainItemLabel: '注射薬剤/手技',
       mainItemPlaceholder: '注射薬剤または手技名',
-      supportsUsageSearch: false,
+      supportsUsageSearch: true,
       supportsBodyPartSearch: false,
       supportsCommentCodes: true,
       supportsInjectionNoProcedure: true,
@@ -555,6 +597,38 @@ const resolveRecommendationLabel = (candidate: OrderRecommendationCandidate) => 
 const formatBundleName = (bundle: OrderBundle) => bundle.bundleName ?? '名称未設定';
 const formatMasterLabel = (item: OrderMasterSearchItem) => (item.code ? `${item.code} ${item.name}` : item.name);
 const formatUsageLabel = (item: OrderMasterSearchItem) => formatMasterLabel(item);
+const normalizeUsageCode = (value?: string | null) => {
+  const normalized = value?.trim().toUpperCase();
+  return normalized || '';
+};
+const resolveUsageTimingLabel = (timingCode?: string) => {
+  const code = timingCode?.trim();
+  if (!code) return '未設定';
+  return USAGE_TIMING_LABELS[code] ?? `コード:${code}`;
+};
+const resolveUsageRouteClassification = (routeCode?: string) => {
+  const code = normalizeUsageCode(routeCode);
+  if (!code) return { ...UNKNOWN_USAGE_ROUTE_CLASSIFICATION, code: '' };
+  const classified = USAGE_ROUTE_CLASSIFICATION_TABLE[code];
+  if (classified) return { ...classified, code };
+  return { ...UNKNOWN_USAGE_ROUTE_CLASSIFICATION, label: `未分類(${code})`, code };
+};
+const buildUsageMasterMeta = (item: OrderMasterSearchItem): UsageMasterMeta => ({
+  code: item.code?.trim() || undefined,
+  label: formatUsageLabel(item),
+  timingCode: item.timingCode?.trim() || undefined,
+  routeCode: item.routeCode?.trim() || undefined,
+  daysLimit: typeof item.daysLimit === 'number' ? item.daysLimit : undefined,
+  dosePerDay: typeof item.dosePerDay === 'number' ? item.dosePerDay : undefined,
+  youhouCode: item.youhouCode?.trim() || undefined,
+});
+const formatUsageMasterSummary = (item: Pick<UsageMasterMeta, 'timingCode' | 'routeCode' | 'daysLimit' | 'dosePerDay'>) => {
+  const route = resolveUsageRouteClassification(item.routeCode);
+  const segments = [`タイミング: ${resolveUsageTimingLabel(item.timingCode)}`, `経路: ${route.label}`];
+  if (typeof item.daysLimit === 'number') segments.push(`上限日数: ${item.daysLimit}`);
+  if (typeof item.dosePerDay === 'number') segments.push(`1日量目安: ${item.dosePerDay}`);
+  return segments.join(' / ');
+};
 const normalizePredictiveLabel = (value: string) => value.replace(/\s+/g, ' ').trim();
 const extractCodeToken = (value: string) => value.trim().split(/\s+/)[0] ?? '';
 const isLikelyCodeSearch = (value: string) => {
@@ -570,6 +644,18 @@ const matchesMasterItemByPartial = (item: OrderMasterSearchItem, keyword: string
   const candidates = [item.code ?? '', item.name, formatMasterLabel(item), item.category ?? '', item.note ?? ''];
   return candidates.some((candidate) => candidate.toLowerCase().includes(normalizedKeyword));
 };
+const sortUsageItemsForInjection = (items: OrderMasterSearchItem[]) =>
+  [...items].sort((left, right) => {
+    const leftRoute = resolveUsageRouteClassification(left.routeCode);
+    const rightRoute = resolveUsageRouteClassification(right.routeCode);
+    if (leftRoute.injectionPriority !== rightRoute.injectionPriority) {
+      return leftRoute.injectionPriority - rightRoute.injectionPriority;
+    }
+    const leftCode = left.code?.trim() ?? '';
+    const rightCode = right.code?.trim() ?? '';
+    if (leftCode !== rightCode) return leftCode.localeCompare(rightCode);
+    return left.name.localeCompare(right.name);
+  });
 
 const buildRecentUsageStorageKey = (scope: RecentUsageStorageScope, entity: string) => {
   const facilityId = scope.facilityId?.trim() || 'unknown-facility';
@@ -665,10 +751,12 @@ export const resolveMedOrderBundleName = ({
 export const validateBundleForm = ({
   form,
   entity,
+  usageDaysLimit,
 }: {
   form: BundleFormState;
   entity: string;
   bundleLabel: string;
+  usageDaysLimit?: number;
 }): BundleValidationIssue[] => {
   const issues: BundleValidationIssue[] = [];
   const hasAnyValue = (item: OrderBundleItem) =>
@@ -689,6 +777,17 @@ export const validateBundleForm = ({
   }
   if (rule.requiresBodyPart && !form.bodyPart?.name?.trim()) {
     issues.push({ key: 'missing_body_part', message: '部位を入力してください。' });
+  }
+  const isDaysBasedPrescription =
+    entity === 'medOrder' && (form.prescriptionTiming === 'regular' || form.prescriptionTiming === 'gaiyo');
+  if (isDaysBasedPrescription && typeof usageDaysLimit === 'number' && Number.isFinite(usageDaysLimit) && usageDaysLimit > 0) {
+    const bundleDays = Number(form.bundleNumber);
+    if (Number.isFinite(bundleDays) && bundleDays > usageDaysLimit) {
+      issues.push({
+        key: USAGE_DAYS_LIMIT_ERROR_KEY,
+        message: `用法マスタ上限日数（${usageDaysLimit}日）を超えています。日数を見直してください。`,
+      });
+    }
   }
   const commentIssues = form.commentItems.reduce(
     (acc, item) => {
@@ -751,7 +850,9 @@ export function OrderBundleEditPanel({
   const [commentsFoldOpen, setCommentsFoldOpen] = useState(false);
   const commentsAutoOpenedRef = useRef(false);
   const [itemCandidateCursor, setItemCandidateCursor] = useState(-1);
+  const [itemPredictivePage, setItemPredictivePage] = useState(1);
   const [usageCandidateCursor, setUsageCandidateCursor] = useState(-1);
+  const [selectedUsageMasterMeta, setSelectedUsageMasterMeta] = useState<UsageMasterMeta | null>(null);
   const contraConfirmResolveRef = useRef<((value: boolean) => void) | null>(null);
   const [contraConfirmOpen, setContraConfirmOpen] = useState(false);
   const [contraConfirmPayload, setContraConfirmPayload] = useState<{
@@ -779,7 +880,9 @@ export function OrderBundleEditPanel({
     setCommentsFoldOpen(false);
     commentsAutoOpenedRef.current = false;
     setItemCandidateCursor(-1);
+    setItemPredictivePage(1);
     setUsageCandidateCursor(-1);
+    setSelectedUsageMasterMeta(null);
   }, [today]);
 
   const focusFirstField = useCallback(() => {
@@ -1075,14 +1178,53 @@ export function OrderBundleEditPanel({
     queryFn: async () => {
       const responses = await Promise.all(
         itemPredictiveSearchTypes.map(async (type) => {
-          const result = await fetchOrderMasterSearch({
-            type,
-            keyword: debouncedItemPredictionKeyword,
-            category: type === 'etensu' ? etensuCategory : undefined,
-            page: 1,
-            size: DEFAULT_PREDICTIVE_LIMIT,
-          });
-          return { type, result };
+          const items: OrderMasterSearchItem[] = [];
+          const correctionCandidates: OrderMasterSearchItem[] = [];
+          const selectionComments: Array<{
+            code: string;
+            name: string;
+            category?: string;
+            itemNumber?: string;
+            itemNumberBranch?: string;
+          }> = [];
+          let correctionMeta: OrderMasterSearchResult['correctionMeta'];
+          let totalCount: number | undefined;
+          let page = 1;
+          while (true) {
+            const result = await fetchOrderMasterSearch({
+              type,
+              keyword: debouncedItemPredictionKeyword,
+              category: type === 'etensu' ? etensuCategory : undefined,
+              page,
+              size: PREDICTIVE_FETCH_PAGE_SIZE,
+            });
+            if (!result.ok) {
+              return { type, result };
+            }
+            items.push(...(result.items ?? []));
+            if (page === 1) {
+              correctionCandidates.push(...(result.correctionCandidates ?? []));
+              correctionMeta = result.correctionMeta ?? correctionMeta;
+            }
+            selectionComments.push(...(result.selectionComments ?? []));
+            totalCount = typeof result.totalCount === 'number' ? result.totalCount : totalCount;
+            const pageItemCount = result.items?.length ?? 0;
+            const hasNextPage =
+              PAGINATED_MASTER_SEARCH_TYPES.has(type) &&
+              pageItemCount === PREDICTIVE_FETCH_PAGE_SIZE &&
+              (typeof totalCount !== 'number' || items.length < totalCount);
+            if (!hasNextPage) break;
+            page += 1;
+          }
+          const mergedResult: OrderMasterSearchResult = {
+            ok: true,
+            items,
+            totalCount: typeof totalCount === 'number' ? totalCount : items.length,
+            correctionCandidates,
+            correctionMeta,
+            selectionComments,
+          };
+          return { type, result: mergedResult };
         }),
       );
       const successful = responses.filter((entry) => entry.result.ok);
@@ -1114,7 +1256,6 @@ export function OrderBundleEditPanel({
       itemPredictiveQuery.data?.ok
         ? itemPredictiveQuery.data.items
             .filter((item) => matchesMasterItemByPartial(item, debouncedItemPredictionKeyword))
-            .slice(0, DEFAULT_PREDICTIVE_LIMIT)
         : [],
     [debouncedItemPredictionKeyword, itemPredictiveQuery.data],
   );
@@ -1142,20 +1283,35 @@ export function OrderBundleEditPanel({
         deduped.set(key, item);
       }
     });
-    return Array.from(deduped.values()).slice(0, DEFAULT_PREDICTIVE_LIMIT);
+    return Array.from(deduped.values());
   }, [itemCorrectionCandidates, itemMasterCandidates]);
   const itemPredictiveCandidates = useMemo(
     () =>
       itemPredictiveItems.map((item) => ({
         item,
-        label: formatMasterLabel(item),
+        label: item.name,
       })),
     [itemPredictiveItems],
   );
+  const itemPredictiveTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(itemPredictiveCandidates.length / PREDICTIVE_DISPLAY_PAGE_SIZE)),
+    [itemPredictiveCandidates.length],
+  );
+  const visibleItemPredictiveCandidates = useMemo(() => {
+    const startIndex = (itemPredictivePage - 1) * PREDICTIVE_DISPLAY_PAGE_SIZE;
+    return itemPredictiveCandidates.slice(startIndex, startIndex + PREDICTIVE_DISPLAY_PAGE_SIZE);
+  }, [itemPredictiveCandidates, itemPredictivePage]);
 
   useEffect(() => {
     setItemCandidateCursor(-1);
-  }, [debouncedItemPredictionKeyword, itemPredictiveCandidates.length, selectedItemRowId]);
+  }, [debouncedItemPredictionKeyword, itemPredictivePage, selectedItemRowId, visibleItemPredictiveCandidates.length]);
+  useEffect(() => {
+    setItemPredictivePage(1);
+  }, [debouncedItemPredictionKeyword]);
+  useEffect(() => {
+    if (itemPredictivePage <= itemPredictiveTotalPages) return;
+    setItemPredictivePage(itemPredictiveTotalPages);
+  }, [itemPredictivePage, itemPredictiveTotalPages]);
   const selectedItemCode = selectedItemForPrediction?.code?.trim() ?? '';
   const selectionCommentQuery = useQuery({
     queryKey: ['charts-order-selection-comments', selectedItemCode, form.startDate],
@@ -1196,25 +1352,27 @@ export function OrderBundleEditPanel({
 
   const usageKeyword = form.admin.trim();
   const debouncedUsageKeyword = useDebouncedValue(usageKeyword, 260);
+  const usageEffectiveDate = form.startDate?.trim() || undefined;
   const usageSearchQuery = useQuery({
-    queryKey: ['charts-order-usage-search', debouncedUsageKeyword],
+    queryKey: ['charts-order-usage-search', entity, debouncedUsageKeyword, usageEffectiveDate ?? ''],
     queryFn: () =>
       fetchOrderMasterSearch({
         type: 'youhou',
         keyword: debouncedUsageKeyword,
+        effective: usageEffectiveDate,
       }),
     enabled: supportsUsageSearch && debouncedUsageKeyword.length > 0,
     staleTime: 30 * 1000,
     placeholderData: keepPreviousData,
   });
   const usageItems = useMemo(
-    () =>
-      usageSearchQuery.data?.ok
-        ? usageSearchQuery.data.items
-            .filter((item) => matchesMasterItemByPartial(item, debouncedUsageKeyword))
-            .slice(0, DEFAULT_USAGE_SUGGESTION_LIMIT)
-        : [],
-    [debouncedUsageKeyword, usageSearchQuery.data],
+    () => {
+      if (!usageSearchQuery.data?.ok) return [];
+      const filtered = usageSearchQuery.data.items.filter((item) => matchesMasterItemByPartial(item, debouncedUsageKeyword));
+      const sorted = isInjectionOrder ? sortUsageItemsForInjection(filtered) : filtered;
+      return sorted.slice(0, DEFAULT_USAGE_SUGGESTION_LIMIT);
+    },
+    [debouncedUsageKeyword, isInjectionOrder, usageSearchQuery.data],
   );
 
   useEffect(() => {
@@ -1256,6 +1414,35 @@ export function OrderBundleEditPanel({
     }
     return options;
   }, [form.admin, form.adminMemo, usageItems]);
+  const usageMasterMetaFromOptions = useMemo(() => {
+    const currentAdminCode = form.adminMemo?.trim() ?? '';
+    if (currentAdminCode) {
+      const matchedByCode = usageSelectOptions.find((item) => item.code?.trim() === currentAdminCode);
+      if (matchedByCode) return buildUsageMasterMeta(matchedByCode);
+    }
+    const normalizedAdmin = normalizePredictiveLabel(form.admin);
+    if (!normalizedAdmin) return null;
+    const matchedByLabel =
+      usageSelectOptions.find((item) => normalizePredictiveLabel(formatUsageLabel(item)) === normalizedAdmin) ??
+      usageSelectOptions.find((item) => normalizePredictiveLabel(item.name) === normalizedAdmin) ??
+      null;
+    return matchedByLabel ? buildUsageMasterMeta(matchedByLabel) : null;
+  }, [form.admin, form.adminMemo, usageSelectOptions]);
+  const selectedUsageMeta = usageMasterMetaFromOptions ?? selectedUsageMasterMeta;
+  const selectedUsageDaysLimit = selectedUsageMeta?.daysLimit;
+  const selectedUsageDosePerDay = selectedUsageMeta?.dosePerDay;
+  const selectedUsageSummary = selectedUsageMeta ? formatUsageMasterSummary(selectedUsageMeta) : '';
+
+  useEffect(() => {
+    if (!selectedUsageMasterMeta) return;
+    const currentCode = form.adminMemo?.trim() ?? '';
+    const normalizedCurrentAdmin = normalizePredictiveLabel(form.admin);
+    const matchesByCode = Boolean(selectedUsageMasterMeta.code && currentCode && selectedUsageMasterMeta.code === currentCode);
+    const matchesByLabel = normalizePredictiveLabel(selectedUsageMasterMeta.label) === normalizedCurrentAdmin;
+    if (!matchesByCode && !matchesByLabel) {
+      setSelectedUsageMasterMeta(null);
+    }
+  }, [form.admin, form.adminMemo, selectedUsageMasterMeta]);
 
   const commentMasterOptions = useMemo(() => {
     const map = new Map<string, OrderMasterSearchItem>();
@@ -1331,10 +1518,41 @@ export function OrderBundleEditPanel({
     );
   };
 
-  const applyPredictiveItemSelection = (rowId: string | undefined, value: string) => {
-    if (!rowId) return;
-    const matched = resolvePredictiveItem(value);
-    if (!matched) return;
+  const autoFillUsageFromYouhouCode = useCallback(
+    async (youhouCode: string) => {
+      const normalizedCode = youhouCode.trim();
+      if (!normalizedCode) return;
+      if (!supportsUsageSearch) return;
+      try {
+        const result = await fetchOrderMasterSearch({
+          type: 'youhou',
+          keyword: normalizedCode,
+          effective: form.startDate?.trim() || undefined,
+        });
+        if (!result.ok) return;
+        const matched =
+          result.items.find((item) => item.code?.trim() === normalizedCode) ??
+          result.items.find((item) => normalizeUsageCode(item.youhouCode) === normalizeUsageCode(normalizedCode)) ??
+          result.items[0];
+        if (!matched) return;
+        setForm((prev) => {
+          if (prev.admin.trim()) return prev;
+          return {
+            ...prev,
+            admin: formatUsageLabel(matched),
+            adminMemo: matched.code?.trim() ?? '',
+          };
+        });
+        setSelectedUsageMasterMeta(buildUsageMasterMeta(matched));
+      } catch {
+        // Keep manual input workflow when auto completion fails.
+      }
+    },
+    [form.startDate, supportsUsageSearch],
+  );
+
+  const applyPredictiveItem = (rowId: string | undefined, matched: OrderMasterSearchItem | null) => {
+    if (!rowId || !matched) return;
     setForm((prev) => ({
       ...prev,
       items: prev.items.map((row) => {
@@ -1343,12 +1561,20 @@ export function OrderBundleEditPanel({
         return {
           ...row,
           code: matched.code ?? row.code,
-          name: formatMasterLabel(matched),
+          name: matched.name,
           unit: row.unit?.trim() ? row.unit : matched.unit ?? '',
           memo: row.memo?.trim() ? row.memo : matched.note ?? '',
         };
       }),
     }));
+    const youhouCode = matched.youhouCode?.trim();
+    if (supportsUsageSearch && !form.admin.trim() && youhouCode) {
+      void autoFillUsageFromYouhouCode(youhouCode);
+    }
+  };
+
+  const applyPredictiveItemSelection = (rowId: string | undefined, value: string) => {
+    applyPredictiveItem(rowId, resolvePredictiveItem(value));
   };
 
   const applyCommentDraftSelection = (selected: {
@@ -1387,6 +1613,7 @@ export function OrderBundleEditPanel({
     const nextForm = toFormStateFromRecommendation(candidate.template, today);
     const firstComment = candidate.template.commentItems[0] ?? { code: '', name: '', quantity: '', unit: '', memo: '' };
     setForm(nextForm);
+    setSelectedUsageMasterMeta(null);
     setCommentDraft(firstComment);
     setNotice({
       tone: 'info',
@@ -1410,11 +1637,13 @@ export function OrderBundleEditPanel({
 
   const applyUsage = (item: OrderMasterSearchItem) => {
     const label = formatUsageLabel(item);
+    clearValidationByKeys(['missing_usage', USAGE_DAYS_LIMIT_ERROR_KEY]);
     setForm((prev) => ({
       ...prev,
       admin: label,
       adminMemo: item.code?.trim() ?? '',
     }));
+    setSelectedUsageMasterMeta(buildUsageMasterMeta(item));
   };
 
   const applyUsageSelection = (value: string): boolean => {
@@ -1432,12 +1661,13 @@ export function OrderBundleEditPanel({
   const applyRecentUsageSelection = (value: string) => {
     const nextValue = value.trim();
     if (!nextValue) return;
-    clearValidationByKeys(['missing_usage']);
+    clearValidationByKeys(['missing_usage', USAGE_DAYS_LIMIT_ERROR_KEY]);
     setForm((prev) => ({
       ...prev,
       admin: nextValue,
       adminMemo: '',
     }));
+    setSelectedUsageMasterMeta(null);
   };
 
   const normalizeUsageInput = async (rawValue: string) => {
@@ -1461,6 +1691,7 @@ export function OrderBundleEditPanel({
       if (currentToken.toLowerCase() !== token.toLowerCase()) return prev;
       return { ...prev, admin: nextLabel, adminMemo: code };
     });
+    setSelectedUsageMasterMeta(null);
   };
 
   const setMixingCommentEnabled = (enabled: boolean) => {
@@ -1610,6 +1841,7 @@ export function OrderBundleEditPanel({
     }
     const nextForm = toFormStateFromHistoryCopy(bundle, today);
     setForm(nextForm);
+    setSelectedUsageMasterMeta(null);
     setNotice({ tone: 'info', message: '履歴をコピーしました。内容を確認して反映してください。' });
     logAuditEvent({
       runId: meta.runId,
@@ -1659,6 +1891,7 @@ export function OrderBundleEditPanel({
       }
       case 'edit': {
         setForm(toFormState(request.bundle, today));
+        setSelectedUsageMasterMeta(null);
         setNotice(null);
         setContraNotice(null);
         setContraDetails([]);
@@ -2258,6 +2491,8 @@ export function OrderBundleEditPanel({
             return `${entity}-bodypart`;
           case 'missing_items':
             return `${entity}-item-name-0`;
+          case USAGE_DAYS_LIMIT_ERROR_KEY:
+            return `${entity}-bundle-number`;
           case 'invalid_comment_item': {
             const idx = bundleForm.commentItems.findIndex((item) => {
               const hasCode = Boolean(item.code?.trim());
@@ -2328,7 +2563,12 @@ export function OrderBundleEditPanel({
     if (normalizedForm !== form) {
       setForm(normalizedForm);
     }
-    const validationIssues = validateBundleForm({ form: normalizedForm, entity, bundleLabel });
+    const validationIssues = validateBundleForm({
+      form: normalizedForm,
+      entity,
+      bundleLabel,
+      usageDaysLimit: selectedUsageDaysLimit,
+    });
     if (validationIssues.length > 0) {
       setNotice({ tone: 'error', message: validationIssues[0].message });
       setValidationIssues(validationIssues);
@@ -2427,6 +2667,7 @@ export function OrderBundleEditPanel({
     return map;
   }, [validationIssues]);
   const usageError = validationByKey.get('missing_usage');
+  const bundleNumberError = validationByKey.get(USAGE_DAYS_LIMIT_ERROR_KEY);
   const itemsError = validationByKey.get('missing_items');
   const bodyPartError = validationByKey.get('missing_body_part');
   const commentError =
@@ -2658,12 +2899,13 @@ export function OrderBundleEditPanel({
                     className="charts-side-panel__switch-button"
                     data-active={form.prescriptionTiming === option.value ? 'true' : 'false'}
                     aria-pressed={form.prescriptionTiming === option.value}
-                    onClick={() =>
+                    onClick={() => {
+                      clearValidationByKeys([USAGE_DAYS_LIMIT_ERROR_KEY]);
                       setForm((prev) => ({
                         ...prev,
                         prescriptionTiming: option.value,
-                      }))
-                    }
+                      }));
+                    }}
                     disabled={isBlocked}
                   >
                     {option.label}
@@ -2726,12 +2968,13 @@ export function OrderBundleEditPanel({
                 aria-invalid={usageError ? 'true' : undefined}
                 onChange={(event) => {
                   const nextValue = event.target.value;
-                  clearValidationByKeys(['missing_usage']);
+                  clearValidationByKeys(['missing_usage', USAGE_DAYS_LIMIT_ERROR_KEY]);
                   setForm((prev) => ({
                     ...prev,
                     admin: nextValue,
                     adminMemo: '',
                   }));
+                  setSelectedUsageMasterMeta(null);
                 }}
                 onKeyDown={(event) => {
                   if (isBlocked) return;
@@ -2785,8 +3028,9 @@ export function OrderBundleEditPanel({
                 data-orca-warning={orcaWarningTargets.usage ? 'true' : undefined}
                 aria-invalid={usageError ? 'true' : undefined}
                 onChange={(event) => {
-                  clearValidationByKeys(['missing_usage']);
+                  clearValidationByKeys(['missing_usage', USAGE_DAYS_LIMIT_ERROR_KEY]);
                   setForm((prev) => ({ ...prev, admin: event.target.value, adminMemo: '' }));
+                  setSelectedUsageMasterMeta(null);
                 }}
                 placeholder={orderUiProfile.instructionPlaceholder}
                 disabled={isBlocked}
@@ -2815,19 +3059,36 @@ export function OrderBundleEditPanel({
                 {usageError}
               </p>
             ) : null}
+            {supportsUsageSearch && selectedUsageSummary && (
+              <p className="charts-side-panel__help">{selectedUsageSummary}</p>
+            )}
+            {supportsUsageSearch && typeof selectedUsageDosePerDay === 'number' && (
+              <p className="charts-side-panel__help">1日量目安: {selectedUsageDosePerDay}（参考表示のみ）</p>
+            )}
           </div>
           <div className="charts-side-panel__field">
             <label htmlFor={`${entity}-bundle-number`}>{bundleNumberLabel}</label>
             <input
               id={`${entity}-bundle-number`}
               value={form.bundleNumber}
-              onChange={(event) => setForm((prev) => ({ ...prev, bundleNumber: event.target.value }))}
+              onChange={(event) => {
+                clearValidationByKeys([USAGE_DAYS_LIMIT_ERROR_KEY]);
+                setForm((prev) => ({ ...prev, bundleNumber: event.target.value }));
+              }}
               placeholder={bundleNumberPlaceholder}
               disabled={bundleNumberDisabled}
             />
             {isMedOrder && bundleNumberHelp && (
               <p className="charts-side-panel__help">{bundleNumberHelp}</p>
             )}
+            {isMedOrder && typeof selectedUsageDaysLimit === 'number' && (
+              <p className="charts-side-panel__help">用法マスタ上限日数: {selectedUsageDaysLimit}日</p>
+            )}
+            {bundleNumberError ? (
+              <p className="charts-side-panel__field-error" role="alert">
+                {bundleNumberError}
+              </p>
+            ) : null}
           </div>
         </div>
         {supportsUsageSearch && (
@@ -2844,6 +3105,7 @@ export function OrderBundleEditPanel({
             </div>
             <p className="charts-side-panel__message">
               {orderUiProfile.instructionLabel}欄に入力した文字列で部分一致候補を表示します。候補選択で自動入力されます。
+              {isInjectionOrder ? ' 注射オーダーでは経路コード優先で並び替えます。' : ''}
             </p>
             {usageSelectOptions.length > 0 && (
               <datalist id={`${entity}-usage-suggestion-list`}>
@@ -2864,27 +3126,32 @@ export function OrderBundleEditPanel({
             )}
             {usageSearchQuery.data?.ok && usageItems.length > 0 && (
               <div className="charts-side-panel__search-table">
-                <div className="charts-side-panel__search-header">
+                <div className="charts-side-panel__search-header charts-side-panel__search-header--usage">
                   <span>コード</span>
                   <span>名称</span>
-                  <span>単位</span>
-                  <span>分類</span>
-                  <span>備考</span>
+                  <span>タイミング</span>
+                  <span>経路</span>
+                  <span>上限日数</span>
+                  <span>1日量 / 備考</span>
                 </div>
                 {usageItems.map((item, index) => (
                   <button
                     key={`usage-${item.code ?? item.name}`}
                     type="button"
-                    className="charts-side-panel__search-row"
+                    className="charts-side-panel__search-row charts-side-panel__search-row--usage"
                     data-active={index === usageCandidateCursor ? 'true' : undefined}
                     onClick={() => applyUsage(item)}
                     disabled={isBlocked}
                   >
                     <span>{item.code ?? '-'}</span>
                     <span>{item.name}</span>
-                    <span>{item.unit ?? '-'}</span>
-                    <span>{item.category ?? '-'}</span>
-                    <span>{item.note ?? '-'}</span>
+                    <span>{resolveUsageTimingLabel(item.timingCode)}</span>
+                    <span>{resolveUsageRouteClassification(item.routeCode).label}</span>
+                    <span>{typeof item.daysLimit === 'number' ? item.daysLimit : '-'}</span>
+                    <span>
+                      {typeof item.dosePerDay === 'number' ? item.dosePerDay : '-'}
+                      {item.note?.trim() ? ` / ${item.note.trim()}` : ''}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -3235,13 +3502,13 @@ export function OrderBundleEditPanel({
                   if (isBlocked) return;
                   const rowId = (item as OrderBundleItemWithRowId).rowId;
                   if (!rowId || rowId !== selectedItemRowId) return;
-                  if (itemPredictiveCandidates.length === 0) return;
+                  if (visibleItemPredictiveCandidates.length === 0) return;
                   if (event.key === 'ArrowDown') {
                     event.preventDefault();
                     event.stopPropagation();
                     setItemCandidateCursor((prev) => {
                       if (prev < 0) return 0;
-                      return Math.min(prev + 1, itemPredictiveCandidates.length - 1);
+                      return Math.min(prev + 1, visibleItemPredictiveCandidates.length - 1);
                     });
                     return;
                   }
@@ -3249,7 +3516,7 @@ export function OrderBundleEditPanel({
                     event.preventDefault();
                     event.stopPropagation();
                     setItemCandidateCursor((prev) => {
-                      if (prev < 0) return itemPredictiveCandidates.length - 1;
+                      if (prev < 0) return visibleItemPredictiveCandidates.length - 1;
                       return Math.max(prev - 1, 0);
                     });
                     return;
@@ -3260,11 +3527,11 @@ export function OrderBundleEditPanel({
                   }
                   if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
                     if (itemCandidateCursor < 0) return;
-                    const candidate = itemPredictiveCandidates[itemCandidateCursor];
+                    const candidate = visibleItemPredictiveCandidates[itemCandidateCursor];
                     if (!candidate) return;
                     event.preventDefault();
                     event.stopPropagation();
-                    applyPredictiveItemSelection(rowId, candidate.label);
+                    applyPredictiveItem(rowId, candidate.item);
                     setItemCandidateCursor(-1);
                     requestAnimationFrame(() => {
                       const el = document.getElementById(`${entity}-item-quantity-${index}`);
@@ -3396,13 +3663,38 @@ export function OrderBundleEditPanel({
             <div className="charts-side-panel__two-table-scroll" data-testid="order-bundle-candidate-table" aria-label="候補">
               <div className="charts-side-panel__subheader">
                 <strong>候補</strong>
-                <span className="charts-side-panel__search-count">
-                  {selectedItemPredictionKeyword
-                    ? itemPredictiveQuery.isFetching
-                      ? '検索中...'
-                      : `${itemPredictiveCandidates.length}件`
-                    : ''}
-                </span>
+                <div className="charts-side-panel__subheader-actions">
+                  <span className="charts-side-panel__search-count">
+                    {selectedItemPredictionKeyword
+                      ? itemPredictiveQuery.isFetching
+                        ? '検索中...'
+                        : `${itemPredictiveCandidates.length}件`
+                      : ''}
+                  </span>
+                  {itemPredictiveCandidates.length > 0 && itemPredictiveTotalPages > 1 && (
+                    <div className="charts-side-panel__pager" role="group" aria-label="候補ページ切替">
+                      <button
+                        type="button"
+                        className="charts-side-panel__ghost"
+                        onClick={() => setItemPredictivePage((prev) => Math.max(1, prev - 1))}
+                        disabled={itemPredictivePage <= 1}
+                      >
+                        前へ
+                      </button>
+                      <span className="charts-side-panel__pager-index">
+                        {itemPredictivePage} / {itemPredictiveTotalPages}
+                      </span>
+                      <button
+                        type="button"
+                        className="charts-side-panel__ghost"
+                        onClick={() => setItemPredictivePage((prev) => Math.min(itemPredictiveTotalPages, prev + 1))}
+                        disabled={itemPredictivePage >= itemPredictiveTotalPages}
+                      >
+                        次へ
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
               {itemPredictiveCandidates.length > 0 && (
             <div className="charts-side-panel__search-table">
@@ -3413,7 +3705,7 @@ export function OrderBundleEditPanel({
                 <span>分類</span>
                 <span>備考</span>
               </div>
-              {itemPredictiveCandidates.map((candidate, candidateIndex) => {
+              {visibleItemPredictiveCandidates.map((candidate, candidateIndex) => {
                 const item = candidate.item;
                 return (
                   <button
@@ -3421,7 +3713,7 @@ export function OrderBundleEditPanel({
                     type="button"
                     className="charts-side-panel__search-row"
                     data-active={candidateIndex === itemCandidateCursor ? 'true' : undefined}
-                    onClick={() => applyPredictiveItemSelection(selectedItemRowId ?? undefined, candidate.label)}
+                    onClick={() => applyPredictiveItem(selectedItemRowId ?? undefined, candidate.item)}
                     disabled={isBlocked || !selectedItemRowId}
                   >
                     <span>{item.code ?? '-'}</span>

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { ReceptionEntry } from '../../outpatient/types';
 import {
+  clearReceptionStatusOverridesForDate,
   listReceptionSnapshotDates,
   resolveReceptionEntriesForDate,
   upsertReceptionStatusOverride,
@@ -90,5 +91,29 @@ describe('receptionDailyState', () => {
 
     expect(listReceptionSnapshotDates(undefined, 10).slice(0, 2)).toEqual(['2026-02-11', '2026-02-10']);
   });
-});
 
+  it('clears status override for the specified patient', () => {
+    const date = '2026-02-11';
+    resolveReceptionEntriesForDate({
+      date,
+      incomingEntries: [buildEntry({ status: '受付中' })],
+    });
+    upsertReceptionStatusOverride({
+      date,
+      patientId: 'P-001',
+      status: '診療中',
+      source: 'manual',
+    });
+
+    clearReceptionStatusOverridesForDate({
+      date,
+      patientId: 'P-001',
+    });
+
+    const resolved = resolveReceptionEntriesForDate({
+      date,
+      incomingEntries: [buildEntry({ status: '受付中' })],
+    });
+    expect(resolved.entries[0]?.status).toBe('受付中');
+  });
+});

@@ -3715,6 +3715,24 @@ export const chartsStyles = css`
     justify-content: flex-end;
   }
 
+  .charts-side-panel__pager {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--charts-space-2xs);
+  }
+
+  .charts-side-panel__pager-index {
+    min-width: 3.8rem;
+    text-align: center;
+    font-size: 0.78rem;
+    color: #475569;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .charts-side-panel__pager .charts-side-panel__ghost {
+    padding: 0.18rem 0.52rem;
+  }
+
   .charts-side-panel__status {
     font-size: 0.78rem;
     padding: var(--charts-space-2xs) var(--charts-space-sm);
@@ -3988,6 +4006,11 @@ export const chartsStyles = css`
     font-size: 0.82rem;
     color: #1f2937;
     transition: background 120ms ease, border-color 120ms ease;
+  }
+
+  .charts-side-panel__search-header--usage,
+  .charts-side-panel__search-row--usage {
+    grid-template-columns: 1fr 2fr 1fr 1fr 0.8fr 1.8fr;
   }
 
   .charts-side-panel__search-row:nth-child(even) {

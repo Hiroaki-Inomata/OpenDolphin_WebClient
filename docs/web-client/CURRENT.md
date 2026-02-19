@@ -1,10 +1,16 @@
 # Webクライアント ドキュメントハブ（現行）
 
-- 更新日: 2026-02-16
-- RUN_ID: 20260216T122953Z
+- 更新日: 2026-02-20
+- RUN_ID: 20260219T210316Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
+
+## 最新変更（2026-02-20）
+- RUN_ID: `20260219T210316Z`
+- Reception 画面に `EventSource` ベースのリアルタイム同期を追加し、他端末の受付登録/取消を即時反映。
+- SSE 受信時に `['outpatient-appointments']` / `['orca-queue']` を invalidate し、`receptionDailyState` のローカル上書きが最新表示を阻害しないよう調整。
+- Reception メタバーへ `RT同期` ステータス（接続中/接続済み/再接続中/停止/未対応）を追加。
 
 ## 参照優先順位（Webクライアント領域）
 1. `docs/DEVELOPMENT_STATUS.md`

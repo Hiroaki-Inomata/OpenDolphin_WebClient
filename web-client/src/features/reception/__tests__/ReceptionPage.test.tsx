@@ -38,6 +38,7 @@ let mockMutationPending = false;
 let mockClaimSendCache: Record<string, { invoiceNumber?: string; dataId?: string; sendStatus?: 'success' | 'error' }> =
   {};
 let mockSearchParams = new URLSearchParams();
+const mockInvalidateQueries = vi.fn(async () => undefined);
 
 const mockAuthFlags = {
   runId: 'RUN-AUTH',
@@ -275,6 +276,7 @@ vi.mock('@tanstack/react-query', () => ({
       mockAppointmentData = updater;
       return updater;
     }),
+    invalidateQueries: mockInvalidateQueries,
   }),
 }));
 
@@ -301,11 +303,13 @@ beforeEach(() => {
   mockMutationPending = false;
   mockClaimSendCache = {};
   mockSearchParams = new URLSearchParams();
+  mockInvalidateQueries.mockClear();
   localStorage.clear();
 });
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 describe('ReceptionPage accept UX', () => {
@@ -350,8 +354,8 @@ describe('ReceptionPage accept UX', () => {
     const paymentSelect = form.getByLabelText(/保険\/自費/);
     expect(paymentSelect).toHaveValue('insurance');
 
-    const card2 = screen.getByRole('button', { name: /佐藤花子/ });
-    await user.click(card2);
+    const row2 = screen.getByRole('row', { name: /佐藤花子/ });
+    await user.click(row2);
 
     await waitFor(() => {
       expect(patientInput).toHaveValue('P-002');
@@ -402,8 +406,8 @@ describe('ReceptionPage accept UX', () => {
     const paymentSelect = form.getByLabelText(/保険\/自費/);
     expect(paymentSelect).toHaveValue('insurance');
 
-    const card2 = screen.getByRole('button', { name: /田中二郎/ });
-    await user.click(card2);
+    const row2 = screen.getByRole('row', { name: /田中二郎/ });
+    await user.click(row2);
 
     expect(patientInput).toHaveValue('MANUAL-999');
     expect(paymentSelect).toHaveValue('self');
@@ -438,14 +442,11 @@ describe('ReceptionPage accept UX', () => {
     const user = userEvent.setup();
     renderReceptionPage();
 
-    const card1 = screen.getByRole('button', { name: /受付IDなし患者/ });
-    await user.click(within(card1).getByRole('button', { name: 'カード操作を開く' }));
-    expect(screen.getByRole('menuitem', { name: '受付取消（カード）' })).toBeDisabled();
-    await user.click(document.body);
+    const row1 = screen.getByRole('row', { name: /受付IDなし患者/ });
+    expect(within(row1).getByRole('button', { name: '受付取消' })).toBeDisabled();
 
-    const card2 = screen.getByRole('button', { name: /取消可能患者/ });
-    await user.click(within(card2).getByRole('button', { name: 'カード操作を開く' }));
-    expect(screen.getByRole('menuitem', { name: '受付取消（カード）' })).toBeEnabled();
+    const row2 = screen.getByRole('row', { name: /取消可能患者/ });
+    expect(within(row2).getByRole('button', { name: '受付取消' })).toBeEnabled();
   });
 
   it('shows Api_Result and duration in the result area after submit', async () => {
@@ -494,7 +495,7 @@ describe('ReceptionPage section collapse defaults', () => {
     expect(section).not.toBeNull();
     const toggleButton = within(section as HTMLElement).getByRole('button', { name: '開く' });
     expect(toggleButton).toHaveAttribute('aria-expanded', 'false');
-    expect(within(section as HTMLElement).queryByRole('list', { name: /会計済みの患者一覧/ })).toBeNull();
+    expect(within(section as HTMLElement).queryByRole('table')).toBeNull();
   });
 });
 
@@ -528,20 +529,16 @@ describe('ReceptionPage list and side pane guidance', () => {
     const user = userEvent.setup();
     renderReceptionPage();
 
-    const card1 = screen.getByRole('button', { name: /山田太郎/ });
-    const card2 = screen.getByRole('button', { name: /佐藤花子/ });
+    const row1 = screen.getByRole('row', { name: /山田太郎/ });
+    const row2 = screen.getByRole('row', { name: /佐藤花子/ });
 
-    expect(card1).toHaveClass('is-selected');
-    expect(card2).not.toHaveClass('is-selected');
-    expect(within(card1).getByLabelText('カード詳細')).toBeInTheDocument();
-    expect(within(card2).queryByLabelText('カード詳細')).toBeNull();
+    expect(row1).toHaveClass('reception-table__row--selected');
+    expect(row2).not.toHaveClass('reception-table__row--selected');
 
-    await user.click(card2);
+    await user.click(row2);
 
-    expect(card1).not.toHaveClass('is-selected');
-    expect(card2).toHaveClass('is-selected');
-    expect(within(card1).queryByLabelText('カード詳細')).toBeNull();
-    expect(within(card2).getByLabelText('カード詳細')).toBeInTheDocument();
+    expect(row1).not.toHaveClass('reception-table__row--selected');
+    expect(row2).toHaveClass('reception-table__row--selected');
   });
 
   it('shows patient search and accept form in the right column; medical record preview opens in a modal (debug panels hidden by default)', async () => {
@@ -572,8 +569,8 @@ describe('ReceptionPage list and side pane guidance', () => {
     });
 
     // Preview medical records in a modal (no new tab).
-    await user.click(screen.getByRole('button', { name: 'カード操作を開く' }));
-    await user.click(screen.getByRole('menuitem', { name: '過去カルテ（カード）' }));
+    const row = screen.getByRole('row', { name: /集約患者/ });
+    await user.click(within(row).getByRole('button', { name: '過去カルテ' }));
     const dialog = (await screen.findByRole('dialog', { name: /過去カルテ/ })) as HTMLElement;
     expect(within(dialog).getByText(/患者ID:\s*P-010/)).toBeInTheDocument();
     await waitFor(() => {
@@ -626,18 +623,19 @@ describe('ReceptionPage list and side pane guidance', () => {
     await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-1');
     await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
 
+    const resultPanel = await screen.findByRole('region', { name: '患者検索結果パネル' });
     await waitFor(() => {
-      expect(within(patientSearch).getByText('検索患者一')).toBeInTheDocument();
+      expect(within(resultPanel).getByText('検索患者一')).toBeInTheDocument();
     });
 
-    expect(within(patientSearch).queryByText('生年月日: 1980-01-01')).toBeNull();
-    expect(within(patientSearch).queryByRole('button', { name: 'カルテを開く' })).toBeNull();
+    expect(within(resultPanel).queryByText('生年月日: 1980-01-01')).toBeNull();
+    expect(within(resultPanel).queryByRole('button', { name: 'カルテを開く' })).toBeNull();
 
-    await user.click(within(patientSearch).getByRole('button', { name: /検索患者一/ }));
+    await user.click(within(resultPanel).getByRole('button', { name: /検索患者一/ }));
 
-    expect(within(patientSearch).getByText('生年月日: 1980-01-01')).toBeInTheDocument();
-    expect(within(patientSearch).getByRole('button', { name: 'カルテを開く' })).toBeInTheDocument();
-    expect(within(patientSearch).queryByText('生年月日: 1990-02-02')).toBeNull();
+    expect(within(resultPanel).getByText('生年月日: 1980-01-01')).toBeInTheDocument();
+    expect(within(resultPanel).getByRole('button', { name: 'カルテを開く' })).toBeInTheDocument();
+    expect(within(resultPanel).queryByText('生年月日: 1990-02-02')).toBeNull();
   });
 
   it('paginates patient-search results when the hit count is large', async () => {
@@ -660,23 +658,53 @@ describe('ReceptionPage list and side pane guidance', () => {
     await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-');
     await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
 
+    const resultPanel = await screen.findByRole('region', { name: '患者検索結果パネル' });
     await waitFor(() => {
-      expect(within(patientSearch).getByText('ページ患者001')).toBeInTheDocument();
-      expect(within(patientSearch).getByRole('navigation', { name: '検索結果ページ' })).toBeInTheDocument();
+      expect(within(resultPanel).getByText('ページ患者001')).toBeInTheDocument();
+      expect(within(resultPanel).getByRole('navigation', { name: '検索結果ページ' })).toBeInTheDocument();
     });
 
-    expect(within(patientSearch).getByText('ページ患者050')).toBeInTheDocument();
-    expect(within(patientSearch).queryByText('ページ患者051')).toBeNull();
-    expect(within(patientSearch).getByText('1 / 2')).toBeInTheDocument();
+    expect(within(resultPanel).getByText('ページ患者050')).toBeInTheDocument();
+    expect(within(resultPanel).queryByText('ページ患者051')).toBeNull();
+    expect(within(resultPanel).getByText('1 / 2')).toBeInTheDocument();
 
-    const pager = within(patientSearch).getByRole('navigation', { name: '検索結果ページ' });
+    const pager = within(resultPanel).getByRole('navigation', { name: '検索結果ページ' });
     await user.click(within(pager).getByRole('button', { name: '次へ' }));
 
     await waitFor(() => {
-      expect(within(patientSearch).getByText('ページ患者051')).toBeInTheDocument();
+      expect(within(resultPanel).getByText('ページ患者051')).toBeInTheDocument();
     });
-    expect(within(patientSearch).queryByText('ページ患者001')).toBeNull();
-    expect(within(patientSearch).getByText('2 / 2')).toBeInTheDocument();
+    expect(within(resultPanel).queryByText('ページ患者001')).toBeNull();
+    expect(within(resultPanel).getByText('2 / 2')).toBeInTheDocument();
+  });
+
+  it('closes the floating patient-search result panel', async () => {
+    mockMutationQueue.push({
+      patients: [
+        {
+          patientId: 'P-301',
+          name: 'クローズ確認患者',
+        },
+      ],
+      recordsReturned: 1,
+      runId: 'RUN-SEARCH-CLOSE',
+    });
+
+    const user = userEvent.setup();
+    renderReceptionPage();
+
+    const patientSearch = screen.getByRole('region', { name: '患者検索' });
+    await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-3');
+    await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
+
+    const resultPanel = await screen.findByRole('region', { name: '患者検索結果パネル' });
+    expect(within(resultPanel).getByText('クローズ確認患者')).toBeInTheDocument();
+
+    await user.click(within(resultPanel).getByRole('button', { name: '閉じる' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: '患者検索結果パネル' })).toBeNull();
+    });
   });
 });
 
@@ -699,7 +727,7 @@ describe('ReceptionPage status/date/card action UX', () => {
     }
   });
 
-  it('shows open charts button always and exposes other card actions via submenu', async () => {
+  it('shows row action buttons for charts/history/cancel', () => {
     mockAppointmentData.entries = [
       {
         id: 'row-card-1',
@@ -713,24 +741,12 @@ describe('ReceptionPage status/date/card action UX', () => {
         source: 'visits',
       },
     ];
-
-    const user = userEvent.setup();
     renderReceptionPage();
 
-    expect(screen.getByRole('button', { name: 'カルテを開く（カード）' })).toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: '受付取消（カード）' })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: '過去カルテ（カード）' })).toBeNull();
-
-    await user.click(screen.getByRole('button', { name: 'カード操作を開く' }));
-
-    expect(screen.getByRole('menuitem', { name: '受付取消（カード）' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: '過去カルテ（カード）' })).toBeInTheDocument();
-
-    await user.click(document.body);
-
-    await waitFor(() => {
-      expect(screen.queryByRole('menuitem', { name: '受付取消（カード）' })).toBeNull();
-    });
+    const row = screen.getByRole('row', { name: /カード患者/ });
+    expect(within(row).getByRole('button', { name: 'カルテを開く' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: '過去カルテ' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: '受付取消' })).toBeInTheDocument();
   });
 
   it('moves 会計待ち entries under 診察終了 tab filtering', async () => {
@@ -759,15 +775,14 @@ describe('ReceptionPage status/date/card action UX', () => {
       },
     ];
 
-    const user = userEvent.setup();
     renderReceptionPage();
     const board = screen.getByRole('region', { name: 'ステータス別患者一覧' });
-    const afterColumn = within(board).getByRole('region', { name: /診察終了/ });
+    const afterColumn = within(board).getByRole('region', { name: '診察終了リスト' });
     expect(within(afterColumn).getByText('診察後患者')).toBeInTheDocument();
     expect(within(afterColumn).queryByText('受付患者')).toBeNull();
   });
 
-  it('shows 会計送信 button on 診察終了 cards and moves them to 会計済み on success', async () => {
+  it('shows 会計送信 button on 診察終了 rows and moves them to 会計済み on success', async () => {
     mockAppointmentData.entries = [
       {
         id: 'row-claim-1',
@@ -785,15 +800,82 @@ describe('ReceptionPage status/date/card action UX', () => {
     const user = userEvent.setup();
     renderReceptionPage();
 
-    await user.click(screen.getByRole('button', { name: 'カード操作を開く' }));
-    await user.click(screen.getByRole('menuitem', { name: '会計送信（カード）' }));
+    const afterSection = screen.getByRole('region', { name: '診察終了リスト' });
+    const row = within(afterSection).getByRole('row', { name: /診察終了患者/ });
+    await user.click(within(row).getByRole('button', { name: '会計送信' }));
 
     await waitFor(() => expect(vi.mocked(postOrcaMedicalModV2Xml)).toHaveBeenCalled());
 
     const completedColumn = screen.getByRole('region', { name: /会計済み/ });
     const toggle = within(completedColumn).getByRole('button', { name: '開く' });
     await user.click(toggle);
-    const completedList = within(completedColumn).getByRole('list', { name: '会計済みの患者一覧' });
-    expect(within(completedList).getByText('診察終了患者')).toBeInTheDocument();
+    const completedRow = await within(completedColumn).findByRole('row', { name: /診察終了患者/ });
+    expect(completedRow).toBeInTheDocument();
+  });
+});
+
+describe('ReceptionPage realtime sync', () => {
+  it('invalidates appointment queries when realtime update arrives', async () => {
+    class MockEventSource {
+      static instances: MockEventSource[] = [];
+      onopen: ((this: EventSource, ev: Event) => unknown) | null = null;
+      onmessage: ((this: EventSource, ev: MessageEvent<string>) => unknown) | null = null;
+      onerror: ((this: EventSource, ev: Event) => unknown) | null = null;
+      private listeners = new Map<string, Array<(event: MessageEvent<string>) => void>>();
+
+      constructor(_url: string, _init?: EventSourceInit) {
+        MockEventSource.instances.push(this);
+      }
+
+      addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+        if (typeof listener !== 'function') return;
+        const list = this.listeners.get(type) ?? [];
+        list.push(listener as (event: MessageEvent<string>) => void);
+        this.listeners.set(type, list);
+      }
+
+      removeEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+        if (typeof listener !== 'function') return;
+        const list = this.listeners.get(type);
+        if (!list) return;
+        this.listeners.set(
+          type,
+          list.filter((candidate) => candidate !== listener),
+        );
+      }
+
+      close() {
+        // no-op
+      }
+
+      emit(type: string, data: string) {
+        const event = new MessageEvent<string>(type, { data, lastEventId: '11' });
+        const list = this.listeners.get(type) ?? [];
+        list.forEach((listener) => listener(event));
+      }
+    }
+
+    vi.stubGlobal('EventSource', MockEventSource as unknown as typeof EventSource);
+
+    renderReceptionPage();
+
+    await waitFor(() => expect(MockEventSource.instances.length).toBeGreaterThan(0));
+    const source = MockEventSource.instances.at(-1)!;
+    source.emit(
+      'reception.updated',
+      JSON.stringify({
+        type: 'reception.updated',
+        patientId: 'P-001',
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['outpatient-appointments'],
+      }),
+    );
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['orca-queue'],
+    });
   });
 });

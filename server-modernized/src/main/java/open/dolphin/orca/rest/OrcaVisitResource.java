@@ -9,10 +9,15 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.time.LocalDate;
 import java.util.Locale;
 import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.orca.service.OrcaWrapperService;
+import open.dolphin.rest.OrcaApiProxySupport;
+import open.dolphin.rest.ReceptionRealtimeSseSupport;
 import open.dolphin.rest.dto.orca.VisitMutationRequest;
 import open.dolphin.rest.dto.orca.VisitMutationResponse;
 import open.dolphin.rest.dto.orca.VisitPatientListRequest;
@@ -26,10 +31,12 @@ import open.dolphin.session.framework.SessionOperation;
 @SessionOperation
 public class OrcaVisitResource extends AbstractOrcaWrapperResource {
 
+    private static final Logger LOGGER = Logger.getLogger(OrcaVisitResource.class.getName());
     private static final String OPERATION_VISIT_MUTATION = "visit_mutation";
     private static final String OPERATION_VISIT_LIST = "visit_list";
 
     private OrcaWrapperService wrapperService;
+    private ReceptionRealtimeSseSupport receptionRealtimeSseSupport;
 
     public OrcaVisitResource() {
     }
@@ -37,6 +44,11 @@ public class OrcaVisitResource extends AbstractOrcaWrapperResource {
     @Inject
     public OrcaVisitResource(OrcaWrapperService wrapperService) {
         this.wrapperService = wrapperService;
+    }
+
+    @Inject
+    void setReceptionRealtimeSseSupport(ReceptionRealtimeSseSupport receptionRealtimeSseSupport) {
+        this.receptionRealtimeSseSupport = receptionRealtimeSseSupport;
     }
 
     @POST
@@ -107,6 +119,7 @@ public class OrcaVisitResource extends AbstractOrcaWrapperResource {
             if (response.getAcceptanceId() != null && !response.getAcceptanceId().isBlank()) {
                 details.put("acceptanceId", response.getAcceptanceId());
             }
+            publishReceptionRealtimeUpdateIfNeeded(request, body, response, details);
             markSuccessDetails(details);
             recordAudit(request, ACTION_APPOINTMENT_OUTPATIENT, details, AuditEventEnvelope.Outcome.SUCCESS);
             return response;
@@ -199,5 +212,117 @@ public class OrcaVisitResource extends AbstractOrcaWrapperResource {
 
     void setWrapperService(OrcaWrapperService wrapperService) {
         this.wrapperService = wrapperService;
+    }
+
+    void setReceptionRealtimeSseSupportForTest(ReceptionRealtimeSseSupport receptionRealtimeSseSupport) {
+        this.receptionRealtimeSseSupport = receptionRealtimeSseSupport;
+    }
+
+    private void publishReceptionRealtimeUpdateIfNeeded(HttpServletRequest request,
+            VisitMutationRequest body,
+            VisitMutationResponse response,
+            Map<String, Object> details) {
+        if (receptionRealtimeSseSupport == null || body == null || response == null) {
+            return;
+        }
+        String normalizedRequestNumber = normalizeRequestNumber(body.getRequestNumber());
+        if ("00".equals(normalizedRequestNumber)) {
+            return;
+        }
+        if (!OrcaApiProxySupport.isApiResultSuccess(response.getApiResult())) {
+            return;
+        }
+        String facilityId = resolveFacilityIdForRealtime(request, details);
+        if (facilityId == null || facilityId.isBlank()) {
+            return;
+        }
+        String patientId = resolvePatientId(body, response);
+        String date = normalizeEventDate(response.getAcceptanceDate());
+        if (date == null || date.isBlank()) {
+            date = normalizeEventDate(body.getAcceptanceDate());
+        }
+        try {
+            receptionRealtimeSseSupport.publishReceptionUpdate(
+                    facilityId,
+                    date,
+                    patientId,
+                    normalizedRequestNumber,
+                    response.getRunId());
+        } catch (RuntimeException ex) {
+            LOGGER.log(Level.FINE, "Failed to publish reception realtime update", ex);
+        }
+    }
+
+    private String resolveFacilityIdForRealtime(HttpServletRequest request, Map<String, Object> details) {
+        String remoteUser = request != null ? request.getRemoteUser() : null;
+        String facilityId = getRemoteFacility(remoteUser);
+        if (facilityId != null && !facilityId.isBlank()) {
+            return facilityId;
+        }
+        if (details == null) {
+            return null;
+        }
+        Object fromAudit = details.get("facilityId");
+        if (fromAudit instanceof String text && !text.isBlank()) {
+            return text.trim();
+        }
+        return null;
+    }
+
+    private String resolvePatientId(VisitMutationRequest body, VisitMutationResponse response) {
+        if (body.getPatientId() != null && !body.getPatientId().isBlank()) {
+            return body.getPatientId().trim();
+        }
+        if (response.getPatient() != null
+                && response.getPatient().getPatientId() != null
+                && !response.getPatient().getPatientId().isBlank()) {
+            return response.getPatient().getPatientId().trim();
+        }
+        return null;
+    }
+
+    private String normalizeRequestNumber(String requestNumber) {
+        if (requestNumber == null || requestNumber.isBlank()) {
+            return requestNumber;
+        }
+        String normalized = requestNumber.trim().toLowerCase(Locale.ROOT);
+        if (normalized.startsWith("class=")) {
+            normalized = normalized.substring("class=".length());
+        } else if (normalized.startsWith("?class=")) {
+            normalized = normalized.substring("?class=".length());
+        } else if (normalized.startsWith("request_number=")) {
+            normalized = normalized.substring("request_number=".length());
+        }
+        if (normalized.matches("\\d+")) {
+            if (normalized.length() == 1) {
+                normalized = "0" + normalized;
+            }
+            return normalized;
+        }
+        return switch (normalized) {
+            case "create", "register", "add" -> "01";
+            case "delete", "cancel", "remove" -> "02";
+            case "update", "modify" -> "03";
+            case "query", "read", "get", "list", "inquiry" -> "00";
+            default -> normalized;
+        };
+    }
+
+    private String normalizeEventDate(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.matches("\\d{4}-\\d{2}-\\d{2}")) {
+            return trimmed;
+        }
+        if (trimmed.matches("\\d{8}")) {
+            return trimmed.substring(0, 4) + "-" + trimmed.substring(4, 6) + "-" + trimmed.substring(6, 8);
+        }
+        try {
+            return LocalDate.parse(trimmed).toString();
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 }
