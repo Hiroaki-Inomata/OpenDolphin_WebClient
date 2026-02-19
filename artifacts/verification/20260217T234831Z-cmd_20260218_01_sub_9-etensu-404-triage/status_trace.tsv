@@ -1,6 +1,0 @@
-http://localhost:5173/orca/master/etensu?keyword=%E8%85%B9&category=2	404	d29ad692-3125-4f90-822a-831f6f64a3af
-http://localhost:5173/orca/tensu/etensu?keyword=%E8%85%B9&category=2	404	c8408534-7a96-4b8b-b170-fa129977368e
-http://localhost:9080/openDolphin/resources/orca/master/etensu?keyword=%E8%85%B9&category=2	404	
-http://localhost:9080/openDolphin/resources/orca/tensu/etensu?keyword=%E8%85%B9&category=2	404	
-http://localhost:5173/orca/master/etensu?category=2	404	75b69458-307a-40a3-80b2-da094bc5cfe8
-http://localhost:5173/orca/master/etensu?page=1&size=1	200	9e5fc208-b7ba-49be-bc4a-8ab3d3519816

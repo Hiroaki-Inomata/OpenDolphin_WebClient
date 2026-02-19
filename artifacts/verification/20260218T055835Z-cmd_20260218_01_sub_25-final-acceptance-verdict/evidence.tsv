@@ -1,8 +1,0 @@
-check_id	status	source	detail
-sub18_artifact_present	FAIL	artifacts/verification	cmd_20260218_01_sub_18 artifact directory count=0 (as-of 2026-02-18T05:58:35Z)
-sub23_artifact_present	FAIL	artifacts/verification	cmd_20260218_01_sub_23 artifact directory count=0 (as-of 2026-02-18T05:58:35Z)
-sub21_401_mixed	FAIL	20260218T140430Z-cmd_20260218_01_sub_21-parallel-sub8/summary-v2.json	keywordRetest has 5 entries with status=401 (traceId: 8634040f-9ee2-4336-87ff-986bb45c80d5,1c8c420b-0e84-4edb-835c-0e11298cffc0,7cd79afb-cefa-41f1-b0c0-597e46a49cbf,9f595662-f473-43a7-ae78-38b35033a62f,b5d2cecd-80e2-4dbe-98d3-fb5ac85d5ed4)
-ng_condition_401_mixed	FAIL	sub_21 evidence	401 mixed=true
-ng_condition_trace_bundle_complete	FAIL	sub_18/sub_23 evidence	Required traces missing because sub_18 and sub_23 artifacts are absent
-ng_condition_skip_eq_zero	PENDING	sub_18 summary.json	Cannot evaluate until sub_18 run summary is submitted
-fixed_rule_404_exclusion	PASS	sub_22 final_verdict.md	TENSU_NOT_FOUND 404 is excluded from auth failure by fixed rule

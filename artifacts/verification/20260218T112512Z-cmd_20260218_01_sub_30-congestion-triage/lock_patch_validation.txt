@@ -1,2 +1,0 @@
-# lock behavior check
-syntax=ok

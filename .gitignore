@@ -56,6 +56,9 @@ ORCAcertification/*アカウント情報*.txt
 build/
 tmp/
 web-client/tmp/
+.playwright-cli/
+artifacts/verification/
+null)
 
 # Server logs
 server.log

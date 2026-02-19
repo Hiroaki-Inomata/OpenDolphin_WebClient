@@ -1,3 +1,0 @@
-rc=42
-busy: another rerun is active (pid=99999).
-hint: wait until no major-category-rerun-check.mjs process exists, then retry.

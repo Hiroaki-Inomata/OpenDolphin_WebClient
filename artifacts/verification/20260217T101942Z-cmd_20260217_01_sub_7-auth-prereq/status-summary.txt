@@ -1,3 +1,0 @@
-api_user_doctor.headers.txt 200
-api_user_ormaster.headers.txt 200
-generic_class.headers.txt 200

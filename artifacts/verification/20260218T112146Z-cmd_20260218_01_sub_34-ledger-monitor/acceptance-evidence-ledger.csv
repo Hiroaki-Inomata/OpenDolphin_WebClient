@@ -1,3 +1,0 @@
-subtask,assignee,task_status,latest_report,timeout_evidence_paths_orca_master,submission_state,missing,immediate_action
-cmd_20260218_01_sub_30,ashigaru6,assigned,"latest report is sub_29 done (2026-02-18T15:34:00+0900)","artifacts/verification/20260218T153230Z-cmd_20260218_01_sub_29-network-hook-hardening/checklist.md",sub_30新規提出なし,"sub_30 report ; direct /orca/master probe logs ; timeout/retry decision logs",家老へ不足一覧を即通達（20:21時点）
-cmd_20260218_01_sub_32,ashigaru5,assigned,"latest report is sub_8 done (2026-02-18T15:10:14+0900)",none,sub_32新規提出なし,"sub_32 report ; endpoint別timeout診断ログ ; rerun-kit hardening evidence",家老へ不足一覧を即通達（20:21時点）

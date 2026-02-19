@@ -1,8 +1,0 @@
-{"type":"response","url":"http://localhost:5173/orca/master/generic-class?keyword=1&page=1&size=20","method":"GET","status":200,"traceId":null,"totalCount":1,"at":"2026-02-18T06:42:17.034Z"}
-{"type":"response","url":"http://localhost:5173/orca/master/etensu?keyword=1&category=1","method":"GET","status":200,"traceId":null,"totalCount":1,"at":"2026-02-18T06:42:17.075Z"}
-{"type":"response","url":"http://localhost:5173/orca/master/etensu?keyword=1&category=1","method":"GET","status":200,"traceId":null,"totalCount":1,"at":"2026-02-18T06:42:18.182Z"}
-{"type":"response","url":"http://localhost:5173/orca/master/kensa-sort?keyword=1","method":"GET","status":200,"traceId":null,"totalCount":1,"at":"2026-02-18T06:42:18.199Z"}
-{"type":"response","url":"http://localhost:5173/orca/master/etensu?keyword=1&category=1","method":"GET","status":200,"traceId":null,"totalCount":1,"at":"2026-02-18T06:42:19.397Z"}
-{"type":"response","url":"http://localhost:5173/orca/master/generic-class?keyword=1&page=1&size=20","method":"GET","status":200,"traceId":null,"totalCount":1,"at":"2026-02-18T06:42:19.397Z"}
-{"type":"response","url":"http://localhost:5173/orca/master/material?keyword=1","method":"GET","status":200,"traceId":null,"totalCount":1,"at":"2026-02-18T06:42:19.420Z"}
-{"type":"response","url":"http://localhost:5173/orca/master/etensu?keyword=1&category=1","method":"GET","status":200,"traceId":null,"totalCount":1,"at":"2026-02-18T06:42:20.544Z"}
