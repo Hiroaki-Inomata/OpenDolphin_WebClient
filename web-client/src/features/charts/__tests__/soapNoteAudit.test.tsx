@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -8,8 +8,13 @@ import { clearAuditEventLog, getAuditEventLog } from '../../../libs/audit/auditL
 import { updateObservabilityMeta } from '../../../libs/observability/observability';
 import { AuthServiceProvider } from '../authService';
 import { DocumentTimeline } from '../DocumentTimeline';
+import { postChartSubjectiveEntry } from '../soap/subjectiveChartApi';
 import { SoapNotePanel } from '../SoapNotePanel';
 import type { SoapEntry } from '../soapNote';
+
+vi.mock('../soap/subjectiveChartApi', () => ({
+  postChartSubjectiveEntry: vi.fn(),
+}));
 
 const renderWithQueryClient = (ui: ReactNode) => {
   const client = new QueryClient({
@@ -24,6 +29,15 @@ const renderWithQueryClient = (ui: ReactNode) => {
 afterEach(() => {
   cleanup();
   clearAuditEventLog();
+});
+
+beforeEach(() => {
+  vi.mocked(postChartSubjectiveEntry).mockResolvedValue({
+    ok: true,
+    status: 200,
+    apiResult: '00',
+    apiResultMessage: 'SUCCESS',
+  });
 });
 
 describe('SOAP note audit', () => {
@@ -113,6 +127,9 @@ describe('SOAP note audit', () => {
     await user.type(subjectiveArea, 'SOAPテスト');
 
     await user.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => {
+      expect(captured.length).toBeGreaterThan(0);
+    });
 
     cleanup();
 
@@ -124,7 +141,7 @@ describe('SOAP note audit', () => {
 
     expect(screen.getByText('SOAP記載履歴')).toBeTruthy();
     expect(screen.getAllByText('Subjective').length).toBeGreaterThan(0);
-    expect(screen.getByText('template: TEMP-GENERAL-01')).toBeTruthy();
+    expect(screen.getByText(/template:\s*TEMP-GENERAL-01/)).toBeTruthy();
   });
 
   it('画像貼付は指定した SOAP セクションへ挿入される', () => {

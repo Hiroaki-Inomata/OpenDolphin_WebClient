@@ -2957,29 +2957,33 @@ export function ChartsActionBar({
       </details>
 
       {!isRunning && sendPrecheckReasons.length > 0 && (
-        <details id="charts-actions-send-guard" className="charts-actions__guard" role="note" aria-live="off">
-          <summary>送信不可（{sendPrecheckReasons.length}件）</summary>
-          <ul>
-            {sendPrecheckReasons.map((reason) => (
-              <li key={reason.key}>
-                {reason.summary}: {reason.detail}（次にやること: {reason.next.join(' / ')}）
-              </li>
-            ))}
-          </ul>
-        </details>
+        <div id="charts-actions-send-guard" className="charts-actions__guard" role="note" aria-live="off">
+          <details>
+            <summary>送信不可（{sendPrecheckReasons.length}件）</summary>
+            <ul>
+              {sendPrecheckReasons.map((reason) => (
+                <li key={reason.key}>
+                  {reason.summary}: {reason.detail}（次にやること: {reason.next.join(' / ')}）
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
       )}
 
       {!isRunning && printPrecheckReasons.length > 0 && (
-        <details id="charts-actions-print-guard" className="charts-actions__guard" role="note" aria-live="off">
-          <summary>印刷不可（{printPrecheckReasons.length}件）</summary>
-          <ul>
-            {printPrecheckReasons.map((reason) => (
-              <li key={reason.key}>
-                {reason.summary}: {reason.detail}（次にやること: {reason.next.join(' / ')}）
-              </li>
-            ))}
-          </ul>
-        </details>
+        <div id="charts-actions-print-guard" className="charts-actions__guard" role="note" aria-live="off">
+          <details>
+            <summary>印刷不可（{printPrecheckReasons.length}件）</summary>
+            <ul>
+              {printPrecheckReasons.map((reason) => (
+                <li key={reason.key}>
+                  {reason.summary}: {reason.detail}（次にやること: {reason.next.join(' / ')}）
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
       )}
 
       {isRunning && (

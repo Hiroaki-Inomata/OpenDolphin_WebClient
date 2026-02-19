@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 
+import { NavigationGuardProvider } from '../../../routes/NavigationGuardProvider';
 import { PatientsTab } from '../PatientsTab';
 import type { ReceptionEntry } from '../../reception/api';
 
@@ -71,17 +72,19 @@ const renderTab = (entries: ReceptionEntry[], options: { draftDirty?: boolean; o
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <PatientsTab
-          entries={entries}
-          selectedContext={{
-            patientId: current?.patientId,
-            appointmentId: current?.appointmentId,
-            receptionId: current?.receptionId,
-            visitDate: current?.visitDate,
-          }}
-          draftDirty={options.draftDirty ?? false}
-          onSelectEncounter={options.onSelectEncounter}
-        />
+        <NavigationGuardProvider>
+          <PatientsTab
+            entries={entries}
+            selectedContext={{
+              patientId: current?.patientId,
+              appointmentId: current?.appointmentId,
+              receptionId: current?.receptionId,
+              visitDate: current?.visitDate,
+            }}
+            draftDirty={options.draftDirty ?? false}
+            onSelectEncounter={options.onSelectEncounter}
+          />
+        </NavigationGuardProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
