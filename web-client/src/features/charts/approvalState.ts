@@ -16,15 +16,16 @@ export type ChartsApprovalRecord = {
 
 const APPROVAL_PREFIX = 'opendolphin:web-client:charts:approval:v1:';
 
-const parseIsoDate = (value: unknown): Date | null => {
-  if (typeof value !== 'string') return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
+const stableHash = (value: string): string => {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 };
 
-export function buildChartsApprovalStorageKey(target: ChartsApprovalTarget): string | null {
-  const patientId = (target.patientId ?? '').trim();
-  if (!patientId) return null;
+const buildLegacyApprovalStorageKey = (target: ChartsApprovalTarget, patientId: string): string => {
   const facility = (target.facilityId ?? '').trim();
   const receptionId = (target.receptionId ?? '').trim();
   const appointmentId = (target.appointmentId ?? '').trim();
@@ -35,6 +36,64 @@ export function buildChartsApprovalStorageKey(target: ChartsApprovalTarget): str
       : `patient:${patientId}`;
   const facilityPart = facility ? `facility:${facility}` : 'facility:unknown';
   return `${APPROVAL_PREFIX}${facilityPart}:${patientId}:${scope}`;
+};
+
+const buildHashedApprovalStorageKey = (target: ChartsApprovalTarget, patientId: string): string => {
+  const facility = (target.facilityId ?? '').trim();
+  const receptionId = (target.receptionId ?? '').trim();
+  const appointmentId = (target.appointmentId ?? '').trim();
+  const scope = receptionId
+    ? `reception:${receptionId}`
+    : appointmentId
+      ? `appointment:${appointmentId}`
+      : `patient:${patientId}`;
+  const facilityPart = facility ? `facility:${facility}` : 'facility:unknown';
+  return `${APPROVAL_PREFIX}${facilityPart}:pid:${stableHash(patientId)}:scope:${stableHash(scope)}`;
+};
+
+const migrateLegacyApprovalRecord = (legacyKey: string, storageKey: string) => {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const legacyRaw = localStorage.getItem(legacyKey);
+    if (!legacyRaw) return;
+
+    if (localStorage.getItem(storageKey)) {
+      localStorage.removeItem(legacyKey);
+      return;
+    }
+
+    let migratedRaw = legacyRaw;
+    try {
+      const parsed = JSON.parse(legacyRaw) as Partial<ChartsApprovalRecord> | null;
+      if (parsed && typeof parsed === 'object') {
+        migratedRaw = JSON.stringify({ ...parsed, key: storageKey });
+      }
+    } catch {
+      // keep original raw
+    }
+
+    localStorage.setItem(storageKey, migratedRaw);
+    localStorage.removeItem(legacyKey);
+  } catch {
+    // ignore migration failures
+  }
+};
+
+const parseIsoDate = (value: unknown): Date | null => {
+  if (typeof value !== 'string') return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+export function buildChartsApprovalStorageKey(target: ChartsApprovalTarget): string | null {
+  const patientId = (target.patientId ?? '').trim();
+  if (!patientId) return null;
+  const storageKey = buildHashedApprovalStorageKey(target, patientId);
+  const legacyKey = buildLegacyApprovalStorageKey(target, patientId);
+  if (legacyKey !== storageKey) {
+    migrateLegacyApprovalRecord(legacyKey, storageKey);
+  }
+  return storageKey;
 }
 
 export function readChartsApprovalRecord(storageKey: string): ChartsApprovalRecord | null {

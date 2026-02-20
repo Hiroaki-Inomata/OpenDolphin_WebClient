@@ -6,7 +6,7 @@ const STORAGE_BASE_KEY = 'opendolphin:web-client:reception-daily-state';
 const STORAGE_VERSION = 'v1';
 const LEGACY_STORAGE_KEY = `${STORAGE_BASE_KEY}:v1`;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const MAX_DAYS = 365;
+const MAX_DAYS = 30;
 
 type ReceptionStatusOverrideSource =
   | 'api'
@@ -51,13 +51,20 @@ const RECEPTION_STATUS_RANK: Record<ReceptionStatus, number> = {
 
 const RECEPTION_STATUS_SET = new Set<ReceptionStatus>(['予約', '受付中', '診療中', '会計待ち', '会計済み']);
 
+const toLocalDateYmd = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const normalizeDate = (value?: string): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
   if (DATE_RE.test(trimmed)) return trimmed;
   const parsed = new Date(trimmed);
   if (Number.isNaN(parsed.getTime())) return undefined;
-  return parsed.toISOString().slice(0, 10);
+  return toLocalDateYmd(parsed);
 };
 
 const normalizeOptionalString = (value: unknown): string | undefined => {
@@ -95,20 +102,27 @@ const normalizeReceptionEntry = (value: unknown): ReceptionEntry | null => {
     appointmentId,
     receptionId,
     patientId,
-    name: normalizeOptionalString(raw.name),
-    kana: normalizeOptionalString(raw.kana),
-    birthDate: normalizeOptionalString(raw.birthDate),
-    sex: normalizeOptionalString(raw.sex),
-    department: normalizeOptionalString(raw.department),
-    physician: normalizeOptionalString(raw.physician),
     appointmentTime: normalizeOptionalString(raw.appointmentTime),
     reservationTime: normalizeOptionalString(raw.reservationTime),
     acceptanceTime: normalizeOptionalString(raw.acceptanceTime),
     visitDate,
     status,
-    insurance: normalizeOptionalString(raw.insurance),
-    note: normalizeOptionalString(raw.note),
     source: normalizeReceptionSource(raw.source),
+  };
+};
+
+const toPersistedEntry = (entry: ReceptionEntry): ReceptionEntry => {
+  return {
+    id: normalizeOptionalString(entry.id) ?? `snapshot-${Math.random().toString(36).slice(2, 8)}`,
+    appointmentId: normalizeOptionalString(entry.appointmentId),
+    receptionId: normalizeOptionalString(entry.receptionId),
+    patientId: normalizeOptionalString(entry.patientId),
+    appointmentTime: normalizeOptionalString(entry.appointmentTime),
+    reservationTime: normalizeOptionalString(entry.reservationTime),
+    acceptanceTime: normalizeOptionalString(entry.acceptanceTime),
+    visitDate: normalizeDate(entry.visitDate),
+    status: normalizeReceptionStatus(entry.status) ?? '受付中',
+    source: normalizeReceptionSource(entry.source),
   };
 };
 
@@ -198,7 +212,16 @@ const readStore = (scope?: StorageScope): ReceptionDailyStore => {
   try {
     const raw = localStorage.getItem(scopedKey);
     if (raw) {
-      return normalizeStore(JSON.parse(raw));
+      const normalized = normalizeStore(JSON.parse(raw));
+      const serialized = JSON.stringify(normalized);
+      if (serialized !== raw) {
+        try {
+          localStorage.setItem(scopedKey, serialized);
+        } catch {
+          // ignore migration errors
+        }
+      }
+      return normalized;
     }
     const fallbackKey = resolveLegacyFallbackKey(scope);
     if (fallbackKey) {
@@ -291,7 +314,7 @@ const updateBucketWithEntries = (
     return previous ? mergeEntry(previous, entry) : entry;
   });
   const withOverrides = applyStatusOverrides(dedupeEntries(mergedEntries), bucket.statusByPatientId);
-  bucket.entries = withOverrides;
+  bucket.entries = withOverrides.map((entry) => toPersistedEntry(entry));
   bucket.updatedAt = new Date().toISOString();
   return { entries: withOverrides, source: existingEntries.length > 0 ? 'merged' : 'live' };
 };
@@ -360,7 +383,7 @@ export const saveReceptionEntriesForDate = (params: {
   const store = readStore(params.scope);
   const bucket = ensureBucket(store, date);
   const merged = dedupeEntries(params.entries ?? []);
-  bucket.entries = applyStatusOverrides(merged, bucket.statusByPatientId);
+  bucket.entries = applyStatusOverrides(merged, bucket.statusByPatientId).map((entry) => toPersistedEntry(entry));
   bucket.updatedAt = new Date().toISOString();
   writeStore(params.scope, store);
 };
@@ -436,12 +459,6 @@ export const upsertReceptionStatusOverride = (params: {
       appointmentId: normalizeOptionalString(params.fallbackEntry.appointmentId),
       receptionId: normalizeOptionalString(params.fallbackEntry.receptionId),
       patientId,
-      name: normalizeOptionalString(params.fallbackEntry.name),
-      kana: normalizeOptionalString(params.fallbackEntry.kana),
-      birthDate: normalizeOptionalString(params.fallbackEntry.birthDate),
-      sex: normalizeOptionalString(params.fallbackEntry.sex),
-      department: normalizeOptionalString(params.fallbackEntry.department),
-      physician: normalizeOptionalString(params.fallbackEntry.physician),
       appointmentTime: normalizeOptionalString(params.fallbackEntry.appointmentTime),
       reservationTime: normalizeOptionalString(params.fallbackEntry.reservationTime),
       acceptanceTime:
@@ -449,13 +466,11 @@ export const upsertReceptionStatusOverride = (params: {
         normalizeOptionalString(params.fallbackEntry.appointmentTime),
       visitDate: fallbackVisitDate,
       status: nextStatus,
-      insurance: normalizeOptionalString(params.fallbackEntry.insurance),
-      note: normalizeOptionalString(params.fallbackEntry.note),
       source: fallbackSource,
     };
     nextEntries.unshift(fallbackEntry);
   }
-  bucket.entries = applyStatusOverrides(dedupeEntries(nextEntries), bucket.statusByPatientId);
+  bucket.entries = applyStatusOverrides(dedupeEntries(nextEntries), bucket.statusByPatientId).map((entry) => toPersistedEntry(entry));
   bucket.updatedAt = new Date().toISOString();
   writeStore(params.scope, store);
 };

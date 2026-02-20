@@ -69,12 +69,18 @@ const DEFAULT_FILTER = {
   paymentMode: 'all' as 'all' | 'insurance' | 'self',
 };
 
+const toLocalDateYmd = (date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const normalizePaymentMode = (value?: string | null): PaymentMode | undefined =>
   value === 'insurance' || value === 'self' ? value : undefined;
 
 const toSearchParams = (filters: typeof DEFAULT_FILTER) => {
   const params = new URLSearchParams();
-  if (filters.keyword) params.set('kw', filters.keyword);
   if (filters.department) params.set('dept', filters.department);
   if (filters.physician) params.set('phys', filters.physician);
   if (filters.paymentMode && filters.paymentMode !== 'all') params.set('pay', filters.paymentMode);
@@ -106,21 +112,18 @@ const readFilters = (searchParams: URLSearchParams): typeof DEFAULT_FILTER => {
     Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as Partial<typeof DEFAULT_FILTER>;
 
   const fromUrl: Partial<typeof DEFAULT_FILTER> = {
-    keyword: searchParams.get('kw') ?? undefined,
     department: searchParams.get('dept') ?? undefined,
     physician: searchParams.get('phys') ?? undefined,
     paymentMode: normalizePaymentMode(searchParams.get('pay')),
   };
 
   const normalizedReception: Partial<typeof DEFAULT_FILTER> = {
-    keyword: (receptionStored?.kw as string | undefined) ?? undefined,
     department: (receptionStored?.dept as string | undefined) ?? undefined,
     physician: (receptionStored?.phys as string | undefined) ?? undefined,
     paymentMode: normalizePaymentMode(receptionStored?.pay as string | undefined),
   };
 
   const normalizedPatients: Partial<typeof DEFAULT_FILTER> = {
-    keyword: (patientStored?.keyword as string | undefined) ?? (patientStored?.kw as string | undefined),
     department: (patientStored?.department as string | undefined) ?? (patientStored?.dept as string | undefined),
     physician: (patientStored?.physician as string | undefined) ?? (patientStored?.phys as string | undefined),
     paymentMode: normalizePaymentMode(patientStored?.paymentMode as string | undefined),
@@ -251,7 +254,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     () => ({ facilityId: session.facilityId, userId: session.userId }),
     [session.facilityId, session.userId],
   );
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const today = useMemo(() => toLocalDateYmd(), []);
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { enqueue } = useAppToast();
@@ -635,8 +638,14 @@ export function PatientsPage({ runId }: PatientsPageProps) {
 
   useEffect(() => {
     const merged = readFilters(searchParams);
-    setDraftFilters((prev) => (isSameFilter(prev, merged) ? prev : merged));
-    setAppliedFilters((prev) => (isSameFilter(prev, merged) ? prev : merged));
+    setDraftFilters((prev) => {
+      const next = { ...merged, keyword: prev.keyword };
+      return isSameFilter(prev, next) ? prev : next;
+    });
+    setAppliedFilters((prev) => {
+      const next = { ...merged, keyword: prev.keyword };
+      return isSameFilter(prev, next) ? prev : next;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.search]);
 
@@ -646,10 +655,17 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     const sortFromUrl = carryoverSource.get('sort');
     const dateFromUrl = carryoverSource.get('date');
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(appliedFilters));
+      const patientFilterSnapshot = {
+        department: appliedFilters.department,
+        physician: appliedFilters.physician,
+        paymentMode: appliedFilters.paymentMode,
+      };
+      localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(patientFilterSnapshot));
+      const receptionStoredWithoutKeyword = { ...(receptionStored ?? {}) } as Record<string, unknown>;
+      delete receptionStoredWithoutKeyword.kw;
+      delete receptionStoredWithoutKeyword.keyword;
       const receptionSnapshot = {
-        ...(receptionStored ?? {}),
-        kw: appliedFilters.keyword,
+        ...receptionStoredWithoutKeyword,
         dept: appliedFilters.department,
         phys: appliedFilters.physician,
         pay: appliedFilters.paymentMode,

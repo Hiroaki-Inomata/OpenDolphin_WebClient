@@ -1,3 +1,5 @@
+import { buildScopedStorageKey, type StorageScope } from '../../libs/session/storageScope';
+
 export type ChartsTabLockOwner = {
   runId?: string;
   tabSessionId: string;
@@ -36,12 +38,75 @@ const safeJsonParse = (raw: string | null): unknown => {
   }
 };
 
+const stableHash = (value: string): string => {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+};
+
 const toIso = (value: Date) => value.toISOString();
 
 const parseIsoDate = (value: unknown): Date | null => {
   if (typeof value !== 'string') return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const buildEncounterScope = (target: ChartsLockTarget, patientId: string): string => {
+  const receptionId = (target.receptionId ?? '').trim();
+  const appointmentId = (target.appointmentId ?? '').trim();
+  return receptionId ? `reception:${receptionId}` : appointmentId ? `appointment:${appointmentId}` : `patient:${patientId}`;
+};
+
+const buildLegacyV2ChartsTabLockStorageKey = (target: ChartsLockTarget, userScope?: StorageScope): string | null => {
+  const facility = (target.facilityId ?? '').trim();
+  const patientId = (target.patientId ?? '').trim();
+  if (!patientId) return null;
+  const encounterScope = buildEncounterScope(target, patientId);
+  const facilityPart = facility ? `facility:${facility}` : 'facility:unknown';
+  const scopedSuffix = buildScopedStorageKey(LOCK_BASE, LOCK_VERSION, userScope) ?? `${LOCK_BASE}:${LOCK_VERSION}`;
+  return `${scopedSuffix}:${facilityPart}:${encounterScope}`;
+};
+
+const buildHashedChartsTabLockStorageKey = (target: ChartsLockTarget, userScope?: StorageScope): string | null => {
+  const facility = (target.facilityId ?? '').trim();
+  const patientId = (target.patientId ?? '').trim();
+  if (!patientId) return null;
+  const encounterScope = buildEncounterScope(target, patientId);
+  const facilityPart = facility ? `facility:${facility}` : 'facility:unknown';
+  const scopedSuffix = buildScopedStorageKey(LOCK_BASE, LOCK_VERSION, userScope) ?? `${LOCK_BASE}:${LOCK_VERSION}`;
+  return `${scopedSuffix}:${facilityPart}:enc:${stableHash(encounterScope)}`;
+};
+
+const migrateLegacyV2LockRecord = (legacyKey: string, storageKey: string) => {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    const legacyRaw = localStorage.getItem(legacyKey);
+    if (!legacyRaw) return;
+
+    if (localStorage.getItem(storageKey)) {
+      localStorage.removeItem(legacyKey);
+      return;
+    }
+
+    let migratedRaw = legacyRaw;
+    try {
+      const parsed = JSON.parse(legacyRaw) as Partial<ChartsTabLockRecord> | null;
+      if (parsed && typeof parsed === 'object') {
+        migratedRaw = JSON.stringify({ ...parsed, key: storageKey });
+      }
+    } catch {
+      // keep original raw
+    }
+
+    localStorage.setItem(storageKey, migratedRaw);
+    localStorage.removeItem(legacyKey);
+  } catch {
+    // ignore migration failures
+  }
 };
 
 export function getOrCreateTabSessionId(scope?: StorageScope): string {
@@ -65,24 +130,20 @@ export function getOrCreateTabSessionId(scope?: StorageScope): string {
 }
 
 export function buildChartsTabLockStorageKey(target: ChartsLockTarget, userScope?: StorageScope): string | null {
-  const facility = (target.facilityId ?? '').trim();
-  const patientId = (target.patientId ?? '').trim();
-  if (!patientId) return null;
-  const receptionId = (target.receptionId ?? '').trim();
-  const appointmentId = (target.appointmentId ?? '').trim();
-  const encounterScope = receptionId ? `reception:${receptionId}` : appointmentId ? `appointment:${appointmentId}` : `patient:${patientId}`;
-  const facilityPart = facility ? `facility:${facility}` : 'facility:unknown';
-  const scopedSuffix = buildScopedStorageKey(LOCK_BASE, LOCK_VERSION, userScope) ?? `${LOCK_BASE}:${LOCK_VERSION}`;
-  return `${scopedSuffix}:${facilityPart}:${encounterScope}`;
+  const storageKey = buildHashedChartsTabLockStorageKey(target, userScope);
+  if (!storageKey) return null;
+  const legacyV2Key = buildLegacyV2ChartsTabLockStorageKey(target, userScope);
+  if (legacyV2Key && legacyV2Key !== storageKey) {
+    migrateLegacyV2LockRecord(legacyV2Key, storageKey);
+  }
+  return storageKey;
 }
 
 export function buildLegacyChartsTabLockStorageKey(target: ChartsLockTarget): string | null {
   const facility = (target.facilityId ?? '').trim();
   const patientId = (target.patientId ?? '').trim();
   if (!patientId) return null;
-  const receptionId = (target.receptionId ?? '').trim();
-  const appointmentId = (target.appointmentId ?? '').trim();
-  const scope = receptionId ? `reception:${receptionId}` : appointmentId ? `appointment:${appointmentId}` : `patient:${patientId}`;
+  const scope = buildEncounterScope(target, patientId);
   const facilityPart = facility ? `facility:${facility}` : 'facility:unknown';
   return `${LOCK_LEGACY_PREFIX}${facilityPart}:${patientId}:${scope}`;
 }
@@ -255,4 +316,3 @@ export function subscribeChartsTabLock(options: {
 
   return () => handlers.forEach((dispose) => dispose());
 }
-import { buildScopedStorageKey, type StorageScope } from '../../libs/session/storageScope';

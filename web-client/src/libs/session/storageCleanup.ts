@@ -16,9 +16,13 @@ const SESSION_BASE_KEYS = [
 
 const LOCAL_BASE_KEYS = [
   'opendolphin:web-client:charts:lock',
+  'opendolphin:web-client:charts:approval',
+  'opendolphin:web-client:reception-daily-state',
   'opendolphin:web-client:auth:shared-session',
   'opendolphin:web-client:auth:shared-flags',
 ];
+
+const LOCAL_DIRECT_KEYS = ['patients-filter-state', 'reception-filter-state'];
 
 const VERSIONS = ['v2', 'v1'];
 
@@ -68,6 +72,13 @@ export const clearScopedStorage = (scope: StorageScope) => {
     removeIfMatch(localStorage, (key) => {
       if (LOCAL_BASE_KEYS.some((base) => matchScopedKey(base, scope)(key))) return true;
       return false;
+    });
+    LOCAL_DIRECT_KEYS.forEach((key) => {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // ignore removal failures
+      }
     });
   }
 };
