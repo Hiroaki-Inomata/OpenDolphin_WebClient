@@ -77,8 +77,16 @@ export type PatientMutationResult = {
   sourcePath?: string;
 };
 
-const patientInfoCandidates = ['/orca/patients/local-search', '/orca/patients/local-search/mock'];
-const patientMutationCandidates = ['/orca12/patientmodv2/outpatient', '/orca12/patientmodv2/outpatient/mock'];
+const mswEnabled = import.meta.env.DEV && import.meta.env.VITE_DISABLE_MSW !== '1';
+
+const patientInfoCandidates = [
+  '/orca/patients/local-search',
+  ...(mswEnabled ? ['/orca/patients/local-search/mock'] : []),
+];
+const patientMutationCandidates = [
+  '/orca12/patientmodv2/outpatient',
+  ...(mswEnabled ? ['/orca12/patientmodv2/outpatient/mock'] : []),
+];
 
 const normalizeBoolean = (value: unknown) => {
   if (typeof value === 'boolean') return value;

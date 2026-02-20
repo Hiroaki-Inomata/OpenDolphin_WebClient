@@ -70,7 +70,7 @@ export type VisitMutationPayload = OutpatientMeta & {
   apiResultMessage?: string;
 };
 
-const mswEnabled = import.meta.env.VITE_DISABLE_MSW !== '1';
+const mswEnabled = import.meta.env.DEV && import.meta.env.VITE_DISABLE_MSW !== '1';
 const isTruthy = (value?: string) => {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
@@ -115,7 +115,7 @@ const visitCandidates: Array<{ path: string; source: ResolveMasterSource }> = [
 
 const visitMutationCandidates = [
   { path: '/orca/visits/mutation', source: 'server' as ResolveMasterSource },
-  { path: '/orca/visits/mutation/mock', source: 'mock' as ResolveMasterSource },
+  ...(mswEnabled ? [{ path: '/orca/visits/mutation/mock', source: 'mock' as ResolveMasterSource }] : []),
 ];
 
 const preferredSource = (): ResolveMasterSource | undefined => (mswEnabled ? 'mock' : 'server');
