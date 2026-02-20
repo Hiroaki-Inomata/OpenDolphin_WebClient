@@ -23,6 +23,8 @@ import { buildFacilityPath } from '../../../routes/facilityRoutes';
 import { isSafeReturnTo } from '../../../routes/appNavigation';
 import { useAppNavigation } from '../../../routes/useAppNavigation';
 import { MISSING_MASTER_RECOVERY_NEXT_STEPS } from '../../shared/missingMasterRecovery';
+import { readStoredSession } from '../../../libs/session/storedSession';
+import type { StorageScope } from '../../../libs/session/storageScope';
 
 type PrintLocationState = {
   entry: ReceptionEntry;
@@ -43,6 +45,29 @@ const getState = (value: unknown): PrintLocationState | null => {
   return obj as PrintLocationState;
 };
 
+const normalizeScopeValue = (value?: string) => value?.trim() ?? '';
+
+const resolveActorScope = (actor?: string): { facilityId: string; userId: string } | null => {
+  if (!actor) return null;
+  const trimmed = actor.trim();
+  const separator = trimmed.indexOf(':');
+  if (separator <= 0 || separator >= trimmed.length - 1) return null;
+  const facilityId = trimmed.slice(0, separator).trim();
+  const userId = trimmed.slice(separator + 1).trim();
+  if (!facilityId || !userId) return null;
+  return { facilityId, userId };
+};
+
+const isStateScopeMatched = (value: PrintLocationState, scope?: StorageScope): boolean => {
+  const facilityId = normalizeScopeValue(scope?.facilityId);
+  const userId = normalizeScopeValue(scope?.userId);
+  if (!facilityId || !userId) return false;
+  if (normalizeScopeValue(value.facilityId) !== facilityId) return false;
+  const actorScope = resolveActorScope(value.actor);
+  if (!actorScope) return false;
+  return actorScope.facilityId === facilityId && actorScope.userId === userId;
+};
+
 export function ChartsOutpatientPrintPage() {
   return (
     <>
@@ -54,9 +79,12 @@ export function ChartsOutpatientPrintPage() {
 
 function ChartsOutpatientPrintContent() {
   const session = useOptionalSession();
+  const storedSession = useMemo(() => readStoredSession(), [session?.facilityId, session?.userId]);
+  const resolvedFacilityId = session?.facilityId ?? storedSession?.facilityId;
+  const resolvedUserId = session?.userId ?? storedSession?.userId;
   const navigate = useNavigate();
   const location = useLocation();
-  const appNav = useAppNavigation({ facilityId: session?.facilityId, userId: session?.userId });
+  const appNav = useAppNavigation({ facilityId: resolvedFacilityId, userId: resolvedUserId });
   const queryParams = useMemo(
     () => new URLSearchParams(location.search.startsWith('?') ? location.search.slice(1) : location.search),
     [location.search],
@@ -71,17 +99,33 @@ function ChartsOutpatientPrintContent() {
     const returnToState = state && typeof state.returnTo === 'string' ? state.returnTo : undefined;
     return returnToState ?? queryParams.get('returnTo') ?? undefined;
   }, [location.state, queryParams]);
-  const fallbackUrl = useMemo(() => buildFacilityPath(session?.facilityId, '/charts'), [session?.facilityId]);
+  const fallbackUrl = useMemo(() => buildFacilityPath(resolvedFacilityId, '/charts'), [resolvedFacilityId]);
   const safeReturnTo = useMemo(
-    () => (isSafeReturnTo(returnTo, session?.facilityId) ? returnTo : undefined),
-    [returnTo, session?.facilityId],
+    () => (isSafeReturnTo(returnTo, resolvedFacilityId) ? returnTo : undefined),
+    [resolvedFacilityId, returnTo],
   );
-  const storageScope = useMemo(
-    () => ({ facilityId: session?.facilityId, userId: session?.userId }),
-    [session?.facilityId, session?.userId],
+  const storageScope = useMemo<StorageScope | undefined>(() => {
+    if (!resolvedFacilityId || !resolvedUserId) return undefined;
+    return { facilityId: resolvedFacilityId, userId: resolvedUserId };
+  }, [resolvedFacilityId, resolvedUserId]);
+  const scopeReady = Boolean(storageScope?.facilityId && storageScope?.userId);
+  const returnToScope = useMemo(
+    () => ({ facilityId: resolvedFacilityId, userId: resolvedUserId }),
+    [resolvedFacilityId, resolvedUserId],
   );
-  const restored = useMemo(() => loadOutpatientPrintPreview(storageScope), [storageScope]);
-  const state = useMemo(() => getState(location.state) ?? restored?.value ?? null, [location.state, restored?.value]);
+  const locationState = useMemo(() => getState(location.state), [location.state]);
+  const validatedLocationState = useMemo(() => {
+    if (!locationState) return null;
+    if (!scopeReady) return locationState;
+    return isStateScopeMatched(locationState, storageScope) ? locationState : null;
+  }, [locationState, scopeReady, storageScope]);
+  const restored = useMemo(() => {
+    if (!scopeReady) return null;
+    const value = loadOutpatientPrintPreview(storageScope);
+    if (!value) return null;
+    return isStateScopeMatched(value.value, storageScope) ? value : null;
+  }, [scopeReady, storageScope]);
+  const state = useMemo(() => validatedLocationState ?? restored?.value ?? null, [restored?.value, validatedLocationState]);
   const restoredAt = restored?.storedAt;
   const [printedAtIso] = useState(() => new Date().toISOString());
   const lastModeRef = useRef<OutputMode | null>(null);
@@ -104,12 +148,14 @@ function ChartsOutpatientPrintContent() {
 
   useEffect(() => {
     if (!state) return;
-    clearOutpatientOutputResult(storageScope);
+    if (scopeReady) {
+      clearOutpatientOutputResult(storageScope);
+    }
     outputRecordedRef.current = false;
     const patientId = state.entry.patientId ?? state.entry.id;
     const titleId = patientId ? `_${patientId}` : '';
     document.title = `診療記録${titleId}_${state.meta.runId}`;
-  }, [state]);
+  }, [scopeReady, state, storageScope]);
 
   const storeOutputResult = (outcome: 'success' | 'failed' | 'blocked', detail?: string, mode?: OutputMode) => {
     if (!state) return;
@@ -140,14 +186,14 @@ function ChartsOutpatientPrintContent() {
     const onAfterPrint = () => {
       const mode = lastModeRef.current;
       if (!mode) return;
+      const detail = `output=${mode} afterprint_dialog_closed (印刷成否は未判定)`;
       setOutputStatus('completed');
       setOutputError(null);
-      storeOutputResult('success', `output=${mode} afterprint`, mode);
       recordChartsAuditEvent({
         action: 'PRINT_OUTPATIENT',
-        outcome: 'success',
+        outcome: 'warning',
         subject: 'outpatient-document-output',
-        note: `output=${mode} afterprint`,
+        note: detail,
         patientId: state.entry.patientId ?? state.entry.id,
         appointmentId: state.entry.appointmentId,
         actor: state.actor,
@@ -159,7 +205,8 @@ function ChartsOutpatientPrintContent() {
         details: {
           operationPhase: 'do',
           endpoint: OUTPUT_ENDPOINT,
-          httpStatus: 200,
+          outputMode: mode,
+          outcome: 'completed',
         },
       });
       lastModeRef.current = null;
@@ -218,7 +265,7 @@ function ChartsOutpatientPrintContent() {
   const outputGuardDetail = outputGuardReasons.map((reason) => reason.detail).join(' / ');
 
   const recordOutputAudit = (
-    outcome: 'started' | 'success' | 'blocked' | 'error',
+    outcome: 'started' | 'success' | 'blocked' | 'error' | 'warning',
     note: string,
     details?: Record<string, unknown>,
     error?: string,
@@ -239,7 +286,12 @@ function ChartsOutpatientPrintContent() {
       dataSourceTransition: state?.meta.dataSourceTransition,
       details: {
         endpoint: OUTPUT_ENDPOINT,
-        httpStatus: outcome === 'success' ? 200 : outcome === 'error' || outcome === 'blocked' ? 0 : undefined,
+        httpStatus:
+          outcome === 'success'
+            ? 200
+            : outcome === 'error' || outcome === 'blocked'
+              ? 0
+              : undefined,
         ...(details ?? {}),
       },
     });
@@ -311,7 +363,7 @@ function ChartsOutpatientPrintContent() {
       <main className="charts-print">
         <div className="charts-print__screen-only">
           <ReturnToBar
-            scope={{ facilityId: session?.facilityId, userId: session?.userId }}
+            scope={returnToScope}
             returnTo={returnTo}
             from={from}
             fallbackUrl={fallbackUrl}
@@ -346,12 +398,12 @@ function ChartsOutpatientPrintContent() {
     <main className="charts-print">
       <div className="charts-print__screen-only">
         <ReturnToBar
-          scope={{ facilityId: session?.facilityId, userId: session?.userId }}
+          scope={returnToScope}
           returnTo={returnTo}
           from={from}
           fallbackUrl={fallbackUrl}
         />
-        {restoredAt && !getState(location.state) && (
+        {restoredAt && !validatedLocationState && (
           <ToneBanner
             tone="info"
             message="印刷プレビュー状態をセッションから復元しました（リロード対策）。"

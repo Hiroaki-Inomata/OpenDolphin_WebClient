@@ -158,6 +158,9 @@ export const chartsPrintStyles = css`
 
   .charts-print__value {
     color: #0f172a;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
   }
 
   .charts-print__footer {

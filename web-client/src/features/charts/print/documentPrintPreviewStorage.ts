@@ -31,26 +31,60 @@ const LEGACY_STORAGE_KEY = `${STORAGE_BASE}:v1`;
 const LEGACY_OUTPUT_KEY = `${OUTPUT_RESULT_BASE}:v1`;
 const MAX_AGE_MS = 10 * 60 * 1000;
 
-const findAnyScopedValue = (base: string, version: string): string | null => {
-  if (typeof sessionStorage === 'undefined') return null;
-  for (let i = 0; i < sessionStorage.length; i += 1) {
-    const key = sessionStorage.key(i);
-    if (key && key.startsWith(`${base}:${version}:`)) {
-      const raw = sessionStorage.getItem(key);
-      if (raw) return raw;
-    }
-  }
-  return null;
-};
-
 type StoredEnvelope = {
   storedAt: string;
   value: DocumentPrintPreviewState;
 };
 
+type ScopedIdentity = {
+  facilityId: string;
+  userId: string;
+};
+
+const normalizeText = (value?: string) => value?.trim() ?? '';
+
+const resolveScopedIdentity = (scope?: StorageScope): ScopedIdentity | null => {
+  const facilityId = normalizeText(scope?.facilityId);
+  const userId = normalizeText(scope?.userId);
+  if (!facilityId || !userId) return null;
+  return { facilityId, userId };
+};
+
+const parseActorScope = (actor?: string): ScopedIdentity | null => {
+  if (!actor) return null;
+  const trimmed = actor.trim();
+  const separator = trimmed.indexOf(':');
+  if (separator <= 0 || separator >= trimmed.length - 1) return null;
+  const facilityId = trimmed.slice(0, separator).trim();
+  const userId = trimmed.slice(separator + 1).trim();
+  if (!facilityId || !userId) return null;
+  return { facilityId, userId };
+};
+
+const isPreviewStateScopedTo = (value: DocumentPrintPreviewState, scope: ScopedIdentity): boolean => {
+  const facilityId = normalizeText(value.facilityId);
+  if (facilityId !== scope.facilityId) return false;
+  const actorScope = parseActorScope(value.actor);
+  if (!actorScope) return false;
+  return actorScope.facilityId === scope.facilityId && actorScope.userId === scope.userId;
+};
+
+const resolveScopedKey = (base: string, scope?: StorageScope): string | null => {
+  const scopedIdentity = resolveScopedIdentity(scope);
+  if (!scopedIdentity) return null;
+  return buildScopedStorageKey(base, STORAGE_VERSION, scopedIdentity);
+};
+
+const parseStoredEnvelope = (raw: string): StoredEnvelope | null => {
+  const parsed = JSON.parse(raw) as Partial<StoredEnvelope> | null;
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (!parsed.storedAt || !parsed.value) return null;
+  return { storedAt: parsed.storedAt, value: parsed.value as DocumentPrintPreviewState };
+};
+
 export type DocumentOutputResult = {
   documentId: string;
-  outcome: 'success' | 'failed' | 'blocked';
+  outcome: 'success' | 'failed' | 'blocked' | 'completed';
   mode?: DocumentOutputMode;
   at: string;
   detail?: string;
@@ -64,11 +98,13 @@ export function saveDocumentPrintPreview(value: DocumentPrintPreviewState, scope
   if (typeof sessionStorage === 'undefined') return;
   const envelope: StoredEnvelope = { storedAt: new Date().toISOString(), value };
   try {
-    const key = buildScopedStorageKey(STORAGE_BASE, STORAGE_VERSION, scope) ?? LEGACY_STORAGE_KEY;
-    sessionStorage.setItem(key, JSON.stringify(envelope));
-    if (key !== LEGACY_STORAGE_KEY) {
+    const key = resolveScopedKey(STORAGE_BASE, scope);
+    if (!key) {
       sessionStorage.removeItem(LEGACY_STORAGE_KEY);
+      return;
     }
+    sessionStorage.setItem(key, JSON.stringify(envelope));
+    sessionStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch {
     // ignore
   }
@@ -78,27 +114,47 @@ export function loadDocumentPrintPreview(
   scope?: StorageScope,
 ): { value: DocumentPrintPreviewState; storedAt: string } | null {
   if (typeof sessionStorage === 'undefined') return null;
+  const scopedIdentity = resolveScopedIdentity(scope);
+  if (!scopedIdentity) return null;
   try {
-    const scopedKey = buildScopedStorageKey(STORAGE_BASE, STORAGE_VERSION, scope);
-    const raw =
-      (scopedKey ? sessionStorage.getItem(scopedKey) : null) ??
-      findAnyScopedValue(STORAGE_BASE, STORAGE_VERSION) ??
-      sessionStorage.getItem(LEGACY_STORAGE_KEY);
+    const scopedKey = buildScopedStorageKey(STORAGE_BASE, STORAGE_VERSION, scopedIdentity);
+    if (!scopedKey) return null;
+    let raw = sessionStorage.getItem(scopedKey);
+    let source: 'scoped' | 'legacy' = 'scoped';
+    if (!raw) {
+      const legacyRaw = sessionStorage.getItem(LEGACY_STORAGE_KEY);
+      if (legacyRaw) {
+        const legacyEnvelope = parseStoredEnvelope(legacyRaw);
+        if (legacyEnvelope && isPreviewStateScopedTo(legacyEnvelope.value, scopedIdentity)) {
+          raw = legacyRaw;
+          source = 'legacy';
+        }
+      }
+    }
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<StoredEnvelope> | null;
-    if (!parsed || typeof parsed !== 'object') return null;
-    if (!parsed.storedAt || !parsed.value) return null;
+    const parsed = parseStoredEnvelope(raw);
+    if (!parsed) return null;
+    if (!isPreviewStateScopedTo(parsed.value, scopedIdentity)) {
+      if (source === 'legacy') {
+        sessionStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
+      return null;
+    }
     const storedAtMs = new Date(parsed.storedAt).getTime();
     if (Number.isNaN(storedAtMs)) return null;
     if (Date.now() - storedAtMs > MAX_AGE_MS) {
-      clearDocumentPrintPreview(scope);
+      if (source === 'legacy') {
+        sessionStorage.removeItem(LEGACY_STORAGE_KEY);
+      } else {
+        sessionStorage.removeItem(scopedKey);
+      }
       return null;
     }
-    if (scopedKey && !sessionStorage.getItem(scopedKey)) {
+    if (source === 'legacy') {
       sessionStorage.setItem(scopedKey, raw);
       sessionStorage.removeItem(LEGACY_STORAGE_KEY);
     }
-    return { value: parsed.value as DocumentPrintPreviewState, storedAt: parsed.storedAt };
+    return parsed;
   } catch {
     return null;
   }
@@ -107,8 +163,11 @@ export function loadDocumentPrintPreview(
 export function clearDocumentPrintPreview(scope?: StorageScope) {
   if (typeof sessionStorage === 'undefined') return;
   try {
-    const key = buildScopedStorageKey(STORAGE_BASE, STORAGE_VERSION, scope) ?? LEGACY_STORAGE_KEY;
-    sessionStorage.removeItem(key);
+    const key = resolveScopedKey(STORAGE_BASE, scope);
+    if (key) {
+      sessionStorage.removeItem(key);
+    }
+    sessionStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch {
     // ignore
   }
@@ -117,11 +176,13 @@ export function clearDocumentPrintPreview(scope?: StorageScope) {
 export function saveDocumentOutputResult(value: DocumentOutputResult, scope?: StorageScope) {
   if (typeof sessionStorage === 'undefined') return;
   try {
-    const key = buildScopedStorageKey(OUTPUT_RESULT_BASE, STORAGE_VERSION, scope) ?? LEGACY_OUTPUT_KEY;
-    sessionStorage.setItem(key, JSON.stringify(value));
-    if (key !== LEGACY_OUTPUT_KEY) {
+    const key = resolveScopedKey(OUTPUT_RESULT_BASE, scope);
+    if (!key) {
       sessionStorage.removeItem(LEGACY_OUTPUT_KEY);
+      return;
     }
+    sessionStorage.setItem(key, JSON.stringify(value));
+    sessionStorage.removeItem(LEGACY_OUTPUT_KEY);
   } catch {
     // ignore
   }
@@ -130,18 +191,12 @@ export function saveDocumentOutputResult(value: DocumentOutputResult, scope?: St
 export function loadDocumentOutputResult(scope?: StorageScope): DocumentOutputResult | null {
   if (typeof sessionStorage === 'undefined') return null;
   try {
-    const scopedKey = buildScopedStorageKey(OUTPUT_RESULT_BASE, STORAGE_VERSION, scope);
-    const raw =
-      (scopedKey ? sessionStorage.getItem(scopedKey) : null) ??
-      findAnyScopedValue(OUTPUT_RESULT_BASE, STORAGE_VERSION) ??
-      sessionStorage.getItem(LEGACY_OUTPUT_KEY);
+    const scopedKey = resolveScopedKey(OUTPUT_RESULT_BASE, scope);
+    if (!scopedKey) return null;
+    const raw = sessionStorage.getItem(scopedKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as DocumentOutputResult;
     if (!parsed || typeof parsed !== 'object' || !parsed.documentId) return null;
-    if (scopedKey && !sessionStorage.getItem(scopedKey)) {
-      sessionStorage.setItem(scopedKey, raw);
-      sessionStorage.removeItem(LEGACY_OUTPUT_KEY);
-    }
     return parsed;
   } catch {
     return null;
@@ -151,8 +206,11 @@ export function loadDocumentOutputResult(scope?: StorageScope): DocumentOutputRe
 export function clearDocumentOutputResult(scope?: StorageScope) {
   if (typeof sessionStorage === 'undefined') return;
   try {
-    const key = buildScopedStorageKey(OUTPUT_RESULT_BASE, STORAGE_VERSION, scope) ?? LEGACY_OUTPUT_KEY;
-    sessionStorage.removeItem(key);
+    const key = resolveScopedKey(OUTPUT_RESULT_BASE, scope);
+    if (key) {
+      sessionStorage.removeItem(key);
+    }
+    sessionStorage.removeItem(LEGACY_OUTPUT_KEY);
   } catch {
     // ignore
   }

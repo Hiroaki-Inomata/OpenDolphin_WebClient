@@ -31,6 +31,7 @@ import { useAppNavigation } from '../../routes/useAppNavigation';
 import { fetchUserProfile } from './stampApi';
 import {
   deleteLetter,
+  type LetterDatePayload,
   fetchKarteIdByPatientId,
   fetchLetterDetail,
   fetchLetterList,
@@ -134,7 +135,7 @@ type SavedDocument = {
   attachmentIds?: number[];
   detailLoaded?: boolean;
   outputAudit?: {
-    status: 'success' | 'failed' | 'blocked' | 'started';
+    status: 'success' | 'failed' | 'blocked' | 'started' | 'completed';
     mode?: DocumentOutputMode;
     at: string;
     detail?: string;
@@ -153,12 +154,14 @@ const LETTER_ITEM_ATTACHMENT_IDS = 'webAttachmentIds';
 const LETTER_ITEM_SUBMIT_TO = 'webSubmitTo';
 const LETTER_ITEM_PURPOSE = 'purpose';
 const LETTER_ITEM_DISEASE = 'disease';
+const LETTER_ITEM_ISSUED_AT = 'webIssuedAtDate';
 const LETTER_ITEM_VISITED_DATE = 'visitedDate';
 const LETTER_ITEM_VISITED = 'visited';
 const LETTER_TEXT_PAST_FAMILY = 'pastFamily';
 const LETTER_TEXT_CLINICAL_COURSE = 'clinicalCourse';
 const LETTER_TEXT_MEDICATION = 'medication';
 const LETTER_TEXT_INFORMED_CONTENT = 'informedContent';
+const LETTER_DATE_ISSUED_AT = 'issuedAt';
 const HANDLE_CLASS_REFERRAL = 'open.dolphin.letter.LetterViewer';
 const HANDLE_CLASS_REPLY1 = 'open.dolphin.letter.Reply1Viewer';
 const HANDLE_CLASS_REPLY2 = 'open.dolphin.letter.Reply2Viewer';
@@ -207,6 +210,7 @@ const resolveOutputAuditStatus = (
 ): NonNullable<SavedDocument['outputAudit']>['status'] => {
   if (outcome === 'success') return 'success';
   if (outcome === 'blocked') return 'blocked';
+  if (outcome === 'completed') return 'completed';
   return 'failed';
 };
 
@@ -262,22 +266,28 @@ const resolveMissingFields = (type: DocumentType, form: DocumentFormState): stri
     .map((field) => field.label);
 };
 
-const resolveIsoDate = (value?: string): string | undefined => {
+const formatLocalDateYmd = (date: Date): string =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const resolveDateOnlyText = (value?: string): string | undefined => {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const asDateOnly = /^(\d{4}-\d{2}-\d{2})$/.exec(trimmed);
+  if (asDateOnly) return asDateOnly[1];
+  return undefined;
+};
+
+const resolveLocalDate = (value?: string): string | undefined => {
+  const dateOnly = resolveDateOnlyText(value);
+  if (dateOnly) return dateOnly;
   if (!value) return undefined;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return undefined;
-  return date.toISOString().slice(0, 10);
+  return formatLocalDateYmd(date);
 };
 
-const toIsoDateTime = (value?: string): string => {
-  if (value) {
-    const parsed = new Date(`${value}T00:00:00`);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toISOString();
-    }
-  }
-  return new Date().toISOString();
-};
+const toLocalDateTime = (value?: string): string => `${resolveLocalDate(value) ?? formatLocalDateYmd(new Date())}T00:00:00`;
 
 const buildItemMap = (items?: LetterItemPayload[] | null): Map<string, string> => {
   const map = new Map<string, string>();
@@ -295,6 +305,16 @@ const buildTextMap = (texts?: LetterTextPayload[] | null): Map<string, string> =
   texts.forEach((text) => {
     if (!text?.name) return;
     map.set(text.name, text.textValue ?? '');
+  });
+  return map;
+};
+
+const buildDateMap = (dates?: LetterDatePayload[] | null): Map<string, string> => {
+  const map = new Map<string, string>();
+  if (!dates) return map;
+  dates.forEach((date) => {
+    if (!date?.name) return;
+    map.set(date.name, date.value ?? '');
   });
   return map;
 };
@@ -340,10 +360,13 @@ const mapLetterToDocument = (letter: LetterModulePayload, fallbackIssuedAt: stri
   const type = resolveDocumentType(letter.letterType);
   const itemMap = buildItemMap(letter.letterItems);
   const textMap = buildTextMap(letter.letterTexts);
+  const dateMap = buildDateMap(letter.letterDates);
   const issuedAt =
-    resolveIsoDate(letter.started) ??
-    resolveIsoDate(letter.confirmed) ??
-    resolveIsoDate(letter.recorded) ??
+    resolveDateOnlyText(itemMap.get(LETTER_ITEM_ISSUED_AT)) ??
+    resolveDateOnlyText(dateMap.get(LETTER_DATE_ISSUED_AT)) ??
+    resolveLocalDate(letter.started) ??
+    resolveLocalDate(letter.confirmed) ??
+    resolveLocalDate(letter.recorded) ??
     fallbackIssuedAt;
   const templateId =
     itemMap.get(LETTER_ITEM_TEMPLATE_ID) ??
@@ -424,6 +447,7 @@ const buildLetterModulePayload = <T extends DocumentType>(params: {
 }): LetterModulePayload => {
   const items: LetterItemPayload[] = [];
   const texts: LetterTextPayload[] = [];
+  const dates: LetterDatePayload[] = [];
 
   const pushItem = (name: string, value?: string | number | null) => {
     if (value === undefined || value === null) return;
@@ -433,9 +457,16 @@ const buildLetterModulePayload = <T extends DocumentType>(params: {
     if (value === undefined || value === null) return;
     texts.push({ name, textValue: String(value) });
   };
+  const pushDate = (name: string, value?: string | null) => {
+    const resolved = resolveDateOnlyText(value ?? undefined);
+    if (!resolved) return;
+    dates.push({ name, value: resolved });
+  };
 
   pushItem(LETTER_ITEM_TEMPLATE_ID, params.form.templateId);
   pushItem(LETTER_ITEM_TEMPLATE_LABEL, params.templateLabel);
+  pushItem(LETTER_ITEM_ISSUED_AT, params.issuedAt);
+  pushDate(LETTER_DATE_ISSUED_AT, params.issuedAt);
   if (params.documentId !== undefined) {
     pushItem(LETTER_ITEM_DOCUMENT_ID, params.documentId);
   }
@@ -482,13 +513,13 @@ const buildLetterModulePayload = <T extends DocumentType>(params: {
     pushItem(visitedName, params.issuedAt);
   }
 
-  const issuedAtIso = toIsoDateTime(params.issuedAt);
+  const issuedAtDateTime = toLocalDateTime(params.issuedAt);
   const payload: LetterModulePayload = {
     id: params.linkId ? 0 : undefined,
     linkId: params.linkId ?? 0,
-    confirmed: issuedAtIso,
-    started: issuedAtIso,
-    recorded: issuedAtIso,
+    confirmed: issuedAtDateTime,
+    started: issuedAtDateTime,
+    recorded: issuedAtDateTime,
     status: 'F',
     title: buildDocumentSummary(params.type, { ...buildEmptyForms(params.issuedAt), [params.type]: params.form } as DocumentFormState),
     letterType,
@@ -509,6 +540,7 @@ const buildLetterModulePayload = <T extends DocumentType>(params: {
     },
     letterItems: items,
     letterTexts: texts,
+    letterDates: dates.length > 0 ? dates : undefined,
   };
 
   return payload;
@@ -542,7 +574,7 @@ export function DocumentCreatePanel({
     return stored ? normalizeUserName(stored.facilityId, stored.userId) : null;
   }, [session?.facilityId, session?.userId]);
   const appNav = useAppNavigation({ facilityId: session?.facilityId, userId: session?.userId });
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const today = useMemo(() => formatLocalDateYmd(new Date()), []);
   const [activeType, setActiveType] = useState<DocumentType>('referral');
   const [forms, setForms] = useState<DocumentFormState>(() => buildEmptyForms(today));
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
@@ -563,6 +595,8 @@ export function DocumentCreatePanel({
   const [filterPatient, setFilterPatient] = useState<'current' | 'all'>('current');
   const lastOpenRequestRef = useRef<string | null>(null);
   const pendingOutputResultRef = useRef<DocumentOutputResult | null>(null);
+  const historyRequestSeqRef = useRef(0);
+  const historyPatientIdRef = useRef<string | undefined>(patientId);
   const observability = useMemo(() => ensureObservabilityMeta({ runId: meta.runId }), [meta.runId]);
   const resolvedRunId = observability.runId ?? meta.runId;
   const hasPermission = useMemo(() => hasStoredAuth(), []);
@@ -643,6 +677,11 @@ export function DocumentCreatePanel({
   }, [userName]);
 
   useEffect(() => {
+    historyPatientIdRef.current = patientId;
+    historyRequestSeqRef.current += 1;
+  }, [patientId]);
+
+  useEffect(() => {
     let active = true;
     if (!patientId) {
       setKarteId(null);
@@ -690,8 +729,18 @@ export function DocumentCreatePanel({
     if (!outputResult) return;
     pendingOutputResultRef.current = outputResult;
     clearDocumentOutputResult(storageScope);
-    const outcomeTone = outputResult.outcome === 'success' ? 'success' : 'error';
-    const outcomeLabel = outputResult.outcome === 'success' ? '成功' : '失敗';
+    const outcomeTone =
+      outputResult.outcome === 'success'
+        ? 'success'
+        : outputResult.outcome === 'completed'
+          ? 'info'
+          : 'error';
+    const outcomeLabel =
+      outputResult.outcome === 'success'
+        ? '成功'
+        : outputResult.outcome === 'completed'
+          ? '未判定'
+          : '失敗';
     setNotice({
       tone: outcomeTone,
       message: `文書出力${outcomeLabel}: ${outputResult.detail ?? outputResult.mode ?? '出力処理'}`,
@@ -719,7 +768,12 @@ export function DocumentCreatePanel({
     });
     recordChartsAuditEvent({
       action: 'PRINT_DOCUMENT',
-      outcome: outputResult.outcome === 'success' ? 'success' : 'error',
+      outcome:
+        outputResult.outcome === 'success'
+          ? 'success'
+          : outputResult.outcome === 'completed'
+            ? 'warning'
+            : 'error',
       subject: 'charts-document-output-result',
       note: outputResult.detail,
       runId: outputResult.runId ?? resolvedRunId,
@@ -778,17 +832,25 @@ export function DocumentCreatePanel({
   }, [savedDocs]);
 
   const refreshDocumentHistory = useCallback(async () => {
+    const requestSeq = ++historyRequestSeqRef.current;
+    const requestPatientId = patientId;
+    const isStaleRequest = () =>
+      historyRequestSeqRef.current !== requestSeq || historyPatientIdRef.current !== requestPatientId;
+
     if (karteId === undefined) return;
     if (!karteId) {
+      if (isStaleRequest()) return;
       setSavedDocs([]);
       setIsHistoryLoading(false);
       setHistoryLoaded(true);
       return;
     }
+    if (isStaleRequest()) return;
     setIsHistoryLoading(true);
     setHistoryLoaded(false);
     setHistoryError(null);
     const listResult = await fetchLetterList({ karteId });
+    if (isStaleRequest()) return;
     if (!listResult.ok) {
       setHistoryError(listResult.error ?? `文書履歴の取得に失敗しました (HTTP ${listResult.status})`);
       setIsHistoryLoading(false);
@@ -797,6 +859,7 @@ export function DocumentCreatePanel({
     }
 
     const summaryDocs = listResult.letters.map((letter) => mapLetterToDocument(letter, today));
+    if (isStaleRequest()) return;
     // まず一覧(サマリ)を即時反映して、検索/フィルタ UI をブロックしない。
     setSavedDocs((prev) => {
       const prevMap = new Map(prev.map((doc) => [doc.id, doc]));
@@ -829,6 +892,7 @@ export function DocumentCreatePanel({
         return mapLetterToDocument(detail.letter, doc.issuedAt || today);
       }),
     );
+    if (isStaleRequest()) return;
 
     setSavedDocs((prev) => {
       const prevMap = new Map(prev.map((doc) => [doc.id, doc]));
@@ -848,7 +912,7 @@ export function DocumentCreatePanel({
         };
       });
     });
-  }, [karteId, today]);
+  }, [karteId, patientId, today]);
 
   useEffect(() => {
     refreshDocumentHistory();
@@ -1441,6 +1505,7 @@ export function DocumentCreatePanel({
     if (doc.outputAudit.status === 'success') return 'success';
     if (doc.outputAudit.status === 'blocked') return 'failed';
     if (doc.outputAudit.status === 'failed') return 'failed';
+    if (doc.outputAudit.status === 'completed') return 'pending';
     if (doc.outputAudit.status === 'started') return 'pending';
     return 'pending';
   }, []);
@@ -2190,9 +2255,11 @@ export function DocumentCreatePanel({
                       ? '成功'
                       : doc.outputAudit?.status === 'failed' || doc.outputAudit?.status === 'blocked'
                         ? '失敗'
-                        : doc.outputAudit?.status === 'started'
-                          ? '処理中'
-                          : '未実行';
+                        : doc.outputAudit?.status === 'completed'
+                          ? '未判定'
+                          : doc.outputAudit?.status === 'started'
+                            ? '処理中'
+                            : '未実行';
                   const lastMode = doc.outputAudit?.mode ?? 'print';
                   return (
                     <li key={doc.id}>
