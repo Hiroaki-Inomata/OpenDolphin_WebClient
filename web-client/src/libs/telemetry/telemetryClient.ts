@@ -39,6 +39,7 @@ export interface OutpatientFunnelRecord extends OutpatientFunnelPayload {
 
 const funnelLog: OutpatientFunnelRecord[] = [];
 const funnelSubscribers = new Set<(log: OutpatientFunnelRecord[]) => void>();
+const isDevRuntime = import.meta.env.DEV;
 
 function notifyFunnelSubscribers() {
   const snapshot = getOutpatientFunnelLog();
@@ -46,7 +47,9 @@ function notifyFunnelSubscribers() {
     try {
       subscriber(snapshot);
     } catch (error) {
-      console.warn('[telemetry] failed to notify subscriber', error);
+      if (isDevRuntime && typeof console !== 'undefined') {
+        console.warn('[telemetry] failed to notify subscriber', error);
+      }
     }
   });
 }
@@ -93,14 +96,14 @@ export function recordOutpatientFunnel(
     missing.push('reason');
   }
   const maskedRecord = maskSensitiveLog(record);
-  if (missing.length > 0 && typeof console !== 'undefined') {
+  if (missing.length > 0 && isDevRuntime && typeof console !== 'undefined') {
     console.warn('[telemetry] recordOutpatientFunnel schema warning', { stage, missing, record: maskedRecord });
   }
   funnelLog.push(record);
-  if (typeof console !== 'undefined') {
+  if (isDevRuntime && typeof console !== 'undefined') {
     console.info('[telemetry] Record outpatient funnel', maskedRecord);
   }
-  if (typeof window !== 'undefined') {
+  if (isDevRuntime && typeof window !== 'undefined') {
     (window as any).__OUTPATIENT_FUNNEL__ = getMaskedOutpatientFunnelLog();
   }
   notifyFunnelSubscribers();

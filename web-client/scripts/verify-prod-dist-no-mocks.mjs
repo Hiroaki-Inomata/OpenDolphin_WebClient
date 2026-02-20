@@ -3,6 +3,7 @@ import path from 'node:path';
 
 const distDir = process.env.DIST_DIR ? path.resolve(process.env.DIST_DIR) : path.resolve(process.cwd(), 'dist');
 const outputFile = process.env.OUTPUT_FILE ? path.resolve(process.env.OUTPUT_FILE) : '';
+const forbiddenArtifacts = ['mockServiceWorker.js'];
 
 const patterns = [
   { id: 'src-mocks', re: /src\/mocks|src\\\\mocks/g },
@@ -58,13 +59,23 @@ const results = [];
 for (const file of allFiles) {
   results.push(...scanFile(file));
 }
+const forbiddenArtifactFindings = forbiddenArtifacts.filter((entry) => fs.existsSync(path.join(distDir, entry)));
 
 const lines = [];
 lines.push(`# verify-prod-dist-no-mocks`);
 lines.push(`distDir: ${distDir}`);
 lines.push(`scannedFiles: ${allFiles.length}`);
 lines.push(`findingsFiles: ${results.length}`);
+lines.push(`forbiddenArtifacts: ${forbiddenArtifactFindings.length}`);
 lines.push('');
+
+if (forbiddenArtifactFindings.length > 0) {
+  lines.push('Forbidden artifacts:');
+  for (const entry of forbiddenArtifactFindings) {
+    lines.push(`- ${entry}`);
+  }
+  lines.push('');
+}
 
 if (results.length) {
   lines.push('Findings:');
@@ -73,6 +84,9 @@ if (results.length) {
     lines.push(`- ${entry.file}: ${detail}`);
   }
   lines.push('');
+}
+
+if (results.length || forbiddenArtifactFindings.length > 0) {
   lines.push('FAIL: production bundle appears to include mock/MSW references.');
 } else {
   lines.push('OK: No mock/MSW references detected in dist (heuristic scan).');
@@ -85,4 +99,4 @@ if (outputFile) {
 }
 process.stdout.write(report);
 
-process.exit(results.length ? 1 : 0);
+process.exit(results.length || forbiddenArtifactFindings.length > 0 ? 1 : 0);
