@@ -41,6 +41,7 @@ const readOptionalItem = (storage: Storage | undefined, key: string): string | u
 };
 
 function readStoredAuth(): StoredAuth | null {
+  if (!import.meta.env.DEV) return null;
   const stored = readAuthFromStorage(typeof localStorage === 'undefined' ? undefined : localStorage);
   if (stored) {
     const sessionPasswordPlain = readOptionalItem(
@@ -59,7 +60,10 @@ export function hasStoredAuth(): boolean {
   return readStoredAuth() !== null;
 }
 
-function applyAuthHeaders(init?: RequestInit): RequestInit {
+function applyAuthHeaders(init?: RequestInit, pathname?: string | null): RequestInit {
+  if (!import.meta.env.DEV || !isOrcaEndpoint(pathname)) {
+    return init ?? {};
+  }
   const stored = readStoredAuth();
   if (!stored) {
     return init ?? {};
@@ -273,13 +277,14 @@ const isOrcaEndpoint = (pathname?: string | null): boolean => {
   if (!pathname) return false;
   const trimmed = pathname.trim();
   if (!trimmed) return false;
+  const pattern = /^\/(orca\d*|api\/orca|api01(rv2)?|api21|blobapi)(\/|$)/;
   try {
     const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
     const url = new URL(trimmed, base);
     const path = url.pathname;
-    return /^\/(orca\d*|api\/orca|api01(rv2)?)/.test(path);
+    return pattern.test(path);
   } catch {
-    return /^\/(orca\d*|api\/orca|api01(rv2)?)/.test(trimmed);
+    return pattern.test(trimmed);
   }
 };
 
@@ -292,16 +297,17 @@ export const shouldNotifySessionExpired = (status: number, init?: HttpFetchInit)
 };
 
 export async function httpFetch(input: RequestInfo | URL, init?: HttpFetchInit) {
+  const requestPathname = resolveRequestPathname(input);
   // Header flags are applied here to propagate Playwright extraHTTPHeaders.
   // 新しいフラグを追加する場合は header-flags.ts に追記し、この呼び出しで一括適用される前提。
-  const initWithFlags = applyHeaderFlagsToInit(applyAuthHeaders(init));
+  const initWithFlags = applyHeaderFlagsToInit(applyAuthHeaders(init, requestPathname));
   const initWithObservability = applyObservabilityHeaders(initWithFlags);
   // 認証クッキー（JSESSIONID 等）を常に送るため、デフォルトで include を付与する。
   const credentials = initWithObservability.credentials ?? 'include';
   const response = await fetch(input, { ...initWithObservability, credentials });
   captureObservabilityFromResponse(response);
   const resolvedInit =
-    init?.notifySessionExpired === undefined && isOrcaEndpoint(resolveRequestPathname(input))
+    init?.notifySessionExpired === undefined && isOrcaEndpoint(requestPathname)
       ? { ...init, notifySessionExpired: false }
       : init;
   if (shouldNotifySessionExpired(response.status, resolvedInit)) {

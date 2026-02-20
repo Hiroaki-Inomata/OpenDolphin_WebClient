@@ -125,6 +125,7 @@ const readStorageItem = (storage: Storage | undefined, key: string): string | un
 };
 
 const readConnectedAuth = (): ConnectedAuth | null => {
+  if (!import.meta.env.DEV) return null;
   const fromStorage = (storage: Storage | undefined): ConnectedAuth | null => {
     const facilityId = readStorageItem(storage, 'devFacilityId')?.trim();
     const userId = readStorageItem(storage, 'devUserId')?.trim();
@@ -149,6 +150,7 @@ const readConnectedAuth = (): ConnectedAuth | null => {
 };
 
 const buildMasterAuthHeaders = (): Record<string, string> => {
+  if (!import.meta.env.DEV) return {};
   const connected = readConnectedAuth();
   if (!connected) return {};
   const password = connected.passwordPlain ?? connected.passwordMd5;

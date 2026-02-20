@@ -14,6 +14,7 @@ import {
   Routes,
   Route,
   Navigate,
+  NavLink,
   Outlet,
   useLocation,
   useNavigate,
@@ -337,14 +338,15 @@ export function AppRouterWithNavigation() {
       setSession(result);
       persistSession(result);
 
-      const redirectIntent = resolveLoginRedirect(location);
       const fallbackPath = buildFacilityPath(result.facilityId, '/reception');
+      const isSwitchLogin = context?.mode === 'switch';
+      const redirectIntent = isSwitchLogin ? null : resolveLoginRedirect(location);
       setPendingRedirect({
-        to: redirectIntent?.to ?? fallbackPath,
-        state: redirectIntent?.state,
+        to: isSwitchLogin ? fallbackPath : (redirectIntent?.to ?? fallbackPath),
+        state: isSwitchLogin ? undefined : redirectIntent?.state,
       });
     },
-    [location, navigate, session],
+    [location, session],
   );
 
   const handleLogout = useCallback(
@@ -529,7 +531,7 @@ function LoginSwitchNotice({ session, onLogout }: { session: Session; onLogout: 
 function FacilityShell({ session }: { session: Session | null }) {
   const { facilityId } = useParams();
   const location = useLocation();
-  const normalizedId = facilityId ? decodeURIComponent(facilityId) : undefined;
+  const normalizedId = normalizeFacilityId(decodeFacilityParam(facilityId) ?? facilityId);
 
   if (!session) {
     const next = buildFacilityUrl(normalizedId, location.pathname, location.search);
@@ -1255,7 +1257,7 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
         本文へスキップ
       </a>
       <div className="app-shell">
-        <header className="app-shell__topbar" role="status" aria-live={resolveAriaLive('info')} data-run-id={resolvedRunId}>
+        <header className="app-shell__topbar" data-run-id={resolvedRunId}>
           <div className="app-shell__brand">
             <span className="app-shell__title">OpenDolphin Web</span>
             <small className="app-shell__subtitle">電子カルテデモシェル</small>

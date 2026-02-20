@@ -11,6 +11,14 @@ const setSession = () => {
   );
 };
 
+const setDevAuth = () => {
+  localStorage.setItem('devFacilityId', 'f001');
+  localStorage.setItem('devUserId', 'user01');
+  localStorage.setItem('devPasswordPlain', 'plain-password');
+  localStorage.setItem('devPasswordMd5', 'md5-password');
+  localStorage.setItem('devClientUuid', 'client-uuid-1');
+};
+
 const mockFetchSequence = (statuses: number[]) => {
   const queue = [...statuses];
   vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
@@ -173,6 +181,45 @@ describe('httpFetch session expiry reasons', () => {
     const notifySpy = vi.spyOn(sessionExpiry, 'notifySessionExpired');
 
     await httpClient.httpFetch('/orca/appointments/list');
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
+  it('attaches auth headers only for ORCA endpoints in DEV', async () => {
+    setSession();
+    setDevAuth();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+    const { httpClient } = await importSubjects();
+
+    await httpClient.httpFetch('/api/admin/orca/connection', { method: 'GET' });
+    const nonOrcaHeaders = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(nonOrcaHeaders.has('Authorization')).toBe(false);
+    expect(nonOrcaHeaders.has('userName')).toBe(false);
+    expect(nonOrcaHeaders.has('password')).toBe(false);
+
+    await httpClient.httpFetch('/orca/appointments/list', { method: 'GET' });
+    const orcaHeaders = new Headers((fetchSpy.mock.calls[1]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(orcaHeaders.has('Authorization') || orcaHeaders.has('userName') || orcaHeaders.has('password')).toBe(true);
+  });
+
+  it('does not notify for /api21 and /blobapi endpoints on 401/403', async () => {
+    setSession();
+    const { sessionExpiry, httpClient } = await importSubjects();
+    const notifySpy = vi.spyOn(sessionExpiry, 'notifySessionExpired');
+
+    mockFetchSequence([401]);
+    await httpClient.httpFetch('/api21/medicalmodv2', { method: 'POST' });
+    expect(notifySpy).not.toHaveBeenCalled();
+
+    mockFetchSequence([403]);
+    await httpClient.httpFetch('/api21/medicalmodv2', { method: 'POST' });
+    expect(notifySpy).not.toHaveBeenCalled();
+
+    mockFetchSequence([401]);
+    await httpClient.httpFetch('/blobapi/xxxx', { method: 'GET' });
+    expect(notifySpy).not.toHaveBeenCalled();
+
+    mockFetchSequence([403]);
+    await httpClient.httpFetch('/blobapi/xxxx', { method: 'GET' });
     expect(notifySpy).not.toHaveBeenCalled();
   });
 });

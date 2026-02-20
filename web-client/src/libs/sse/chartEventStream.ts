@@ -195,9 +195,7 @@ export function startChartEventStream(options: ChartEventStreamOptions) {
             },
           }),
         );
-        if (!headers.has('X-Facility-Id')) {
-          headers.set('X-Facility-Id', facilityId);
-        }
+        headers.set('X-Facility-Id', facilityId);
         if (!headers.has('clientUUID')) {
           headers.set('clientUUID', resolvedClientUuid);
         }

@@ -60,13 +60,10 @@ const normalizeRoles = (roles?: Array<string | { role?: string }>) => {
     .filter((role): role is string => Boolean(role));
 };
 
-const inferRole = (userId: string, roles?: Array<string | { role?: string }>) => {
+const inferRole = (_userId: string, roles?: Array<string | { role?: string }>) => {
   const normalized = normalizeRoles(roles);
   if (normalized.length > 0) return normalized[0];
-  const lowered = userId.toLowerCase();
-  if (lowered.includes('admin')) return 'system_admin';
-  if (lowered.includes('doctor')) return 'doctor';
-  return 'reception';
+  return 'doctor';
 };
 
 type LoginFormValues = {
@@ -220,35 +217,37 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
           roles: result.roles,
         },
       });
-      try {
-        const urlFacilityId = normalize(initialFacilityId ?? '');
-        const storedFacilityId = urlFacilityId || normalizedValues.facilityId;
-        // サーバーからの result.userId は "facilityId:userId" 形式で返されるが、
-        // httpClient.ts は devFacilityId と devUserId を結合するため、
-        // ユーザー入力値 (normalizedValues) を保存しないと二重結合になる。
-        // facilityId は URL 由来の値を優先して保存し、遷移先と整合させる。
-        localStorage.setItem('devFacilityId', storedFacilityId);
-        localStorage.setItem('devUserId', normalizedValues.userId);
-        localStorage.setItem('devPasswordMd5', hashPasswordMd5(normalizedValues.password));
-        localStorage.setItem('devClientUuid', result.clientUuid);
-        if (typeof sessionStorage !== 'undefined') {
-          sessionStorage.setItem('devPasswordPlain', normalizedValues.password);
-        }
-      } catch (storageError) {
+      if (import.meta.env.DEV) {
         try {
+          const urlFacilityId = normalize(initialFacilityId ?? '');
+          const storedFacilityId = urlFacilityId || normalizedValues.facilityId;
+          // サーバーからの result.userId は "facilityId:userId" 形式で返されるが、
+          // httpClient.ts は devFacilityId と devUserId を結合するため、
+          // ユーザー入力値 (normalizedValues) を保存しないと二重結合になる。
+          // facilityId は URL 由来の値を優先して保存し、遷移先と整合させる。
+          localStorage.setItem('devFacilityId', storedFacilityId);
+          localStorage.setItem('devUserId', normalizedValues.userId);
+          localStorage.setItem('devPasswordMd5', hashPasswordMd5(normalizedValues.password));
+          localStorage.setItem('devClientUuid', result.clientUuid);
           if (typeof sessionStorage !== 'undefined') {
-            const urlFacilityId = normalize(initialFacilityId ?? '');
-            const storedFacilityId = urlFacilityId || normalizedValues.facilityId;
-            sessionStorage.setItem('devFacilityId', storedFacilityId);
-            sessionStorage.setItem('devUserId', normalizedValues.userId);
-            sessionStorage.setItem('devPasswordMd5', hashPasswordMd5(normalizedValues.password));
-            sessionStorage.setItem('devClientUuid', result.clientUuid);
             sessionStorage.setItem('devPasswordPlain', normalizedValues.password);
           }
-        } catch {
-          // ignore fallback failures
+        } catch (storageError) {
+          try {
+            if (typeof sessionStorage !== 'undefined') {
+              const urlFacilityId = normalize(initialFacilityId ?? '');
+              const storedFacilityId = urlFacilityId || normalizedValues.facilityId;
+              sessionStorage.setItem('devFacilityId', storedFacilityId);
+              sessionStorage.setItem('devUserId', normalizedValues.userId);
+              sessionStorage.setItem('devPasswordMd5', hashPasswordMd5(normalizedValues.password));
+              sessionStorage.setItem('devClientUuid', result.clientUuid);
+              sessionStorage.setItem('devPasswordPlain', normalizedValues.password);
+            }
+          } catch {
+            // ignore fallback failures
+          }
+          console.warn('認証情報の保存に失敗しましたが、ログイン処理は継続します。', storageError);
         }
-        console.warn('認証情報の保存に失敗しましたが、ログイン処理は継続します。', storageError);
       }
       onLoginSuccess?.(result);
     } catch (error) {
@@ -510,15 +509,17 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
   const data = (await response.json()) as UserResourceResponse;
   const normalizedRoles = normalizeRoles(data.roles);
   const resolvedRole = inferRole(payload.userId, normalizedRoles);
-  try {
-    localStorage.setItem('devRole', resolvedRole);
-  } catch {
+  if (import.meta.env.DEV) {
     try {
-      if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.setItem('devRole', resolvedRole);
-      }
+      localStorage.setItem('devRole', resolvedRole);
     } catch {
-      // ignore fallback failures
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem('devRole', resolvedRole);
+        }
+      } catch {
+        // ignore fallback failures
+      }
     }
   }
   return {
