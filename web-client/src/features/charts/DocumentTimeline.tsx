@@ -62,12 +62,16 @@ const resolveReceptionStatusFromClaim = (status?: ClaimBundleStatus): ReceptionS
   return undefined;
 };
 
-const pickClaimBundleForEntry = (entry: ReceptionEntry, bundles: ClaimBundle[]) =>
-  bundles.find(
-    (bundle) =>
-      (entry.patientId && bundle.patientId === entry.patientId) ||
-      (entry.appointmentId && bundle.appointmentId === entry.appointmentId),
-  );
+const pickClaimBundleForEntry = (entry: ReceptionEntry, bundles: ClaimBundle[]) => {
+  if (entry.appointmentId) {
+    const byAppointment = bundles.find((bundle) => bundle.appointmentId === entry.appointmentId);
+    if (byAppointment) return byAppointment;
+  }
+  if (entry.patientId) {
+    return bundles.find((bundle) => bundle.patientId === entry.patientId);
+  }
+  return undefined;
+};
 
 type QueuePhase = 'ok' | 'retrying' | 'holding' | 'error' | 'pending';
 

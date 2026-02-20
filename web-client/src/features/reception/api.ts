@@ -70,7 +70,7 @@ export type VisitMutationPayload = OutpatientMeta & {
   apiResultMessage?: string;
 };
 
-const mswEnabled = import.meta.env.VITE_DISABLE_MSW !== '1';
+const mswEnabled = import.meta.env.DEV && import.meta.env.VITE_DISABLE_MSW !== '1';
 const isTruthy = (value?: string) => {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();

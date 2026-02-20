@@ -77,15 +77,15 @@ export type PatientMutationResult = {
   sourcePath?: string;
 };
 
-const shouldUseMockCandidates = import.meta.env.DEV && import.meta.env.VITE_DISABLE_MSW !== '1';
+const mswEnabled = import.meta.env.DEV && import.meta.env.VITE_DISABLE_MSW !== '1';
 
 const patientInfoCandidates = [
   '/orca/patients/local-search',
-  ...(shouldUseMockCandidates ? ['/orca/patients/local-search/mock'] : []),
+  ...(mswEnabled ? ['/orca/patients/local-search/mock'] : []),
 ];
 const patientMutationCandidates = [
   '/orca12/patientmodv2/outpatient',
-  ...(shouldUseMockCandidates ? ['/orca12/patientmodv2/outpatient/mock'] : []),
+  ...(mswEnabled ? ['/orca12/patientmodv2/outpatient/mock'] : []),
 ];
 
 const normalizeBoolean = (value: unknown) => {

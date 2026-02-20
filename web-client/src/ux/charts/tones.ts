@@ -47,7 +47,7 @@ const TRANSITION_META: Record<DataSourceTransition, TransitionMeta> = {
     label: 'dataSourceTransition=server',
     tone: 'warning',
     description: '実 ORCA サーバーから取得中。欠損が解消したら tone=info へ戻ります。',
-    reason: 'mock/snapshot→server （本値取得）',
+    reason: 'mock・snapshot→server （本値取得）',
   },
   fallback: {
     label: 'dataSourceTransition=fallback',

@@ -26,6 +26,8 @@ import { useAppNavigation } from '../../../routes/useAppNavigation';
 import { getObservabilityMeta } from '../../../libs/observability/observability';
 import { fetchOrcaReportPdf } from '../orcaReportApi';
 import { MISSING_MASTER_RECOVERY_NEXT_STEPS } from '../../shared/missingMasterRecovery';
+import { readStoredSession } from '../../../libs/session/storedSession';
+import type { StorageScope } from '../../../libs/session/storageScope';
 
 type OutputMode = DocumentOutputMode;
 type OutputStatus = 'idle' | 'printing' | 'completed' | 'failed';
@@ -51,6 +53,29 @@ const getReportState = (value: unknown): ReportPrintPreviewState | null => {
 const isReportState = (value: PrintPageState | null): value is ReportPrintPreviewState =>
   Boolean(value && typeof (value as ReportPrintPreviewState).dataId === 'string');
 
+const normalizeScopeValue = (value?: string) => value?.trim() ?? '';
+
+const resolveActorScope = (actor?: string): { facilityId: string; userId: string } | null => {
+  if (!actor) return null;
+  const trimmed = actor.trim();
+  const separator = trimmed.indexOf(':');
+  if (separator <= 0 || separator >= trimmed.length - 1) return null;
+  const facilityId = trimmed.slice(0, separator).trim();
+  const userId = trimmed.slice(separator + 1).trim();
+  if (!facilityId || !userId) return null;
+  return { facilityId, userId };
+};
+
+const isStateScopeMatched = (value: PrintPageState, scope?: StorageScope): boolean => {
+  const facilityId = normalizeScopeValue(scope?.facilityId);
+  const userId = normalizeScopeValue(scope?.userId);
+  if (!facilityId || !userId) return false;
+  if (normalizeScopeValue(value.facilityId) !== facilityId) return false;
+  const actorScope = resolveActorScope(value.actor);
+  if (!actorScope) return false;
+  return actorScope.facilityId === facilityId && actorScope.userId === userId;
+};
+
 export function ChartsDocumentPrintPage() {
   return (
     <>
@@ -62,9 +87,12 @@ export function ChartsDocumentPrintPage() {
 
 function ChartsDocumentPrintContent() {
   const session = useOptionalSession();
+  const storedSession = useMemo(() => readStoredSession(), [session?.facilityId, session?.userId]);
+  const resolvedFacilityId = session?.facilityId ?? storedSession?.facilityId;
+  const resolvedUserId = session?.userId ?? storedSession?.userId;
   const navigate = useNavigate();
   const location = useLocation();
-  const appNav = useAppNavigation({ facilityId: session?.facilityId, userId: session?.userId });
+  const appNav = useAppNavigation({ facilityId: resolvedFacilityId, userId: resolvedUserId });
   const queryParams = useMemo(
     () => new URLSearchParams(location.search.startsWith('?') ? location.search.slice(1) : location.search),
     [location.search],
@@ -79,21 +107,41 @@ function ChartsDocumentPrintContent() {
     const returnToState = state && typeof state.returnTo === 'string' ? state.returnTo : undefined;
     return returnToState ?? queryParams.get('returnTo') ?? undefined;
   }, [location.state, queryParams]);
-  const fallbackUrl = useMemo(() => buildFacilityPath(session?.facilityId, '/charts'), [session?.facilityId]);
+  const fallbackUrl = useMemo(() => buildFacilityPath(resolvedFacilityId, '/charts'), [resolvedFacilityId]);
   const safeReturnTo = useMemo(
-    () => (isSafeReturnTo(returnTo, session?.facilityId) ? returnTo : undefined),
-    [returnTo, session?.facilityId],
+    () => (isSafeReturnTo(returnTo, resolvedFacilityId) ? returnTo : undefined),
+    [resolvedFacilityId, returnTo],
   );
-  const storageScope = useMemo(
-    () => ({ facilityId: session?.facilityId, userId: session?.userId }),
-    [session?.facilityId, session?.userId],
+  const storageScope = useMemo<StorageScope | undefined>(() => {
+    if (!resolvedFacilityId || !resolvedUserId) return undefined;
+    return { facilityId: resolvedFacilityId, userId: resolvedUserId };
+  }, [resolvedFacilityId, resolvedUserId]);
+  const scopeReady = Boolean(storageScope?.facilityId && storageScope?.userId);
+  const returnToScope = useMemo(
+    () => ({ facilityId: resolvedFacilityId, userId: resolvedUserId }),
+    [resolvedFacilityId, resolvedUserId],
   );
-  const stateFromLocation = useMemo(
+  const stateFromLocationRaw = useMemo(
     () => getDocumentState(location.state) ?? getReportState(location.state),
     [location.state],
   );
-  const restoredDocument = useMemo(() => loadDocumentPrintPreview(storageScope), [storageScope]);
-  const restoredReport = useMemo(() => loadReportPrintPreview(storageScope), [storageScope]);
+  const stateFromLocation = useMemo(() => {
+    if (!stateFromLocationRaw) return null;
+    if (!scopeReady) return stateFromLocationRaw;
+    return isStateScopeMatched(stateFromLocationRaw, storageScope) ? stateFromLocationRaw : null;
+  }, [scopeReady, stateFromLocationRaw, storageScope]);
+  const restoredDocument = useMemo(() => {
+    if (!scopeReady) return null;
+    const restored = loadDocumentPrintPreview(storageScope);
+    if (!restored) return null;
+    return isStateScopeMatched(restored.value, storageScope) ? restored : null;
+  }, [scopeReady, storageScope]);
+  const restoredReport = useMemo(() => {
+    if (!scopeReady) return null;
+    const restored = loadReportPrintPreview(storageScope);
+    if (!restored) return null;
+    return isStateScopeMatched(restored.value, storageScope) ? restored : null;
+  }, [scopeReady, storageScope]);
   const state = useMemo<PrintPageState | null>(() => {
     return (
       stateFromLocation ??
@@ -138,13 +186,14 @@ function ChartsDocumentPrintContent() {
     const onAfterPrint = () => {
       const mode = lastModeRef.current;
       if (!mode) return;
+      const detail = `output=${mode} afterprint_dialog_closed (印刷成否は未判定)`;
       setOutputStatus('completed');
       setOutputError(null);
       recordChartsAuditEvent({
         action: 'PRINT_DOCUMENT',
-        outcome: 'success',
+        outcome: 'warning',
         subject: 'charts-document-output',
-        note: `output=${mode} afterprint`,
+        note: detail,
         patientId: state.document.patientId,
         actor: state.actor,
         runId: state.meta.runId,
@@ -160,10 +209,11 @@ function ChartsDocumentPrintContent() {
           templateId: state.document.templateId,
           documentId: state.document.id,
           endpoint: OUTPUT_ENDPOINT,
-          httpStatus: 200,
+          outputMode: mode,
+          outcome: 'completed',
         },
       });
-      storeOutputResult('success', mode, 'afterprint', 200);
+      storeOutputResult('completed', mode, detail);
       lastModeRef.current = null;
     };
     window.addEventListener('afterprint', onAfterPrint);
@@ -235,7 +285,12 @@ function ChartsDocumentPrintContent() {
   const outputGuardSummary = outputGuardReasons.map((reason) => reason.summary).join(' / ');
   const outputGuardDetail = outputGuardReasons.map((reason) => reason.detail).join(' / ');
 
-  const storeOutputResult = (outcome: 'success' | 'failed' | 'blocked', mode: OutputMode | null, detail?: string, httpStatus?: number) => {
+  const storeOutputResult = (
+    outcome: 'success' | 'failed' | 'blocked' | 'completed',
+    mode: OutputMode | null,
+    detail?: string,
+    httpStatus?: number,
+  ) => {
     if (!state || isReportState(state)) return;
     const traceId = getObservabilityMeta().traceId;
     saveDocumentOutputResult(
@@ -255,7 +310,7 @@ function ChartsDocumentPrintContent() {
   };
 
   const recordOutputAudit = (
-    outcome: 'started' | 'success' | 'blocked' | 'error',
+    outcome: 'started' | 'success' | 'blocked' | 'error' | 'warning',
     note: string,
     details?: Record<string, unknown>,
     error?: string,
@@ -275,7 +330,12 @@ function ChartsDocumentPrintContent() {
       dataSourceTransition: state?.meta.dataSourceTransition,
       details: {
         endpoint: OUTPUT_ENDPOINT,
-        httpStatus: outcome === 'success' ? 200 : outcome === 'error' || outcome === 'blocked' ? 0 : undefined,
+        httpStatus:
+          outcome === 'success'
+            ? 200
+            : outcome === 'error' || outcome === 'blocked'
+              ? 0
+              : undefined,
         ...(details ?? {}),
       },
     });
@@ -388,7 +448,7 @@ function ChartsDocumentPrintContent() {
       <main className="charts-print">
         <div className="charts-print__screen-only">
           <ReturnToBar
-            scope={{ facilityId: session?.facilityId, userId: session?.userId }}
+            scope={returnToScope}
             returnTo={returnTo}
             from={from}
             fallbackUrl={fallbackUrl}
@@ -421,7 +481,7 @@ function ChartsDocumentPrintContent() {
         restoredAt={restoredAt}
         restoredFromSession={restoredFromSession}
         onClose={handleClose}
-        scope={{ facilityId: session?.facilityId, userId: session?.userId }}
+        scope={returnToScope}
         returnTo={returnTo}
         from={from}
         fallbackUrl={fallbackUrl}
@@ -439,7 +499,7 @@ function ChartsDocumentPrintContent() {
     <main className="charts-print">
       <div className="charts-print__screen-only">
         <ReturnToBar
-          scope={{ facilityId: session?.facilityId, userId: session?.userId }}
+          scope={returnToScope}
           returnTo={returnTo}
           from={from}
           fallbackUrl={fallbackUrl}
