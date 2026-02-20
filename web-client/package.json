@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "dev:stage": "VITE_DISABLE_MSW=1 vite --host --https --env-file .env.stage",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/prune-prod-artifacts.mjs",
+    "prune:prod-artifacts": "node scripts/prune-prod-artifacts.mjs",
     "verify:prod-no-mocks": "node scripts/verify-prod-dist-no-mocks.mjs",
     "lint": "eslint .",
     "openapi:orca-master": "openapi-typescript ../docs/server-modernization/phase2/operations/assets/openapi/orca-master-orca05-06-08.yaml --output src/generated/orca-master.ts --enum --export-type",

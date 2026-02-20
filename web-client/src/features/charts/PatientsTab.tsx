@@ -157,6 +157,7 @@ export function PatientsTab({
   const infoLive = resolveAriaLive('info');
   const session = useSession();
   const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
+  const isLocalHistoryDebugEnabled = import.meta.env.DEV;
   const tonePayload: ChartTonePayload = {
     missingMaster: flags.missingMaster,
     cacheHit: flags.cacheHit,
@@ -1195,6 +1196,7 @@ export function PatientsTab({
   };
 
   const openAudit = () => {
+    if (!isLocalHistoryDebugEnabled) return;
     setAuditSnapshot(getAuditEventLog());
     setAuditOpen(true);
     recordOutpatientFunnel('charts_patient_sidepane', {
@@ -1301,9 +1303,11 @@ export function PatientsTab({
           <button type="button" className="patients-tab__ghost" onClick={() => scrollTo('diff')}>
             差分へ{changedKeys.length > 0 ? `（${changedKeys.length}件）` : ''}
           </button>
-          <button type="button" className="patients-tab__ghost" onClick={openAudit}>
-            保存履歴
-          </button>
+          {isLocalHistoryDebugEnabled ? (
+            <button type="button" className="patients-tab__ghost" onClick={openAudit}>
+              操作履歴（ローカル）
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -2074,14 +2078,18 @@ export function PatientsTab({
         </div>
       </FocusTrapDialog>
 
-      {auditOpen ? (
-        <div className="patients-tab__modal" role="dialog" aria-modal="true" aria-label="保存履歴（監査ログ）">
+      {isLocalHistoryDebugEnabled ? (
+        <FocusTrapDialog
+          open={auditOpen}
+          role="dialog"
+          title="操作履歴（ローカル）"
+          description="この一覧は開発用のローカル表示です。監査要件の正式な監査ログではありません。"
+          onClose={closeAudit}
+          testId="charts-local-history-dialog"
+        >
           <div className="patients-tab__modal-card">
             <div className="patients-tab__modal-header">
-              <h3>保存履歴（最新5件）</h3>
-              <button type="button" className="patients-tab__ghost" onClick={closeAudit}>
-                閉じる
-              </button>
+              <h3>操作履歴（ローカル、最新5件）</h3>
             </div>
             <p className="patients-tab__modal-sub">
               runId={flags.runId} ／ patientId={selectedPatientId ?? '—'} ／ traceId={(auditEvent as any)?.details?.traceId ?? '—'}
@@ -2089,7 +2097,7 @@ export function PatientsTab({
             <div className="patients-tab__modal-list" role="list">
               {relevantAuditEvents.length === 0 ? (
                 <p className="patients-tab__detail-empty" role="status" aria-live={infoLive}>
-                  まだ保存履歴がありません（Charts/Patients で保存するとここに反映されます）。
+                  まだ操作履歴がありません（Charts/Patients で保存するとここに反映されます）。
                 </p>
               ) : (
                 relevantAuditEvents.map((record, index) => {
@@ -2103,7 +2111,7 @@ export function PatientsTab({
                         const changedText = desc.changedText;
                         const keys = changedText ? changedText.split(',').map((s) => s.trim()).filter(Boolean) : [];
                         setDiffHighlightKeys(keys.length > 0 ? keys : changedKeys);
-                        setAuditOpen(false);
+                        closeAudit();
                         scrollTo('diff');
                       }}
                     >
@@ -2122,7 +2130,7 @@ export function PatientsTab({
                 })
               )}
             </div>
-            <div className="patients-tab__modal-actions" role="group" aria-label="保存履歴の補助操作">
+            <div className="patients-tab__modal-actions" role="group" aria-label="操作履歴（ローカル）の補助操作">
               <button
                 type="button"
                 className="patients-tab__primary"
@@ -2145,7 +2153,7 @@ export function PatientsTab({
               </button>
             </div>
           </div>
-        </div>
+        </FocusTrapDialog>
       ) : null}
     </section>
   );

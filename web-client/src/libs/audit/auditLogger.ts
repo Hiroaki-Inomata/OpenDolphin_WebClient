@@ -64,6 +64,7 @@ export type UiStateLog = {
 };
 
 const uiStateLog: UiStateLog[] = [];
+const isDevRuntime = import.meta.env.DEV;
 
 const normalizeOptionalString = (value?: string | null): string | undefined => {
   if (typeof value !== 'string') return value ?? undefined;
@@ -168,15 +169,15 @@ export function logUiState(entry: Omit<UiStateLog, 'timestamp'>) {
   if (record.fallbackUsed === undefined) missing.push('fallbackUsed');
   if (!record.facilityId) missing.push('facilityId');
   const maskedRecord = maskSensitiveLog(record);
-  if (missing.length > 0 && typeof console !== 'undefined') {
+  if (missing.length > 0 && isDevRuntime && typeof console !== 'undefined') {
     console.warn('[audit] UI state schema warning', { missing, record: maskedRecord });
   }
   uiStateLog.push(record);
   // 監査の目視突き合わせ用にブラウザコンソールと window へ露出する。
-  if (typeof console !== 'undefined') {
+  if (isDevRuntime && typeof console !== 'undefined') {
     console.info('[audit] UI state', maskedRecord);
   }
-  if (typeof window !== 'undefined') {
+  if (isDevRuntime && typeof window !== 'undefined') {
     (window as any).__AUDIT_UI_STATE__ = uiStateLog.map((entry) => maskSensitiveLog(entry));
   }
   // tone 変更や runId 更新の副作用が meta に伝播するよう同期する。
@@ -312,10 +313,10 @@ export function logAuditEvent(entry: Omit<AuditEventRecord, 'timestamp'>) {
   };
   auditEventLog.push(record);
   const maskedEvent = maskSensitiveLog(record);
-  if (typeof console !== 'undefined') {
+  if (isDevRuntime && typeof console !== 'undefined') {
     console.info('[audit] event', maskedEvent);
   }
-  if (typeof window !== 'undefined') {
+  if (isDevRuntime && typeof window !== 'undefined') {
     (window as any).__AUDIT_EVENTS__ = auditEventLog.map((entry) => maskSensitiveLog(entry));
   }
   updateObservabilityMeta({
