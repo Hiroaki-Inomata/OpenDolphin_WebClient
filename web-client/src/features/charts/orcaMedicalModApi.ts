@@ -1,9 +1,10 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { getObservabilityMeta } from '../../libs/observability/observability';
-import { checkRequiredTags, extractOrcaXmlMeta, parseXmlDocument } from '../../libs/xml/xmlUtils';
+import { checkRequiredTags, escapeXml, extractOrcaXmlMeta, isOrcaApiResultOk, parseXmlDocument } from '../../libs/xml/xmlUtils';
 
 export type OrcaXmlResponse = {
   ok: boolean;
+  apiOk?: boolean;
   status: number;
   rawXml: string;
   apiResult?: string;
@@ -29,11 +30,11 @@ export const buildMedicalModV23RequestXml = (params: {
   return [
     '<data>',
     '  <medicalv2req3 type="record">',
-    `    <Request_Number type="string">${params.requestNumber ?? ''}</Request_Number>`,
-    `    <Patient_ID type="string">${params.patientId}</Patient_ID>`,
-    `    <First_Calculation_Date type="string">${params.firstCalculationDate ?? ''}</First_Calculation_Date>`,
-    `    <LastVisit_Date type="string">${params.lastVisitDate ?? ''}</LastVisit_Date>`,
-    `    <Department_Code type="string">${params.departmentCode ?? ''}</Department_Code>`,
+    `    <Request_Number type="string">${escapeXml(params.requestNumber ?? '')}</Request_Number>`,
+    `    <Patient_ID type="string">${escapeXml(params.patientId)}</Patient_ID>`,
+    `    <First_Calculation_Date type="string">${escapeXml(params.firstCalculationDate ?? '')}</First_Calculation_Date>`,
+    `    <LastVisit_Date type="string">${escapeXml(params.lastVisitDate ?? '')}</LastVisit_Date>`,
+    `    <Department_Code type="string">${escapeXml(params.departmentCode ?? '')}</Department_Code>`,
     '  </medicalv2req3>',
     '</data>',
   ].join('\n');
@@ -53,9 +54,11 @@ export async function postOrcaMedicalModXml(requestXml: string, options: { signa
   const rawXml = await response.text();
   const { doc, error } = parseXmlDocument(rawXml);
   const meta = extractOrcaXmlMeta(doc);
+  const apiOk = isOrcaApiResultOk(meta.apiResult);
   const requiredCheck = checkRequiredTags(doc, ['Api_Result']);
   return {
     ok: response.ok && !error,
+    apiOk,
     status: response.status,
     rawXml,
     apiResult: meta.apiResult,
@@ -83,9 +86,11 @@ export async function postOrcaMedicalModV23Xml(requestXml: string, options: { si
   const rawXml = await response.text();
   const { doc, error } = parseXmlDocument(rawXml);
   const meta = extractOrcaXmlMeta(doc);
+  const apiOk = isOrcaApiResultOk(meta.apiResult);
   const requiredCheck = checkRequiredTags(doc, ['Api_Result']);
   return {
     ok: response.ok && !error,
+    apiOk,
     status: response.status,
     rawXml,
     apiResult: meta.apiResult,

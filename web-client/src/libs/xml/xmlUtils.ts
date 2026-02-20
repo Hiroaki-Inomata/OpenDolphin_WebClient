@@ -15,6 +15,21 @@ export type XmlTagCheck = {
   hasMissing: boolean;
 };
 
+const API_RESULT_OK_PATTERN = /^0+$/;
+
+export function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+export function isOrcaApiResultOk(apiResult?: string): boolean {
+  return Boolean(apiResult && API_RESULT_OK_PATTERN.test(apiResult));
+}
+
 export function parseXmlDocument(xmlText: string): XmlParseResult {
   if (typeof DOMParser === 'undefined') {
     return { doc: null, error: 'DOMParser is not available in this environment.' };

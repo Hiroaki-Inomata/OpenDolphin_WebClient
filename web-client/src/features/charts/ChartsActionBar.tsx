@@ -260,6 +260,12 @@ const fetchMedicalModV2OrderBundles = async (patientId: string, from: string) =>
   results.forEach((result, index) => {
     const entity = ORCA_SEND_ORDER_ENTITIES[index];
     if (result.status === 'fulfilled') {
+      if (!result.value.ok) {
+        const status = typeof result.value.status === 'number' ? `HTTP ${result.value.status}` : 'request_failed';
+        const reason = result.value.message?.trim() || result.value.errorCode?.trim() || status;
+        errors.push(`${entity}: ${reason}`);
+        return;
+      }
       bundles.push(...(result.value.bundles ?? []).map((bundle) => ({ ...bundle, entity: bundle.entity ?? entity })));
       return;
     }
@@ -1435,6 +1441,18 @@ export function ChartsActionBar({
           onApprovalConfirmed?.({ action: 'send', actor });
 
           const orderBundleResult = await fetchMedicalModV2OrderBundles(resolvedPatientId, calculationDate);
+          if (orderBundleResult.errors.length > 0) {
+            const failedEntitiesPreview = orderBundleResult.errors.slice(0, 6).join(' / ');
+            const remaining = orderBundleResult.errors.length - 6;
+            setBanner({
+              tone: 'warning',
+              message: `ORCA送信を停止: オーダー取得失敗（${failedEntitiesPreview}${remaining > 0 ? ` / 他${remaining}件` : ''}）`,
+              nextAction: '取得失敗したentityの通信状態とORCA連携設定を確認してください。',
+            });
+            setIsRunning(false);
+            setRunningAction(null);
+            return;
+          }
           const medicalInformationWithSource = orderBundleResult.bundles
             .map(toMedicalModV2InformationWithSource)
             .filter(
@@ -1444,10 +1462,9 @@ export function ChartsActionBar({
           const medicalInformation = medicalInformationWithSource.map((entry) => entry.info);
 
           // ORCA medicalmodv2 limits: Medical_Information max 40 groups, Medication_info max 40 rows per group.
-          // `buildMedicalModV2RequestXml` always prepends a base group, so we reserve 1 slot here.
           const groupLimit = 40;
           const rowLimit = 40;
-          const totalGroups = medicalInformation.length + 1;
+          const totalGroups = medicalInformation.length;
           const groupLimitExceeded = totalGroups > groupLimit;
           const rowLimitExceeded = medicalInformation.some((info) => (info.medications?.length ?? 0) > rowLimit);
           if (groupLimitExceeded || rowLimitExceeded) {
@@ -1473,10 +1490,13 @@ export function ChartsActionBar({
             info.medications.forEach((item, rowIndex) => {
               const code = item.code?.trim() ?? '';
               if (!code) return;
+              const rowSource = medicalInformationSources[groupIndex]?.rows[rowIndex];
+              const usageRow = rowSource?.source.kind === 'usage';
+              if (usageRow && /^\d+$/.test(code)) return;
               if (isSendableMedicalModV2Code(code)) return;
               if (invalidCodes.length >= 12) return;
-              invalidCodes.push({ code, name: item.name?.trim() || undefined, group: groupIndex + 2, row: rowIndex + 1 });
-              // groupIndex + 2: +1 for 1-based, +1 for base group prepended by buildMedicalModV2RequestXml
+              invalidCodes.push({ code, name: item.name?.trim() || undefined, group: groupIndex + 1, row: rowIndex + 1 });
+              // groupIndex + 1: ORCA warning position is 1-based.
             });
           });
           if (invalidCodes.length > 0) {
@@ -1486,7 +1506,7 @@ export function ChartsActionBar({
               .join(' / ');
             setBanner({
               tone: 'warning',
-              message: `ORCA送信を停止: 9桁コード以外の入力コードがあります（コメントコード系を除く）: ${preview}`,
+              message: `ORCA送信を停止: 9桁コード/コメント/用法数字コード以外の入力コードがあります: ${preview}`,
               nextAction: 'オーダー入力に戻り、候補選択またはコード補正候補を適用してください。',
             });
             setIsRunning(false);
@@ -1503,10 +1523,11 @@ export function ChartsActionBar({
           });
           const result = await postOrcaMedicalModV2Xml(requestXml, { classCode: '01', signal });
           const idempotentDuplicate = isIdempotentDuplicate(result.apiResult, result.apiResultMessage);
-          const apiResultOk = isApiResultOk(result.apiResult) || idempotentDuplicate;
+          const transportOk = result.ok;
+          const apiOk = (result.apiOk ?? isApiResultOk(result.apiResult)) || idempotentDuplicate;
           const hasMissingTags = Boolean(result.missingTags?.length);
           const allowMissingTags = idempotentDuplicate;
-          const outcome = result.ok && apiResultOk && (!hasMissingTags || allowMissingTags) ? 'success' : result.ok ? 'warning' : 'error';
+          const outcome = transportOk && apiOk && (!hasMissingTags || allowMissingTags) ? 'success' : transportOk ? 'warning' : 'error';
           const durationMs = Math.round(performance.now() - startedAt);
           const nextRunId = result.runId ?? getObservabilityMeta().runId ?? runId;
           const nextTraceId = result.traceId ?? getObservabilityMeta().traceId ?? resolvedTraceId;
@@ -1522,7 +1543,7 @@ export function ChartsActionBar({
           const mappedWarnings: OrcaMedicalWarningUi[] = (result.medicalWarnings ?? []).map((warning) => {
             const groupPosition = warning.medicalWarningPosition;
             const itemPosition = warning.medicalWarningItemPosition;
-            const groupIndex = typeof groupPosition === 'number' ? groupPosition - 2 : undefined;
+            const groupIndex = typeof groupPosition === 'number' ? groupPosition - 1 : undefined;
             const groupSource =
               typeof groupIndex === 'number' && groupIndex >= 0 && groupIndex < medicalInformationSources.length
                 ? medicalInformationSources[groupIndex]
@@ -1609,6 +1630,8 @@ export function ChartsActionBar({
               physicianCode,
               invoiceNumber: result.invoiceNumber,
               dataId: result.dataId,
+              transportOk,
+              apiOk,
               missingTags: result.missingTags,
               medicalWarnings: mappedWarnings.length > 0 ? mappedWarnings.length : undefined,
               retryQueue: retryMeta,
@@ -1821,9 +1844,10 @@ export function ChartsActionBar({
             });
             try {
               const result = await postOrcaMedicalModV23Xml(requestXml, { signal });
-              const apiResultOk = isApiResultOk(result.apiResult);
+              const transportOk = result.ok;
+              const apiOk = result.apiOk ?? isApiResultOk(result.apiResult);
               const hasMissingTags = Boolean(result.missingTags?.length);
-              const outcome = result.ok && apiResultOk && !hasMissingTags ? 'success' : result.ok ? 'warning' : 'error';
+              const outcome = transportOk && apiOk && !hasMissingTags ? 'success' : transportOk ? 'warning' : 'error';
               const bannerDetail = [
                 `Api_Result=${result.apiResult ?? '—'}`,
                 result.apiResultMessage ? `Message=${result.apiResultMessage}` : undefined,
@@ -1856,6 +1880,8 @@ export function ChartsActionBar({
                   httpStatus: result.status,
                   apiResult: result.apiResult,
                   apiResultMessage: result.apiResultMessage,
+                  transportOk,
+                  apiOk,
                   missingTags: result.missingTags,
                 },
               });
@@ -1877,6 +1903,8 @@ export function ChartsActionBar({
                   httpStatus: result.status,
                   apiResult: result.apiResult,
                   apiResultMessage: result.apiResultMessage,
+                  transportOk,
+                  apiOk,
                   missingTags: result.missingTags,
                 },
               });
