@@ -115,7 +115,7 @@ const visitCandidates: Array<{ path: string; source: ResolveMasterSource }> = [
 
 const visitMutationCandidates = [
   { path: '/orca/visits/mutation', source: 'server' as ResolveMasterSource },
-  { path: '/orca/visits/mutation/mock', source: 'mock' as ResolveMasterSource },
+  ...(mswEnabled ? [{ path: '/orca/visits/mutation/mock', source: 'mock' as ResolveMasterSource }] : []),
 ];
 
 const preferredSource = (): ResolveMasterSource | undefined => (mswEnabled ? 'mock' : 'server');

@@ -127,7 +127,11 @@ type PatientSearchPanelPosition = {
   top: number;
 };
 
-const todayString = () => new Date().toISOString().slice(0, 10);
+const pad2 = (value: number) => value.toString().padStart(2, '0');
+const formatLocalYmd = (date: Date) =>
+  `${date.getFullYear().toString().padStart(4, '0')}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+const formatLocalHms = (date: Date) => `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+const todayString = () => formatLocalYmd(new Date());
 
 const resolvePatientSearchPanelWidth = (viewportWidth: number) =>
   Math.min(PATIENT_SEARCH_PANEL_MAX_WIDTH, viewportWidth * PATIENT_SEARCH_PANEL_WIDTH_RATIO);
@@ -267,6 +271,12 @@ const resolveDepartmentCode = (department?: string) => {
   if (leading) return leading;
   const match = trimmed.match(/\b(\d{2})\b/);
   return match?.[1];
+};
+const DEPARTMENT_CODE_RE = /^\d{2}$/;
+const normalizeDepartmentCode = (value?: string) => {
+  const code = resolveDepartmentCode(value);
+  if (!code) return undefined;
+  return DEPARTMENT_CODE_RE.test(code) ? code : undefined;
 };
 
 const isApiResultOk = (apiResult?: string) => Boolean(apiResult && /^0+$/.test(apiResult));
@@ -483,10 +493,10 @@ const toBundleTimeMs = (value?: string): number => {
 const shiftDate = (value: string, dayDelta: number): string => {
   const normalized = normalizeVisitDate(value);
   if (!normalized) return value;
-  const parsed = new Date(`${normalized}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return value;
-  parsed.setDate(parsed.getDate() + dayDelta);
-  return parsed.toISOString().slice(0, 10);
+  const parsed = toUtcDateFromYmd(normalized);
+  if (!parsed) return value;
+  parsed.setUTCDate(parsed.getUTCDate() + dayDelta);
+  return formatYmd(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, parsed.getUTCDate());
 };
 
 type DailyCalendarCell = {
@@ -730,8 +740,8 @@ export function ReceptionPage({
     () => normalizeVisitDate(searchParams.get('visitDate') ?? undefined),
     [searchParams],
   );
-  const [keyword, setKeyword] = useState(() => searchParams.get('kw') ?? '');
-  const [submittedKeyword, setSubmittedKeyword] = useState(() => searchParams.get('kw') ?? '');
+  const [keyword, setKeyword] = useState('');
+  const [submittedKeyword, setSubmittedKeyword] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState(() => searchParams.get('dept') ?? '');
   const [physicianFilter, setPhysicianFilter] = useState(() => searchParams.get('phys') ?? '');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>(() => normalizePaymentMode(searchParams.get('pay')));
@@ -874,6 +884,8 @@ export function ReceptionPage({
   const lastAcceptAutoFill = useRef<{
     patientId?: string;
     paymentMode?: 'insurance' | 'self' | '';
+    departmentCode?: string;
+    physicianCode?: string;
   }>({});
   const lastAcceptAutoFillSignature = useRef<string | null>(null);
   const [acceptErrors, setAcceptErrors] = useState<{
@@ -1098,6 +1110,7 @@ export function ReceptionPage({
 
   const handleReceptionRealtimeEvent = useCallback(
     (event: ReceptionRealtimeEvent) => {
+      if (event.facilityId && event.facilityId !== session.facilityId) return;
       const eventType = event.type ?? 'reception.updated';
       if (eventType !== 'reception.updated' && eventType !== 'reception.replay-gap') {
         return;
@@ -1120,7 +1133,7 @@ export function ReceptionPage({
       }
       void queryClient.invalidateQueries({ queryKey: ORCA_QUEUE_QUERY_KEY }).catch(() => undefined);
     },
-    [queryClient],
+    [queryClient, session.facilityId],
   );
 
   useEffect(() => {
@@ -1146,7 +1159,7 @@ export function ReceptionPage({
 
   const appointmentErrorContext = useMemo(() => {
     const httpStatus = appointmentQuery.data?.httpStatus;
-    const hasHttpError = typeof httpStatus === 'number' && httpStatus >= 400;
+    const hasHttpError = typeof httpStatus === 'number' && (httpStatus === 0 || httpStatus >= 400);
     const error = appointmentQuery.isError ? appointmentQuery.error : hasHttpError ? `status ${httpStatus}` : undefined;
     if (!error && !hasHttpError) return null;
     return {
@@ -1202,16 +1215,21 @@ export function ReceptionPage({
       if (typeof localStorage === 'undefined') return null;
       try {
         const raw = localStorage.getItem(FILTER_STORAGE_KEY);
-        return raw
-          ? (JSON.parse(raw) as Partial<Record<'kw' | 'dept' | 'phys' | 'sort' | 'date' | 'pay' | 'visitDate', string>>)
-          : null;
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        return {
+          dept: typeof parsed.dept === 'string' ? parsed.dept : undefined,
+          phys: typeof parsed.phys === 'string' ? parsed.phys : undefined,
+          pay: typeof parsed.pay === 'string' ? parsed.pay : undefined,
+          date: typeof parsed.date === 'string' ? parsed.date : undefined,
+        };
       } catch {
         return null;
       }
     })();
     const openedFromCharts = searchParams.get('from') === 'charts';
+    const legacyKeyword = searchParams.get('kw');
     const fromUrl = {
-      kw: searchParams.get('kw') ?? undefined,
       dept: searchParams.get('dept') ?? undefined,
       phys: searchParams.get('phys') ?? undefined,
       pay: searchParams.get('pay') ?? undefined,
@@ -1224,9 +1242,9 @@ export function ReceptionPage({
       delete storedEffective.date;
     }
     const merged = { ...storedEffective, ...Object.fromEntries(Object.entries(fromUrl).filter(([, v]) => v !== undefined)) };
-    if (merged.kw !== undefined) {
-      setKeyword(merged.kw);
-      setSubmittedKeyword(merged.kw);
+    if (legacyKeyword !== null) {
+      setKeyword(legacyKeyword);
+      setSubmittedKeyword(legacyKeyword);
     }
     if (merged.dept !== undefined) setDepartmentFilter(merged.dept);
     if (merged.phys !== undefined) setPhysicianFilter(merged.phys);
@@ -1396,7 +1414,6 @@ export function ReceptionPage({
         params.delete(key);
       }
     };
-    setOrDelete('kw', keyword);
     setOrDelete('dept', departmentFilter);
     setOrDelete('phys', physicianFilter);
     if (paymentMode !== 'all') {
@@ -1425,11 +1442,9 @@ export function ReceptionPage({
     }
     if (typeof localStorage !== 'undefined') {
       const snapshot = {
-        kw: keyword,
         dept: departmentFilter,
         phys: physicianFilter,
         pay: paymentMode,
-        sort: sortKey,
         date: selectedDate,
       };
       localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(snapshot));
@@ -1437,7 +1452,6 @@ export function ReceptionPage({
   }, [
     departmentFilter,
     intentParam,
-    keyword,
     physicianFilter,
     paymentMode,
     searchParams,
@@ -1571,7 +1585,7 @@ export function ReceptionPage({
     const outcome = appointmentQuery.data?.outcome;
     if (outcome === 'error') return;
     const httpStatus = appointmentQuery.data?.httpStatus;
-    if (typeof httpStatus === 'number' && httpStatus >= 400) return;
+    if (typeof httpStatus === 'number' && (httpStatus === 0 || httpStatus >= 400)) return;
     if (normalizedLiveEntries.length > 0) return;
 
     saveReceptionEntriesForDate({
@@ -1777,12 +1791,6 @@ export function ReceptionPage({
       .sort(([aCode, aName], [bCode, bName]) => `${aCode} ${aName}`.localeCompare(`${bCode} ${bName}`, 'ja'))
       .slice(0, 200);
   }, [deptInfoOptions, departmentCodeMap, uniqueDepartments]);
-  useEffect(() => {
-    // TEMP: 診療科候補が取得できない場合はデフォルトコードを適用（撤去前提）
-    if (!acceptDepartmentSelection && departmentOptions.length > 0 && departmentOptions[0]?.[0]) {
-      setAcceptDepartmentSelection(departmentOptions[0][0]);
-    }
-  }, [acceptDepartmentSelection, departmentOptions]);
   const filteredEntries = useMemo(
     () => filterEntries(visibleAppointmentEntries, keyword, departmentFilter, physicianFilter, paymentMode),
     [departmentFilter, keyword, paymentMode, physicianFilter, visibleAppointmentEntries],
@@ -1998,14 +2006,13 @@ export function ReceptionPage({
 
   const receptionCarryover = useMemo<ReceptionCarryoverParams>(
     () => ({
-      kw: keyword.trim() || undefined,
       dept: departmentFilter || undefined,
       phys: physicianFilter || undefined,
       pay: paymentMode !== 'all' ? paymentMode : undefined,
       sort: sortKey,
       date: selectedDate || undefined,
     }),
-    [departmentFilter, keyword, paymentMode, physicianFilter, selectedDate, sortKey],
+    [departmentFilter, paymentMode, physicianFilter, selectedDate, sortKey],
   );
 
   const buildChartsUrlForEntry = useCallback(
@@ -2157,12 +2164,6 @@ export function ReceptionPage({
   });
 
   useEffect(() => {
-    if (!acceptPhysicianSelection && physicianOptions.length > 0) {
-      setAcceptPhysicianSelection(physicianOptions[0]);
-    }
-  }, [acceptPhysicianSelection, physicianOptions]);
-
-  useEffect(() => {
     if (!appointmentQuery.dataUpdatedAt) return;
     if (lastAppointmentUpdatedAt.current === appointmentQuery.dataUpdatedAt) return;
     const previous = lastAppointmentUpdatedAt.current;
@@ -2185,6 +2186,10 @@ export function ReceptionPage({
       if (!entry) return;
       const nextPatientId = entry.patientId?.trim() ?? '';
       const nextPaymentMode = resolvePaymentMode(entry.insurance ?? undefined);
+      const nextDepartmentCode =
+        normalizeDepartmentCode(entry.department) ??
+        (entry.department ? normalizeDepartmentCode(departmentCodeMap.get(entry.department)) : undefined);
+      const nextPhysicianCode = normalizePhysicianCode(entry.physician);
       const nextVisitKind = acceptVisitKind.trim() ? acceptVisitKind : '1';
       const shouldUpdate = (current: string, next: string, last?: string) =>
         Boolean(next) && (options?.force || !current.trim() || (last && current === last));
@@ -2212,32 +2217,54 @@ export function ReceptionPage({
         setAcceptVisitKind(nextVisitKind);
         updated = true;
       }
+      const currentDepartmentCode = normalizeDepartmentCode(acceptDepartmentSelection) ?? '';
+      const nextDepartmentSelection = nextDepartmentCode ?? '';
+      if (currentDepartmentCode !== nextDepartmentSelection) {
+        setAcceptDepartmentSelection(nextDepartmentSelection);
+        updated = true;
+      }
+      const currentPhysicianCode = normalizePhysicianCode(acceptPhysicianSelection) ?? '';
+      const nextPhysicianSelection = nextPhysicianCode ?? '';
+      if (currentPhysicianCode !== nextPhysicianSelection) {
+        setAcceptPhysicianSelection(nextPhysicianSelection);
+        updated = true;
+      }
       if (updated) {
         lastAcceptAutoFill.current = {
           patientId: nextPatientId || lastAcceptAutoFill.current.patientId,
           paymentMode: (nextPaymentMode && nextPaymentMode !== 'all'
             ? nextPaymentMode
             : lastAcceptAutoFill.current.paymentMode) as 'insurance' | 'self' | '',
+          departmentCode: nextDepartmentSelection || lastAcceptAutoFill.current.departmentCode,
+          physicianCode: nextPhysicianSelection || lastAcceptAutoFill.current.physicianCode,
         };
         setAcceptErrors((prev) => {
           const next = { ...prev };
           if (nextPatientId) delete next.patientId;
           if (nextPaymentMode) delete next.paymentMode;
+          if (nextDepartmentSelection) delete next.department;
+          if (nextPhysicianSelection) delete next.physician;
           return next;
         });
       }
     },
-    [acceptPatientId, acceptPaymentMode, acceptVisitKind],
+    [acceptDepartmentSelection, acceptPatientId, acceptPaymentMode, acceptPhysicianSelection, acceptVisitKind, departmentCodeMap],
   );
 
   const acceptAutoFillSignature = useMemo(() => {
     if (!selectedEntry) return null;
+    const departmentCode =
+      normalizeDepartmentCode(selectedEntry.department) ??
+      (selectedEntry.department ? normalizeDepartmentCode(departmentCodeMap.get(selectedEntry.department)) : '');
+    const physicianCode = normalizePhysicianCode(selectedEntry.physician) ?? '';
     return JSON.stringify({
       key: entryKey(selectedEntry),
       patientId: selectedEntry.patientId ?? '',
       paymentMode: resolvePaymentMode(selectedEntry.insurance ?? undefined) ?? '',
+      departmentCode: departmentCode ?? '',
+      physicianCode,
     });
-  }, [selectedEntry]);
+  }, [departmentCodeMap, selectedEntry]);
 
   useEffect(() => {
     if (!selectedEntry || !acceptAutoFillSignature) return;
@@ -2493,46 +2520,21 @@ export function ReceptionPage({
     return '01';
   }, []);
   const buildAuthJsonHeaders = useCallback(() => buildHttpHeaders({ headers: { 'Content-Type': 'application/json' } }), []);
-  const resolvedDepartmentCode = acceptDepartmentSelection || departmentFilter || '';
-  const resolvedPhysicianCode =
-    normalizePhysicianCode(acceptPhysicianSelection) ??
-    normalizePhysicianCode(physicianFilter) ??
-    normalizePhysicianCode(selectedEntry?.physician) ??
-    '';
-  useEffect(() => {
-    if (!acceptPhysicianSelection && resolvedPhysicianCode) {
-      setAcceptPhysicianSelection(resolvedPhysicianCode);
-    }
-  }, [acceptPhysicianSelection, resolvedPhysicianCode]);
+  const resolvedDepartmentCode =
+    normalizeDepartmentCode(acceptDepartmentSelection) ??
+    (DEPARTMENT_CODE_RE.test(departmentFilter.trim()) ? departmentFilter.trim() : '');
+  const resolvedPhysicianCode = normalizePhysicianCode(acceptPhysicianSelection) ?? '';
   const sendDirectAcceptMinimalForced = useCallback(() => {
     // TEMP: 強制送信ボタン専用（撤去前提）
     const now = new Date();
     const acceptancePush = resolveAcceptancePush('1');
     const resolvedMedicalInformation = resolveMedicalInformation(acceptNote);
-    if (!resolvedDepartmentCode) {
-      setAcceptErrors((prev) => ({ ...prev, department: '診療科を選択してください' }));
-      setAcceptResult({
-        tone: 'error',
-        message: '診療科を選択してください',
-        detail: '診療科コードが未設定です',
-      });
-      return;
-    }
-    if (!resolvedPhysicianCode) {
-      setAcceptErrors((prev) => ({ ...prev, physician: '担当医を選択してください' }));
-      setAcceptResult({
-        tone: 'error',
-        message: '担当医を選択してください',
-        detail: 'ドクターコードが未設定です',
-      });
-      return;
-    }
     const patientId = acceptPatientId.trim() || masterSelected?.patientId?.trim() || selectedEntry?.patientId?.trim() || '';
     const payload = {
       requestNumber: '01',
       patientId,
       acceptanceDate: selectedDate || todayString(),
-      acceptanceTime: now.toISOString().slice(11, 19),
+      acceptanceTime: formatLocalHms(now),
       acceptancePush,
       medicalInformation: resolvedMedicalInformation,
       departmentCode: resolvedDepartmentCode || undefined,
@@ -2603,8 +2605,6 @@ export function ReceptionPage({
       if (!trimmedPatientId) errors.patientId = '患者IDは必須です';
       if (!resolvedPaymentMode) errors.paymentMode = '保険/自費を選択してください';
       if (!resolvedVisitKind) errors.visitKind = '来院区分を選択してください';
-      if (!resolvedDepartmentCode) errors.department = '診療科を選択してください';
-      if (!resolvedPhysicianCode) errors.physician = '担当医を選択してください';
       const hasErrors = Object.keys(errors).length > 0;
       if (hasErrors) {
         setAcceptErrors(errors);
@@ -2620,7 +2620,7 @@ export function ReceptionPage({
         patientId: trimmedPatientId || '',
         requestNumber: '01',
         acceptanceDate: selectedDate || todayString(),
-        acceptanceTime: now.toISOString().slice(11, 19),
+        acceptanceTime: formatLocalHms(now),
         acceptancePush,
         medicalInformation: resolvedMedicalInformation,
         paymentMode: resolvedPaymentMode || undefined,
@@ -2758,7 +2758,7 @@ export function ReceptionPage({
         patientId,
         requestNumber: '02',
         acceptanceDate: selectedDate || todayString(),
-        acceptanceTime: now.toISOString().slice(11, 19),
+        acceptanceTime: formatLocalHms(now),
         acceptancePush: resolveAcceptancePush('1'),
         acceptanceId,
       };
@@ -5544,10 +5544,10 @@ export function ReceptionPage({
                         <small className="reception-accept__optional">候補が多いため上位200件に制限しています。</small>
                       )}
                       {acceptDepartmentSelection && departmentOptions.length === 1 && departmentOptions[0]?.[0] && (
-                        <small className="reception-accept__optional">暫定: 診療科コードのデフォルトを適用中</small>
+                        <small className="reception-accept__optional">選択中の行に基づいて診療科コードを反映しています。</small>
                       )}
                       {acceptDepartmentSelection && departmentOptions.length > 1 && (
-                        <small className="reception-accept__optional">既定: 先頭の診療科コードを自動選択</small>
+                        <small className="reception-accept__optional">選択中の行に一致する診療科コードを優先します。</small>
                       )}
                       {acceptErrors.department && <small className="reception-accept__error">{acceptErrors.department}</small>}
                     </label>
@@ -5599,13 +5599,13 @@ export function ReceptionPage({
                         </small>
                       )}
                       {acceptPhysicianSelection === '10001' && (
-                        <small className="reception-accept__optional">暫定: 担当医コードのデフォルト(10001)を適用中</small>
+                        <small className="reception-accept__optional">選択中の行の担当医コードを反映しています。</small>
                       )}
                       {physicianOptions.length >= 200 && (
                         <small className="reception-accept__optional">候補が多いため上位200件に制限しています。</small>
                       )}
                       {acceptPhysicianSelection && physicianOptions.length > 0 && (
-                        <small className="reception-accept__optional">既定: 先頭の担当医を自動選択</small>
+                        <small className="reception-accept__optional">選択中の行に一致する担当医コードを優先します。</small>
                       )}
                       {acceptErrors.physician && <small className="reception-accept__error">{acceptErrors.physician}</small>}
                     </label>
