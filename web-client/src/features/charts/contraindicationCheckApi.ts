@@ -1,6 +1,6 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { getObservabilityMeta } from '../../libs/observability/observability';
-import { checkRequiredTags, extractOrcaXmlMeta, parseXmlDocument, readXmlText } from '../../libs/xml/xmlUtils';
+import { checkRequiredTags, escapeXml, extractOrcaXmlMeta, isOrcaApiResultOk, parseXmlDocument, readXmlText } from '../../libs/xml/xmlUtils';
 
 export type ContraindicationMedication = {
   medicationCode: string;
@@ -25,6 +25,7 @@ export type ContraindicationResult = {
 
 export type ContraindicationCheckResponse = {
   ok: boolean;
+  apiOk?: boolean;
   status: number;
   rawXml: string;
   apiResult?: string;
@@ -52,8 +53,8 @@ export const buildContraindicationCheckRequestXml = (params: {
     .map(
       (med) => [
         '      <Medical_Information_child type="record">',
-        `        <Medication_Code type="string">${med.medicationCode}</Medication_Code>`,
-        `        <Medication_Name type="string">${med.medicationName ?? ''}</Medication_Name>`,
+        `        <Medication_Code type="string">${escapeXml(med.medicationCode)}</Medication_Code>`,
+        `        <Medication_Name type="string">${escapeXml(med.medicationName ?? '')}</Medication_Name>`,
         '      </Medical_Information_child>',
       ].join('\n'),
     )
@@ -62,10 +63,10 @@ export const buildContraindicationCheckRequestXml = (params: {
   return [
     '<data>',
     '  <contraindication_checkreq type="record">',
-    `    <Request_Number type="string">${params.requestNumber ?? '01'}</Request_Number>`,
-    `    <Patient_ID type="string">${params.patientId}</Patient_ID>`,
-    `    <Perform_Month type="string">${params.performMonth}</Perform_Month>`,
-    `    <Check_Term type="string">${params.checkTerm ?? '1'}</Check_Term>`,
+    `    <Request_Number type="string">${escapeXml(params.requestNumber ?? '01')}</Request_Number>`,
+    `    <Patient_ID type="string">${escapeXml(params.patientId)}</Patient_ID>`,
+    `    <Perform_Month type="string">${escapeXml(params.performMonth)}</Perform_Month>`,
+    `    <Check_Term type="string">${escapeXml(params.checkTerm ?? '1')}</Check_Term>`,
     '    <Medical_Information type="array">',
     medicationNodes,
     '    </Medical_Information>',
@@ -113,9 +114,11 @@ export async function fetchContraindicationCheckXml(requestXml: string): Promise
   const rawXml = await response.text();
   const { doc, error } = parseXmlDocument(rawXml);
   const meta = extractOrcaXmlMeta(doc);
+  const apiOk = isOrcaApiResultOk(meta.apiResult);
   const requiredCheck = checkRequiredTags(doc, ['Api_Result']);
   return {
     ok: response.ok && !error,
+    apiOk,
     status: response.status,
     rawXml,
     apiResult: meta.apiResult,

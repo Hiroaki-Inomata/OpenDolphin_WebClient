@@ -1,6 +1,6 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { getObservabilityMeta } from '../../libs/observability/observability';
-import { checkRequiredTags, extractOrcaXmlMeta, parseXmlDocument, readXmlText } from '../../libs/xml/xmlUtils';
+import { checkRequiredTags, escapeXml, extractOrcaXmlMeta, isOrcaApiResultOk, parseXmlDocument, readXmlText } from '../../libs/xml/xmlUtils';
 
 export type IncomeInfoEntry = {
   performDate?: string;
@@ -18,6 +18,7 @@ export type IncomeInfoEntry = {
 
 export type IncomeInfoResponse = {
   ok: boolean;
+  apiOk?: boolean;
   status: number;
   rawXml: string;
   apiResult?: string;
@@ -45,9 +46,9 @@ export const buildIncomeInfoRequestXml = (params: { patientId: string; performMo
   return [
     '<data>',
     '  <private_objects>',
-    `    <Patient_ID>${params.patientId}</Patient_ID>`,
-    `    <Perform_Month>${params.performMonth ?? ''}</Perform_Month>`,
-    `    <Perform_Year>${params.performYear ?? ''}</Perform_Year>`,
+    `    <Patient_ID>${escapeXml(params.patientId)}</Patient_ID>`,
+    `    <Perform_Month>${escapeXml(params.performMonth ?? '')}</Perform_Month>`,
+    `    <Perform_Year>${escapeXml(params.performYear ?? '')}</Perform_Year>`,
     '  </private_objects>',
     '</data>',
   ].join('\n');
@@ -83,9 +84,11 @@ export async function fetchOrcaIncomeInfoXml(requestXml: string): Promise<Income
   const rawXml = await response.text();
   const { doc, error } = parseXmlDocument(rawXml);
   const meta = extractOrcaXmlMeta(doc);
+  const apiOk = isOrcaApiResultOk(meta.apiResult);
   const requiredCheck = checkRequiredTags(doc, ['Api_Result']);
   return {
     ok: response.ok && !error,
+    apiOk,
     status: response.status,
     rawXml,
     apiResult: meta.apiResult,

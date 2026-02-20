@@ -1,6 +1,6 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { getObservabilityMeta } from '../../libs/observability/observability';
-import { checkRequiredTags, extractOrcaXmlMeta, parseXmlDocument, readXmlText } from '../../libs/xml/xmlUtils';
+import { checkRequiredTags, escapeXml, extractOrcaXmlMeta, isOrcaApiResultOk, parseXmlDocument, readXmlText } from '../../libs/xml/xmlUtils';
 
 export type MedicationGetInfo = {
   medicationCode?: string;
@@ -21,6 +21,7 @@ export type MedicationGetSelection = {
 
 export type MedicationGetResponse = {
   ok: boolean;
+  apiOk?: boolean;
   status: number;
   rawXml: string;
   apiResult?: string;
@@ -45,9 +46,9 @@ export const buildMedicationGetRequestXml = (params: {
   return [
     '<data>',
     '  <medicationgetreq type="record">',
-    `    <Request_Number type="string">${params.requestNumber ?? '02'}</Request_Number>`,
-    `    <Request_Code type="string">${params.requestCode}</Request_Code>`,
-    `    <Base_Date type="string">${params.baseDate ?? ''}</Base_Date>`,
+    `    <Request_Number type="string">${escapeXml(params.requestNumber ?? '02')}</Request_Number>`,
+    `    <Request_Code type="string">${escapeXml(params.requestCode)}</Request_Code>`,
+    `    <Base_Date type="string">${escapeXml(params.baseDate ?? '')}</Base_Date>`,
     '  </medicationgetreq>',
     '</data>',
   ].join('\n');
@@ -92,9 +93,11 @@ export async function fetchOrcaMedicationGetXml(requestXml: string): Promise<Med
   const rawXml = await response.text();
   const { doc, error } = parseXmlDocument(rawXml);
   const meta = extractOrcaXmlMeta(doc);
+  const apiOk = isOrcaApiResultOk(meta.apiResult);
   const requiredCheck = checkRequiredTags(doc, ['Api_Result']);
   return {
     ok: response.ok && !error,
+    apiOk,
     status: response.status,
     rawXml,
     apiResult: meta.apiResult,

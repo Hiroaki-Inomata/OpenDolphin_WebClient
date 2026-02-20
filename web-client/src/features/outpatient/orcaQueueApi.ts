@@ -1,5 +1,6 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { getObservabilityMeta, updateObservabilityMeta } from '../../libs/observability/observability';
+import { escapeXml, isOrcaApiResultOk } from '../../libs/xml/xmlUtils';
 
 export type OrcaQueueEntry = {
   patientId: string;
@@ -38,6 +39,7 @@ export type OrcaPushEventMeta = {
 
 export type OrcaPushEventResponse = {
   ok?: boolean;
+  apiOk?: boolean;
   runId?: string;
   traceId?: string;
   fetchedAt?: string;
@@ -112,13 +114,13 @@ export const buildOrcaPushEventRequestXml = (params?: {
   const fragments = [
     '<data>',
     '  <pusheventgetv2req type="record">',
-    `    <Request_Number type="string">${requestNumber}</Request_Number>`,
-    `    <Base_Date type="string">${baseDate}</Base_Date>`,
+    `    <Request_Number type="string">${escapeXml(requestNumber)}</Request_Number>`,
+    `    <Base_Date type="string">${escapeXml(baseDate)}</Base_Date>`,
   ];
-  if (params?.event) fragments.push(`    <Event type="string">${params.event}</Event>`);
-  if (params?.user) fragments.push(`    <User type="string">${params.user}</User>`);
-  if (params?.startTime) fragments.push(`    <Start_Time type="string">${params.startTime}</Start_Time>`);
-  if (params?.endTime) fragments.push(`    <End_Time type="string">${params.endTime}</End_Time>`);
+  if (params?.event) fragments.push(`    <Event type="string">${escapeXml(params.event)}</Event>`);
+  if (params?.user) fragments.push(`    <User type="string">${escapeXml(params.user)}</User>`);
+  if (params?.startTime) fragments.push(`    <Start_Time type="string">${escapeXml(params.startTime)}</Start_Time>`);
+  if (params?.endTime) fragments.push(`    <End_Time type="string">${escapeXml(params.endTime)}</End_Time>`);
   fragments.push('  </pusheventgetv2req>', '</data>');
   return fragments.join('\n');
 };
@@ -211,6 +213,7 @@ const normalizePushEventResponse = (json: unknown, headers: Headers, status: num
   const runId = headers.get('x-run-id') ?? getObservabilityMeta().runId;
   const traceId = headers.get('x-trace-id') ?? getObservabilityMeta().traceId;
   const apiResult = getString(payload.Api_Result ?? payload.apiResult);
+  const apiOk = isOrcaApiResultOk(apiResult);
   const apiResultMessage = getString(payload.Api_Result_Message ?? payload.apiResultMessage);
   const eventName = getString(payload.event ?? payload.Event);
   const missingTags = [
@@ -223,6 +226,7 @@ const normalizePushEventResponse = (json: unknown, headers: Headers, status: num
     runId,
     traceId,
     fetchedAt: new Date().toISOString(),
+    apiOk,
     apiResult,
     apiResultMessage,
     eventName,
@@ -304,6 +308,8 @@ export async function fetchOrcaPushEvents(params?: {
   const warning =
     !normalized.apiResult || !normalized.apiResultMessage
       ? `missing: ${(normalized.missingTags ?? []).join(', ') || 'Api_Result/Api_Result_Message'}`
+      : normalized.apiOk === false
+        ? `Api_Result=${normalized.apiResult ?? 'unknown'}`
       : undefined;
   return {
     ...normalized,

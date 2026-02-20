@@ -1,17 +1,10 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { getObservabilityMeta } from '../../libs/observability/observability';
-import { checkRequiredTags, extractOrcaXmlMeta, parseXmlDocument, readXmlText } from '../../libs/xml/xmlUtils';
-
-const escapeXml = (value: string) =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+import { checkRequiredTags, escapeXml, extractOrcaXmlMeta, isOrcaApiResultOk, parseXmlDocument, readXmlText } from '../../libs/xml/xmlUtils';
 
 export type OrcaClaimSendResult = {
   ok: boolean;
+  apiOk?: boolean;
   status: number;
   rawXml: string;
   apiResult?: string;
@@ -57,24 +50,29 @@ export const buildMedicalModV2RequestXml = (params: {
   physicianCode?: string;
   requestNumber?: string;
   medicalUid?: string;
+  includeInitialConsultation?: boolean;
   medicalInformation?: MedicalModV2Information[];
 }) => {
   const performDate = params.performDate.length >= 10 ? params.performDate.slice(0, 10) : params.performDate;
   const performTime = params.performDate.slice(11, 19) || '00:00:00';
   const physicianCode = params.physicianCode?.trim();
-  const baseMedicalInfo: MedicalModV2Information = {
-    medicalClass: '11',
-    medicalClassName: '基本診療料',
-    medicalClassNumber: '1',
-    medications: [
-      {
-        code: '110000010',
-        name: '初診料',
-        number: '1',
-      },
-    ],
-  };
-  const medicalInformation = [baseMedicalInfo, ...(params.medicalInformation ?? [])].reduce<
+  const baseMedicalInfo: MedicalModV2Information[] = params.includeInitialConsultation
+    ? [
+        {
+          medicalClass: '11',
+          medicalClassName: '基本診療料',
+          medicalClassNumber: '1',
+          medications: [
+            {
+              code: '110000010',
+              name: '初診料',
+              number: '1',
+            },
+          ],
+        },
+      ]
+    : [];
+  const medicalInformation = [...baseMedicalInfo, ...(params.medicalInformation ?? [])].reduce<
     Array<{
       medicalClass: string;
       medicalClassName?: string;
@@ -159,6 +157,7 @@ export async function postOrcaMedicalModV2Xml(
   const rawXml = await response.text();
   const { doc, error } = parseXmlDocument(rawXml);
   const meta = extractOrcaXmlMeta(doc);
+  const apiOk = isOrcaApiResultOk(meta.apiResult);
   const invoiceNumber = readXmlText(doc, 'Invoice_Number');
   const dataId = readXmlText(doc, 'Data_Id') ?? readXmlText(doc, 'DataID') ?? readXmlText(doc, 'Data_ID');
   const parsePosition = (value?: string) => {
@@ -188,6 +187,7 @@ export async function postOrcaMedicalModV2Xml(
   const requiredCheck = checkRequiredTags(doc, ['Api_Result', 'Invoice_Number', 'Data_Id']);
   return {
     ok: response.ok && !error,
+    apiOk,
     status: response.status,
     rawXml,
     apiResult: meta.apiResult,
