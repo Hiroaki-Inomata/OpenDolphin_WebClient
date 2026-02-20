@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 import { ChartsActionBar } from '../ChartsActionBar';
 import { postOrcaMedicalModV2Xml } from '../orcaClaimApi';
+import { fetchOrderBundles } from '../orderBundleApi';
 import { httpFetch } from '../../../libs/http/httpClient';
 import { recordChartsAuditEvent } from '../audit';
 
@@ -44,6 +45,10 @@ vi.mock('../orcaMedicalModApi', () => ({
   }),
 }));
 
+vi.mock('../orderBundleApi', () => ({
+  fetchOrderBundles: vi.fn().mockResolvedValue({ ok: true, bundles: [] }),
+}));
+
 vi.mock('../../../libs/http/httpClient', () => ({
   httpFetch: vi.fn(),
 }));
@@ -70,6 +75,10 @@ const baseProps = {
 };
 
 describe('ChartsActionBar', () => {
+  beforeEach(() => {
+    vi.mocked(fetchOrderBundles).mockResolvedValue({ ok: true, bundles: [] } as any);
+  });
+
   it('ORCA送信の成功をトーストと監査ログに反映する', async () => {
     const user = userEvent.setup();
     vi.mocked(postOrcaMedicalModV2Xml).mockResolvedValue({
