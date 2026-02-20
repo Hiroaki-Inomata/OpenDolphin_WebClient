@@ -133,6 +133,32 @@ const stripRowMeta = (item: OrderBundleItem): OrderBundleItem => {
 
 const buildEmptyItem = (): OrderBundleItem => ensureRowId({ name: '', quantity: '', unit: '', memo: '' });
 
+const hasOrderBundleItemValue = (item: OrderBundleItem) =>
+  Boolean(item.name?.trim() || item.code?.trim() || item.quantity?.trim() || item.unit?.trim() || item.memo?.trim());
+
+const ensureTrailingEmptyMainItem = (items: OrderBundleItem[]): OrderBundleItemWithRowId[] => {
+  if (items.length === 0) return [buildEmptyItem()];
+  let changed = false;
+  const rows = items.map((item) => {
+    const currentRowId = (item as OrderBundleItemWithRowId).rowId;
+    const ensured = ensureRowId(item);
+    if (ensured.rowId !== currentRowId) changed = true;
+    return ensured;
+  });
+  if (hasOrderBundleItemValue(rows[rows.length - 1])) {
+    rows.push(buildEmptyItem());
+    changed = true;
+  }
+  return changed ? rows : (items as OrderBundleItemWithRowId[]);
+};
+
+const formatItemQuantitySummary = (item: OrderBundleItem, quantityLabel: string) => {
+  const quantity = item.quantity?.trim() ?? '';
+  const unit = item.unit?.trim() ?? '';
+  if (!quantity && !unit) return `${quantityLabel}: 未入力`;
+  return `${quantityLabel}: ${[quantity, unit].filter(Boolean).join(' ')}`;
+};
+
 const safeScrollIntoView = (el: HTMLElement, options?: ScrollIntoViewOptions) => {
   if (typeof el.scrollIntoView !== 'function') return;
   el.scrollIntoView(options);
@@ -177,6 +203,20 @@ const PRESCRIPTION_CLASS_NAMES: Record<string, string> = {
   '232': '外用薬剤（院外処方）',
   '291': '内服薬剤（臨時投薬）（院内）',
   '292': '内服薬剤（臨時投薬）（院外）',
+};
+const NON_PRESCRIPTION_CLASS_META_BY_ENTITY: Record<string, { classCode: string; className: string }> = {
+  injectionOrder: { classCode: '310', className: '注射' },
+  treatmentOrder: { classCode: '400', className: '処置' },
+  generalOrder: { classCode: '400', className: '処置' },
+  surgeryOrder: { classCode: '500', className: '手術' },
+  testOrder: { classCode: '600', className: '検査' },
+  laboTest: { classCode: '600', className: '検査' },
+  physiologyOrder: { classCode: '600', className: '検査' },
+  bacteriaOrder: { classCode: '600', className: '検査' },
+  radiologyOrder: { classCode: '700', className: '画像診断' },
+  otherOrder: { classCode: '800', className: 'その他' },
+  baseChargeOrder: { classCode: '110', className: '基本診療料' },
+  instractionChargeOrder: { classCode: '130', className: '医学管理等' },
 };
 const PRESCRIPTION_LOCATION_OPTIONS: Array<{ value: PrescriptionLocation; label: string }> = [
   { value: 'in', label: '院内' },
@@ -551,7 +591,7 @@ export const toFormState = (bundle: OrderBundle, today: string): BundleFormState
     startDate: bundle.started ?? today,
     prescriptionLocation: prescription.location,
     prescriptionTiming: prescription.timing,
-    items: mergedItems.length > 0 ? mergedItems.map(ensureRowId) : [buildEmptyItem()],
+    items: ensureTrailingEmptyMainItem(mergedItems.length > 0 ? mergedItems : [buildEmptyItem()]),
     materialItems: [],
     commentItems: comment.map(ensureRowId),
     bodyPart,
@@ -577,10 +617,11 @@ const toFormStateFromRecommendation = (template: OrderRecommendationTemplate, to
   startDate: today,
   prescriptionLocation: template.prescriptionLocation ?? DEFAULT_PRESCRIPTION_LOCATION,
   prescriptionTiming: template.prescriptionTiming ?? DEFAULT_PRESCRIPTION_TIMING,
-  items:
+  items: ensureTrailingEmptyMainItem(
     [...template.items, ...template.materialItems].length > 0
       ? [...template.items, ...template.materialItems].map((item) => ensureRowId({ ...item }))
       : [buildEmptyItem()],
+  ),
   materialItems: [],
   commentItems: template.commentItems.map((item) => ({ ...item })),
   bodyPart: template.bodyPart ? { ...template.bodyPart } : null,
@@ -1777,7 +1818,15 @@ export function OrderBundleEditPanel({
   };
 
   const resolveBundleClassMeta = (bundleForm: BundleFormState) => {
-    if (!isMedOrder) return {};
+    if (!isMedOrder) {
+      const mapped = NON_PRESCRIPTION_CLASS_META_BY_ENTITY[entity];
+      if (!mapped) return {};
+      return {
+        classCode: mapped.classCode,
+        classCodeSystem: PRESCRIPTION_CLASS_CODE_SYSTEM,
+        className: mapped.className,
+      };
+    }
     const classCode = resolvePrescriptionClassCode(bundleForm.prescriptionTiming, bundleForm.prescriptionLocation);
     return {
       classCode,
@@ -2646,6 +2695,15 @@ export function OrderBundleEditPanel({
   const removeSelectedItemRow = () => removeItemRowById(selectedItemRowId);
 
   useEffect(() => {
+    const normalizedItems = ensureTrailingEmptyMainItem(form.items);
+    if (normalizedItems === form.items) return;
+    setForm((prev) => {
+      if (prev.items !== form.items) return prev;
+      return { ...prev, items: normalizedItems };
+    });
+  }, [form.items]);
+
+  useEffect(() => {
     const rows = form.items;
     if (rows.length === 0) {
       setSelectedItemRowId(null);
@@ -3417,247 +3475,259 @@ export function OrderBundleEditPanel({
               ))}
             </datalist>
           )}
-          {form.items.map((item, index) => (
-            <div
-              key={(item as OrderBundleItemWithRowId).rowId ?? `${entity}-item-${index}`}
-              className={`charts-side-panel__item-row${
-                isMedOrder ? ' charts-side-panel__item-row--med' : ''
-              }${
-                orcaWarningTargets.items.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
-              }${
-                itemsError && index === 0 ? ' charts-side-panel__item-row--invalid' : ''
-              }${
-                dragOverIndex === index ? ' charts-side-panel__item-row--drag-over' : ''
-              }${draggingIndex === index ? ' charts-side-panel__item-row--dragging' : ''}${
-                selectedItemRowId === (item as OrderBundleItemWithRowId).rowId
-                  ? ' charts-side-panel__item-row--selected'
-                  : ''
-              }`}
-              data-invalid={itemsError && index === 0 ? 'true' : undefined}
-              data-testid="order-bundle-item-row"
-              data-rowid={(item as OrderBundleItemWithRowId).rowId ?? ''}
-              onClick={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
-              onDragOver={(event) => {
-                if (isBlocked) return;
-                event.preventDefault();
-                setDragOverIndex(index);
-              }}
-              onDrop={(event) => {
-                if (isBlocked) return;
-                event.preventDefault();
-                const fromIndex = Number(event.dataTransfer.getData('text/plain'));
-                if (Number.isNaN(fromIndex) || fromIndex === index) {
-                  setDragOverIndex(null);
-                  setDraggingIndex(null);
-                  return;
-                }
-                setForm((prev) => ({
-                  ...prev,
-                  items: reorderItems(prev.items, fromIndex, index),
-                }));
-                setDragOverIndex(null);
-                setDraggingIndex(null);
-              }}
-            >
-              <button
-                type="button"
-                className="charts-side-panel__drag-handle"
-                aria-label={`行 ${index + 1} をドラッグして並べ替え`}
-                draggable={!isBlocked}
-                onDragStart={(event) => {
-                  if (isBlocked) return;
-                  event.dataTransfer.effectAllowed = 'move';
-                  event.dataTransfer.setData('text/plain', String(index));
-                  setDraggingIndex(index);
-                }}
-                onDragEnd={() => {
-                  setDragOverIndex(null);
-                  setDraggingIndex(null);
-                }}
-                onFocus={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
-                disabled={isBlocked}
-              >
-                ≡
-              </button>
-              <input
-                id={`${entity}-item-name-${index}`}
-                name={`${entity}-item-name-${index}`}
-                value={item.name}
-                aria-invalid={itemsError && index === 0 ? 'true' : undefined}
-                list={
-                  (item as OrderBundleItemWithRowId).rowId === selectedItemRowId && itemPredictiveCandidates.length > 0
-                    ? `${entity}-item-predictive-list`
-                    : undefined
-                }
-                onChange={(event) => {
-                  const value = event.target.value;
-                  clearValidationByKeys(['missing_items']);
-                  setForm((prev) => {
-                    const next = [...prev.items];
-                    next[index] = { ...next[index], name: value };
-                    return { ...prev, items: next };
-                  });
-                }}
-                onKeyDown={(event) => {
-                  if (isBlocked) return;
-                  const rowId = (item as OrderBundleItemWithRowId).rowId;
-                  if (!rowId || rowId !== selectedItemRowId) return;
-                  if (visibleItemPredictiveCandidates.length === 0) return;
-                  if (event.key === 'ArrowDown') {
+          {form.items.map((item, index) => {
+            const rowId = (item as OrderBundleItemWithRowId).rowId;
+            const rowSummary = [
+              `コード: ${item.code?.trim() || '未設定'}`,
+              formatItemQuantitySummary(item, itemQuantityLabel),
+              ...(isMedOrder
+                ? [
+                    `${orderUiProfile.instructionLabel}: ${form.admin.trim() || '未入力'}`,
+                    `${bundleNumberLabel}: ${form.bundleNumber.trim() || '未入力'}`,
+                  ]
+                : []),
+            ].join(' / ');
+            const shouldShowRowSummary = hasOrderBundleItemValue(item);
+            return (
+              <div key={rowId ?? `${entity}-item-${index}`}>
+                <div
+                  className={`charts-side-panel__item-row${
+                    isMedOrder ? ' charts-side-panel__item-row--med' : ''
+                  }${
+                    orcaWarningTargets.items.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
+                  }${
+                    itemsError && index === 0 ? ' charts-side-panel__item-row--invalid' : ''
+                  }${
+                    dragOverIndex === index ? ' charts-side-panel__item-row--drag-over' : ''
+                  }${draggingIndex === index ? ' charts-side-panel__item-row--dragging' : ''}${
+                    selectedItemRowId === rowId ? ' charts-side-panel__item-row--selected' : ''
+                  }`}
+                  data-invalid={itemsError && index === 0 ? 'true' : undefined}
+                  data-testid="order-bundle-item-row"
+                  data-rowid={rowId ?? ''}
+                  onClick={() => setSelectedItemRowId(rowId ?? null)}
+                  onDragOver={(event) => {
+                    if (isBlocked) return;
                     event.preventDefault();
-                    event.stopPropagation();
-                    setItemCandidateCursor((prev) => {
-                      if (prev < 0) return 0;
-                      return Math.min(prev + 1, visibleItemPredictiveCandidates.length - 1);
-                    });
-                    return;
-                  }
-                  if (event.key === 'ArrowUp') {
+                    setDragOverIndex(index);
+                  }}
+                  onDrop={(event) => {
+                    if (isBlocked) return;
                     event.preventDefault();
-                    event.stopPropagation();
-                    setItemCandidateCursor((prev) => {
-                      if (prev < 0) return visibleItemPredictiveCandidates.length - 1;
-                      return Math.max(prev - 1, 0);
-                    });
-                    return;
-                  }
-                  if (event.key === 'Escape') {
-                    setItemCandidateCursor(-1);
-                    return;
-                  }
-                  if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
-                    if (itemCandidateCursor < 0) return;
-                    const candidate = visibleItemPredictiveCandidates[itemCandidateCursor];
-                    if (!candidate) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    applyPredictiveItem(rowId, candidate.item);
-                    setItemCandidateCursor(-1);
-                    requestAnimationFrame(() => {
-                      const el = document.getElementById(`${entity}-item-quantity-${index}`);
-                      if (!el || !(el instanceof HTMLElement)) return;
-                      el.focus();
-                    });
-                  }
-                }}
-                onBlur={(event) =>
-                  applyPredictiveItemSelection((item as OrderBundleItemWithRowId).rowId, event.target.value)
-                }
-                onFocus={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
-                placeholder={orderUiProfile.mainItemPlaceholder}
-                disabled={isBlocked}
-              />
-              <input
-                id={`${entity}-item-quantity-${index}`}
-                name={`${entity}-item-quantity-${index}`}
-                value={item.quantity ?? ''}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setForm((prev) => {
-                    const next = [...prev.items];
-                    next[index] = { ...next[index], quantity: value };
-                    return { ...prev, items: next };
-                  });
-                }}
-                onFocus={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
-                placeholder={itemQuantityLabel}
-                disabled={isBlocked}
-              />
-              <input
-                id={`${entity}-item-unit-${index}`}
-                name={`${entity}-item-unit-${index}`}
-                value={item.unit ?? ''}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setForm((prev) => {
-                    const next = [...prev.items];
-                    next[index] = { ...next[index], unit: value };
-                    return { ...prev, items: next };
-                  });
-                }}
-                onFocus={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
-                placeholder="単位"
-                disabled={isBlocked}
-              />
-              {isMedOrder && (() => {
-                const code = item.code?.trim() ?? '';
-                const { meta } = parseOrcaOrderItemMemo(item.memo);
-                const genericValue = meta.genericFlg ?? '';
-                const userCommentValue = meta.userComment ?? '';
-                const genericDisabled = isBlocked || !isDrugMedicationCode(code);
-                const updateItemMeta = (patch: Partial<OrcaOrderItemMeta>) => {
-                  setForm((prev) => {
-                    const next = [...prev.items];
-                    const current = next[index];
-                    if (!current) return prev;
-                    next[index] = {
-                      ...current,
-                      memo: updateOrcaOrderItemMeta(current.memo ?? '', patch),
-                    };
-                    return { ...prev, items: next };
-                  });
-                };
-                const updateGenericFlag = (nextValue: '' | 'yes' | 'no') => {
-                  updateItemMeta({
-                    genericFlg: nextValue === 'yes' || nextValue === 'no' ? nextValue : undefined,
-                  });
-                };
-                const updateUserComment = (nextValue: string) => {
-                  updateItemMeta({ userComment: nextValue });
-                };
-                return (
-                  <div
-                    className="charts-side-panel__med-item-meta"
-                    onFocus={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
+                    const fromIndex = Number(event.dataTransfer.getData('text/plain'));
+                    if (Number.isNaN(fromIndex) || fromIndex === index) {
+                      setDragOverIndex(null);
+                      setDraggingIndex(null);
+                      return;
+                    }
+                    setForm((prev) => ({
+                      ...prev,
+                      items: reorderItems(prev.items, fromIndex, index),
+                    }));
+                    setDragOverIndex(null);
+                    setDraggingIndex(null);
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="charts-side-panel__drag-handle"
+                    aria-label={`行 ${index + 1} をドラッグして並べ替え`}
+                    draggable={!isBlocked}
+                    onDragStart={(event) => {
+                      if (isBlocked) return;
+                      event.dataTransfer.effectAllowed = 'move';
+                      event.dataTransfer.setData('text/plain', String(index));
+                      setDraggingIndex(index);
+                    }}
+                    onDragEnd={() => {
+                      setDragOverIndex(null);
+                      setDraggingIndex(null);
+                    }}
+                    onFocus={() => setSelectedItemRowId(rowId ?? null)}
+                    disabled={isBlocked}
                   >
-                    <div
-                      className="charts-side-panel__switch-group charts-side-panel__switch-group--compact"
-                      role="group"
-                      aria-label="一般名"
-                      title={genericDisabled ? '薬剤コード確定後に選択できます。' : undefined}
-                    >
-                      {[
-                        { value: '', label: '既定' },
-                        { value: 'yes', label: '一般名' },
-                        { value: 'no', label: '一般名なし' },
-                      ].map((option) => (
-                        <button
-                          key={`${entity}-item-generic-${index}-${option.value || 'default'}`}
-                          type="button"
-                          className="charts-side-panel__switch-button charts-side-panel__switch-button--compact"
-                          data-active={genericValue === option.value ? 'true' : 'false'}
-                          aria-pressed={genericValue === option.value}
-                          onClick={() => updateGenericFlag(option.value as '' | 'yes' | 'no')}
-                          disabled={genericDisabled}
+                    ≡
+                  </button>
+                  <input
+                    id={`${entity}-item-name-${index}`}
+                    name={`${entity}-item-name-${index}`}
+                    value={item.name}
+                    aria-invalid={itemsError && index === 0 ? 'true' : undefined}
+                    list={
+                      rowId === selectedItemRowId && itemPredictiveCandidates.length > 0
+                        ? `${entity}-item-predictive-list`
+                        : undefined
+                    }
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      clearValidationByKeys(['missing_items']);
+                      setForm((prev) => {
+                        const next = [...prev.items];
+                        next[index] = { ...next[index], name: value };
+                        return { ...prev, items: next };
+                      });
+                    }}
+                    onKeyDown={(event) => {
+                      if (isBlocked) return;
+                      if (!rowId || rowId !== selectedItemRowId) return;
+                      if (visibleItemPredictiveCandidates.length === 0) return;
+                      if (event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setItemCandidateCursor((prev) => {
+                          if (prev < 0) return 0;
+                          return Math.min(prev + 1, visibleItemPredictiveCandidates.length - 1);
+                        });
+                        return;
+                      }
+                      if (event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setItemCandidateCursor((prev) => {
+                          if (prev < 0) return visibleItemPredictiveCandidates.length - 1;
+                          return Math.max(prev - 1, 0);
+                        });
+                        return;
+                      }
+                      if (event.key === 'Escape') {
+                        setItemCandidateCursor(-1);
+                        return;
+                      }
+                      if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
+                        if (itemCandidateCursor < 0) return;
+                        const candidate = visibleItemPredictiveCandidates[itemCandidateCursor];
+                        if (!candidate) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        applyPredictiveItem(rowId, candidate.item);
+                        setItemCandidateCursor(-1);
+                        requestAnimationFrame(() => {
+                          const el = document.getElementById(`${entity}-item-quantity-${index}`);
+                          if (!el || !(el instanceof HTMLElement)) return;
+                          el.focus();
+                        });
+                      }
+                    }}
+                    onBlur={(event) => applyPredictiveItemSelection(rowId, event.target.value)}
+                    onFocus={() => setSelectedItemRowId(rowId ?? null)}
+                    placeholder={orderUiProfile.mainItemPlaceholder}
+                    disabled={isBlocked}
+                  />
+                  <input
+                    id={`${entity}-item-quantity-${index}`}
+                    name={`${entity}-item-quantity-${index}`}
+                    value={item.quantity ?? ''}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setForm((prev) => {
+                        const next = [...prev.items];
+                        next[index] = { ...next[index], quantity: value };
+                        return { ...prev, items: next };
+                      });
+                    }}
+                    onFocus={() => setSelectedItemRowId(rowId ?? null)}
+                    placeholder={itemQuantityLabel}
+                    disabled={isBlocked}
+                  />
+                  <input
+                    id={`${entity}-item-unit-${index}`}
+                    name={`${entity}-item-unit-${index}`}
+                    value={item.unit ?? ''}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setForm((prev) => {
+                        const next = [...prev.items];
+                        next[index] = { ...next[index], unit: value };
+                        return { ...prev, items: next };
+                      });
+                    }}
+                    onFocus={() => setSelectedItemRowId(rowId ?? null)}
+                    placeholder="単位"
+                    disabled={isBlocked}
+                  />
+                  {isMedOrder && (() => {
+                    const code = item.code?.trim() ?? '';
+                    const { meta } = parseOrcaOrderItemMemo(item.memo);
+                    const genericValue = meta.genericFlg ?? '';
+                    const userCommentValue = meta.userComment ?? '';
+                    const genericDisabled = isBlocked || !isDrugMedicationCode(code);
+                    const updateItemMeta = (patch: Partial<OrcaOrderItemMeta>) => {
+                      setForm((prev) => {
+                        const next = [...prev.items];
+                        const current = next[index];
+                        if (!current) return prev;
+                        next[index] = {
+                          ...current,
+                          memo: updateOrcaOrderItemMeta(current.memo ?? '', patch),
+                        };
+                        return { ...prev, items: next };
+                      });
+                    };
+                    const updateGenericFlag = (nextValue: '' | 'yes' | 'no') => {
+                      updateItemMeta({
+                        genericFlg: nextValue === 'yes' || nextValue === 'no' ? nextValue : undefined,
+                      });
+                    };
+                    const updateUserComment = (nextValue: string) => {
+                      updateItemMeta({ userComment: nextValue });
+                    };
+                    return (
+                      <div className="charts-side-panel__med-item-meta" onFocus={() => setSelectedItemRowId(rowId ?? null)}>
+                        <div
+                          className="charts-side-panel__switch-group charts-side-panel__switch-group--compact"
+                          role="group"
+                          aria-label="一般名"
+                          title={genericDisabled ? '薬剤コード確定後に選択できます。' : undefined}
                         >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                    <input
-                      id={`${entity}-item-user-comment-${index}`}
-                      name={`${entity}-item-user-comment-${index}`}
-                      value={userCommentValue}
-                      onChange={(event) => updateUserComment(event.target.value)}
-                      onFocus={() => setSelectedItemRowId((item as OrderBundleItemWithRowId).rowId ?? null)}
-                      placeholder="薬剤ごとのコメント入力"
-                      aria-label={`薬剤コメント ${index + 1}`}
-                      disabled={isBlocked}
-                    />
-                  </div>
-                );
-              })()}
-              <button
-                type="button"
-                className="charts-side-panel__icon"
-                aria-label={`行 ${index + 1} を削除`}
-                onClick={() => removeItemRowById((item as OrderBundleItemWithRowId).rowId)}
-                disabled={isBlocked}
-              >
-                ✕
-              </button>
-            </div>
-          ))}
+                          {[
+                            { value: '', label: '既定' },
+                            { value: 'yes', label: '一般名' },
+                            { value: 'no', label: '一般名なし' },
+                          ].map((option) => (
+                            <button
+                              key={`${entity}-item-generic-${index}-${option.value || 'default'}`}
+                              type="button"
+                              className="charts-side-panel__switch-button charts-side-panel__switch-button--compact"
+                              data-active={genericValue === option.value ? 'true' : 'false'}
+                              aria-pressed={genericValue === option.value}
+                              onClick={() => updateGenericFlag(option.value as '' | 'yes' | 'no')}
+                              disabled={genericDisabled}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                        <input
+                          id={`${entity}-item-user-comment-${index}`}
+                          name={`${entity}-item-user-comment-${index}`}
+                          value={userCommentValue}
+                          onChange={(event) => updateUserComment(event.target.value)}
+                          onFocus={() => setSelectedItemRowId(rowId ?? null)}
+                          placeholder="薬剤ごとのコメント入力"
+                          aria-label={`薬剤コメント ${index + 1}`}
+                          disabled={isBlocked}
+                        />
+                      </div>
+                    );
+                  })()}
+                  <button
+                    type="button"
+                    className="charts-side-panel__icon"
+                    aria-label={`行 ${index + 1} を削除`}
+                    onClick={() => removeItemRowById(rowId)}
+                    disabled={isBlocked}
+                  >
+                    ✕
+                  </button>
+                </div>
+                {shouldShowRowSummary ? (
+                  <p className="charts-side-panel__help" data-testid={`order-bundle-item-summary-${index}`}>
+                    {rowSummary}
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
             </div>
 
             <div className="charts-side-panel__two-table-scroll" data-testid="order-bundle-candidate-table" aria-label="候補">

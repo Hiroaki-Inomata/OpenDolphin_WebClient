@@ -29,7 +29,7 @@ export interface OutpatientFunnelPayload {
   reason?: string;
 }
 
-export interface OutpatientFlagAttributes extends Omit<OutpatientFunnelPayload, 'dataSourceTransition'> {}
+export type OutpatientFlagAttributes = Omit<OutpatientFunnelPayload, 'dataSourceTransition'>;
 
 export interface OutpatientFunnelRecord extends OutpatientFunnelPayload {
   stage: TelemetryFunnelStage;

@@ -2584,7 +2584,7 @@ export function ReceptionPage({
       setAcceptResult(null);
       setAcceptErrors({});
       setAcceptDurationMs(null);
-      let trimmedPatientId =
+      const trimmedPatientId =
         acceptPatientId.trim() || masterSelected?.patientId?.trim() || selectedEntry?.patientId?.trim() || '';
       if (!acceptPatientId.trim() && trimmedPatientId) {
         setAcceptPatientId(trimmedPatientId);

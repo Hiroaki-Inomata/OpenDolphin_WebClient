@@ -8,6 +8,8 @@ ORCA 公式仕様の firecrawl 取得物について、Legacy (Phase2) と非Leg
   - 帳票印刷 API の外来 HTML / PDF / サンプルコード
   - PUSH 仕様 PDF / 帳票データ取得 API
   - WebORCA / Trial サイトの再取得
+- `docs/server-modernization/ORCA-order-system-rule.md`
+  - ORCA オーダー仕様（medicalmodv2/診療種別区分/コメント運用等）の実装要件整理
 
 ## Legacy (Phase2) 既存取得（参照のみ）
 - ORCA API 仕様: `docs/server-modernization/phase2/operations/assets/orca-api-spec/README.md`

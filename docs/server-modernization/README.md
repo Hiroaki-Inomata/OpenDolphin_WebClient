@@ -17,6 +17,7 @@
 - `docs/server-modernization/server-api-inventory.md`
 - `docs/server-modernization/MODERNIZED_REST_API_INVENTORY.md`
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
+- `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`
 - `docs/server-modernization/reception-realtime-sync-20260219.md`
 - `docs/server-modernization/orca-master-reference-update-platform-design-20260212.md`

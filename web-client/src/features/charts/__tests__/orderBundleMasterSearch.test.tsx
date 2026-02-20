@@ -139,8 +139,15 @@ describe('OrderBundleEditPanel master search UI', () => {
     expect(rowButton).not.toBeNull();
     await user.click(rowButton!);
 
-    const selectedItemNameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
-    expect(selectedItemNameInput.value).toBe('アムロジピン');
+    const selectedItemNameInputs = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
+    expect(selectedItemNameInputs[0]?.value).toBe('アムロジピン');
+    expect(selectedItemNameInputs[1]?.value).toBe('');
+
+    const rowSummary = screen.getByTestId('order-bundle-item-summary-0');
+    expect(rowSummary).toHaveTextContent('コード: A100');
+    expect(rowSummary).toHaveTextContent('用量: 錠');
+    expect(rowSummary).toHaveTextContent('用法: 未入力');
+    expect(rowSummary).toHaveTextContent('日数: 1');
   });
 
   it('項目名入力のリアルタイム候補で主項目を補完できる', async () => {

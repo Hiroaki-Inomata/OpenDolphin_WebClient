@@ -61,6 +61,7 @@ export const buildMedicalModV2RequestXml = (params: {
 }) => {
   const performDate = params.performDate.length >= 10 ? params.performDate.slice(0, 10) : params.performDate;
   const performTime = params.performDate.slice(11, 19) || '00:00:00';
+  const physicianCode = params.physicianCode?.trim();
   const baseMedicalInfo: MedicalModV2Information = {
     medicalClass: '11',
     medicalClassName: '基本診療料',
@@ -110,7 +111,7 @@ export const buildMedicalModV2RequestXml = (params: {
     params.medicalUid ? `    <Medical_Uid type="string">${escapeXml(params.medicalUid)}</Medical_Uid>` : undefined,
     '    <Diagnosis_Information type="record">',
     `      <Department_Code type="string">${escapeXml(params.departmentCode)}</Department_Code>`,
-    params.physicianCode ? `      <Physician_Code type="string">${escapeXml(params.physicianCode)}</Physician_Code>` : undefined,
+    physicianCode ? `      <Physician_Code type="string">${escapeXml(physicianCode)}</Physician_Code>` : undefined,
     '      <Medical_Information type="array">',
     ...medicalInformation.flatMap((info) => [
       '        <Medical_Information_child type="record">',

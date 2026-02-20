@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
 import { ChartsActionBar } from '../ChartsActionBar';
-import { postOrcaMedicalModV2Xml } from '../orcaClaimApi';
+import { buildMedicalModV2RequestXml, postOrcaMedicalModV2Xml } from '../orcaClaimApi';
+import { fetchOrderBundles } from '../orderBundleApi';
 
 vi.mock('../../../routes/useAppNavigation', () => ({
   useAppNavigation: () => ({
@@ -42,6 +43,10 @@ vi.mock('../orcaMedicalModApi', () => ({
   }),
 }));
 
+vi.mock('../orderBundleApi', () => ({
+  fetchOrderBundles: vi.fn().mockResolvedValue({ ok: true, bundles: [] }),
+}));
+
 vi.mock('../../../libs/audit/auditLogger', () => ({
   logAuditEvent: vi.fn(),
   logUiState: vi.fn(),
@@ -60,6 +65,11 @@ const baseProps = {
 };
 
 describe('ChartsActionBar ORCA送信 (medicalmodv2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(fetchOrderBundles).mockResolvedValue({ ok: true, bundles: [] } as any);
+  });
+
   it('公式経路で Api_Result/Invoice_Number/Data_Id を取得しトーストに表示する', async () => {
     const user = userEvent.setup();
     vi.mocked(postOrcaMedicalModV2Xml).mockResolvedValue({
@@ -81,7 +91,7 @@ describe('ChartsActionBar ORCA送信 (medicalmodv2)', () => {
           {...baseProps}
           patientId="000001"
           visitDate="2026-01-20"
-          selectedEntry={{ department: '01 内科', patientId: '000001' } as any}
+          selectedEntry={{ department: '01 内科', physician: '10001 主治医', patientId: '000001' } as any}
         />
       </MemoryRouter>,
     );
@@ -93,5 +103,150 @@ describe('ChartsActionBar ORCA送信 (medicalmodv2)', () => {
     expect(screen.getByText(/ORCA送信を完了/)).toBeInTheDocument();
     expect(screen.getByText(/Invoice_Number=INV-999/)).toBeInTheDocument();
     expect(screen.getByText(/Data_Id=DATA-999/)).toBeInTheDocument();
+  });
+
+  it('Physician_Code が不足している場合は送信前に停止する', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter>
+        <ChartsActionBar
+          {...baseProps}
+          patientId="000001"
+          visitDate="2026-01-20"
+          selectedEntry={{ department: '01 内科', patientId: '000001' } as any}
+        />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'ORCA 送信' }));
+    await user.click(screen.getByRole('button', { name: '送信する' }));
+
+    await waitFor(() => expect(screen.getByText(/Physician_Code/)).toBeInTheDocument());
+    expect(postOrcaMedicalModV2Xml).not.toHaveBeenCalled();
+  });
+
+  it('コメントコード系は9桁以外でも送信コードとして許容する', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchOrderBundles).mockImplementation(async ({ entity }) => ({
+      ok: true,
+      bundles:
+        entity === 'generalOrder'
+          ? [
+              {
+                entity: 'generalOrder',
+                bundleName: 'コメント送信',
+                bundleNumber: '1',
+                items: [{ code: '0082', name: 'コメント' }],
+              },
+            ]
+          : [],
+    }));
+    vi.mocked(postOrcaMedicalModV2Xml).mockResolvedValue({
+      ok: true,
+      status: 200,
+      apiResult: '00',
+      apiResultMessage: 'OK',
+      rawXml: '<xml></xml>',
+      missingTags: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <ChartsActionBar
+          {...baseProps}
+          patientId="000001"
+          visitDate="2026-01-20"
+          selectedEntry={{ department: '01 内科', physician: '10001 主治医', patientId: '000001' } as any}
+        />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'ORCA 送信' }));
+    await user.click(screen.getByRole('button', { name: '送信する' }));
+
+    await waitFor(() => expect(postOrcaMedicalModV2Xml).toHaveBeenCalled());
+  });
+
+  it('9桁以外かつコメントコード系でないコードは送信前に停止する', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchOrderBundles).mockImplementation(async ({ entity }) => ({
+      ok: true,
+      bundles:
+        entity === 'generalOrder'
+          ? [
+              {
+                entity: 'generalOrder',
+                bundleName: '不正コード',
+                bundleNumber: '1',
+                items: [{ code: '12345', name: '未正規化コード' }],
+              },
+            ]
+          : [],
+    }));
+
+    render(
+      <MemoryRouter>
+        <ChartsActionBar
+          {...baseProps}
+          patientId="000001"
+          visitDate="2026-01-20"
+          selectedEntry={{ department: '01 内科', physician: '10001 主治医', patientId: '000001' } as any}
+        />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'ORCA 送信' }));
+    await user.click(screen.getByRole('button', { name: '送信する' }));
+
+    await waitFor(() => expect(screen.getByText(/9桁コード/)).toBeInTheDocument());
+    expect(postOrcaMedicalModV2Xml).not.toHaveBeenCalled();
+  });
+
+  it('generalOrder のフォールバック Medical_Class は 400 を使用する', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchOrderBundles).mockImplementation(async ({ entity }) => ({
+      ok: true,
+      bundles:
+        entity === 'generalOrder'
+          ? [
+              {
+                entity: 'generalOrder',
+                bundleName: '一般オーダー',
+                bundleNumber: '1',
+                items: [{ code: '110000010', name: '手技' }],
+              },
+            ]
+          : [],
+    }));
+    vi.mocked(postOrcaMedicalModV2Xml).mockResolvedValue({
+      ok: true,
+      status: 200,
+      apiResult: '00',
+      apiResultMessage: 'OK',
+      rawXml: '<xml></xml>',
+      missingTags: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <ChartsActionBar
+          {...baseProps}
+          patientId="000001"
+          visitDate="2026-01-20"
+          selectedEntry={{ department: '01 内科', physician: '10001 主治医', patientId: '000001' } as any}
+        />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'ORCA 送信' }));
+    await user.click(screen.getByRole('button', { name: '送信する' }));
+
+    await waitFor(() => expect(buildMedicalModV2RequestXml).toHaveBeenCalled());
+    expect(buildMedicalModV2RequestXml).toHaveBeenCalledWith(
+      expect.objectContaining({
+        medicalInformation: expect.arrayContaining([expect.objectContaining({ medicalClass: '400' })]),
+      }),
+    );
   });
 });

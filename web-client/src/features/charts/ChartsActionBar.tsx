@@ -118,6 +118,15 @@ const ORCA_SEND_ORDER_ENTITIES = [
 
 const COMMENT_CODE_PATTERN = /^(008[1-6]|8[1-6]|098|099|98|99)/;
 const DRUG_CODE_PATTERN = /^6\d{8}$/;
+const NORMALIZED_CODE_PATTERN = /^\d{9}$/;
+
+const isCommentMedicationCode = (code: string) => COMMENT_CODE_PATTERN.test(code.trim());
+
+const isSendableMedicalModV2Code = (code: string) => {
+  const normalized = code.trim();
+  if (!normalized) return false;
+  return NORMALIZED_CODE_PATTERN.test(normalized) || isCommentMedicationCode(normalized);
+};
 
 const toMedicalModV2Medication = (item: OrderBundleItem) => {
   const code = item.code?.trim();
@@ -141,7 +150,7 @@ const resolveMedicalModV2ClassFallback = (bundle: OrderBundle) => {
   if (!entity) return null;
   switch (entity) {
     case 'generalOrder':
-      return '01';
+      return '400';
     case 'treatmentOrder':
       return '400';
     case 'surgeryOrder':
@@ -219,9 +228,8 @@ const toMedicalModV2InformationWithSource = (
     usageCode && !hasUsageAlready ? { code: usageCode, name: usageName, number: '', unit: undefined, genericFlg: undefined } : null;
   const usageRow = usageMedication ? ({ medication: usageMedication, source: { kind: 'usage' } as const } satisfies { medication: MedicalModV2MedicationRow; source: MedicalModV2RowSource }) : null;
 
-  const isCommentMedication = (code: string) => COMMENT_CODE_PATTERN.test(code.trim());
-  const head = isPrescription ? bundleRows.filter((row) => !isCommentMedication(row.medication.code)) : bundleRows;
-  const tail = isPrescription ? bundleRows.filter((row) => isCommentMedication(row.medication.code)) : [];
+  const head = isPrescription ? bundleRows.filter((row) => !isCommentMedicationCode(row.medication.code)) : bundleRows;
+  const tail = isPrescription ? bundleRows.filter((row) => isCommentMedicationCode(row.medication.code)) : [];
   const mergedRows = isPrescription ? [...head, ...(usageRow ? [usageRow] : []), ...tail] : bundleRows;
 
   const info: MedicalModV2Information = {
@@ -1403,6 +1411,7 @@ export function ChartsActionBar({
             !resolvedPatientId ? 'Patient_ID' : undefined,
             !calculationDate ? 'Perform_Date' : undefined,
             !departmentCode ? 'Department_Code' : undefined,
+            !physicianCode ? 'Physician_Code' : undefined,
           ].filter((field): field is string => Boolean(field));
           if (missingFields.length > 0) {
             const blockedReason = `medicalmodv2 を停止: ${missingFields.join(', ')} が不足しています。`;
@@ -1416,7 +1425,7 @@ export function ChartsActionBar({
             return;
           }
 
-          if (!resolvedPatientId || !calculationDate || !departmentCode) {
+          if (!resolvedPatientId || !calculationDate || !departmentCode || !physicianCode) {
             setIsRunning(false);
             setRunningAction(null);
             return;
@@ -1464,7 +1473,7 @@ export function ChartsActionBar({
             info.medications.forEach((item, rowIndex) => {
               const code = item.code?.trim() ?? '';
               if (!code) return;
-              if (/^\d{4,}$/.test(code)) return;
+              if (isSendableMedicalModV2Code(code)) return;
               if (invalidCodes.length >= 12) return;
               invalidCodes.push({ code, name: item.name?.trim() || undefined, group: groupIndex + 2, row: rowIndex + 1 });
               // groupIndex + 2: +1 for 1-based, +1 for base group prepended by buildMedicalModV2RequestXml
@@ -1477,7 +1486,7 @@ export function ChartsActionBar({
               .join(' / ');
             setBanner({
               tone: 'warning',
-              message: `ORCA送信を停止: 入力コードが未正規化（medicationgetv2 で9桁コードへ変換してください）: ${preview}`,
+              message: `ORCA送信を停止: 9桁コード以外の入力コードがあります（コメントコード系を除く）: ${preview}`,
               nextAction: 'オーダー入力に戻り、候補選択またはコード補正候補を適用してください。',
             });
             setIsRunning(false);

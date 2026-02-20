@@ -73,6 +73,13 @@ const injectionProps = {
   bundleLabel: '注射オーダー名',
   itemQuantityLabel: '回数',
 };
+const generalProps = {
+  ...baseProps,
+  entity: 'generalOrder',
+  title: '一般オーダー編集',
+  bundleLabel: 'オーダー名',
+  itemQuantityLabel: '回数',
+};
 
 const recentUsageStorageKey = 'charts-order-recent-usage:unknown-facility:unknown-user:medOrder';
 
@@ -103,6 +110,23 @@ describe('OrderBundleEditPanel item actions', () => {
     await waitFor(() => expect(screen.getByText('1回')).toBeInTheDocument());
     await user.click(screen.getByText('1回').closest('button')!);
   };
+
+  it('末尾行に入力すると空行が自動追加される', async () => {
+    const user = userEvent.setup();
+    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    const nameInputsBefore = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
+    expect(nameInputsBefore).toHaveLength(1);
+
+    await user.type(nameInputsBefore[0], 'ア');
+
+    await waitFor(() => {
+      const nameInputsAfter = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
+      expect(nameInputsAfter).toHaveLength(2);
+      expect(nameInputsAfter[0]?.value).toBe('ア');
+      expect(nameInputsAfter[1]?.value).toBe('');
+    });
+  });
 
   it('入力順が保存 payload に反映される', async () => {
     mockUsageMaster();
@@ -160,6 +184,24 @@ describe('OrderBundleEditPanel item actions', () => {
     expect(operation?.classCode).toBe('221');
     expect(operation?.classCodeSystem).toBe('Claim007');
     expect(operation?.className).toBe('頓服薬剤（院内処方）');
+  });
+
+  it('generalOrder は仕様準拠の Medical_Class を保存 payload に付与する', async () => {
+    const user = userEvent.setup();
+    renderWithClient(<OrderBundleEditPanel {...generalProps} />);
+
+    const itemInput = screen.getByPlaceholderText('処置項目名') as HTMLInputElement;
+    await user.type(itemInput, '創傷処置');
+    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+
+    const mutateMock = vi.mocked(mutateOrderBundles);
+    await waitFor(() => expect(mutateMock).toHaveBeenCalled());
+
+    const payload = mutateMock.mock.calls[0]?.[0];
+    const operation = payload?.operations?.[0];
+    expect(operation?.classCode).toBe('400');
+    expect(operation?.classCodeSystem).toBe('Claim007');
+    expect(operation?.className).toBe('処置');
   });
 
   it('外用の混合トグルで混合コメント行が保存 payload に追加される', async () => {
@@ -227,7 +269,7 @@ describe('OrderBundleEditPanel item actions', () => {
     const suggestion = await screen.findByRole('button', { name: /612345678/ });
     await user.click(suggestion);
 
-    const genericGroup = screen.getByRole('group', { name: '一般名' });
+    const genericGroup = screen.getAllByRole('group', { name: '一般名' })[0];
     const genericOnButton = within(genericGroup).getByRole('button', { name: '一般名' });
     await waitFor(() => expect(genericOnButton).toBeEnabled());
     await user.click(genericOnButton);
@@ -361,7 +403,8 @@ describe('OrderBundleEditPanel item actions', () => {
 
     const nameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
     await user.type(nameInput, 'A');
-    await user.click(screen.getByLabelText(/削除/));
+    const deleteButtons = screen.getAllByLabelText(/削除/);
+    await user.click(deleteButtons[0]);
 
     const cleared = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
     expect(cleared).toHaveLength(1);

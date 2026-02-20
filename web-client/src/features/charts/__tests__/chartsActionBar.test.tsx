@@ -91,7 +91,7 @@ describe('ChartsActionBar', () => {
           {...baseProps}
           patientId="P-100"
           visitDate="2026-01-03"
-          selectedEntry={{ patientId: 'P-100', department: '01 内科' } as any}
+          selectedEntry={{ patientId: 'P-100', department: '01 内科', physician: '10001 主治医' } as any}
         />
       </MemoryRouter>,
     );

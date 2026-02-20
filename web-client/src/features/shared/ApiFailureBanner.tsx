@@ -41,9 +41,12 @@ export function ApiFailureBanner({
   ...context
 }: ApiFailureBannerProps) {
   const { enqueue } = useAppToast();
-  if (!context.error && context.httpStatus === undefined && !context.apiResult && !context.apiResultMessage && !context.outcome) {
-    return null;
-  }
+  const hasFailure =
+    Boolean(context.error) ||
+    context.httpStatus !== undefined ||
+    Boolean(context.apiResult) ||
+    Boolean(context.apiResultMessage) ||
+    Boolean(context.outcome);
   const banner = buildApiFailureBanner(subject, context, operation);
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
   const [cooldownNow, setCooldownNow] = useState(() => Date.now());
@@ -70,10 +73,11 @@ export function ApiFailureBanner({
     .join(' / ');
 
   useEffect(() => {
+    if (!hasFailure) return;
     if (!cooldownActive) return;
     const id = window.setInterval(() => setCooldownNow(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [cooldownActive]);
+  }, [cooldownActive, hasFailure]);
 
   const handleRetry = () => {
     if (cooldownActive) return;
@@ -114,6 +118,9 @@ export function ApiFailureBanner({
     () => actionLabelWithCooldown,
     [actionLabelWithCooldown],
   );
+  if (!hasFailure) {
+    return null;
+  }
   return (
     <div className="api-failure">
       <ToneBanner

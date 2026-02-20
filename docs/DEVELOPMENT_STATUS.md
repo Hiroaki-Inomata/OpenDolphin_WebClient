@@ -1,4 +1,4 @@
-# 開発状況（単一参照, 更新日: 2026-02-19）
+# 開発状況（単一参照, 更新日: 2026-02-20）
 
 ## 現行ステータス
 - Phase2 開発ドキュメントは **Legacy/Archive（参照専用）**。Phase2 を現行フェーズとして扱わない。
@@ -24,6 +24,7 @@
 - 例外的に Phase2 文書を更新する場合は、事前にマネージャー指示を明記すること。
 - ORCA 公式仕様の firecrawl 取得物は `docs/server-modernization/operations/ORCA_FIRECRAWL_INDEX.md` を入口に参照する（非Legacy 側の索引）。
 - ORCA 接続情報は `docs/server-modernization/operations/ORCA_CERTIFICATION_ONLY.md` を正本として運用する（Phase2 版は Legacy）。
+- ORCA オーダー仕様の実装要件は `docs/server-modernization/ORCA-order-system-rule.md` を参照する。
 
 ## 保留（現時点で削除しない）
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
