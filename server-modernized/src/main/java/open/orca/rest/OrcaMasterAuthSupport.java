@@ -11,9 +11,6 @@ import java.util.Objects;
  */
 final class OrcaMasterAuthSupport {
 
-    static final String DEFAULT_USERNAME = "1.3.6.1.4.1.9414.70.1:admin";
-    static final String DEFAULT_PASSWORD = "21232f297a57a5a743894a0e4a801fc3";
-
     private OrcaMasterAuthSupport() {
     }
 
@@ -39,14 +36,15 @@ final class OrcaMasterAuthSupport {
         }
         String expectedUser = firstNonBlank(
                 System.getenv("ORCA_MASTER_BASIC_USER"),
-                System.getProperty("ORCA_MASTER_BASIC_USER"),
-                DEFAULT_USERNAME
+                System.getProperty("ORCA_MASTER_BASIC_USER")
         );
         String expectedPassword = firstNonBlank(
                 System.getenv("ORCA_MASTER_BASIC_PASSWORD"),
-                System.getProperty("ORCA_MASTER_BASIC_PASSWORD"),
-                DEFAULT_PASSWORD
+                System.getProperty("ORCA_MASTER_BASIC_PASSWORD")
         );
+        if (expectedUser == null || expectedPassword == null) {
+            return false;
+        }
         return Objects.equals(expectedUser, resolvedUser) && Objects.equals(expectedPassword, resolvedPassword);
     }
 
