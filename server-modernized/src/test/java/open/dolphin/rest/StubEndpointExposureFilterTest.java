@@ -1,6 +1,7 @@
 package open.dolphin.rest;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.AfterEach;
@@ -25,10 +26,10 @@ class StubEndpointExposureFilterTest {
     }
 
     @Test
-    void allowsByDefaultWhenEnvUnset() {
+    void blocksByDefaultWhenEnvUnset() {
         StubEndpointExposureFilter filter = new StubEndpointExposureFilter();
         filter.init(null);
-        assertTrue(filter.isStubExposureAllowed(), "Default (no env) should allow for dev/local");
+        assertFalse(filter.isStubExposureAllowed(), "Default (no env) must block for safety");
     }
 
     @Test
@@ -55,5 +56,12 @@ class StubEndpointExposureFilterTest {
         StubEndpointExposureFilter filter = new StubEndpointExposureFilter();
         filter.init(null);
         assertTrue(filter.isStubExposureAllowed());
+    }
+
+    @Test
+    void failsFastWhenEnvironmentMissingAndAllowEnabled() {
+        System.setProperty(StubEndpointExposureFilter.PROP_MODE, "allow");
+        StubEndpointExposureFilter filter = new StubEndpointExposureFilter();
+        assertThrows(IllegalStateException.class, () -> filter.init(null));
     }
 }

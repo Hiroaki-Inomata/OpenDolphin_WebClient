@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import open.dolphin.infrastructure.concurrent.ConcurrencyResourceNames;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 
 /**
  * Auto scheduler for dataset updates.
@@ -20,6 +21,8 @@ import open.dolphin.infrastructure.concurrent.ConcurrencyResourceNames;
 public class MasterUpdateScheduler {
 
     private static final Logger LOGGER = Logger.getLogger(MasterUpdateScheduler.class.getName());
+    private static final String ENV_ENABLED = "MASTER_UPDATE_SCHEDULER_ENABLED";
+    private static final String PROP_ENABLED = "opendolphin.master.update.scheduler.enabled";
 
     @Resource(lookup = ConcurrencyResourceNames.DEFAULT_SCHEDULER)
     private ManagedScheduledExecutorService scheduler;
@@ -31,6 +34,10 @@ public class MasterUpdateScheduler {
 
     @PostConstruct
     public void start() {
+        if (!resolveEnabled()) {
+            LOGGER.info("Master update scheduler is disabled. Set MASTER_UPDATE_SCHEDULER_ENABLED=true to enable.");
+            return;
+        }
         if (scheduler == null) {
             LOGGER.warning("ManagedScheduledExecutorService is not available. master update scheduler is disabled.");
             return;
@@ -62,5 +69,20 @@ public class MasterUpdateScheduler {
         } catch (RuntimeException ex) {
             LOGGER.log(Level.WARNING, "Master update scheduler tick failed: " + ex.getMessage(), ex);
         }
+    }
+
+    private boolean resolveEnabled() {
+        return resolveEnabledFromEnvironment();
+    }
+
+    public static boolean resolveEnabledFromEnvironment() {
+        String raw = RuntimeConfigurationSupport.firstNonBlank(
+                System.getProperty(PROP_ENABLED),
+                System.getenv(ENV_ENABLED));
+        if (raw == null || raw.isBlank()) {
+            return false;
+        }
+        Boolean parsed = RuntimeConfigurationSupport.parseBooleanFlag(raw);
+        return parsed != null && parsed;
     }
 }

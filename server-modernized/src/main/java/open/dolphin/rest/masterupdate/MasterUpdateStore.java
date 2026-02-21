@@ -5,7 +5,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -15,6 +14,7 @@ import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import open.dolphin.rest.AbstractResource;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -104,17 +104,13 @@ public class MasterUpdateStore {
     }
 
     private Path resolveStoragePath() {
-        String base = System.getProperty("jboss.server.data.dir");
-        if (base == null || base.isBlank()) {
-            base = System.getProperty("java.io.tmpdir");
-        }
+        Path base = RuntimeConfigurationSupport.resolveServerDataDirectoryOrThrow("MasterUpdateStore");
         try {
-            Path dir = Paths.get(base, STORAGE_DIR);
+            Path dir = base.resolve(STORAGE_DIR);
             Files.createDirectories(dir);
             return dir.resolve(STORAGE_FILE);
         } catch (IOException ex) {
-            LOGGER.warn("Failed to create master update storage directory: {}", ex.getMessage());
-            return null;
+            throw new IllegalStateException("Failed to create master update storage directory: " + base, ex);
         }
     }
 

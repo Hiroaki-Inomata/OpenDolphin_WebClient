@@ -11,7 +11,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
@@ -35,6 +34,7 @@ import open.dolphin.orca.transport.OrcaTransportRequest;
 import open.dolphin.orca.transport.OrcaTransportResult;
 import open.dolphin.orca.transport.RestOrcaTransport;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -663,11 +663,8 @@ public class MasterUpdateService {
     }
 
     private Path resolveArtifactRoot() {
-        String base = System.getProperty("jboss.server.data.dir");
-        if (base == null || base.isBlank()) {
-            base = System.getProperty("java.io.tmpdir");
-        }
-        return Paths.get(base, "opendolphin", "master-update-artifacts");
+        Path base = RuntimeConfigurationSupport.resolveServerDataDirectoryOrThrow("MasterUpdateService artifacts");
+        return base.resolve("opendolphin").resolve("master-update-artifacts");
     }
 
     private static boolean isRunning(MasterUpdateStore.DatasetState state) {

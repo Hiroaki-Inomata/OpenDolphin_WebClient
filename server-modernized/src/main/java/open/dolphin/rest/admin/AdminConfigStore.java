@@ -5,11 +5,11 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import open.dolphin.rest.AbstractResource;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -109,17 +109,13 @@ public class AdminConfigStore {
     }
 
     private Path resolveStoragePath() {
-        String base = System.getProperty("jboss.server.data.dir");
-        if (base == null || base.isBlank()) {
-            base = System.getProperty("java.io.tmpdir");
-        }
+        Path base = RuntimeConfigurationSupport.resolveServerDataDirectoryOrThrow("AdminConfigStore");
         try {
-            Path dir = Paths.get(base, STORAGE_DIR);
+            Path dir = base.resolve(STORAGE_DIR);
             Files.createDirectories(dir);
             return dir.resolve(STORAGE_FILE);
         } catch (IOException ex) {
-            LOGGER.warn("Failed to create admin config directory: {}", ex.getMessage());
-            return null;
+            throw new IllegalStateException("Failed to create admin config directory: " + base, ex);
         }
     }
 
@@ -187,7 +183,7 @@ public class AdminConfigStore {
     }
 
     private String resolveEnvironment() {
-        String value = env("VITE_ENVIRONMENT", "VITE_DEPLOY_ENV", "VITE_STAGE", "ENVIRONMENT", "DEPLOY_ENV", "STAGE", "NODE_ENV");
+        String value = RuntimeConfigurationSupport.resolveEnvironment();
         return value == null || value.isBlank() ? "dev" : value.trim();
     }
 
