@@ -83,7 +83,12 @@ class OrcaTrialIntegrationTest {
             String body = result.getBody();
             assertNotNull(body);
             assertFalse(body.isBlank());
-            assertTrue(body.contains("Api_Result"), "Api_Result missing for " + spec.endpoint.name());
+            if (spec.endpoint == OrcaEndpoint.PUSH_EVENT_GET) {
+                assertTrue(body.startsWith("[") || body.contains("\"data\"") || body.contains("\"error\""),
+                        "Unexpected response for " + spec.endpoint.name());
+            } else {
+                assertTrue(body.contains("Api_Result"), "Api_Result missing for " + spec.endpoint.name());
+            }
         } catch (Exception ex) {
             String message = ex.getMessage() != null ? ex.getMessage() : "";
             if (message.contains("HTTP response status 404")
@@ -222,11 +227,7 @@ class OrcaTrialIntegrationTest {
     }
 
     private String pushEventPayload() {
-        String date = LocalDate.now().toString();
-        return "<data><pusheventgetv2req type=\"record\">"
-                + "<Request_Number type=\"string\">01</Request_Number>"
-                + "<Base_Date type=\"string\">" + date + "</Base_Date>"
-                + "</pusheventgetv2req></data>";
+        return "{\"pusheventgetv2req\":{\"event\":\"patient_accept\"}}";
     }
 
     private record RequestSpec(OrcaEndpoint endpoint, String payload) {

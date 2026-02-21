@@ -14,9 +14,10 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.StringReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -24,12 +25,19 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.xml.sax.InputSource;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.orca.OrcaGatewayException;
 import open.dolphin.orca.transport.OrcaEndpoint;
@@ -39,6 +47,7 @@ import open.dolphin.orca.transport.OrcaTransportResult;
 import open.dolphin.orca.transport.RestOrcaTransport;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
+import jakarta.ws.rs.core.StreamingOutput;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
 
 /**
@@ -50,6 +59,7 @@ public class OrcaReportResource extends AbstractResource {
     private static final Logger LOGGER = Logger.getLogger(OrcaReportResource.class.getName());
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration DEFAULT_BLOB_DEADLINE = Duration.ofSeconds(20);
     private static final int BLOB_RETRY_MAX = 3;
     private static final long BLOB_RETRY_BACKOFF_MS = 300L;
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -346,57 +356,61 @@ public class OrcaReportResource extends AbstractResource {
         if (dataId == null || dataId.isBlank()) {
             return null;
         }
-        byte[] zipBytes = fetchBlobWithRetry(request, dataId, details, resourcePath, action);
-        if (zipBytes == null || zipBytes.length == 0) {
-            return null;
-        }
-        byte[] pdfBytes = extractPdfFromZip(zipBytes);
-        if (pdfBytes == null || pdfBytes.length == 0) {
+        BlobStreamResult blob = fetchBlobWithRetry(dataId, details);
+        if (blob == null || blob.body == null) {
             return null;
         }
         markSuccess(details);
         details.put("dataId", dataId);
         recordAudit(request, resourcePath, action, details,
                 AuditEventEnvelope.Outcome.SUCCESS, null, null);
-        return Response.ok(pdfBytes, "application/pdf")
+        StreamingOutput stream = output -> streamPdfFromZip(blob, output);
+        return Response.ok(stream, "application/pdf")
                 .header("X-Run-Id", runId)
                 .header("X-Orca-Data-Id", dataId)
                 .build();
     }
 
-    private byte[] fetchBlobWithRetry(HttpServletRequest request, String dataId, Map<String, Object> details,
-            String resourcePath, String action) {
+    private BlobStreamResult fetchBlobWithRetry(String dataId, Map<String, Object> details) {
         String authHeader = restOrcaTransport != null ? restOrcaTransport.resolveBasicAuthHeader() : null;
         if (authHeader == null || authHeader.isBlank()) {
             throw new OrcaGatewayException("ORCA basic auth is not configured");
         }
         String primaryUrl = restOrcaTransport != null ? restOrcaTransport.buildOrcaUrl("/blobapi/" + dataId) : null;
         String secondaryUrl = resolveAlternateBlobUrl(primaryUrl);
-        BlobResult lastResult = null;
+        Instant deadline = Instant.now().plus(DEFAULT_BLOB_DEADLINE);
+        Integer lastStatus = null;
         RuntimeException lastFailure = null;
         for (String candidate : buildBlobCandidates(primaryUrl, secondaryUrl)) {
             for (int attempt = 0; attempt <= BLOB_RETRY_MAX; attempt++) {
+                if (isDeadlineExceeded(deadline)) {
+                    throw new OrcaGatewayException("ORCA blobapi deadline exceeded");
+                }
                 try {
-                    BlobResult attemptResult = fetchBlob(candidate, authHeader);
-                    lastResult = attemptResult;
+                    Duration timeout = resolveBlobRequestTimeout(deadline);
+                    BlobStreamResult attemptResult = fetchBlob(candidate, authHeader, timeout);
+                    lastStatus = attemptResult.status;
                     if (attemptResult.status >= 200 && attemptResult.status < 300 && attemptResult.body != null) {
                         details.put("resolvedUrl", attemptResult.url);
-                        return attemptResult.body;
+                        return attemptResult;
                     }
+                    closeQuietly(attemptResult.body);
                     if (!shouldRetryBlob(attemptResult.status)) {
                         break;
                     }
                 } catch (RuntimeException ex) {
                     lastFailure = ex;
                 }
-                sleepQuietly(BLOB_RETRY_BACKOFF_MS);
+                if (!sleepUntilDeadline(deadline, BLOB_RETRY_BACKOFF_MS)) {
+                    throw new OrcaGatewayException("ORCA blobapi deadline exceeded");
+                }
             }
         }
         if (lastFailure != null) {
             throw lastFailure;
         }
-        if (lastResult != null) {
-            throw new OrcaGatewayException("ORCA blobapi response status " + lastResult.status);
+        if (lastStatus != null) {
+            throw new OrcaGatewayException("ORCA blobapi response status " + lastStatus);
         }
         throw new OrcaGatewayException("ORCA blobapi response missing");
     }
@@ -408,14 +422,24 @@ public class OrcaReportResource extends AbstractResource {
             if (dataId == null || dataId.isBlank()) {
                 throw new IllegalArgumentException("dataId is required");
             }
-            byte[] body = fetchBlobWithRetry(request, dataId, details, resourcePath, "ORCA_REPORT_BLOB");
+            BlobStreamResult blob = fetchBlobWithRetry(dataId, details);
+            if (blob == null || blob.body == null) {
+                throw new OrcaGatewayException("ORCA blobapi response missing");
+            }
             markSuccess(details);
             recordAudit(request, resourcePath, "ORCA_REPORT_BLOB", details,
                     AuditEventEnvelope.Outcome.SUCCESS, null, null);
-            Response.ResponseBuilder builder = Response.ok(body)
+            StreamingOutput stream = output -> streamBlob(blob, output);
+            Response.ResponseBuilder builder = Response.ok(stream)
                     .header("X-Run-Id", runId)
                     .header("X-Orca-Blob-Url", details.get("resolvedUrl"));
-            return builder.type(MediaType.APPLICATION_OCTET_STREAM).build();
+            if (blob.contentLength >= 0) {
+                builder.header("Content-Length", blob.contentLength);
+            }
+            String contentType = blob.contentType != null && !blob.contentType.isBlank()
+                    ? blob.contentType
+                    : MediaType.APPLICATION_OCTET_STREAM;
+            return builder.type(contentType).build();
         } catch (RuntimeException ex) {
             String errorCode = "orca.report.blob.error";
             String errorMessage = ex.getMessage();
@@ -426,21 +450,21 @@ public class OrcaReportResource extends AbstractResource {
         }
     }
 
-    private BlobResult fetchBlob(String url, String authHeader) {
+    private BlobStreamResult fetchBlob(String url, String authHeader, Duration timeout) {
         try {
             HttpClient resolvedClient = restOrcaTransport != null && restOrcaTransport.rawHttpClient() != null
                     ? restOrcaTransport.rawHttpClient()
                     : client;
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
-                    .timeout(DEFAULT_READ_TIMEOUT)
+                    .timeout(timeout != null ? timeout : DEFAULT_READ_TIMEOUT)
                     .header("Authorization", authHeader)
                     .GET()
                     .build();
-            HttpResponse<byte[]> response = resolvedClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            HttpResponse<InputStream> response = resolvedClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
             String contentType = response.headers().firstValue("Content-Type").orElse(null);
             long contentLength = response.headers().firstValueAsLong("Content-Length").orElse(-1L);
-            return new BlobResult(url, response.statusCode(), response.body(), contentType, contentLength);
+            return new BlobStreamResult(url, response.statusCode(), response.body(), contentType, contentLength);
         } catch (IOException ex) {
             LOGGER.log(Level.WARNING, "Failed to call ORCA blobapi: " + url, ex);
             throw new OrcaGatewayException("Failed to call ORCA blobapi", ex);
@@ -452,19 +476,81 @@ public class OrcaReportResource extends AbstractResource {
         }
     }
 
+    private void streamBlob(BlobStreamResult blob, OutputStream output) throws IOException {
+        if (blob == null || blob.body == null) {
+            throw new OrcaGatewayException("ORCA blobapi response body is empty");
+        }
+        try (InputStream in = blob.body) {
+            in.transferTo(output);
+            output.flush();
+        }
+    }
+
+    private void streamPdfFromZip(BlobStreamResult blob, OutputStream output) throws IOException {
+        if (blob == null || blob.body == null) {
+            throw new OrcaGatewayException("ORCA blobapi response body is empty");
+        }
+        try (InputStream in = blob.body; ZipInputStream zis = new ZipInputStream(in)) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                String entryName = entry.getName();
+                if (entryName != null && entryName.toLowerCase(Locale.ROOT).endsWith(".pdf")) {
+                    zis.transferTo(output);
+                    output.flush();
+                    return;
+                }
+            }
+        }
+        throw new OrcaGatewayException("ORCA blob zip does not contain PDF");
+    }
+
+    private void closeQuietly(InputStream stream) {
+        if (stream == null) {
+            return;
+        }
+        try {
+            stream.close();
+        } catch (IOException ex) {
+            LOGGER.log(Level.FINE, "Failed to close ORCA blob stream", ex);
+        }
+    }
+
     private boolean shouldRetryBlob(int status) {
         return status == 404 || status == 202 || status == 204 || status == 503;
     }
 
-    private void sleepQuietly(long backoffMs) {
+    private boolean sleepUntilDeadline(Instant deadline, long backoffMs) {
         if (backoffMs <= 0) {
-            return;
+            return !isDeadlineExceeded(deadline);
         }
+        long remainingMs = Duration.between(Instant.now(), deadline).toMillis();
+        if (remainingMs <= 0) {
+            return false;
+        }
+        long sleepMs = Math.min(backoffMs, remainingMs);
         try {
-            Thread.sleep(backoffMs);
+            Thread.sleep(sleepMs);
+            return !isDeadlineExceeded(deadline);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+            return false;
         }
+    }
+
+    private boolean isDeadlineExceeded(Instant deadline) {
+        return deadline == null || !Instant.now().isBefore(deadline);
+    }
+
+    private Duration resolveBlobRequestTimeout(Instant deadline) {
+        if (deadline == null) {
+            return DEFAULT_READ_TIMEOUT;
+        }
+        long remainingMs = Duration.between(Instant.now(), deadline).toMillis();
+        if (remainingMs <= 0) {
+            throw new OrcaGatewayException("ORCA blobapi deadline exceeded");
+        }
+        long timeoutMs = Math.min(DEFAULT_READ_TIMEOUT.toMillis(), remainingMs);
+        return Duration.ofMillis(Math.max(1L, timeoutMs));
     }
 
     private String resolveAlternateBlobUrl(String primaryUrl) {
@@ -518,32 +604,72 @@ public class OrcaReportResource extends AbstractResource {
     }
 
     private boolean isPdfRequest(String payload) {
-        if (payload == null) {
+        if (payload == null || payload.isBlank()) {
             return false;
         }
-        String normalized = payload.replace("\r", "").replace("\n", "").toLowerCase();
-        return normalized.contains("<print_mode>pdf</print_mode>")
-                || normalized.contains("<print_mode>pdf </print_mode>")
-                || normalized.contains("<output_format>pdf</output_format>")
-                || normalized.contains("<output_format>1</output_format>")
-                || normalized.contains("<output_format>2</output_format>");
+        Document document = parseXmlSafely(payload);
+        if (document == null) {
+            return false;
+        }
+        if (hasTagValueIgnoreCase(document, "Print_Mode", "PDF")) {
+            return true;
+        }
+        return hasTagValueIgnoreCase(document, "Output_Format", "PDF")
+                || hasTagValueIgnoreCase(document, "Output_Format", "1")
+                || hasTagValueIgnoreCase(document, "Output_Format", "2");
     }
 
-    private byte[] extractPdfFromZip(byte[] zipBytes) {
-        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes));
-             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                if (entry.getName() != null && entry.getName().toLowerCase().endsWith(".pdf")) {
-                    out.reset();
-                    zis.transferTo(out);
-                    return out.toByteArray();
+    private Document parseXmlSafely(String payload) {
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+            factory.setXIncludeAware(false);
+            factory.setExpandEntityReferences(false);
+            factory.setNamespaceAware(true);
+            return factory.newDocumentBuilder().parse(new InputSource(new StringReader(payload)));
+        } catch (Exception ex) {
+            LOGGER.log(Level.FINE, "Failed to parse report payload as XML", ex);
+            return null;
+        }
+    }
+
+    private boolean hasTagValueIgnoreCase(Document document, String tagName, String expectedValue) {
+        if (document == null || tagName == null || expectedValue == null) {
+            return false;
+        }
+        String expected = expectedValue.trim();
+        if (expected.isEmpty()) {
+            return false;
+        }
+        Node root = document.getDocumentElement();
+        return hasTagValueIgnoreCase(root, tagName, expected);
+    }
+
+    private boolean hasTagValueIgnoreCase(Node node, String tagName, String expectedValue) {
+        if (node == null) {
+            return false;
+        }
+        if (node instanceof Element element) {
+            String current = element.getTagName();
+            if (current != null && current.equalsIgnoreCase(tagName)) {
+                String text = element.getTextContent();
+                if (text != null && text.trim().equalsIgnoreCase(expectedValue)) {
+                    return true;
                 }
             }
-        } catch (IOException ex) {
-            LOGGER.log(Level.WARNING, "Failed to extract PDF from ORCA blob zip", ex);
         }
-        return null;
+        Node child = node.getFirstChild();
+        while (child != null) {
+            if (hasTagValueIgnoreCase(child, tagName, expectedValue)) {
+                return true;
+            }
+            child = child.getNextSibling();
+        }
+        return false;
     }
 
     private Map<String, Object> buildAuditDetails(HttpServletRequest request, String resourcePath, String runId) {
@@ -622,14 +748,14 @@ public class OrcaReportResource extends AbstractResource {
     }
 
 
-    private static final class BlobResult {
+    private static final class BlobStreamResult {
         private final String url;
         private final int status;
-        private final byte[] body;
+        private final InputStream body;
         private final String contentType;
         private final long contentLength;
 
-        private BlobResult(String url, int status, byte[] body, String contentType, long contentLength) {
+        private BlobStreamResult(String url, int status, InputStream body, String contentType, long contentLength) {
             this.url = url;
             this.status = status;
             this.body = body;

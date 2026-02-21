@@ -32,7 +32,9 @@ public class OrcaHttpClient {
 
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(15);
+    private static final Duration DEFAULT_TOTAL_DEADLINE = Duration.ofSeconds(30);
     private static final String ORCA_CONTENT_TYPE = "application/xml; charset=UTF-8";
+    private static final String ORCA_JSON_CONTENT_TYPE = "application/json; charset=UTF-8";
     private static final String ORCA_ACCEPT_XML = "application/xml";
     private static final String ENV_NETWORK_RETRY_MAX = "ORCA_API_RETRY_NETWORK_MAX";
     private static final String ENV_TRANSIENT_RETRY_MAX = "ORCA_API_RETRY_TRANSIENT_MAX";
@@ -76,25 +78,33 @@ public class OrcaHttpClient {
         if (settings == null || !settings.isReady()) {
             throw new OrcaGatewayException("ORCA transport settings are incomplete");
         }
+        String resolvedMethod = method != null && !method.isBlank()
+                ? method.trim().toUpperCase(Locale.ROOT)
+                : "POST";
+        boolean retryableMethod = isRetryableMethod(resolvedMethod);
         String resolvedAccept = (accept == null || accept.isBlank()) ? ORCA_ACCEPT_XML : accept.trim();
         String url = settings.buildOrcaUrl(path);
         if (query != null && !query.isBlank()) {
             url = url + "?" + query;
         }
         URI uri = toUri(url);
-        int networkRetryMax = resolveIntEnv(ENV_NETWORK_RETRY_MAX, DEFAULT_NETWORK_RETRY_MAX);
-        int transientRetryMax = resolveIntEnv(ENV_TRANSIENT_RETRY_MAX, DEFAULT_TRANSIENT_RETRY_MAX);
+        int networkRetryMax = retryableMethod ? resolveIntEnv(ENV_NETWORK_RETRY_MAX, DEFAULT_NETWORK_RETRY_MAX) : 0;
+        int transientRetryMax = retryableMethod ? resolveIntEnv(ENV_TRANSIENT_RETRY_MAX, DEFAULT_TRANSIENT_RETRY_MAX) : 0;
         long networkBackoff = resolveLongEnv(ENV_NETWORK_RETRY_BACKOFF_MS, DEFAULT_NETWORK_BACKOFF_MS);
         long transientBackoff = resolveLongEnv(ENV_TRANSIENT_RETRY_BACKOFF_MS, DEFAULT_TRANSIENT_BACKOFF_MS);
+        Instant deadline = Instant.now().plus(DEFAULT_TOTAL_DEADLINE);
         int networkAttempts = 0;
         int transientAttempts = 0;
         while (true) {
+            if (isDeadlineExceeded(deadline)) {
+                throw new OrcaGatewayException("ORCA API request deadline exceeded");
+            }
             Instant started = Instant.now();
             try {
+                Duration requestTimeout = resolveRequestTimeout(deadline);
                 HttpRequest.Builder builder = HttpRequest.newBuilder()
                         .uri(uri)
-                        .timeout(DEFAULT_READ_TIMEOUT)
-                        .header("Content-Type", ORCA_CONTENT_TYPE)
+                        .timeout(requestTimeout)
                         .header("Accept", resolvedAccept)
                         .header("Authorization", settings.basicAuthHeader());
                 if (requestId != null && !requestId.isBlank()) {
@@ -103,9 +113,10 @@ public class OrcaHttpClient {
                 if (traceId != null && !traceId.isBlank()) {
                     builder.header("X-Trace-Id", traceId);
                 }
-                if ("GET".equalsIgnoreCase(method)) {
+                if ("GET".equalsIgnoreCase(resolvedMethod)) {
                     builder.GET();
                 } else {
+                    builder.header("Content-Type", resolveRequestContentType(body));
                     builder.POST(HttpRequest.BodyPublishers.ofString(body != null ? body : "", StandardCharsets.UTF_8));
                 }
                 HttpRequest httpRequest = builder.build();
@@ -115,11 +126,13 @@ public class OrcaHttpClient {
                 String responseBody = response.body() != null ? response.body() : "";
                 String responseContentType = response.headers().firstValue("Content-Type").orElse(null);
                 OrcaApiResult apiResult = extractApiResult(responseBody, responseContentType);
-                logOrcaSummary(requestId, method, path, status, apiResult, elapsedMs);
+                logOrcaSummary(requestId, resolvedMethod, path, status, apiResult, elapsedMs);
                 if (status < 200 || status >= 300) {
                     if (shouldRetryHttp(status, networkAttempts, networkRetryMax)) {
                         networkAttempts++;
-                        sleepQuietly(networkBackoff * (1L << Math.min(networkAttempts, 6)));
+                        if (!sleepUntilDeadline(deadline, networkBackoff * (1L << Math.min(networkAttempts, 6)))) {
+                            throw new OrcaGatewayException("ORCA API request deadline exceeded");
+                        }
                         continue;
                     }
                     throw new OrcaGatewayException("ORCA HTTP response status " + status);
@@ -127,22 +140,28 @@ public class OrcaHttpClient {
                 if (responseBody.isBlank()) {
                     if (shouldRetryHttp(status, networkAttempts, networkRetryMax)) {
                         networkAttempts++;
-                        sleepQuietly(networkBackoff * (1L << Math.min(networkAttempts, 6)));
+                        if (!sleepUntilDeadline(deadline, networkBackoff * (1L << Math.min(networkAttempts, 6)))) {
+                            throw new OrcaGatewayException("ORCA API request deadline exceeded");
+                        }
                         continue;
                     }
                     throw new OrcaGatewayException("ORCA HTTP response body is empty");
                 }
                 if (isTransientOrcaError(apiResult) && transientAttempts < transientRetryMax) {
                     transientAttempts++;
-                    sleepQuietly(transientBackoff);
+                    if (!sleepUntilDeadline(deadline, transientBackoff)) {
+                        throw new OrcaGatewayException("ORCA API request deadline exceeded");
+                    }
                     continue;
                 }
-                return new OrcaHttpResponse(url, method, status, responseBody, responseContentType,
+                return new OrcaHttpResponse(url, resolvedMethod, status, responseBody, responseContentType,
                         response.headers().map(), elapsedMs, apiResult);
             } catch (IOException ex) {
                 if (networkAttempts < networkRetryMax) {
                     networkAttempts++;
-                    sleepQuietly(networkBackoff * (1L << Math.min(networkAttempts, 6)));
+                    if (!sleepUntilDeadline(deadline, networkBackoff * (1L << Math.min(networkAttempts, 6)))) {
+                        throw new OrcaGatewayException("ORCA API request deadline exceeded", ex);
+                    }
                     continue;
                 }
                 throw new OrcaGatewayException("Failed to call ORCA API", ex);
@@ -179,6 +198,36 @@ public class OrcaHttpClient {
             return false;
         }
         return status >= 500 || status == -1;
+    }
+
+    private static boolean isRetryableMethod(String method) {
+        if (method == null || method.isBlank()) {
+            return false;
+        }
+        return "GET".equalsIgnoreCase(method) || "HEAD".equalsIgnoreCase(method);
+    }
+
+    private static String resolveRequestContentType(String body) {
+        if (OrcaApiProxySupport.isJsonPayload(body)) {
+            return ORCA_JSON_CONTENT_TYPE;
+        }
+        return ORCA_CONTENT_TYPE;
+    }
+
+    private static boolean isDeadlineExceeded(Instant deadline) {
+        return deadline == null || !Instant.now().isBefore(deadline);
+    }
+
+    private static Duration resolveRequestTimeout(Instant deadline) {
+        if (deadline == null) {
+            return DEFAULT_READ_TIMEOUT;
+        }
+        long remainingMs = Duration.between(Instant.now(), deadline).toMillis();
+        if (remainingMs <= 0) {
+            throw new OrcaGatewayException("ORCA API request deadline exceeded");
+        }
+        long timeoutMs = Math.min(DEFAULT_READ_TIMEOUT.toMillis(), remainingMs);
+        return Duration.ofMillis(Math.max(1L, timeoutMs));
     }
 
     private static OrcaApiResult extractApiResult(String body, String contentType) {
@@ -299,14 +348,24 @@ public class OrcaHttpClient {
                 || normalized.contains("busy");
     }
 
-    private static void sleepQuietly(long backoffMs) {
+    private static boolean sleepUntilDeadline(Instant deadline, long backoffMs) {
         if (backoffMs <= 0) {
-            return;
+            return !isDeadlineExceeded(deadline);
         }
+        if (deadline == null) {
+            return false;
+        }
+        long remainingMs = Duration.between(Instant.now(), deadline).toMillis();
+        if (remainingMs <= 0) {
+            return false;
+        }
+        long sleepMs = Math.min(backoffMs, remainingMs);
         try {
-            Thread.sleep(backoffMs);
+            Thread.sleep(sleepMs);
+            return !isDeadlineExceeded(deadline);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+            return false;
         }
     }
 
