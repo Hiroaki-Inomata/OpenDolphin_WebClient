@@ -219,6 +219,13 @@ const setRouterSearch = (search: string) => {
   mockSearchParams = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
 };
 
+const clickPatientRowByName = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+  const row = screen.getByText(name).closest('button');
+  expect(row).not.toBeNull();
+  if (!row) return;
+  await user.click(row);
+};
+
 const addAuditEvent = (timestamp: string, entry: Parameters<typeof logAuditEvent>[0]) => {
   const record = logAuditEvent(entry);
   record.timestamp = timestamp;
@@ -348,6 +355,7 @@ describe('PatientsPage ORCA original UI', () => {
     mockPatients();
     renderPatientsPage();
     const user = userEvent.setup();
+    await clickPatientRowByName(user, '山田 花子');
     await user.click(screen.getByRole('tab', { name: 'ORCA更新/原本' }));
 
     const xmlRadio = screen.getByLabelText('XML2') as HTMLInputElement;
@@ -384,6 +392,7 @@ describe('PatientsPage ORCA original UI', () => {
 
     renderPatientsPage();
     const user = userEvent.setup();
+    await clickPatientRowByName(user, '山田 花子');
     await user.click(screen.getByRole('tab', { name: 'ORCA更新/原本' }));
 
     const fetchButton = screen.getByRole('button', { name: 'patientgetv2 取得' });
@@ -398,6 +407,53 @@ describe('PatientsPage ORCA original UI', () => {
     expect(originalScope.getByText('E90')).toBeInTheDocument();
     expect(originalScope.getByText('必須タグ不足:')).toBeInTheDocument();
     expect(originalScope.getByText('Api_Result_Message')).toBeInTheDocument();
+  });
+});
+
+describe('PatientsPage initial selection', () => {
+  beforeEach(() => {
+    clearAuditEventLog();
+    localStorage.clear();
+    sessionStorage.clear();
+    mockAuthFlags.missingMaster = false;
+    mockAuthFlags.fallbackUsed = false;
+  });
+
+  it('patientId パラメータがない場合は未選択で開始する', () => {
+    mockPatients();
+    setRouterSearch('');
+    renderPatientsPage();
+
+    expect(screen.getByText('患者を選択してください。')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '患者未選択' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /山田 花子/ })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('intent=insurance の場合は保険タブを初回表示する', () => {
+    mockPatients();
+    setRouterSearch('?intent=insurance');
+    renderPatientsPage();
+
+    expect(screen.getByRole('tab', { name: '保険' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('patientId パラメータがある場合は一致患者を自動選択する', () => {
+    mockPatients();
+    setRouterSearch('?patientId=P-001');
+    renderPatientsPage();
+
+    expect(screen.getByRole('heading', { name: /ORCA患者番号（Patient_ID） P-001/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /山田 花子/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('patientId パラメータが不一致の場合は警告を表示して未選択を維持する', async () => {
+    mockPatients();
+    setRouterSearch('?patientId=P-999');
+    renderPatientsPage();
+
+    expect(await screen.findByText(/指定患者が見つかりません/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '患者未選択' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /山田 花子/ })).toHaveAttribute('aria-pressed', 'false');
   });
 });
 
@@ -507,6 +563,7 @@ describe('PatientsPage switch guard', () => {
     });
     renderPatientsPage();
     const user = userEvent.setup();
+    await clickPatientRowByName(user, '山田 花子');
 
     await user.click(screen.getByRole('tab', { name: '基本情報' }));
     const nameInput = screen.getByLabelText(/氏名/);
@@ -534,6 +591,7 @@ describe('PatientsPage switch guard', () => {
     });
     renderPatientsPage();
     const user = userEvent.setup();
+    await clickPatientRowByName(user, '山田 花子');
 
     await user.click(screen.getByRole('tab', { name: '基本情報' }));
     const nameInput = screen.getByLabelText(/氏名/);
@@ -562,6 +620,7 @@ describe('PatientsPage form safety', () => {
     mockPatients();
     renderPatientsPage();
     const user = userEvent.setup();
+    await clickPatientRowByName(user, '山田 花子');
 
     await user.click(screen.getByRole('tab', { name: 'ORCA更新/原本' }));
     const originalClassInput = document.getElementById('patients-orca-original-class');
@@ -583,6 +642,34 @@ describe('PatientsPage form safety', () => {
     if (!auditKeywordInput) return;
     await user.type(auditKeywordInput, '{enter}');
     expect(mockMutationCallCount).toBe(0);
+  });
+});
+
+describe('PatientsPage detail tabs keyboard', () => {
+  beforeEach(() => {
+    clearAuditEventLog();
+    localStorage.clear();
+    sessionStorage.clear();
+    mockAuthFlags.missingMaster = false;
+    mockAuthFlags.fallbackUsed = false;
+  });
+
+  it('矢印キーと Home/End でタブを移動できる', async () => {
+    mockPatients();
+    renderPatientsPage();
+    const user = userEvent.setup();
+
+    const basicTab = screen.getByRole('tab', { name: '基本情報' });
+    basicTab.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('tab', { name: 'ORCA更新/原本' })).toHaveAttribute('aria-selected', 'true');
+
+    await user.keyboard('{End}');
+    const auditTab = screen.getByRole('tab', { name: '監査/ログ' });
+    expect(auditTab).toHaveAttribute('aria-selected', 'true');
+
+    await user.keyboard('{Home}');
+    expect(screen.getByRole('tab', { name: '基本情報' })).toHaveAttribute('aria-selected', 'true');
   });
 });
 
