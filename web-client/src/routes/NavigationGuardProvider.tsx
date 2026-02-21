@@ -32,6 +32,70 @@ type NavigationGuardContextValue = {
 };
 
 const NavigationGuardContext = createContext<NavigationGuardContextValue | null>(null);
+const CHARTS_SCREEN_KEY_PARAMS = ['patientId', 'appointmentId', 'receptionId', 'visitDate'] as const;
+
+type ScreenKeyLocation = Pick<RouterLocation, 'pathname' | 'search'>;
+
+const normalizePathname = (value?: string | null): string => {
+  if (!value) return '/';
+  const trimmed = value.trim();
+  if (!trimmed) return '/';
+  if (trimmed === '/') return '/';
+  const normalized = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return normalized.replace(/\/+$/, '');
+};
+
+const normalizeSearch = (value?: string | null): string => {
+  if (!value) return '';
+  return value.startsWith('?') ? value : `?${value}`;
+};
+
+const resolveChartsScreenKey = (search: string): string => {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  const scoped = new URLSearchParams();
+  CHARTS_SCREEN_KEY_PARAMS.forEach((key) => {
+    const value = params.get(key);
+    if (value !== null && value.trim() !== '') {
+      scoped.set(key, value.trim());
+    }
+  });
+  const scopedSearch = scoped.toString();
+  return scopedSearch ? `/charts?${scopedSearch}` : '/charts';
+};
+
+export const resolveScreenKey = (target: ScreenKeyLocation): string => {
+  const pathname = normalizePathname(target.pathname);
+  if (pathname.endsWith('/charts')) {
+    const scopedChartsKey = resolveChartsScreenKey(normalizeSearch(target.search));
+    const scopedQuery = scopedChartsKey.startsWith('/charts') ? scopedChartsKey.slice('/charts'.length) : '';
+    return `${pathname}${scopedQuery}`;
+  }
+  return pathname;
+};
+
+const resolveToLocation = (to: To, currentLocation: ScreenKeyLocation): ScreenKeyLocation | null => {
+  const currentPathname = normalizePathname(currentLocation.pathname);
+  const currentSearch = normalizeSearch(currentLocation.search);
+  if (typeof to === 'string') {
+    if (to.startsWith('#')) {
+      return { pathname: currentPathname, search: currentSearch };
+    }
+    if (to.startsWith('?')) {
+      return { pathname: currentPathname, search: normalizeSearch(to) };
+    }
+    try {
+      const base = `https://app.invalid${currentPathname}${currentSearch}`;
+      const parsed = new URL(to, base);
+      return { pathname: normalizePathname(parsed.pathname), search: normalizeSearch(parsed.search) };
+    } catch {
+      return null;
+    }
+  }
+
+  const pathname = to.pathname ?? currentPathname;
+  const search = typeof to.search === 'string' ? to.search : to.pathname ? '' : currentSearch;
+  return { pathname: normalizePathname(pathname), search: normalizeSearch(search) };
+};
 
 export function NavigationGuardProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -97,8 +161,7 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
       const currentLocation = locationRef.current;
       const nextLocation = tx.location;
       const dirtyNow = isDirtyRef.current;
-      // Guard only screen-to-screen navigation. Query updates inside the same screen should be allowed.
-      const shouldBlock = dirtyNow && currentLocation.pathname !== nextLocation.pathname;
+      const shouldBlock = dirtyNow && resolveScreenKey(currentLocation) !== resolveScreenKey(nextLocation);
 
       if (!shouldBlock) {
         const unblock = unblockRef.current;
@@ -164,22 +227,6 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
     tx?.retry();
   }, [blockedTx]);
 
-  const resolveToPathname = useCallback(
-    (to: To): string | null => {
-      const currentPathname = locationRef.current.pathname;
-      if (typeof to === 'string') {
-        if (to.startsWith('?') || to.startsWith('#')) return currentPathname;
-        try {
-          return new URL(to, 'https://app.invalid').pathname || currentPathname;
-        } catch {
-          return null;
-        }
-      }
-      return to.pathname ?? currentPathname;
-    },
-    [],
-  );
-
   const guardedNavigate = useCallback(
     (to: To, options?: NavigateOptions) => {
       const dirtyNow = isDirtyRef.current;
@@ -188,10 +235,9 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Guard only screen-to-screen navigation. Query updates inside the same screen should be allowed.
-      const currentPathname = locationRef.current.pathname;
-      const targetPathname = resolveToPathname(to);
-      if (targetPathname && targetPathname === currentPathname) {
+      const currentLocation = locationRef.current;
+      const targetLocation = resolveToLocation(to, currentLocation);
+      if (targetLocation && resolveScreenKey(targetLocation) === resolveScreenKey(currentLocation)) {
         navigate(to, options);
         return;
       }
@@ -213,7 +259,7 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
         },
       });
     },
-    [blockedTx, enableBlocking, navigate, resolveToPathname],
+    [blockedTx, enableBlocking, navigate],
   );
 
   return (
