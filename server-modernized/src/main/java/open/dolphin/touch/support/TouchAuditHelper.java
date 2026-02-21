@@ -2,11 +2,17 @@ package open.dolphin.touch.support;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.servlet.http.HttpServletRequest;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Optional;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import open.dolphin.audit.AuditEventEnvelope;
+import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.security.audit.SessionAuditDispatcher;
@@ -18,6 +24,11 @@ import open.dolphin.session.framework.SessionTraceManager;
  */
 @ApplicationScoped
 public class TouchAuditHelper {
+
+    private static final String TOKEN_HASH_SECRET_PROP = "touch.audit.token.hash.secret";
+    private static final String TOKEN_HASH_SECRET_ENV = "TOUCH_AUDIT_TOKEN_HASH_SECRET";
+    private static final String TOKEN_HASH_ALG_HMAC = "HMAC-SHA-256";
+    private static final String TOKEN_HASH_ALG_SHA = "SHA-256";
 
     @Inject
     AuditTrailService auditTrailService;
@@ -77,7 +88,9 @@ public class TouchAuditHelper {
         payload.setTraceId(traceId);
         payload.setIpAddress(context.clientIp());
         payload.setUserAgent(context.userAgent());
-        payload.setDetails(mergeDetails(context, status, reason, additionalDetails));
+        Map<String, Object> details = mergeDetails(context, status, reason, additionalDetails);
+        payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, details));
+        payload.setDetails(details);
         if (sessionAuditDispatcher != null) {
             return Optional.of(sessionAuditDispatcher.record(payload));
         }
@@ -105,8 +118,13 @@ public class TouchAuditHelper {
         if (context.accessReason() != null) {
             details.put("accessReason", context.accessReason());
         }
+        details.put("tokenPresent", context.hasConsentToken());
         if (context.hasConsentToken()) {
-            details.put("consentToken", context.consentToken());
+            TokenDigest tokenDigest = digestConsentToken(context.consentToken());
+            if (tokenDigest != null && tokenDigest.hash() != null) {
+                details.put("tokenHash", tokenDigest.hash());
+                details.put("tokenHashAlg", tokenDigest.algorithm());
+            }
         }
         details.put("facilityId", context.facilityId());
         details.put("userId", context.userId());
@@ -133,5 +151,44 @@ public class TouchAuditHelper {
             }
         }
         return details;
+    }
+
+    private TokenDigest digestConsentToken(String consentToken) {
+        if (consentToken == null || consentToken.isBlank()) {
+            return null;
+        }
+        String secret = resolveTokenHashSecret();
+        if (secret != null) {
+            try {
+                Mac mac = Mac.getInstance("HmacSHA256");
+                mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+                byte[] digest = mac.doFinal(consentToken.getBytes(StandardCharsets.UTF_8));
+                return new TokenDigest(HexFormat.of().formatHex(digest), TOKEN_HASH_ALG_HMAC);
+            } catch (Exception ignored) {
+                // Fall through to SHA-256 if HMAC generation fails.
+            }
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashed = digest.digest(consentToken.getBytes(StandardCharsets.UTF_8));
+            return new TokenDigest(HexFormat.of().formatHex(hashed), TOKEN_HASH_ALG_SHA);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("Missing SHA-256 implementation", e);
+        }
+    }
+
+    private String resolveTokenHashSecret() {
+        String fromProperty = System.getProperty(TOKEN_HASH_SECRET_PROP);
+        if (fromProperty != null && !fromProperty.isBlank()) {
+            return fromProperty.trim();
+        }
+        String fromEnv = System.getenv(TOKEN_HASH_SECRET_ENV);
+        if (fromEnv != null && !fromEnv.isBlank()) {
+            return fromEnv.trim();
+        }
+        return null;
+    }
+
+    private record TokenDigest(String hash, String algorithm) {
     }
 }

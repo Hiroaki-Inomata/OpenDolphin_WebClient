@@ -21,8 +21,10 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import static open.dolphin.rest.AbstractResource.getRemoteFacility;
+import static open.dolphin.rest.AbstractResource.resolveClientIp;
 import static open.dolphin.rest.AbstractResource.resolveTraceIdValue;
 import open.dolphin.infomodel.*;
+import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.touch.TouchAuthHandler;
 import open.dolphin.touch.dto.DolphinDocumentResponses.ClaimBundleDto;
 import open.dolphin.touch.dto.DolphinDocumentResponses.ClaimItemDto;
@@ -652,7 +654,6 @@ public class DolphinResource extends AbstractResource {
         payload.setActorRole(actorRole != null ? actorRole : resolveActorRole(servletRequest));
         payload.setAction(action);
         payload.setResource(resource);
-        payload.setPatientId(null);
         String resolvedRequestId = requestId != null ? requestId : UUID.randomUUID().toString();
         payload.setRequestId(resolvedRequestId);
         String traceId = resolveTraceIdValue(servletRequest);
@@ -661,7 +662,7 @@ public class DolphinResource extends AbstractResource {
         }
         payload.setTraceId(traceId);
         if (servletRequest != null) {
-            payload.setIpAddress(servletRequest.getRemoteAddr());
+            payload.setIpAddress(resolveClientIp(servletRequest));
             payload.setUserAgent(servletRequest.getHeader("User-Agent"));
         }
         Map<String, Object> payloadDetails = new HashMap<>();
@@ -677,6 +678,7 @@ public class DolphinResource extends AbstractResource {
             payloadDetails.putIfAbsent("traceId", context.getTraceId());
             payloadDetails.putIfAbsent("sessionOperation", context.getOperation());
         }
+        payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, payloadDetails));
         payload.setDetails(payloadDetails);
         auditTrailService.record(payload);
     }

@@ -9,16 +9,25 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.DiagnosisSendWrapper;
+import open.dolphin.infomodel.IInfoModel;
+import open.dolphin.security.audit.AuditDetailSanitizer;
 
 /**
  *
@@ -29,6 +38,10 @@ public class AbstractResource {
     protected static final String CAMMA = ",";
     protected static final boolean DEBUG = false;
     private static final String TRACE_ID_HEADER = "X-Trace-Id";
+    private static final String X_FORWARDED_FOR_HEADER = "X-Forwarded-For";
+    private static final String X_REAL_IP_HEADER = "X-Real-Ip";
+    private static final String TRUSTED_PROXY_PROP = "audit.trusted.proxies";
+    private static final String TRUSTED_PROXY_ENV = "AUDIT_TRUSTED_PROXIES";
     public static final String ERROR_CODE_ATTRIBUTE = AbstractResource.class.getName() + ".ERROR_CODE";
     public static final String ERROR_MESSAGE_ATTRIBUTE = AbstractResource.class.getName() + ".ERROR_MESSAGE";
     public static final String ERROR_STATUS_ATTRIBUTE = AbstractResource.class.getName() + ".ERROR_STATUS";
@@ -90,6 +103,184 @@ public class AbstractResource {
         String fromHeader = request.getHeader(TRACE_ID_HEADER);
         if (fromHeader != null && !fromHeader.isBlank()) {
             return fromHeader.trim();
+        }
+        return null;
+    }
+
+    public static String resolveClientIp(HttpServletRequest request) {
+        if (request == null) {
+            return "unknown";
+        }
+        String remoteAddr = normalizeIpCandidate(request.getRemoteAddr());
+        String forwardedFor = request.getHeader(X_FORWARDED_FOR_HEADER);
+        if (forwardedFor != null && !forwardedFor.isBlank()) {
+            List<String> chain = parseForwardedFor(forwardedFor);
+            if (!chain.isEmpty()) {
+                if (!isTrustedProxy(remoteAddr)) {
+                    return remoteAddr != null ? remoteAddr : chain.get(0);
+                }
+                String resolved = resolveClientFromForwardedChain(chain, remoteAddr);
+                if (resolved != null) {
+                    return resolved;
+                }
+            }
+        }
+        String realIp = normalizeIpCandidate(request.getHeader(X_REAL_IP_HEADER));
+        if (realIp != null && isTrustedProxy(remoteAddr)) {
+            return realIp;
+        }
+        return remoteAddr != null ? remoteAddr : "unknown";
+    }
+
+    private static String resolveClientFromForwardedChain(List<String> forwardedChain, String remoteAddr) {
+        List<String> chain = new ArrayList<>(forwardedChain);
+        if (remoteAddr != null) {
+            chain.add(remoteAddr);
+        }
+        for (int i = chain.size() - 1; i >= 0; i--) {
+            String candidate = chain.get(i);
+            if (!isTrustedProxy(candidate)) {
+                return candidate;
+            }
+        }
+        return chain.isEmpty() ? null : chain.get(0);
+    }
+
+    private static List<String> parseForwardedFor(String headerValue) {
+        if (headerValue == null || headerValue.isBlank()) {
+            return Collections.emptyList();
+        }
+        List<String> parsed = new ArrayList<>();
+        for (String candidate : headerValue.split(",")) {
+            String normalized = normalizeIpCandidate(candidate);
+            if (normalized != null) {
+                parsed.add(normalized);
+            }
+        }
+        return parsed;
+    }
+
+    private static boolean isTrustedProxy(String candidate) {
+        InetAddress address = parseAddress(candidate);
+        if (address == null) {
+            return false;
+        }
+        if (address.isAnyLocalAddress() || address.isLoopbackAddress()
+                || address.isSiteLocalAddress() || address.isLinkLocalAddress()) {
+            return true;
+        }
+        for (String rule : loadTrustedProxyRules()) {
+            if (matchesTrustedRule(address, rule)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Set<String> loadTrustedProxyRules() {
+        String fromProperty = System.getProperty(TRUSTED_PROXY_PROP);
+        String fromEnv = System.getenv(TRUSTED_PROXY_ENV);
+        String raw = firstNonBlank(fromProperty, fromEnv);
+        if (raw == null) {
+            return Collections.emptySet();
+        }
+        Set<String> rules = new LinkedHashSet<>();
+        Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(token -> !token.isEmpty())
+                .forEach(rules::add);
+        return rules;
+    }
+
+    private static boolean matchesTrustedRule(InetAddress candidate, String rule) {
+        if (candidate == null || rule == null || rule.isBlank()) {
+            return false;
+        }
+        if (!rule.contains("/")) {
+            InetAddress exact = parseAddress(rule);
+            return exact != null && Arrays.equals(candidate.getAddress(), exact.getAddress());
+        }
+        String[] parts = rule.split("/", 2);
+        if (parts.length != 2) {
+            return false;
+        }
+        InetAddress networkAddress = parseAddress(parts[0]);
+        if (networkAddress == null) {
+            return false;
+        }
+        int prefix;
+        try {
+            prefix = Integer.parseInt(parts[1].trim());
+        } catch (NumberFormatException ex) {
+            return false;
+        }
+        byte[] candidateBytes = candidate.getAddress();
+        byte[] networkBytes = networkAddress.getAddress();
+        if (candidateBytes.length != networkBytes.length) {
+            return false;
+        }
+        int maxPrefix = candidateBytes.length * 8;
+        if (prefix < 0 || prefix > maxPrefix) {
+            return false;
+        }
+        int fullBytes = prefix / 8;
+        int remainderBits = prefix % 8;
+        for (int i = 0; i < fullBytes; i++) {
+            if (candidateBytes[i] != networkBytes[i]) {
+                return false;
+            }
+        }
+        if (remainderBits == 0) {
+            return true;
+        }
+        int mask = 0xFF << (8 - remainderBits);
+        return (candidateBytes[fullBytes] & mask) == (networkBytes[fullBytes] & mask);
+    }
+
+    private static InetAddress parseAddress(String value) {
+        String normalized = normalizeIpCandidate(value);
+        if (normalized == null) {
+            return null;
+        }
+        try {
+            return InetAddress.getByName(normalized);
+        } catch (UnknownHostException ex) {
+            return null;
+        }
+    }
+
+    private static String normalizeIpCandidate(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty() || "unknown".equalsIgnoreCase(trimmed)) {
+            return null;
+        }
+        if (trimmed.startsWith("[") && trimmed.contains("]")) {
+            return trimmed.substring(1, trimmed.indexOf(']'));
+        }
+        int colonCount = 0;
+        for (int i = 0; i < trimmed.length(); i++) {
+            if (trimmed.charAt(i) == ':') {
+                colonCount++;
+            }
+        }
+        if (colonCount == 1 && trimmed.contains(".")) {
+            int idx = trimmed.indexOf(':');
+            return idx > 0 ? trimmed.substring(0, idx) : trimmed;
+        }
+        return trimmed;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
         }
         return null;
     }
@@ -277,6 +468,7 @@ public class AbstractResource {
             }
             filtered.put(normalizedKey, value);
         });
-        return filtered;
+        Map<String, Object> sanitized = AuditDetailSanitizer.sanitizeDetails(filtered);
+        return sanitized != null ? sanitized : filtered;
     }
 }

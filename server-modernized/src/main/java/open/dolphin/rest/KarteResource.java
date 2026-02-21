@@ -26,6 +26,7 @@ import open.dolphin.rest.dto.RoutineMedicationResponse;
 import open.dolphin.rest.dto.RpHistoryEntryResponse;
 import open.dolphin.rest.dto.SafetySummaryResponse;
 import open.dolphin.rest.dto.UserPropertyResponse;
+import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.KarteServiceBean;
@@ -967,6 +968,7 @@ public class KarteResource extends AbstractResource {
             }
             enrichUserDetails(details);
             enrichTraceDetails(details);
+            payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, details));
             payload.setDetails(details);
             auditTrailService.record(payload);
         } catch (Exception ex) {
@@ -991,7 +993,7 @@ public class KarteResource extends AbstractResource {
         }
         payload.setRequestId(requestId);
         payload.setTraceId(traceId);
-        payload.setIpAddress(resolveIpAddress());
+        payload.setIpAddress(resolveClientIp(httpServletRequest));
         payload.setUserAgent(resolveUserAgent());
         return payload;
     }

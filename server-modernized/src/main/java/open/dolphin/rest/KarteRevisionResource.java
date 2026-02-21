@@ -35,6 +35,7 @@ import open.dolphin.rest.dto.KarteRevisionDiffResponse;
 import open.dolphin.rest.dto.KarteRevisionHistoryResponse;
 import open.dolphin.rest.dto.KarteRevisionWriteRequest;
 import open.dolphin.rest.dto.KarteRevisionWriteResponse;
+import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.KarteRevisionServiceBean;
@@ -110,11 +111,11 @@ public class KarteRevisionResource extends AbstractResource {
         // (e.g. UserModel.roles <-> RoleModel.userModel).
         DocumentModelConverter converter = new DocumentModelConverter();
         converter.setModel(doc);
-        recordAudit("KARTE_REVISION_GET", Map.of(
+        recordAudit("KARTE_REVISION_GET", withPatientId(Map.of(
                 "status", "SUCCESS",
                 "revisionId", revisionId,
                 "createdRevisionId", revisionId
-        ));
+        ), doc));
         return converter;
     }
 
@@ -227,7 +228,7 @@ public class KarteRevisionResource extends AbstractResource {
                     null);
         }
         if (match.latestRevisionId != baseRevisionId) {
-            recordAudit("KARTE_REVISION_" + operation.toUpperCase(), Map.of(
+            recordAudit("KARTE_REVISION_" + operation.toUpperCase(), withPatientId(Map.of(
                     "status", "CONFLICT",
                     "operation", operation,
                     "operationPhase", operation.equals("restore") ? "restore" : "edit",
@@ -236,7 +237,7 @@ public class KarteRevisionResource extends AbstractResource {
                     "parentRevisionId", baseRevisionId,
                     "latestRevisionId", match.latestRevisionId,
                     "rootRevisionId", match.rootRevisionId
-            ));
+            ), source));
             throw restError(httpServletRequest, jakarta.ws.rs.core.Response.Status.CONFLICT,
                     "REVISION_CONFLICT", "baseRevisionId does not match latestRevisionId",
                     Map.of(
@@ -266,7 +267,7 @@ public class KarteRevisionResource extends AbstractResource {
         response.setCreatedRevisionId(createdRevisionId);
         response.setCreatedAt(Instant.now().toString());
 
-        recordAudit("KARTE_REVISION_" + operation.toUpperCase(), Map.of(
+        recordAudit("KARTE_REVISION_" + operation.toUpperCase(), withPatientId(Map.of(
                 "status", "SUCCESS",
                 "operation", operation,
                 "operationPhase", response.getOperationPhase(),
@@ -277,7 +278,7 @@ public class KarteRevisionResource extends AbstractResource {
                 "baseRevisionId", baseRevisionId,
                 "parentRevisionId", baseRevisionId,
                 "createdRevisionId", createdRevisionId
-        ));
+        ), source));
         return response;
     }
 
@@ -385,6 +386,22 @@ public class KarteRevisionResource extends AbstractResource {
         Long latestRevisionId;
     }
 
+    private String resolvePatientId(DocumentModel document) {
+        if (document == null || document.getKarteBean() == null || document.getKarteBean().getPatientModel() == null) {
+            return null;
+        }
+        return document.getKarteBean().getPatientModel().getPatientId();
+    }
+
+    private Map<String, Object> withPatientId(Map<String, Object> details, DocumentModel document) {
+        Map<String, Object> enriched = new HashMap<>(details);
+        String patientId = resolvePatientId(document);
+        if (patientId != null && !patientId.isBlank()) {
+            enriched.put("patientId", patientId);
+        }
+        return enriched;
+    }
+
     private void recordAudit(String action, Map<String, Object> details) {
         if (auditTrailService == null) {
             return;
@@ -406,7 +423,7 @@ public class KarteRevisionResource extends AbstractResource {
             }
             payload.setRequestId(requestId);
             payload.setTraceId(traceId);
-            payload.setIpAddress(httpServletRequest != null ? httpServletRequest.getRemoteAddr() : null);
+            payload.setIpAddress(resolveClientIp(httpServletRequest));
             payload.setUserAgent(httpServletRequest != null ? httpServletRequest.getHeader("User-Agent") : null);
 
             Map<String, Object> enriched = new HashMap<>();
@@ -423,6 +440,7 @@ public class KarteRevisionResource extends AbstractResource {
             enriched.putIfAbsent("createdRevisionId", null);
             enriched.putIfAbsent("parentRevisionId", null);
             enriched.putIfAbsent("rootRevisionId", null);
+            payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, enriched));
             payload.setDetails(enriched);
 
             auditTrailService.record(payload);

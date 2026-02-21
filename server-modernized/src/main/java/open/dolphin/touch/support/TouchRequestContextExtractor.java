@@ -5,7 +5,6 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.rest.LogFilter;
@@ -35,7 +34,7 @@ public final class TouchRequestContextExtractor {
         String accessReason = normalise(request.getHeader(HEADER_ACCESS_REASON));
         String consentToken = normalise(request.getHeader(HEADER_CONSENT_TOKEN));
 
-        String clientIp = resolveClientIp(request);
+        String clientIp = AbstractResource.resolveClientIp(request);
         String userAgent = normalise(request.getHeader("User-Agent"));
 
         return new TouchRequestContext(identity.remoteUser(), identity.facilityId(), identity.userId(),
@@ -98,15 +97,6 @@ public final class TouchRequestContextExtractor {
             return fromHeader;
         }
         return UUID.randomUUID().toString();
-    }
-
-    private static String resolveClientIp(HttpServletRequest request) {
-        String forwarded = normalise(request.getHeader("X-Forwarded-For"));
-        if (forwarded != null) {
-            int comma = forwarded.indexOf(',');
-            return comma >= 0 ? forwarded.substring(0, comma).trim() : forwarded;
-        }
-        return Optional.ofNullable(request.getRemoteAddr()).orElse("unknown");
     }
 
     private static String sanitizePrincipal(String principal) {

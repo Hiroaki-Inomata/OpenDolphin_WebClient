@@ -72,6 +72,7 @@ class LetterResourceTest {
         AuditEventPayload payload = auditCaptor.getValue();
         assertThat(payload.getAction()).isEqualTo("LETTER_DELETE");
         assertThat(payload.getResource()).isEqualTo("/odletter/letter/10");
+        assertThat(payload.getPatientId()).isEqualTo("PAT001");
         Map<String, Object> details = payload.getDetails();
         assertThat(details.get("status")).isEqualTo("success");
         assertThat(details.get("letterId")).isEqualTo(10L);

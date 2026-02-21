@@ -20,6 +20,7 @@ import open.dolphin.converter.LetterModuleListConverter;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.LetterModule;
 import open.dolphin.infomodel.LetterModuleList;
+import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.session.LetterServiceBean;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
@@ -168,6 +169,7 @@ public class LetterResource extends AbstractResource {
         }
         enrichUserDetails(details);
         enrichTraceDetails(details);
+        payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, details));
         payload.setDetails(details);
         auditTrailService.record(payload);
     }
@@ -188,7 +190,7 @@ public class LetterResource extends AbstractResource {
         }
         payload.setRequestId(traceId);
         payload.setTraceId(traceId);
-        payload.setIpAddress(resolveIpAddress());
+        payload.setIpAddress(resolveClientIp(httpServletRequest));
         payload.setUserAgent(resolveUserAgent());
         return payload;
     }

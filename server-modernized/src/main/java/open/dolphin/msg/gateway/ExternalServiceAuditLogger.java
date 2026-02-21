@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -121,7 +122,7 @@ public final class ExternalServiceAuditLogger {
         StringBuilder builder = new StringBuilder();
         builder.append("sms.recipients=").append(count);
         if (destinations != null && !destinations.isEmpty()) {
-            builder.append(" sms.destinations=").append(destinations);
+            builder.append(" sms.destinations=").append(maskDestinations(destinations));
         }
         if (response != null && response.getMessageUuid() != null) {
             builder.append(" sms.messageUuid=").append(response.getMessageUuid());
@@ -238,6 +239,19 @@ public final class ExternalServiceAuditLogger {
             return "Basic ***";
         }
         return "***";
+    }
+
+    private static List<String> maskDestinations(List<String> destinations) {
+        return destinations.stream()
+                .map(ExternalServiceAuditLogger::maskPhoneNumber)
+                .collect(Collectors.toList());
+    }
+
+    private static String maskPhoneNumber(String destination) {
+        if (destination == null || destination.isBlank()) {
+            return destination;
+        }
+        return destination.replaceAll("\\d(?=\\D*\\d{4}\\D*$)", "*");
     }
 
     private static String buildBodyPreview(String body) {
