@@ -20,6 +20,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.security.enterprise.SecurityContext;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.infomodel.IInfoModel;
+import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.session.UserServiceBean;
@@ -603,7 +604,7 @@ public class LogFilter implements Filter {
         payload.setActorId(actorId);
         payload.setActorDisplayName(principal);
         payload.setActorRole("SYSTEM");
-        payload.setIpAddress(request != null ? request.getRemoteAddr() : null);
+        payload.setIpAddress(AbstractResource.resolveClientIp(request));
         payload.setUserAgent(request != null ? request.getHeader("User-Agent") : null);
         String effectiveTrace = (traceId == null || traceId.isBlank()) ? UUID.randomUUID().toString() : traceId;
         payload.setRequestId(effectiveTrace);
@@ -630,7 +631,9 @@ public class LogFilter implements Filter {
         if (principal != null && !principal.isBlank()) {
             details.put("principal", principal);
         }
-        payload.setDetails(details);
+        Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(details);
+        payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, sanitizedDetails));
+        payload.setDetails(sanitizedDetails);
         sessionAuditDispatcher.record(payload, AuditEventEnvelope.Outcome.FAILURE,
                 errorCode != null && !errorCode.isBlank() ? errorCode : reason, errorMessage);
         if (request != null) {
@@ -666,7 +669,7 @@ public class LogFilter implements Filter {
         payload.setActorId(actorId);
         payload.setActorDisplayName(actorId);
         payload.setActorRole("SYSTEM");
-        payload.setIpAddress(request.getRemoteAddr());
+        payload.setIpAddress(AbstractResource.resolveClientIp(request));
         payload.setUserAgent(request.getHeader("User-Agent"));
         String traceId = resolveTraceId(request);
         if (traceId == null || traceId.isBlank()) {
@@ -704,7 +707,9 @@ public class LogFilter implements Filter {
                 details.put("exceptionMessage", failure.getMessage());
             }
         }
-        payload.setDetails(details);
+        Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(details);
+        payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, sanitizedDetails));
+        payload.setDetails(sanitizedDetails);
         sessionAuditDispatcher.record(payload, AuditEventEnvelope.Outcome.FAILURE, errorCode, errorMessage);
         request.setAttribute(ERROR_AUDIT_RECORDED_ATTR, Boolean.TRUE);
     }

@@ -12,6 +12,7 @@ import java.util.Map;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.rest.AbstractResource;
+import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 
@@ -104,7 +105,7 @@ public abstract class AbstractOrcaRestResource extends AbstractResource {
         payload.setAction(action);
         payload.setResource(request != null ? request.getRequestURI() : "/orca");
         payload.setActorId(request != null ? request.getRemoteUser() : null);
-        payload.setIpAddress(request != null ? request.getRemoteAddr() : null);
+        payload.setIpAddress(resolveClientIp(request));
         payload.setUserAgent(request != null ? request.getHeader("User-Agent") : null);
         String traceId = resolveTraceId(request);
         String requestId = request != null ? request.getHeader("X-Request-Id") : null;
@@ -130,6 +131,7 @@ public abstract class AbstractOrcaRestResource extends AbstractResource {
             payload.setRequestId(traceId);
             enriched.putIfAbsent("requestId", traceId);
         }
+        payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, enriched));
         payload.setDetails(enriched);
         String errorCode = extractDetailText(enriched, "errorCode");
         String errorMessage = extractDetailText(enriched, "errorMessage");

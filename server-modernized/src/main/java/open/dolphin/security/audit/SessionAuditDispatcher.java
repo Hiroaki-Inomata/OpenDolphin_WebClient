@@ -57,8 +57,9 @@ public class SessionAuditDispatcher {
         if (payload == null) {
             throw new IllegalArgumentException("AuditEventPayload must not be null");
         }
-        AuditEventEnvelope.Builder builder = buildEnvelopeFromPayload(payload);
-        Outcome normalized = normalizeOutcome(payload, overrideOutcome);
+        Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(payload.getDetails());
+        AuditEventEnvelope.Builder builder = buildEnvelopeFromPayload(payload, sanitizedDetails);
+        Outcome normalized = normalizeOutcome(payload, sanitizedDetails, overrideOutcome);
         if (normalized != null) {
             builder.outcome(normalized);
         }
@@ -87,13 +88,13 @@ public class SessionAuditDispatcher {
         }
     }
 
-    private AuditEventEnvelope.Builder buildEnvelopeFromPayload(AuditEventPayload payload) {
+    private AuditEventEnvelope.Builder buildEnvelopeFromPayload(AuditEventPayload payload, Map<String, Object> sanitizedDetails) {
         String action = optional(payload.getAction()).orElse("UNSPECIFIED_ACTION");
         String resource = optional(payload.getResource()).orElse("/resources");
         String requestId = optional(payload.getRequestId()).orElseGet(() -> optional(payload.getTraceId()).orElse(UUID.randomUUID().toString()));
         String traceId = optional(payload.getTraceId()).orElse(requestId);
 
-        Map<String, Object> details = payload.getDetails();
+        Map<String, Object> details = sanitizedDetails;
         AuditEventEnvelope.Builder builder = AuditEventEnvelope.builder(action, resource)
                 .requestId(requestId)
                 .traceId(traceId)
@@ -105,19 +106,19 @@ public class SessionAuditDispatcher {
                 .actorRole(payload.getActorRole())
                 .ipAddress(payload.getIpAddress())
                 .userAgent(payload.getUserAgent())
-                .patientId(payload.getPatientId())
-                .details(cloneDetails(payload.getDetails()));
+                .patientId(AuditDetailSanitizer.resolvePatientId(payload.getPatientId(), details))
+                .details(cloneDetails(details));
 
         resolveFacility(details).ifPresent(builder::facilityId);
         resolveOperation(details).ifPresent(builder::operation);
         return builder;
     }
 
-    private Outcome normalizeOutcome(AuditEventPayload payload, Outcome overrideOutcome) {
+    private Outcome normalizeOutcome(AuditEventPayload payload, Map<String, Object> sanitizedDetails, Outcome overrideOutcome) {
         if (overrideOutcome == Outcome.FAILURE) {
             return Outcome.FAILURE;
         }
-        Outcome detailOutcome = determineOutcome(payload);
+        Outcome detailOutcome = determineOutcome(payload, sanitizedDetails);
         if (detailOutcome != null && detailOutcome != Outcome.SUCCESS) {
             return detailOutcome;
         }
@@ -127,7 +128,7 @@ public class SessionAuditDispatcher {
         return detailOutcome;
     }
 
-    private Outcome determineOutcome(AuditEventPayload payload) {
+    private Outcome determineOutcome(AuditEventPayload payload, Map<String, Object> sanitizedDetails) {
         if (payload == null) {
             return null;
         }
@@ -135,7 +136,7 @@ public class SessionAuditDispatcher {
         if (explicit != null) {
             return explicit;
         }
-        Map<String, Object> details = payload.getDetails();
+        Map<String, Object> details = sanitizedDetails;
         if (details == null) {
             return null;
         }

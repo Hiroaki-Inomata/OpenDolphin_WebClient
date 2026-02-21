@@ -26,6 +26,7 @@ import open.dolphin.infomodel.AttachmentModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.rest.dto.PatientImageEntryResponse;
 import open.dolphin.rest.dto.PatientImageUploadResponse;
+import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.PatientImageServiceBean;
@@ -366,7 +367,7 @@ public class PatientImagesResource extends AbstractResource {
             payload.setResource(httpServletRequest != null ? httpServletRequest.getRequestURI() : "/patients/*/images");
             payload.setRequestId(resolveRequestId());
             payload.setTraceId(resolveTraceId(httpServletRequest));
-            payload.setIpAddress(httpServletRequest != null ? httpServletRequest.getRemoteAddr() : null);
+            payload.setIpAddress(resolveClientIp(httpServletRequest));
             payload.setUserAgent(httpServletRequest != null ? httpServletRequest.getHeader("User-Agent") : null);
 
             Map<String, Object> enriched = new HashMap<>();
@@ -388,6 +389,7 @@ public class PatientImagesResource extends AbstractResource {
                 }
             }
 
+            payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, enriched));
             payload.setDetails(enriched);
             auditTrailService.record(payload);
         } catch (Exception ex) {

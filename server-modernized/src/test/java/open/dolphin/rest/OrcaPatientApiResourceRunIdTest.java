@@ -65,6 +65,7 @@ class OrcaPatientApiResourceRunIdTest extends RuntimeDelegateTestSupport {
 
         assertNotNull(auditDispatcher.payload);
         assertEquals("run-patient", auditDispatcher.payload.getDetails().get("runId"));
+        assertEquals("00001", auditDispatcher.payload.getPatientId());
         assertEquals("req-patient", auditDispatcher.payload.getRequestId());
         assertEquals(AuditEventEnvelope.Outcome.SUCCESS, auditDispatcher.outcome);
     }

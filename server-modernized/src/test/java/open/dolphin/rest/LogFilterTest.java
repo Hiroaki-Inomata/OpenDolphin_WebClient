@@ -274,6 +274,38 @@ class LogFilterTest {
     }
 
     @Test
+    void unauthorizedAuditUsesResolvedClientIpFromForwardedHeader() throws Exception {
+        SessionAuditDispatcher dispatcher = mock(SessionAuditDispatcher.class);
+        setField("sessionAuditDispatcher", dispatcher);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        stubResponseOutput(response);
+
+        Map<String, Object> attributes = new HashMap<>();
+        doAnswer(invocation -> {
+            attributes.put(invocation.getArgument(0, String.class), invocation.getArgument(1));
+            return null;
+        }).when(request).setAttribute(anyString(), any());
+        when(request.getAttribute(anyString())).thenAnswer(invocation -> attributes.get(invocation.getArgument(0, String.class)));
+
+        Map<String, String> headers = new HashMap<>();
+        headers.put("X-Forwarded-For", "198.51.100.10, 127.0.0.1");
+        when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/protected");
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRemoteAddr()).thenReturn("127.0.0.1");
+
+        filter.doFilter(request, response, chain);
+
+        ArgumentCaptor<AuditEventPayload> payloadCaptor = ArgumentCaptor.forClass(AuditEventPayload.class);
+        verify(dispatcher).record(payloadCaptor.capture(), eq(AuditEventEnvelope.Outcome.FAILURE),
+                eq("unauthorized"), eq("Authentication required"));
+        assertEquals("198.51.100.10", payloadCaptor.getValue().getIpAddress());
+    }
+
+    @Test
     void facilityHeaderDoesNotOverridePrincipal() throws Exception {
         SecurityContext sc = mock(SecurityContext.class);
         when(sc.getCallerPrincipal()).thenReturn(() -> "F001:doctor01");

@@ -10,6 +10,7 @@ import java.util.UUID;
 import java.util.logging.Logger;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.rest.AbstractResource;
+import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.security.audit.SessionAuditDispatcher;
@@ -73,7 +74,7 @@ public class TouchFailureAuditLogger {
         payload.setActorId(actorId);
         payload.setActorDisplayName(principal);
         payload.setActorRole("TOUCH");
-        payload.setIpAddress(resolveClientIp(request));
+        payload.setIpAddress(AbstractResource.resolveClientIp(request));
         payload.setUserAgent(request != null ? request.getHeader("User-Agent") : null);
 
         String requestId = resolveRequestId(request);
@@ -101,6 +102,7 @@ public class TouchFailureAuditLogger {
         }
         enrichFacility(enriched, request);
         attachTraceContext(enriched);
+        payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, enriched));
         payload.setDetails(enriched);
 
         if (sessionAuditDispatcher != null) {
@@ -150,19 +152,6 @@ public class TouchFailureAuditLogger {
         }
         String uri = request.getRequestURI();
         return uri == null || uri.isBlank() ? "/touch" : uri;
-    }
-
-    private String resolveClientIp(HttpServletRequest request) {
-        if (request == null) {
-            return "unknown";
-        }
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            int comma = forwarded.indexOf(',');
-            return comma >= 0 ? forwarded.substring(0, comma).trim() : forwarded.trim();
-        }
-        String remote = request.getRemoteAddr();
-        return remote == null || remote.isBlank() ? "unknown" : remote;
     }
 
     private String resolveRequestId(HttpServletRequest request) {

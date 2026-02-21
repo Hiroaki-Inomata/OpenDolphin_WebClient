@@ -23,6 +23,7 @@ import open.dolphin.orca.transport.OrcaEndpoint;
 import open.dolphin.orca.transport.OrcaTransport;
 import open.dolphin.orca.transport.OrcaTransportRequest;
 import open.dolphin.orca.transport.OrcaTransportResult;
+import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
@@ -213,6 +214,10 @@ public class OrcaPatientApiResource extends AbstractResource {
             if (endpoint == OrcaEndpoint.PATIENT_MEMO_MOD) {
                 validatePatientMemoPayload(resolvedPayload);
             }
+            String patientId = extractTagValue(resolvedPayload, "Patient_ID");
+            if (patientId != null && !patientId.isBlank()) {
+                details.put("patientId", patientId);
+            }
             OrcaTransportResult result = orcaTransport.invokeDetailed(endpoint, OrcaTransportRequest.post(resolvedPayload));
             markSuccess(details);
             recordAudit(request, resourcePath, action, details, AuditEventEnvelope.Outcome.SUCCESS, null, null);
@@ -252,6 +257,10 @@ public class OrcaPatientApiResource extends AbstractResource {
                 throw new BadRequestException("ORCA xml2 payload is required");
             }
             validatePatientModPayload(resolvedPayload, classCode);
+            String patientId = extractTagValue(resolvedPayload, "Patient_ID");
+            if (patientId != null && !patientId.isBlank()) {
+                details.put("patientId", patientId);
+            }
             resolvedPayload = OrcaApiProxySupport.applyQueryMeta(resolvedPayload, endpoint, classCode);
             OrcaTransportResult result = orcaTransport.invokeDetailed(endpoint, OrcaTransportRequest.post(resolvedPayload));
             markSuccess(details);
@@ -386,7 +395,7 @@ public class OrcaPatientApiResource extends AbstractResource {
         payload.setAction(action);
         payload.setResource(resourcePath);
         payload.setActorId(request != null ? request.getRemoteUser() : null);
-        payload.setIpAddress(request != null ? request.getRemoteAddr() : null);
+        payload.setIpAddress(resolveClientIp(request));
         payload.setUserAgent(request != null ? request.getHeader("User-Agent") : null);
         String traceId = resolveTraceId(request);
         if (traceId != null && !traceId.isBlank()) {
@@ -398,6 +407,7 @@ public class OrcaPatientApiResource extends AbstractResource {
         } else if (traceId != null && !traceId.isBlank()) {
             payload.setRequestId(traceId);
         }
+        payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, details));
         payload.setDetails(details);
         sessionAuditDispatcher.record(payload, outcome, errorCode, errorMessage);
     }

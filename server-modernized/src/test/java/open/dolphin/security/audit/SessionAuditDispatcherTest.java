@@ -45,6 +45,46 @@ class SessionAuditDispatcherTest {
         assertEquals(AuditEventEnvelope.Outcome.MISSING, envelope.getOutcome());
     }
 
+    @Test
+    void recordBackfillsPatientIdFromDetails() {
+        RecordingDispatcher dispatcher = new RecordingDispatcher();
+
+        AuditEventPayload payload = new AuditEventPayload();
+        payload.setActorId("F001:doctor01");
+        payload.setAction("KARTE_DOCUMENT_DELETE");
+        payload.setResource("/karte/document");
+        payload.setTraceId("trace-patient");
+        payload.setRequestId("req-patient");
+        payload.setDetails(Map.of("patientId", "P0001"));
+
+        AuditEventEnvelope envelope = dispatcher.record(payload, AuditEventEnvelope.Outcome.SUCCESS, null, null);
+
+        assertNotNull(envelope);
+        assertEquals("P0001", envelope.getPatientId());
+    }
+
+    @Test
+    void recordRedactsSensitiveTokenInDetails() {
+        RecordingDispatcher dispatcher = new RecordingDispatcher();
+
+        AuditEventPayload payload = new AuditEventPayload();
+        payload.setActorId("F001:doctor01");
+        payload.setAction("TOUCH_PATIENT_READ");
+        payload.setResource("/touch/patient");
+        payload.setTraceId("trace-token");
+        payload.setRequestId("req-token");
+        payload.setDetails(Map.of(
+                "consentToken", "raw-token",
+                "tokenPresent", Boolean.TRUE,
+                "tokenHash", "abc123"));
+
+        AuditEventEnvelope envelope = dispatcher.record(payload, AuditEventEnvelope.Outcome.SUCCESS, null, null);
+
+        assertNotNull(envelope);
+        assertEquals("***", envelope.getDetails().get("consentToken"));
+        assertEquals("abc123", envelope.getDetails().get("tokenHash"));
+    }
+
     private static final class RecordingDispatcher extends SessionAuditDispatcher {
         @Override
         public AuditEventEnvelope dispatch(AuditEventEnvelope envelope) {

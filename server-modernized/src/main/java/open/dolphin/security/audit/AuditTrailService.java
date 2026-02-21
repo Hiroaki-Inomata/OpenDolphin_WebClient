@@ -49,7 +49,8 @@ public class AuditTrailService implements open.dolphin.audit.AuditTrailService {
                 .findFirst()
                 .orElse("");
 
-        String serializedPayload = serializePayload(payload.getDetails());
+        Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(payload.getDetails());
+        String serializedPayload = serializePayload(sanitizedDetails);
         String payloadHash = hash(serializedPayload);
 
         AuditEvent event = new AuditEvent();
@@ -59,23 +60,22 @@ public class AuditTrailService implements open.dolphin.audit.AuditTrailService {
         event.setActorRole(payload.getActorRole());
         event.setAction(payload.getAction());
         event.setResource(payload.getResource());
-        event.setPatientId(payload.getPatientId());
+        event.setPatientId(AuditDetailSanitizer.resolvePatientId(payload.getPatientId(), sanitizedDetails));
         event.setRequestId(payload.getRequestId());
         event.setTraceId(determineTraceId(payload));
-        event.setRunId(resolveRunId(payload));
-        event.setScreen(resolveScreen(payload));
-        event.setUiAction(resolveUiAction(payload));
+        event.setRunId(resolveRunId(payload, sanitizedDetails));
+        event.setScreen(resolveScreen(payload, sanitizedDetails));
+        event.setUiAction(resolveUiAction(payload, sanitizedDetails));
         event.setIpAddress(payload.getIpAddress());
         event.setUserAgent(payload.getUserAgent());
-        event.setOutcome(resolveOutcome(payload));
+        event.setOutcome(resolveOutcome(payload, sanitizedDetails));
         event.setPayload(serializedPayload);
         event.setPayloadHash(payloadHash);
         event.setPreviousHash(previousHash);
-        event.setEventHash(hash(previousHash + payloadHash + now.toEpochMilli() + safe(payload.getActorId())));
+        event.setEventHash(hash(buildEventHashMaterial(event)));
 
         em.persist(event);
         em.flush();
-        backfillTraceAndPayload(event.getId(), event.getTraceId(), serializedPayload);
         return event;
     }
 
@@ -122,37 +122,37 @@ public class AuditTrailService implements open.dolphin.audit.AuditTrailService {
         return payload.getRequestId();
     }
 
-    private String resolveRunId(AuditEventPayload payload) {
+    private String resolveRunId(AuditEventPayload payload, Map<String, Object> details) {
         if (payload == null) {
             return null;
         }
         if (payload.getRunId() != null && !payload.getRunId().isBlank()) {
             return payload.getRunId();
         }
-        return resolveDetailString(payload.getDetails(), "runId");
+        return resolveDetailString(details, "runId");
     }
 
-    private String resolveScreen(AuditEventPayload payload) {
+    private String resolveScreen(AuditEventPayload payload, Map<String, Object> details) {
         if (payload == null) {
             return null;
         }
         if (payload.getScreen() != null && !payload.getScreen().isBlank()) {
             return payload.getScreen();
         }
-        return resolveDetailString(payload.getDetails(), "screen");
+        return resolveDetailString(details, "screen");
     }
 
-    private String resolveUiAction(AuditEventPayload payload) {
+    private String resolveUiAction(AuditEventPayload payload, Map<String, Object> details) {
         if (payload == null) {
             return null;
         }
         if (payload.getUiAction() != null && !payload.getUiAction().isBlank()) {
             return payload.getUiAction();
         }
-        return resolveDetailString(payload.getDetails(), "uiAction");
+        return resolveDetailString(details, "uiAction");
     }
 
-    private String resolveOutcome(AuditEventPayload payload) {
+    private String resolveOutcome(AuditEventPayload payload, Map<String, Object> details) {
         if (payload == null) {
             return null;
         }
@@ -160,11 +160,11 @@ public class AuditTrailService implements open.dolphin.audit.AuditTrailService {
         if (outcome != null) {
             return outcome;
         }
-        outcome = normalizeOutcome(resolveDetailString(payload.getDetails(), "outcome"));
+        outcome = normalizeOutcome(resolveDetailString(details, "outcome"));
         if (outcome != null) {
             return outcome;
         }
-        String status = resolveDetailString(payload.getDetails(), "status");
+        String status = resolveDetailString(details, "status");
         if (status == null) {
             return null;
         }
@@ -232,14 +232,33 @@ public class AuditTrailService implements open.dolphin.audit.AuditTrailService {
         return value == null ? "" : value;
     }
 
-    private void backfillTraceAndPayload(Long id, String traceId, String serializedPayload) {
-        if (id == null) {
-            return;
-        }
-        em.createQuery("update AuditEvent a set a.traceId = :traceId, a.payload = :payload where a.id = :id")
-                .setParameter("traceId", traceId)
-                .setParameter("payload", serializedPayload)
-                .setParameter("id", id)
-                .executeUpdate();
+    private String buildEventHashMaterial(AuditEvent event) {
+        StringBuilder builder = new StringBuilder(512);
+        appendHashField(builder, "version", "v2");
+        appendHashField(builder, "eventTimeEpochMillis",
+                event.getEventTime() != null ? Long.toString(event.getEventTime().toEpochMilli()) : "");
+        appendHashField(builder, "previousHash", safe(event.getPreviousHash()));
+        appendHashField(builder, "payloadHash", safe(event.getPayloadHash()));
+        appendHashField(builder, "action", safe(event.getAction()));
+        appendHashField(builder, "resource", safe(event.getResource()));
+        appendHashField(builder, "patientId", safe(event.getPatientId()));
+        appendHashField(builder, "outcome", safe(event.getOutcome()));
+        appendHashField(builder, "ipAddress", safe(event.getIpAddress()));
+        appendHashField(builder, "traceId", safe(event.getTraceId()));
+        appendHashField(builder, "requestId", safe(event.getRequestId()));
+        appendHashField(builder, "runId", safe(event.getRunId()));
+        appendHashField(builder, "actorId", safe(event.getActorId()));
+        appendHashField(builder, "actorRole", safe(event.getActorRole()));
+        return builder.toString();
+    }
+
+    private void appendHashField(StringBuilder builder, String key, String value) {
+        String safeValue = safe(value);
+        builder.append(key)
+                .append('=')
+                .append(safeValue.length())
+                .append(':')
+                .append(safeValue)
+                .append('|');
     }
 }
