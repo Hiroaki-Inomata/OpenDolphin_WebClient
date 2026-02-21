@@ -284,6 +284,9 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
     <main className="login-shell">
       <section className="login-card" aria-labelledby="login-heading">
         <header className="login-card__header">
+          <h1 id="login-heading" className="login-card__title">
+            OpenDolphin Web ログイン
+          </h1>
           <div className="login-brand">
             <div className="login-brand__badge">
               <img src={SYSTEM_ICON_URL} alt="OpenDolphin システムアイコン" />
