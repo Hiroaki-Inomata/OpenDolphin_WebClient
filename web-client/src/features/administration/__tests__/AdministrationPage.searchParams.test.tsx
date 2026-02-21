@@ -1,0 +1,378 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { RouterProvider, createMemoryRouter } from 'react-router-dom';
+
+import { AdministrationPage } from '../AdministrationPage';
+
+const {
+  mockFetchEffectiveAdminConfig,
+  mockFetchOrcaQueue,
+  mockFetchOrcaConnectionConfig,
+  mockUseAuthService,
+} = vi.hoisted(() => ({
+  mockFetchEffectiveAdminConfig: vi.fn(),
+  mockFetchOrcaQueue: vi.fn(),
+  mockFetchOrcaConnectionConfig: vi.fn(),
+  mockUseAuthService: vi.fn(),
+}));
+
+vi.mock('../../../AppRouter', () => ({
+  useSession: () => ({ facilityId: 'FAC-TEST', userId: 'admin-user', role: 'system_admin' }),
+}));
+
+vi.mock('../../../libs/ui/appToast', () => ({
+  useAppToast: () => ({ enqueue: vi.fn() }),
+}));
+
+vi.mock('../../../libs/audit/auditLogger', () => ({
+  getAuditEventLog: vi.fn(() => []),
+  logAuditEvent: vi.fn(),
+  logUiState: vi.fn(),
+}));
+
+vi.mock('../../../libs/observability/observability', () => ({
+  resolveAriaLive: vi.fn(() => 'polite'),
+  resolveRunId: vi.fn((runId?: string) => runId ?? 'RUN-FALLBACK'),
+}));
+
+vi.mock('../../../libs/observability/runIdCopy', () => ({
+  copyTextToClipboard: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../../libs/http/header-flags', () => ({
+  persistHeaderFlags: vi.fn(),
+  resolveHeaderFlags: vi.fn(() => ({ useMockOrcaQueue: false, verifyAdminDelivery: true })),
+}));
+
+vi.mock('../../../libs/auth/roles', () => ({
+  isSystemAdminRole: vi.fn((role?: string) => role === 'system_admin'),
+}));
+
+vi.mock('../../../libs/admin/broadcast', () => ({
+  publishAdminBroadcast: vi.fn(),
+}));
+
+vi.mock('../../charts/authService', () => ({
+  applyAuthServicePatch: vi.fn(),
+  useAuthService: () => mockUseAuthService(),
+}));
+
+vi.mock('../../reception/components/ToneBanner', () => ({
+  ToneBanner: ({ message }: { message: string }) => <div>{message}</div>,
+}));
+
+vi.mock('../../shared/AuditSummaryInline', () => ({
+  AuditSummaryInline: () => <div data-testid="audit-summary">audit</div>,
+}));
+
+vi.mock('../../shared/RunIdBadge', () => ({
+  RunIdBadge: ({ runId }: { runId?: string }) => <div data-testid="runid-badge">{runId}</div>,
+}));
+
+vi.mock('../LegacyRestPanel', () => ({
+  LegacyRestPanel: () => <div data-testid="legacy-rest-panel" />,
+}));
+
+vi.mock('../TouchAdmPhrPanel', () => ({
+  TouchAdmPhrPanel: () => <div data-testid="touch-adm-phr-panel" />,
+}));
+
+vi.mock('../AccessManagementPanel', () => ({
+  AccessManagementPanel: () => <div data-testid="access-management-panel" />,
+}));
+
+vi.mock('../OrcaUserManagementPanel', () => ({
+  OrcaUserManagementPanel: () => <div data-testid="orca-user-management-panel" />,
+}));
+
+vi.mock('../MasterUpdatesPanel', () => ({
+  MasterUpdatesPanel: () => <div data-testid="master-updates-panel" />,
+}));
+
+vi.mock('../components/ConfirmDialog', () => ({
+  ConfirmDialog: () => null,
+}));
+
+vi.mock('../components/AdminStatusPill', () => ({
+  AdminStatusPill: () => <span data-testid="admin-status-pill" />,
+}));
+
+vi.mock('../delivery/DeliverySubNav', () => ({
+  DeliverySubNav: ({
+    activeSection,
+    onChange,
+  }: {
+    activeSection: string;
+    onChange: (next: string) => void;
+  }) => (
+    <div>
+      <div data-testid="delivery-active-section">{activeSection}</div>
+      <button type="button" onClick={() => onChange('queue')}>
+        section:queue
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock('../delivery/DeliveryDashboard', () => ({
+  DeliveryDashboard: () => <div data-testid="delivery-dashboard" />,
+}));
+
+vi.mock('../delivery/WebOrcaConnectionCard', () => ({
+  WebOrcaConnectionCard: () => <div data-testid="weborca-connection-card" />,
+}));
+
+vi.mock('../delivery/AdminDeliveryConfigCard', () => ({
+  AdminDeliveryConfigCard: () => <div data-testid="delivery-config-card" />,
+}));
+
+vi.mock('../delivery/AdminDeliveryStatusCard', () => ({
+  AdminDeliveryStatusCard: () => <div data-testid="delivery-status-card" />,
+}));
+
+vi.mock('../delivery/OrcaMasterSyncCard', () => ({
+  OrcaMasterSyncCard: () => <div data-testid="master-sync-card" />,
+}));
+
+vi.mock('../delivery/SystemHealthCard', () => ({
+  SystemHealthCard: () => <div data-testid="system-health-card" />,
+}));
+
+vi.mock('../delivery/MedicalSetSearchCard', () => ({
+  MedicalSetSearchCard: () => <div data-testid="medicalset-search-card" />,
+}));
+
+vi.mock('../delivery/OrcaXmlProxyCard', () => ({
+  OrcaXmlProxyCard: () => <div data-testid="xml-proxy-card" />,
+}));
+
+vi.mock('../delivery/OrcaInternalWrapperCard', () => ({
+  OrcaInternalWrapperCard: () => <div data-testid="internal-wrapper-card" />,
+}));
+
+vi.mock('../delivery/OrcaQueueCard', () => ({
+  OrcaQueueCard: () => <div data-testid="queue-card" />,
+}));
+
+vi.mock('../api', () => ({
+  discardOrcaQueue: vi.fn().mockResolvedValue({ ok: true }),
+  fetchEffectiveAdminConfig: mockFetchEffectiveAdminConfig,
+  fetchMasterLastUpdate: vi.fn().mockResolvedValue({ ok: true, apiResult: '00', versions: [] }),
+  fetchMedicalSet: vi.fn().mockResolvedValue({ ok: true, apiResult: '00', sets: [] }),
+  fetchOrcaQueue: mockFetchOrcaQueue,
+  fetchSystemDaily: vi.fn().mockResolvedValue({ ok: true, apiResult: '00' }),
+  fetchSystemInfo: vi.fn().mockResolvedValue({ ok: true, apiResult: '00', versions: [] }),
+  retryOrcaQueue: vi.fn().mockResolvedValue({ ok: true }),
+  saveAdminConfig: vi.fn().mockResolvedValue({
+    ok: true,
+    runId: 'RUN-CONFIG',
+    chartsDisplayEnabled: true,
+    chartsSendEnabled: true,
+    chartsMasterSource: 'auto',
+    verifyAdminDelivery: true,
+    useMockOrcaQueue: false,
+  }),
+  syncMedicationMod: vi.fn().mockResolvedValue({ ok: true, apiResult: '00' }),
+}));
+
+vi.mock('../orcaXmlProxyApi', () => ({
+  buildAcceptListRequestXml: vi.fn(() => '<xml/>'),
+  buildInsuranceProviderRequestXml: vi.fn(() => '<xml/>'),
+  buildManageUsersRequestXml: vi.fn(() => '<xml/>'),
+  buildSystemListRequestXml: vi.fn(() => '<xml/>'),
+  postOrcaXmlProxy: vi.fn().mockResolvedValue({ ok: true, status: 200, apiResult: '00' }),
+}));
+
+vi.mock('../orcaConnectionApi', () => ({
+  fetchOrcaConnectionConfig: mockFetchOrcaConnectionConfig,
+  saveOrcaConnectionConfig: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+  testOrcaConnection: vi.fn().mockResolvedValue({ ok: true, status: 200, orcaHttpStatus: 200, apiResult: '00' }),
+}));
+
+vi.mock('../orcaInternalWrapperApi', () => ({
+  postBirthDelivery: vi.fn().mockResolvedValue({ ok: true, status: 200, apiResult: '00' }),
+  postMedicalRecords: vi.fn().mockResolvedValue({ ok: true, status: 200, apiResult: '00' }),
+  postMedicalSets: vi.fn().mockResolvedValue({ ok: true, status: 200, apiResult: '00' }),
+  postPatientMutation: vi.fn().mockResolvedValue({ ok: true, status: 200, apiResult: '00' }),
+  postSubjectiveEntry: vi.fn().mockResolvedValue({ ok: true, status: 200, apiResult: '00' }),
+  postTensuSync: vi.fn().mockResolvedValue({ ok: true, status: 200, apiResult: '00' }),
+}));
+
+const renderPage = (initialEntries: string[]) => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/admin',
+        element: (
+          <QueryClientProvider client={queryClient}>
+            <AdministrationPage runId="RUN-TEST" role="system_admin" />
+          </QueryClientProvider>
+        ),
+      },
+    ],
+    { initialEntries },
+  );
+
+  render(<RouterProvider router={router} />);
+  return router;
+};
+
+beforeEach(() => {
+  mockUseAuthService.mockReturnValue({
+    flags: {},
+    bumpRunId: vi.fn(),
+    setCacheHit: vi.fn(),
+    setMissingMaster: vi.fn(),
+    setDataSourceTransition: vi.fn(),
+    setFallbackUsed: vi.fn(),
+  });
+  mockFetchEffectiveAdminConfig.mockResolvedValue({
+    runId: 'RUN-CONFIG',
+    source: 'live',
+    status: 200,
+    deliveryMode: 'immediate',
+    deliveryVersion: '1',
+    deliveryEtag: 'etag-1',
+    deliveredAt: '2026-02-21T00:00:00Z',
+    verifyAdminDelivery: true,
+    syncMismatch: false,
+    syncMismatchFields: [],
+    note: '',
+    deliveryId: 'DELIVERY-1',
+    environment: 'dev',
+    orcaEndpoint: 'https://example.invalid/openDolphin/resources',
+    mswEnabled: false,
+    useMockOrcaQueue: false,
+    chartsDisplayEnabled: true,
+    chartsSendEnabled: true,
+    chartsMasterSource: 'auto',
+    rawConfig: {
+      status: 200,
+      deliveryMode: 'immediate',
+      deliveredAt: '2026-02-21T00:00:00Z',
+      orcaEndpoint: 'https://example.invalid/openDolphin/resources',
+      mswEnabled: false,
+      useMockOrcaQueue: false,
+      verifyAdminDelivery: true,
+      chartsDisplayEnabled: true,
+      chartsSendEnabled: true,
+      chartsMasterSource: 'auto',
+    },
+    rawDelivery: {
+      status: 200,
+      deliveryMode: 'immediate',
+      deliveredAt: '2026-02-21T00:00:00Z',
+      chartsDisplayEnabled: true,
+      chartsSendEnabled: true,
+      chartsMasterSource: 'auto',
+    },
+  });
+  mockFetchOrcaQueue.mockResolvedValue({
+    runId: 'RUN-QUEUE',
+    source: 'live',
+    verifyAdminDelivery: true,
+    queue: [],
+  });
+  mockFetchOrcaConnectionConfig.mockResolvedValue({
+    status: 403,
+    runId: 'RUN-CONNECTION',
+    ok: false,
+    error: 'forbidden',
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+describe('AdministrationPage search params sync', () => {
+  it('不正クエリを正規化し、URL由来でタブ/セクションを決定する', async () => {
+    const router = renderPage(['/admin?tab=invalid&section=unknown']);
+
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?section=dashboard');
+    });
+    expect(screen.getByRole('tab', { name: '設定配信' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('delivery-active-section')).toHaveTextContent('dashboard');
+    expect(document.title).toBe('管理画面 | 施設ID=FAC-TEST');
+  });
+
+  it('query だけの遷移と戻る/進むで UI が追従する', async () => {
+    const router = renderPage(['/admin?section=dashboard']);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('delivery-active-section')).toHaveTextContent('dashboard');
+    });
+
+    act(() => {
+      void router.navigate('/admin?tab=master-updates');
+    });
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?tab=master-updates');
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: 'マスタ更新' })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    act(() => {
+      void router.navigate('/admin?section=queue');
+    });
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?section=queue');
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: '設定配信' })).toHaveAttribute('aria-selected', 'true');
+    });
+    expect(screen.getByTestId('delivery-active-section')).toHaveTextContent('queue');
+
+    act(() => {
+      void router.navigate(-1);
+    });
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?tab=master-updates');
+    });
+    expect(screen.getByRole('tab', { name: 'マスタ更新' })).toHaveAttribute('aria-selected', 'true');
+
+    act(() => {
+      void router.navigate(-1);
+    });
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?section=dashboard');
+    });
+    expect(screen.getByTestId('delivery-active-section')).toHaveTextContent('dashboard');
+  });
+
+  it('タブ/セクション操作で searchParams を更新し、履歴で戻せる', async () => {
+    const router = renderPage(['/admin?section=dashboard']);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'ORCAユーザー連携・権限' }));
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?tab=orca-users');
+    });
+
+    fireEvent.click(screen.getByRole('tab', { name: '設定配信' }));
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?section=dashboard');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'section:queue' }));
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?section=queue');
+    });
+
+    act(() => {
+      void router.navigate(-1);
+    });
+    await waitFor(() => {
+      expect(router.state.location.search).toBe('?section=dashboard');
+    });
+  });
+});
