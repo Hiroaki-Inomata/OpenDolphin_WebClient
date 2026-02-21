@@ -11,7 +11,7 @@
     "verify:prod-no-mocks": "node scripts/verify-prod-dist-no-mocks.mjs",
     "lint": "eslint .",
     "openapi:orca-master": "openapi-typescript ../docs/server-modernization/phase2/operations/assets/openapi/orca-master-orca05-06-08.yaml --output src/generated/orca-master.ts --enum --export-type",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:load": "tsx scripts/load-test.ts",
@@ -20,7 +20,8 @@
     "preview": "vite preview",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "bridge-sync": "node ../scripts/bridge-sync.mjs --run-id 20251124T073245Z --date 20251124 --source msw"
+    "bridge-sync": "node ../scripts/bridge-sync.mjs --run-id 20251124T073245Z --date 20251124 --source msw",
+    "verify:source-integrity": "node scripts/verify-source-integrity.mjs"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
