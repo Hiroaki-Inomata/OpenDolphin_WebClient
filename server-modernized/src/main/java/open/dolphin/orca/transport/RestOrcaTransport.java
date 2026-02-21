@@ -1,8 +1,11 @@
 package open.dolphin.orca.transport;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -29,6 +32,7 @@ public class RestOrcaTransport implements OrcaTransport {
 
     private static final Logger LOGGER = Logger.getLogger(RestOrcaTransport.class.getName());
     private static final String ORCA_ACCEPT = "application/xml";
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private OrcaHttpClient httpClient;
     private HttpClient rawHttpClient;
@@ -293,6 +297,7 @@ public class RestOrcaTransport implements OrcaTransport {
         if (required == null || required.isEmpty()) {
             return List.of();
         }
+        JsonNode jsonRoot = parseJsonPayload(payload);
         List<String> missing = new ArrayList<>();
         for (String spec : required) {
             if (spec == null || spec.isBlank()) {
@@ -303,7 +308,11 @@ public class RestOrcaTransport implements OrcaTransport {
                 String[] options = trimmed.split("/");
                 boolean found = false;
                 for (String option : options) {
-                    if (hasXmlTagWithValue(payload, option.trim())) {
+                    String candidate = option.trim();
+                    if (candidate.isEmpty()) {
+                        continue;
+                    }
+                    if (hasRequiredFieldWithValue(payload, jsonRoot, candidate)) {
                         found = true;
                         break;
                     }
@@ -311,11 +320,74 @@ public class RestOrcaTransport implements OrcaTransport {
                 if (!found) {
                     missing.add(trimmed);
                 }
-            } else if (!hasXmlTagWithValue(payload, trimmed)) {
+            } else if (!hasRequiredFieldWithValue(payload, jsonRoot, trimmed)) {
                 missing.add(trimmed);
             }
         }
         return missing;
+    }
+
+    private static JsonNode parseJsonPayload(String payload) {
+        if (!OrcaApiProxySupport.isJsonPayload(payload)) {
+            return null;
+        }
+        try {
+            return JSON.readTree(payload);
+        } catch (IOException ex) {
+            return null;
+        }
+    }
+
+    private static boolean hasRequiredFieldWithValue(String payload, JsonNode jsonRoot, String fieldName) {
+        if (fieldName == null || fieldName.isBlank()) {
+            return false;
+        }
+        if (jsonRoot != null) {
+            return hasJsonFieldWithValue(jsonRoot, fieldName);
+        }
+        return hasXmlTagWithValue(payload, fieldName);
+    }
+
+    private static boolean hasJsonFieldWithValue(JsonNode node, String fieldName) {
+        if (node == null || fieldName == null || fieldName.isBlank()) {
+            return false;
+        }
+        if (node.isObject()) {
+            java.util.Iterator<java.util.Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                java.util.Map.Entry<String, JsonNode> entry = fields.next();
+                JsonNode value = entry.getValue();
+                if (entry.getKey() != null && entry.getKey().equalsIgnoreCase(fieldName)
+                        && hasJsonValue(value)) {
+                    return true;
+                }
+                if (hasJsonFieldWithValue(value, fieldName)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (node.isArray()) {
+            for (JsonNode child : node) {
+                if (hasJsonFieldWithValue(child, fieldName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasJsonValue(JsonNode value) {
+        if (value == null || value.isNull()) {
+            return false;
+        }
+        if (value.isTextual()) {
+            return !value.asText().isBlank();
+        }
+        if (value.isArray() || value.isObject()) {
+            return value.size() > 0;
+        }
+        return true;
     }
 
     private static boolean hasXmlTagWithValue(String payload, String tag) {

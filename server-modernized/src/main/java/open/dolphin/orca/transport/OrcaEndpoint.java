@@ -78,7 +78,7 @@ public enum OrcaEndpoint {
     MEDICAL_SET("/orca21/medicalsetv2", "orca/stub/72_medicalsetv2_response.sample.xml", true, false, null,
             "Request_Number"),
     PUSH_EVENT_GET("/api01rv2/pusheventgetv2", "orca/stub/73_pusheventgetv2_response.sample.json", true, false,
-            "application/json", "Request_Number"),
+            "application/json"),
     MEDICINE_NOTEBOOK_REPORT("/api01rv2/medicinenotebookv2", "orca/stub/74_medicinenotebookv2_response.sample.json",
             true, false, "application/json"),
     KARTENO1_REPORT("/api01rv2/karteno1v2", "orca/stub/75_karteno1v2_response.sample.json", true, false,

@@ -1,5 +1,7 @@
 package open.dolphin.rest;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.BadRequestException;
@@ -12,6 +14,7 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -35,6 +38,7 @@ import open.dolphin.rest.orca.AbstractOrcaRestResource;
 public class OrcaAdditionalApiResource extends AbstractResource {
 
     private static final PushEventDeduplicator PUSH_EVENT_DEDUPLICATOR = PushEventDeduplicator.createDefault();
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     @Inject
     OrcaTransport orcaTransport;
@@ -430,7 +434,7 @@ public class OrcaAdditionalApiResource extends AbstractResource {
 
     @POST
     @Path("/api01rv2/pusheventgetv2")
-    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public Response postPushEventGet(@Context HttpServletRequest request, String payload) {
         return respondPushEvent(request, OrcaEndpoint.PUSH_EVENT_GET,
@@ -439,7 +443,7 @@ public class OrcaAdditionalApiResource extends AbstractResource {
 
     @POST
     @Path("/orca/pusheventgetv2")
-    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public Response postPushEventGetWithOrcaPrefix(@Context HttpServletRequest request, String payload) {
         return respondPushEvent(request, OrcaEndpoint.PUSH_EVENT_GET,
@@ -448,7 +452,7 @@ public class OrcaAdditionalApiResource extends AbstractResource {
 
     @POST
     @Path("/api/orca/pusheventgetv2")
-    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public Response postPushEventGetWithApiOrcaPrefix(@Context HttpServletRequest request, String payload) {
         return respondPushEvent(request, OrcaEndpoint.PUSH_EVENT_GET,
@@ -457,7 +461,7 @@ public class OrcaAdditionalApiResource extends AbstractResource {
 
     @POST
     @Path("/api/api01rv2/pusheventgetv2")
-    @Consumes({MediaType.APPLICATION_XML, MediaType.TEXT_XML})
+    @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public Response postPushEventGetWithApiPrefix(@Context HttpServletRequest request, String payload) {
         return respondPushEvent(request, OrcaEndpoint.PUSH_EVENT_GET,
@@ -471,12 +475,12 @@ public class OrcaAdditionalApiResource extends AbstractResource {
         try {
             String resolvedPayload = payload;
             if (resolvedPayload == null || resolvedPayload.isBlank()) {
-                throw new BadRequestException("ORCA xml2 payload is required");
+                throw new BadRequestException("ORCA pusheventgetv2 payload is required");
             }
-            if (OrcaApiProxySupport.isJsonPayload(resolvedPayload)) {
-                throw new BadRequestException("ORCA xml2 payload is required");
+            if (!OrcaApiProxySupport.isJsonPayload(resolvedPayload)) {
+                throw new BadRequestException("ORCA pusheventgetv2 payload must be JSON");
             }
-            validatePayload(endpoint, resolvedPayload);
+            validatePushEventPayload(resolvedPayload);
             if (shouldUseStub(request)) {
                 OrcaTransportResult stubResult = buildStubResponse(endpoint, resolvedPayload);
                 OrcaTransportResult filtered = applyPushEventDeduplication(stubResult);
@@ -722,10 +726,51 @@ public class OrcaAdditionalApiResource extends AbstractResource {
             }
             case SUBJECTIVES_LIST -> requireTag(payload, "Request_Number", "Request_Number is required");
             case MEDICAL_SET -> requireTag(payload, "Request_Number", "Request_Number is required");
-            case PUSH_EVENT_GET -> requireTag(payload, "Request_Number", "Request_Number is required");
             default -> {
             }
         }
+    }
+
+    private void validatePushEventPayload(String payload) {
+        try {
+            JsonNode root = JSON.readTree(payload);
+            if (root == null || root.isNull() || !root.isObject()) {
+                throw new BadRequestException("ORCA pusheventgetv2 payload must be a JSON object");
+            }
+            JsonNode requestNode = findJsonNodeIgnoreCase(root, "pusheventgetv2req");
+            if (requestNode == null || requestNode.isNull() || !requestNode.isObject()) {
+                throw new BadRequestException("ORCA pusheventgetv2 payload must include pusheventgetv2req");
+            }
+        } catch (IOException ex) {
+            throw new BadRequestException("ORCA pusheventgetv2 payload must be valid JSON");
+        }
+    }
+
+    private JsonNode findJsonNodeIgnoreCase(JsonNode node, String key) {
+        if (node == null || key == null) {
+            return null;
+        }
+        if (node.isObject()) {
+            java.util.Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                if (entry.getKey() != null && entry.getKey().equalsIgnoreCase(key)) {
+                    return entry.getValue();
+                }
+                JsonNode nested = findJsonNodeIgnoreCase(entry.getValue(), key);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        } else if (node.isArray()) {
+            for (JsonNode child : node) {
+                JsonNode nested = findJsonNodeIgnoreCase(child, key);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        return null;
     }
 
     private void validateClassPayload(OrcaEndpoint endpoint, String payload, String classCode) {
