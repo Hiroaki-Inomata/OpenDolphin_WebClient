@@ -1634,6 +1634,15 @@
   overflow: hidden;
 }
 
+.patients-page__selection-placeholder {
+  border: 1px dashed var(--patients-accent-border);
+  background: var(--patients-accent-bg);
+  color: var(--patients-accent-strong);
+  border-radius: 10px;
+  padding: 0.6rem 0.85rem;
+  font-weight: 700;
+}
+
 .patients-page__detail-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1650,6 +1659,11 @@
   padding: 0.45rem 0.8rem;
   cursor: pointer;
   font-weight: 700;
+}
+
+.patients-page__detail-tab:focus-visible {
+  outline: 2px solid var(--patients-accent-strong);
+  outline-offset: 2px;
 }
 
 .patients-page__detail-tab.is-active {

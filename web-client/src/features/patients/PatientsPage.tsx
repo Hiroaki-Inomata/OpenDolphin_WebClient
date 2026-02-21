@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocation, useSearchParams } from 'react-router-dom';
 
@@ -217,6 +217,7 @@ const PATIENTS_DETAIL_TABS: Array<{ key: PatientsDetailTabKey; label: string }> 
   { key: 'orcaMemo', label: 'ORCAメモ' },
   { key: 'audit', label: '監査/ログ' },
 ];
+const PATIENTS_DETAIL_TAB_KEYS = PATIENTS_DETAIL_TABS.map((tab) => tab.key);
 
 type ToastState = {
   tone: 'warning' | 'success' | 'error' | 'info';
@@ -321,8 +322,16 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   const [savedViewName, setSavedViewName] = useState('');
   const [selectedViewId, setSelectedViewId] = useState<string>('');
   const lastUnlinkedToastKey = useRef<string | null>(null);
-  const lastChartsPatientId = useRef<string | null>(null);
+  const lastPatientIdParam = useRef<string | null>(null);
   const lastPatientsUpdatedAt = useRef<number | null>(null);
+  const appliedIntentParam = useRef<string | null>(null);
+  const detailTabRefs = useRef<Record<PatientsDetailTabKey, HTMLButtonElement | null>>({
+    basic: null,
+    orcaTools: null,
+    insurance: null,
+    orcaMemo: null,
+    audit: null,
+  });
   const [auditKeyword, setAuditKeyword] = useState('');
   const [auditOutcome, setAuditOutcome] = useState<'all' | 'success' | 'error' | 'warning' | 'partial' | 'unknown'>('all');
   const [auditScope, setAuditScope] = useState<'selected' | 'all'>('selected');
@@ -344,6 +353,10 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   const [orcaMemoDirty, setOrcaMemoDirty] = useState(false);
   const [orcaMemoNotice, setOrcaMemoNotice] = useState<ToastState | null>(null);
   const [orcaMemoLastUpdate, setOrcaMemoLastUpdate] = useState<PatientMemoUpdateResult | null>(null);
+
+  useEffect(() => {
+    document.title = `患者管理 | 施設ID=${session.facilityId}`;
+  }, [session.facilityId]);
 
   useEffect(() => {
     registerDirty('patients:orcaMemo', orcaMemoDirty, '患者メモ（ORCA）の未保存変更');
@@ -703,6 +716,22 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     }
   }, [appliedFilters, location.search, session.facilityId, setSearchParams]);
 
+  useEffect(() => {
+    const intent = searchParams.get('intent');
+    if (!intent) {
+      appliedIntentParam.current = null;
+      return;
+    }
+    if (appliedIntentParam.current === intent) return;
+    if (intent === 'insurance') {
+      setActiveDetailTab('insurance');
+    }
+    appliedIntentParam.current = intent;
+    const next = new URLSearchParams(searchParams);
+    next.delete('intent');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   const patientsQuery = useQuery({
     queryKey: ['patients', appliedFilters],
     queryFn: () =>
@@ -869,7 +898,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     return {
       title: '0件（未登録）',
       body: '患者が未登録、または連携元にデータがありません。',
-      hint: 'ORCA で患者登録後に取り込み、Reception で受付登録してから再取得してください。',
+      hint: 'ORCA で患者登録後に取り込み、受付で受付登録してから再取得してください。',
       showReception: true,
     };
   }, [
@@ -1055,13 +1084,13 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     if (hasPatient && !matched) {
       return {
         tone: 'warning' as const,
-        message: 'Charts から移動しましたが、対象患者が一覧に見つかりません。Reception の検索条件を確認してください。',
+        message: 'カルテから移動しましたが、対象患者が一覧に見つかりません。受付の検索条件を確認してください。',
         nextAction: '検索条件を見直す',
       };
     }
     return {
       tone: 'warning' as const,
-      message: 'Charts から患者管理へ移動しました。受付フィルタを維持しているため、操作前に対象患者を確認してください。',
+      message: 'カルテから患者管理へ移動しました。受付フィルタを維持しているため、操作前に対象患者を確認してください。',
       nextAction: '対象患者を確認',
     };
   }, [fromCharts, patientIdParam, patients]);
@@ -1082,17 +1111,12 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   }, [enqueue, unlinkedNotice]);
 
   useEffect(() => {
-    if (!selectedId && patients[0] && !selectionLost) {
-      setSelectedId(resolvePatientKey(patients[0]));
-      setForm(patients[0]);
-      setBaseline(patients[0]);
-      baselineRef.current = patients[0];
+    if (!patientIdParam) {
+      lastPatientIdParam.current = null;
+      return;
     }
-  }, [patients, selectedId, selectionLost]);
-
-  useEffect(() => {
-    if (!patientIdParam) return;
-    if (lastChartsPatientId.current === patientIdParam) return;
+    if (!patientsQuery.data || patientsQuery.isFetching) return;
+    if (lastPatientIdParam.current === patientIdParam) return;
     const target = patients.find((patient) => patient.patientId === patientIdParam);
     if (target) {
       setSelectedId(resolvePatientKey(target));
@@ -1100,15 +1124,29 @@ export function PatientsPage({ runId }: PatientsPageProps) {
       setBaseline(target);
       baselineRef.current = target;
       setSelectionLost(false);
+      setValidationErrors([]);
+      setLastAttempt(null);
+      setPendingSelection(null);
+      setSelectionNotice(null);
+    } else {
+      if (!hasUnsavedChanges && !orcaMemoDirty) {
+        setSelectedId(undefined);
+        setForm({});
+        setBaseline(null);
+        baselineRef.current = null;
+        setSelectionLost(false);
+      }
+      setSelectionNotice({ tone: 'warning', message: '指定患者が見つかりません。患者を選択してください。' });
     }
-    lastChartsPatientId.current = patientIdParam;
-  }, [patientIdParam, patients]);
+    lastPatientIdParam.current = patientIdParam;
+  }, [hasUnsavedChanges, orcaMemoDirty, patientIdParam, patients, patientsQuery.data, patientsQuery.isFetching]);
 
   useEffect(() => {
-    if (!selectedId && selectionNotice?.tone !== 'warning') {
+    if (!selectionNotice) return;
+    if (!selectedId && selectionNotice.tone !== 'warning') {
       setSelectionNotice(null);
     }
-  }, [selectedId, selectionNotice?.tone]);
+  }, [selectedId, selectionNotice]);
 
   useEffect(() => {
     if (!patientsQuery.dataUpdatedAt) return;
@@ -1145,6 +1183,61 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     if (!lastAuditEvent) return;
     setAuditSnapshot(getAuditEventLog());
   }, [lastAuditEvent]);
+
+  const focusDetailTab = useCallback((tabKey: PatientsDetailTabKey) => {
+    if (typeof window === 'undefined') return;
+    window.requestAnimationFrame(() => {
+      detailTabRefs.current[tabKey]?.focus();
+    });
+  }, []);
+
+  const moveDetailTab = useCallback(
+    (currentTab: PatientsDetailTabKey, direction: 'prev' | 'next' | 'first' | 'last') => {
+      const currentIndex = PATIENTS_DETAIL_TAB_KEYS.indexOf(currentTab);
+      if (currentIndex < 0) return;
+      const lastIndex = PATIENTS_DETAIL_TAB_KEYS.length - 1;
+      let nextIndex = currentIndex;
+      if (direction === 'prev') nextIndex = currentIndex === 0 ? lastIndex : currentIndex - 1;
+      if (direction === 'next') nextIndex = currentIndex === lastIndex ? 0 : currentIndex + 1;
+      if (direction === 'first') nextIndex = 0;
+      if (direction === 'last') nextIndex = lastIndex;
+      const nextTab = PATIENTS_DETAIL_TAB_KEYS[nextIndex];
+      setActiveDetailTab(nextTab);
+      focusDetailTab(nextTab);
+    },
+    [focusDetailTab],
+  );
+
+  const handleDetailTabKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLButtonElement>, tabKey: PatientsDetailTabKey) => {
+      switch (event.key) {
+        case 'ArrowLeft':
+          event.preventDefault();
+          moveDetailTab(tabKey, 'prev');
+          return;
+        case 'ArrowRight':
+          event.preventDefault();
+          moveDetailTab(tabKey, 'next');
+          return;
+        case 'Home':
+          event.preventDefault();
+          moveDetailTab(tabKey, 'first');
+          return;
+        case 'End':
+          event.preventDefault();
+          moveDetailTab(tabKey, 'last');
+          return;
+        case 'Enter':
+        case ' ':
+          event.preventDefault();
+          setActiveDetailTab(tabKey);
+          return;
+        default:
+          return;
+      }
+    },
+    [moveDetailTab],
+  );
 
   const applyPatientSelection = useCallback((patient: PatientRecord) => {
     setSelectedId(resolvePatientKey(patient));
@@ -1695,7 +1788,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
       />
       <header className="patients-page__header">
         <div>
-          <p className="patients-page__kicker">Patients 検索・管理</p>
+          <p className="patients-page__kicker">患者管理 検索・管理</p>
           <h1>患者管理</h1>
           <p className="patients-page__hint" role="status" aria-live={infoLive}>
             患者一覧から対象を選択し、右ペインのタブで目的別に操作してください。患者保存は「基本情報」タブのみです。
@@ -1762,7 +1855,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
         <ToneBanner
           tone={patientsAutoRefreshNotice.tone}
           message={patientsAutoRefreshNotice.message}
-          destination="Patients"
+          destination="患者管理"
           nextAction={patientsAutoRefreshNotice.nextAction}
           runId={resolvedRunId}
         />
@@ -1774,7 +1867,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
           message={chartsArrivalBanner.message}
           patientId={patientIdParam}
           receptionId={receptionIdParam}
-          destination="Patients"
+          destination="患者管理"
           nextAction={chartsArrivalBanner.nextAction}
           runId={resolvedRunId}
         />
@@ -1783,7 +1876,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
         <ToneBanner
           tone="warning"
           message={unlinkedNotice.message}
-          destination="Patients"
+          destination="患者管理"
           nextAction="一覧を確認"
           runId={resolvedRunId}
         />
@@ -1878,7 +1971,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
         </section>
         <div className="patients-search__saved" aria-label="保存ビュー">
           <div className="patients-search__saved-meta" role="status" aria-live={infoLive}>
-            <span className="patients-search__saved-share">Reception ↔ Patients で共有</span>
+            <span className="patients-search__saved-share">受付 ↔ 患者管理 で共有</span>
             <span className="patients-search__saved-updated">
               {selectedSavedView ? `選択中の更新: ${savedViewUpdatedAtLabel ?? '—'}` : '選択中のビューはありません'}
             </span>
@@ -1939,7 +2032,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
         {patientsErrorContext && (
           <ApiFailureBanner
             subject="患者情報"
-            destination="Patients"
+            destination="患者管理"
             runId={patientsQuery.data?.runId ?? flags.runId}
             nextAction="再取得"
             retryLabel="再取得"
@@ -2002,7 +2095,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
                 ) : null}
                 {patientsEmptyState.showReception ? (
                   <button type="button" className="ghost" onClick={handleOpenReception}>
-                    Reception へ
+                    受付へ
                   </button>
                 ) : null}
               </div>
@@ -2011,7 +2104,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
             </div>
           )}
           {patients.map((patient, index) => {
-            const selected = selectedId === resolvePatientKey(patient) || (!selectedId && patients[0] === patient);
+            const selected = selectedId === resolvePatientKey(patient);
             const unlinkedState = resolveUnlinkedState(patient);
             return (
               <button
@@ -2064,11 +2157,19 @@ export function PatientsPage({ runId }: PatientsPageProps) {
         </div>
 
         <div className="patients-page__form" aria-live={resolveAriaLive(blocking ? 'warning' : 'info')}>
+          {!selectedId ? (
+            <div className="patients-page__selection-placeholder" role="status" aria-live="polite">
+              患者を選択してください。
+            </div>
+          ) : null}
           <div className="patients-page__detail-tabs" role="tablist" aria-label="患者詳細タブ">
             {PATIENTS_DETAIL_TABS.map((tab) => (
               <button
                 key={tab.key}
                 id={`patients-detail-tab-${tab.key}`}
+                ref={(node) => {
+                  detailTabRefs.current[tab.key] = node;
+                }}
                 type="button"
                 role="tab"
                 tabIndex={activeDetailTab === tab.key ? 0 : -1}
@@ -2076,6 +2177,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
                 aria-controls={`patients-detail-panel-${tab.key}`}
                 className={`patients-page__detail-tab${activeDetailTab === tab.key ? ' is-active' : ''}`}
                 onClick={() => setActiveDetailTab(tab.key)}
+                onKeyDown={(event) => handleDetailTabKeyDown(event, tab.key)}
               >
                 {tab.label}
               </button>
@@ -3144,7 +3246,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
             <div className="patients-page__audit-list" role="list" aria-label="保存履歴">
               {auditRows.items.length === 0 ? (
                 <p className="patients-page__audit-empty" role="status" aria-live={infoLive}>
-                  まだ保存履歴がありません（Patients/Charts で保存すると反映されます）。
+                  まだ保存履歴がありません（患者管理/カルテで保存すると反映されます）。
                 </p>
               ) : (
                 auditRows.items.map((record, index) => {
