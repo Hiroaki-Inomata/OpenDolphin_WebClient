@@ -1,5 +1,9 @@
 -- Staff access profile for OpenDolphin users (sex / staff role metadata).
--- Keep in sync with server-modernized/tools/flyway/sql.
+-- This table is intentionally separated from d_users to avoid legacy schema drift.
+--
+-- Baseline dumps may keep d_users in public schema. Prefer opendolphin when present,
+-- otherwise fall back to public via search_path.
+SET search_path TO opendolphin, public;
 
 CREATE TABLE IF NOT EXISTS opendolphin.d_user_access_profile (
     user_pk BIGINT PRIMARY KEY,
@@ -8,7 +12,7 @@ CREATE TABLE IF NOT EXISTS opendolphin.d_user_access_profile (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT fk_user_access_profile_user
-        FOREIGN KEY (user_pk) REFERENCES opendolphin.d_users(id)
+        FOREIGN KEY (user_pk) REFERENCES d_users(id)
         ON DELETE CASCADE
 );
 

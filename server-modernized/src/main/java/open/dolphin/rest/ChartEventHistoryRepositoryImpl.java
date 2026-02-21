@@ -85,10 +85,15 @@ public class ChartEventHistoryRepositoryImpl implements ChartEventHistoryReposit
 
     @Override
     public void purge(String facilityId, int retentionCount, Duration retentionDuration, Instant now) {
+        if (facilityId == null || facilityId.isBlank()) {
+            return;
+        }
+
         if (retentionDuration != null && !retentionDuration.isZero() && !retentionDuration.isNegative()) {
             Instant threshold = now.minus(retentionDuration);
-            em.createNativeQuery("delete from chart_event_history where created_at < ?")
-                    .setParameter(1, Timestamp.from(threshold))
+            em.createNativeQuery("delete from chart_event_history where facility_id = ? and created_at < ?")
+                    .setParameter(1, facilityId)
+                    .setParameter(2, Timestamp.from(threshold))
                     .executeUpdate();
         }
 

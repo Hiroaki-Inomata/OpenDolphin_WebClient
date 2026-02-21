@@ -417,10 +417,35 @@
                         <include>**/AdmConverterSnapshotTest.java</include>
                     </includes>
                     <systemPropertyVariables>
-                        <adm.snapshot.fixtureDir>${project.basedir}/../ops/tests/fixtures/adm</adm.snapshot.fixtureDir>
+                        <adm.snapshot.fixtureDir>${project.basedir}/src/test/resources/fixtures/adm</adm.snapshot.fixtureDir>
+                        <adm.snapshot.outputDir>${project.build.directory}/adm-snapshots</adm.snapshot.outputDir>
                         <net.bytebuddy.experimental>true</net.bytebuddy.experimental>
                     </systemPropertyVariables>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.1.2</version>
+                <configuration>
+                    <includes>
+                        <include>**/*IT.java</include>
+                        <include>**/*ITCase.java</include>
+                    </includes>
+                    <systemPropertyVariables>
+                        <adm.snapshot.fixtureDir>${project.basedir}/src/test/resources/fixtures/adm</adm.snapshot.fixtureDir>
+                        <adm.snapshot.outputDir>${project.build.directory}/adm-snapshots</adm.snapshot.outputDir>
+                        <net.bytebuddy.experimental>true</net.bytebuddy.experimental>
+                    </systemPropertyVariables>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.wildfly.plugins</groupId>

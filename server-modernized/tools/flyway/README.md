@@ -1,41 +1,94 @@
-# Flyway 運用メモ（V0225 以降）
+# Flyway 運用ガイド（server-modernized）
 
-- 対象: `server-modernized/tools/flyway/sql/V0232__letter_lab_stamp_tables.sql` で追加した letter/lab/stamp 系テーブルとシーケンス。
-- 目的: Legacy/Modernized 双方で `LetterServiceBean` / `NLabServiceBean` / `StampServiceBean` の CRUD を同一スキーマで再現し、`ops/tools/send_parallel_request.sh` による parity 取得を再開できる状態にする。
-- `server-modernized/src/main/resources/db/migration` と SQL を同期済み。Flyway は本ディレクトリを参照する。
+## 正本（Single Source of Truth）
+- **正本**: `server-modernized/tools/flyway/sql`
+- 実行設定: `server-modernized/tools/flyway/flyway.conf`（`flyway.locations=filesystem:server-modernized/tools/flyway/sql`）
+- クラスパス側 `server-modernized/src/main/resources/db/migration` は **ミラー**。実行前に必ず正本と同期する。
 
-## 適用順序
-1. **Flyway migrate**  
-   ```bash
-  docker run --rm --network legacy-vs-modern_default \
-    -v "$PWD":/workspace -w /workspace \
-    flyway/flyway:10.17 \
-    -configFiles=server-modernized/tools/flyway/flyway.conf \
-    migrate
-   ```
-  - `flyway_schema_history` に `0230` が追加され、`d_letter_module_seq` / `d_letter_module` / `d_nlabo_module` / `d_nlabo_item` / `d_stamp_tree` が作成される。
-   - ここでは **実行ログのみ取得** し、Docker 上の Postgres への適用はホスト担当者へ引き継ぐ。
-2. **Seed 再投入 (`ops/db/local-baseline/local_synthetic_seed.sql`)**  
-   - Flyway 適用後に、Legacy (`db`) / Modernized (`db-modernized`) それぞれへ同シードを流し込み、`id=8` の紹介状・`id=9101/9201/9202` のラボデータ・`id=9` のスタンプツリーを復元する。
-   - 例:  
-     ```bash
-     docker compose exec db-modernized psql -U opendolphin -d opendolphin \
-       -f ops/db/local-baseline/local_synthetic_seed.sql
-     ```
-   - 実際の `docker compose exec` はホスト環境が実施する。開発コンテナ内ではファイル更新と手順書のみを提供する。
-3. **コンテナ再起動 & parity 取得**  
-   - `scripts/start_legacy_modernized.sh down && start --build` → `ops/tools/send_parallel_request.sh --profile compose --case {letter,lab,stamp}` の順。
-   - 本 README では順序のみ記載し、再起動および `send_parallel_request.sh` の実行はホスト担当者に委譲する。
+### 同期確認
+```bash
+comm -3 \
+  <(cd server-modernized/tools/flyway/sql && ls -1 | sort) \
+  <(cd server-modernized/src/main/resources/db/migration && ls -1 | sort)
+```
 
-## 追加されたオブジェクト
-| オブジェクト | 用途 | 備考 |
-| --- | --- | --- |
-| `d_letter_module_seq` / `d_letter_module` | `LetterModule` 用紹介状テーブル | `karte_id` FK・`karte_id` インデックスあり。セEDで WEB1001 向け紹介状を復元。 |
-| `d_nlabo_module` / `d_nlabo_item` | `NLaboModule/NLaboItem` | サンプルとして HGB/WBC 2 件を投入。`patientId+sampleDate` で並び替え可能なインデックスを付与。 |
-| `d_stamp_tree_seq` / `d_stamp_tree` | `StampTreeModel` | `user_id` FK + インデックス。`doctor1` の個人ツリーを base64 TreeBytes でシード。 |
+```bash
+for f in $(cd server-modernized/tools/flyway/sql && ls -1); do
+  if [ -f "server-modernized/src/main/resources/db/migration/$f" ]; then
+    t=$(sha1sum "server-modernized/tools/flyway/sql/$f" | awk '{print $1}')
+    s=$(sha1sum "server-modernized/src/main/resources/db/migration/$f" | awk '{print $1}')
+    [ "$t" = "$s" ] || echo "$f"
+  fi
+done
+```
 
-> **Note:** ここまでの手順で DB へ変更を適用したら、`docs/server-modernization/phase2/operations/LEGACY_MODERNIZED_CAPTURE_RUNBOOK.md` の §4 (DB Gate) に従って証跡（Flywayログ / psql 出力）を `artifacts/parity-manual/` へ保存する。
+## 実行
+```bash
+docker run --rm --network legacy-vs-modern_default \
+  -v "$PWD":/workspace -w /workspace \
+  flyway/flyway:10.17 \
+  -configFiles=server-modernized/tools/flyway/flyway.conf \
+  validate
+```
 
-## PK パリティ状況（2025-11-11 更新）
+```bash
+docker run --rm --network legacy-vs-modern_default \
+  -v "$PWD":/workspace -w /workspace \
+  flyway/flyway:10.17 \
+  -configFiles=server-modernized/tools/flyway/flyway.conf \
+  migrate
+```
 
-- **PK 揃え済み→再取得待ち**: `ops/db/local-baseline/local_synthetic_seed.sql` で `WEB1001` の `d_karte.id` を強制的に 10 へ固定し、Modern DB 側でも `d_karte` レコードを `id=10` へ入れ替えたうえで `opendolphin.hibernate_sequence` を `SELECT setval('opendolphin.hibernate_sequence', 10, true);` で再採番済み。`docker exec opendolphin-postgres(-modernized)` で双方の `hibernate_sequence` を確認し、証跡として `artifacts/parity-manual/db/20251111T062323Z/karte_id_check.txt` を保存した。Appo/Schedule/Letter/Lab/Stamp parity の RUN_ID は `20251110TnewZ` のままなので、Docker 再デプロイと再取得は後続タスクで対応する。
+## バージョン運用ルール
+- 同一 `Vxxxx` の重複作成は禁止。
+- 競合が発生した場合、後続側を次の空き番号へ繰り上げる（例: `V0240` 重複は片方を `V0244` へ移動）。
+- 既に適用済みの migration ファイルは原則変更しない（checksum 破壊防止）。
+
+## 患者複合キー（一意制約）
+- 追加 migration: `V0244__patient_facility_patientid_unique.sql`
+- 対象: `opendolphin.d_patient(facilityid, patientid)`
+
+### 事前棚卸し SQL（重複確認）
+```sql
+SELECT facilityid,
+       patientid,
+       COUNT(*) AS duplicate_count,
+       ARRAY_AGG(id ORDER BY id) AS duplicated_row_ids
+  FROM opendolphin.d_patient
+ WHERE facilityid IS NOT NULL
+   AND patientid IS NOT NULL
+ GROUP BY facilityid, patientid
+HAVING COUNT(*) > 1
+ ORDER BY duplicate_count DESC, facilityid, patientid;
+```
+
+### 重複がある場合の対応手順
+1. 1組ごとに正として残す `id` を決める（通常は最新更新の1件）。
+2. 関連テーブルの外部キーを残す `id` に寄せる。
+3. 不要行を削除する。
+4. 上記 SQL が 0 行になったことを確認後、`flyway migrate` を再実行する。
+
+## NOT VALID FK の棚卸しと VALIDATE
+- 追加 migration: `V0245__validate_not_valid_foreign_keys.sql`
+- `opendolphin` スキーマの `NOT VALID` FK を走査し、孤児参照（親が存在しない子行）を削除してから `ALTER TABLE ... VALIDATE CONSTRAINT` を実行する。
+
+### 棚卸し SQL
+```sql
+SELECT con.conname,
+       con.conrelid::regclass AS source_table,
+       pg_get_constraintdef(con.oid) AS definition
+  FROM pg_constraint con
+  JOIN pg_namespace ns
+    ON ns.oid = con.connamespace
+ WHERE con.contype = 'f'
+   AND ns.nspname = 'opendolphin'
+   AND con.convalidated = false
+ ORDER BY source_table::text, con.conname;
+```
+
+- `V0245` 適用後は上記結果が 0 行であること。
+
+## 直近の重要 migration
+- `V0242__order_recommendation_indexes.sql`: recommendation 集計用インデックス。
+- `V0244__patient_facility_patientid_unique.sql`: 患者複合キーの一意化。
+- `V0245__validate_not_valid_foreign_keys.sql`: NOT VALID FK の VALIDATE。

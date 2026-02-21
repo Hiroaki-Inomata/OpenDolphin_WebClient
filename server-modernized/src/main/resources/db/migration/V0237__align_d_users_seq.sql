@@ -5,8 +5,8 @@ DECLARE
     max_id BIGINT;
     seq_last BIGINT;
 BEGIN
-    IF to_regclass('opendolphin.d_users_seq') IS NULL THEN
-        RAISE NOTICE 'sequence opendolphin.d_users_seq not found, skipping';
+    IF to_regclass('opendolphin.d_users_seq') IS NULL OR to_regclass('opendolphin.d_users') IS NULL THEN
+        RAISE NOTICE 'sequence/table opendolphin.d_users_seq/opendolphin.d_users not found, skipping';
     ELSE
         SELECT COALESCE(MAX(id), 0) INTO max_id FROM opendolphin.d_users;
         SELECT last_value INTO seq_last FROM opendolphin.d_users_seq;
@@ -20,8 +20,8 @@ DECLARE
     max_id BIGINT;
     seq_last BIGINT;
 BEGIN
-    IF to_regclass('opendolphin.d_roles_seq') IS NULL THEN
-        RAISE NOTICE 'sequence opendolphin.d_roles_seq not found, skipping';
+    IF to_regclass('opendolphin.d_roles_seq') IS NULL OR to_regclass('opendolphin.d_roles') IS NULL THEN
+        RAISE NOTICE 'sequence/table opendolphin.d_roles_seq/opendolphin.d_roles not found, skipping';
     ELSE
         SELECT COALESCE(MAX(id), 0) INTO max_id FROM opendolphin.d_roles;
         SELECT last_value INTO seq_last FROM opendolphin.d_roles_seq;

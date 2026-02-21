@@ -43,17 +43,26 @@ class MessagingDefensiveCopyTest {
                 "dolphin.facilityId=facility01",
                 "orca.jdbc.url=jdbc:h2:mem:test",
                 "orca.password=pass"));
+        String originalJbossHome = System.getProperty("jboss.home.dir");
         System.setProperty("jboss.home.dir", tempDir.toString());
 
-        ORCAConnection connection = ORCAConnection.getInstance();
-        Properties props = connection.getProperties();
-        props.setProperty("new", "value");
+        try {
+            ORCAConnection connection = ORCAConnection.getInstance();
+            Properties props = connection.getProperties();
+            props.setProperty("new", "value");
 
-        assertEquals("127.0.0.1", connection.getProperty("orca.orcaapi.ip"));
-        assertEquals("facility01", connection.getProperties().getProperty("dolphin.facilityId"));
-        assertEquals(null, connection.getProperty("orca.password"));
-        assertEquals(null, connection.getProperties().getProperty("orca.jdbc.url"));
-        assertEquals(null, connection.getProperties().getProperty("new"));
+            assertEquals("127.0.0.1", connection.getProperty("orca.orcaapi.ip"));
+            assertEquals("facility01", connection.getProperties().getProperty("dolphin.facilityId"));
+            assertEquals(null, connection.getProperty("orca.password"));
+            assertEquals(null, connection.getProperties().getProperty("orca.jdbc.url"));
+            assertEquals(null, connection.getProperties().getProperty("new"));
+        } finally {
+            if (originalJbossHome == null) {
+                System.clearProperty("jboss.home.dir");
+            } else {
+                System.setProperty("jboss.home.dir", originalJbossHome);
+            }
+        }
     }
 
     @Test

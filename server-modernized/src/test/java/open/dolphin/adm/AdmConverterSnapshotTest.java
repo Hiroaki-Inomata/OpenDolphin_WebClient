@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -47,8 +46,9 @@ import org.junit.jupiter.api.Test;
 class AdmConverterSnapshotTest {
 
     private static final String SNAPSHOT_BASE_PROPERTY = "adm.snapshot.fixtureDir";
+    private static final String SNAPSHOT_OUTPUT_PROPERTY = "adm.snapshot.outputDir";
     private static final Path SNAPSHOT_BASE = resolveSnapshotBase();
-    private static final Path ARTIFACT_BASE = Paths.get("..", "artifacts", "parity-manual", "adm-snapshots");
+    private static final Path ARTIFACT_BASE = resolveSnapshotOutputBase();
     private static final boolean UPDATE_SNAPSHOTS = Boolean.getBoolean("adm.snapshot.update");
     private static final DateTimeFormatter TIMESTAMP_FORMAT = new DateTimeFormatterBuilder()
             .appendValue(ChronoField.YEAR, 4)
@@ -94,9 +94,17 @@ class AdmConverterSnapshotTest {
     private static Path resolveSnapshotBase() {
         String configured = System.getProperty(SNAPSHOT_BASE_PROPERTY);
         if (configured != null && !configured.isBlank()) {
-            return Paths.get(configured);
+            return Path.of(configured);
         }
-        return Paths.get("..", "ops", "tests", "fixtures", "adm");
+        return Path.of("src", "test", "resources", "fixtures", "adm");
+    }
+
+    private static Path resolveSnapshotOutputBase() {
+        String configured = System.getProperty(SNAPSHOT_OUTPUT_PROPERTY);
+        if (configured != null && !configured.isBlank()) {
+            return Path.of(configured);
+        }
+        return Path.of("target", "adm-snapshots");
     }
 
     private void assertSnapshotMatches(ConverterScenario scenario, SnapshotTarget target) throws Exception {
@@ -106,12 +114,12 @@ class AdmConverterSnapshotTest {
         Path snapshotPath = snapshotPath(target, scenario.name());
         String baselineJson = ensureSnapshotJson(scenario, target, snapshotPath);
         JsonNode baselineNode = mapper.readTree(baselineJson);
+        Path artifactPath = writeArtifacts(scenario.name(), target, baselineJson, actualJson, baselineNode, actualNode);
 
         if (!actualNode.equals(baselineNode)) {
-            Path diffPath = writeArtifacts(scenario.name(), target, baselineJson, actualJson, baselineNode, actualNode);
             Assertions.fail(() -> String.format(
                     "ADM converter snapshot '%s' diverged for %s. Review %s",
-                    scenario.name(), target, diffPath));
+                    scenario.name(), target, artifactPath));
         }
     }
 
