@@ -67,7 +67,6 @@ public class IdentityService {
             token.setParam("nce", nonce);
 
             String ret = token.serializeAndSign();
-            LOGGER.log(Level.INFO, "token={0}", ret);
             return ret;
             
         } catch (IdentityTokenSecretsException ex) {
