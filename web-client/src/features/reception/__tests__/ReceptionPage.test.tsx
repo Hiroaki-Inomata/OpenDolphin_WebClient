@@ -363,7 +363,7 @@ describe('ReceptionPage accept UX', () => {
     expect(paymentSelect).toHaveValue('self');
   });
 
-  it('does not overwrite manual input when auto-fill signature changes', async () => {
+  it('keeps manual patientId and blocks register with mismatch warning when another row is selected', async () => {
     mockAppointmentData.entries = [
       {
         id: 'row-1',
@@ -411,6 +411,8 @@ describe('ReceptionPage accept UX', () => {
 
     expect(patientInput).toHaveValue('MANUAL-999');
     expect(paymentSelect).toHaveValue('self');
+    expect(form.getByRole('button', { name: '確認待ち' })).toBeDisabled();
+    expect(screen.getByText(/手入力患者ID\(MANUAL-999\).*一致していません/)).toBeInTheDocument();
   });
 
   it('enables cancel action only when entry has a receptionId', async () => {
@@ -449,6 +451,52 @@ describe('ReceptionPage accept UX', () => {
     expect(within(row2).getByRole('button', { name: '受付取消' })).toBeEnabled();
   });
 
+  it('shows confirmation dialog before cancel execution', async () => {
+    mockAppointmentData.entries = [
+      {
+        id: 'row-cancel-1',
+        patientId: 'P-210',
+        receptionId: 'R-210',
+        name: '取消確認患者',
+        birthDate: '1970-01-01',
+        sex: 'M',
+        appointmentTime: '09:40',
+        department: '内科',
+        status: '受付中',
+        insurance: '保険',
+        source: 'visits',
+      },
+    ];
+    mockMutationQueue.push({
+      runId: 'RUN-CANCEL',
+      traceId: 'TRACE-CANCEL',
+      apiResult: '00',
+      apiResultMessage: 'OK',
+      requestNumber: '02',
+      acceptanceId: 'R-210',
+      patient: { patientId: 'P-210' },
+    });
+
+    const user = userEvent.setup();
+    renderReceptionPage();
+
+    const row = screen.getByRole('row', { name: /取消確認患者/ });
+    await user.click(within(row).getByRole('button', { name: '受付取消' }));
+
+    expect(mockMutationQueue).toHaveLength(1);
+    const dialog = await screen.findByRole('dialog', { name: '受付取消の確認' });
+    expect(within(dialog).getByLabelText(/患者ID:P-210/)).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText('取消理由（任意）'), '誤受付');
+    await user.click(within(dialog).getByRole('button', { name: '取消を実行' }));
+
+    await waitFor(() => {
+      expect(mockMutationQueue).toHaveLength(0);
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '受付取消の確認' })).toBeNull();
+    });
+  });
+
   it('shows Api_Result and duration in the result area after submit', async () => {
     mockAppointmentData.entries = [];
     mockMutationResult = {
@@ -473,6 +521,9 @@ describe('ReceptionPage accept UX', () => {
     const form = within(acceptSection);
 
     await user.type(form.getByLabelText('患者ID'), 'P-555');
+    await user.click(form.getByRole('button', { name: '詳細' }));
+    await user.selectOptions(form.getByLabelText(/診療科（コード）/), '01');
+    await user.selectOptions(form.getByLabelText(/担当医/), '10001');
     const submitButton = form.getByRole('button', { name: '予約外受付' });
     await user.click(submitButton);
 
@@ -727,6 +778,13 @@ describe('ReceptionPage status/date/card action UX', () => {
     }
   });
 
+  it('clears search conditions without crashing', async () => {
+    const user = userEvent.setup();
+    renderReceptionPage();
+    await user.click(screen.getByRole('button', { name: 'クリア' }));
+    expect(screen.getByRole('button', { name: '検索' })).toBeInTheDocument();
+  });
+
   it('shows row action buttons for charts/history/cancel', () => {
     mockAppointmentData.entries = [
       {
@@ -780,6 +838,47 @@ describe('ReceptionPage status/date/card action UX', () => {
     const afterColumn = within(board).getByRole('region', { name: '診察終了リスト' });
     expect(within(afterColumn).getByText('診察後患者')).toBeInTheDocument();
     expect(within(afterColumn).queryByText('受付患者')).toBeNull();
+  });
+
+  it('blocks duplicate acceptance even when active reception is hidden by filters', async () => {
+    mockAppointmentData.entries = [
+      {
+        id: 'row-dup-active',
+        patientId: 'P-900',
+        receptionId: 'R-900',
+        name: '重複患者',
+        appointmentTime: '09:00',
+        department: '内科',
+        status: '受付中',
+        insurance: '保険',
+        source: 'visits',
+      },
+      {
+        id: 'row-dup-reserve',
+        patientId: 'P-900',
+        appointmentId: 'A-901',
+        name: '重複患者',
+        appointmentTime: '10:00',
+        department: '外科',
+        status: '予約',
+        insurance: '保険',
+        source: 'reservations',
+      },
+    ];
+
+    const user = userEvent.setup();
+    renderReceptionPage();
+
+    const filterSection = screen.getByRole('region', { name: '検索とフィルタ' });
+    await user.click(within(filterSection).getByRole('button', { name: '開く' }));
+    await user.selectOptions(within(filterSection).getByLabelText('診療科'), '外科');
+
+    const acceptSection = screen.getByRole('region', { name: '当日受付' });
+    const registerButton = within(acceptSection).getByRole('button', { name: '受付済み' });
+    await waitFor(() => {
+      expect(registerButton).toBeDisabled();
+      expect(registerButton).toHaveTextContent('受付済み');
+    });
   });
 
   it('shows 会計送信 button on 診察終了 rows and moves them to 会計済み on success', async () => {
