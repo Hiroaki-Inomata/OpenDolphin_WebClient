@@ -14,8 +14,11 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.sql.Blob;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
@@ -462,6 +465,13 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
                     recordAudit(request, "ORCA_ORDER_BUNDLE_MUTATION", audit, AuditEventEnvelope.Outcome.FAILURE);
                     throw validationError(request, "entity", "entity is invalid");
                 }
+                Date performDate = null;
+                if ("create".equals(operation) || "update".equals(operation)) {
+                    performDate = requireMutationDate(request, facilityId, payload.getPatientId(), runId,
+                            op.getOperation(), "startDate", op.getStartDate(), true);
+                    requireMutationDate(request, facilityId, payload.getPatientId(), runId,
+                            op.getOperation(), "endDate", op.getEndDate(), false);
+                }
                 orderBundleContext.put("operation", operation);
                 if (op.getDocumentId() != null) {
                     orderBundleContext.put("documentId", op.getDocumentId());
@@ -471,7 +481,7 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
                 switch (operation) {
                     case "create" -> {
                         try {
-                            DocumentModel document = buildDocument(karte, user, op);
+                            DocumentModel document = buildDocument(karte, user, op, performDate);
                             long id = karteServiceBean.addDocument(document);
                             karteServiceBean.flush();
                             created.add(id);
@@ -499,7 +509,7 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
                             continue;
                         }
                         try {
-                            updateDocumentWithBundle(document, user, op);
+                            updateDocumentWithBundle(document, user, op, performDate);
                             karteServiceBean.updateDocument(document);
                             karteServiceBean.flush();
                             updated.add(documentId);
@@ -582,9 +592,9 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
                 ORDER_BUNDLE_UNAVAILABLE, ORDER_BUNDLE_ERROR_MESSAGE, details, ex);
     }
 
-    private DocumentModel buildDocument(KarteBean karte, UserModel user, OrderBundleMutationRequest.BundleOperation op) {
+    private DocumentModel buildDocument(KarteBean karte, UserModel user, OrderBundleMutationRequest.BundleOperation op,
+            Date performDate) {
         Date now = new Date();
-        Date performDate = parseDate(op.getStartDate(), now);
         DocumentModel document = new DocumentModel();
         document.setKarteBean(karte);
         document.setUserModel(user);
@@ -605,9 +615,9 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         return document;
     }
 
-    private void updateDocumentWithBundle(DocumentModel document, UserModel user, OrderBundleMutationRequest.BundleOperation op) {
+    private void updateDocumentWithBundle(DocumentModel document, UserModel user,
+            OrderBundleMutationRequest.BundleOperation op, Date performDate) {
         Date now = new Date();
-        Date performDate = parseDate(op.getStartDate(), document.getStarted() != null ? document.getStarted() : now);
         document.setStarted(performDate);
         document.setConfirmed(performDate);
         document.setRecorded(now);
@@ -1249,6 +1259,55 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         }
         Date parsed = ModelUtils.getDateAsObject(input);
         return parsed != null ? parsed : fallback;
+    }
+
+    private Date requireMutationDate(HttpServletRequest request, String facilityId, String patientId, String runId,
+            String operation, String field, String input, boolean required) {
+        if (input == null || input.isBlank()) {
+            if (!required) {
+                return null;
+            }
+            Map<String, Object> audit = new HashMap<>();
+            audit.put("facilityId", facilityId);
+            audit.put("patientId", patientId);
+            audit.put("runId", runId);
+            audit.put("validationError", Boolean.TRUE);
+            audit.put("field", field);
+            audit.put("operation", operation);
+            markFailureDetails(audit, Response.Status.BAD_REQUEST.getStatusCode(),
+                    "invalid_request", field + " is required");
+            recordAudit(request, "ORCA_ORDER_BUNDLE_MUTATION", audit, AuditEventEnvelope.Outcome.FAILURE);
+            throw validationError(request, field, field + " is required");
+        }
+
+        Date parsed = parseStrictIsoDate(input);
+        if (parsed != null) {
+            return parsed;
+        }
+
+        Map<String, Object> audit = new HashMap<>();
+        audit.put("facilityId", facilityId);
+        audit.put("patientId", patientId);
+        audit.put("runId", runId);
+        audit.put("validationError", Boolean.TRUE);
+        audit.put("field", field);
+        audit.put("operation", operation);
+        markFailureDetails(audit, Response.Status.BAD_REQUEST.getStatusCode(),
+                "invalid_request", field + " must be yyyy-MM-dd");
+        recordAudit(request, "ORCA_ORDER_BUNDLE_MUTATION", audit, AuditEventEnvelope.Outcome.FAILURE);
+        throw validationError(request, field, field + " must be yyyy-MM-dd");
+    }
+
+    private Date parseStrictIsoDate(String input) {
+        if (input == null) {
+            return null;
+        }
+        try {
+            LocalDate date = LocalDate.parse(input.trim());
+            return Date.from(date.atStartOfDay(ZoneId.systemDefault()).toInstant());
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
     }
 
     private String formatDate(Date date) {

@@ -60,12 +60,13 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         String runId = resolveRunId(request);
         String traceId = resolveTraceId(request);
         String requestId = resolveRequestId(request, traceId);
+        LocalDate targetDate = resolveTargetDate(payload);
 
-        List<PatientVisitModel> visits = fetchVisits(facilityId, payload);
+        List<PatientVisitModel> visits = fetchVisits(facilityId, targetDate);
         if (visits.isEmpty()) {
             String patientId = extractPatientId(payload);
             if (patientId != null && !patientId.isBlank()) {
-                PatientVisitModel fallback = buildFallbackVisit(facilityId, patientId);
+                PatientVisitModel fallback = buildFallbackVisit(facilityId, patientId, targetDate);
                 if (fallback != null) {
                     visits = List.of(fallback);
                 }
@@ -74,7 +75,7 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
 
         List<MedicalOutpatientResponse.MedicalOutpatientEntry> outpatientEntries = new ArrayList<>();
         for (PatientVisitModel visit : visits) {
-            MedicalOutpatientResponse.MedicalOutpatientEntry entry = buildMedicalEntry(facilityId, visit);
+            MedicalOutpatientResponse.MedicalOutpatientEntry entry = buildMedicalEntry(facilityId, visit, targetDate);
             if (entry != null) {
                 outpatientEntries.add(entry);
             }
@@ -160,11 +161,10 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         return traceId;
     }
 
-    private List<PatientVisitModel> fetchVisits(String facilityId, Map<String, Object> payload) {
+    private List<PatientVisitModel> fetchVisits(String facilityId, LocalDate targetDate) {
         if (pvtServiceBean == null || facilityId == null || facilityId.isBlank()) {
             return List.of();
         }
-        LocalDate targetDate = resolveTargetDate(payload);
         return pvtServiceBean.getPvt(facilityId, targetDate.toString(), 0, null, null);
     }
 
@@ -185,7 +185,7 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         return LocalDate.now();
     }
 
-    private PatientVisitModel buildFallbackVisit(String facilityId, String patientId) {
+    private PatientVisitModel buildFallbackVisit(String facilityId, String patientId, LocalDate targetDate) {
         if (patientServiceBean == null) {
             return null;
         }
@@ -197,14 +197,15 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
             PatientVisitModel visit = new PatientVisitModel();
             visit.setPatientModel(patient);
             visit.setFacilityId(facilityId);
-            visit.setPvtDate(LocalDate.now().toString());
+            visit.setPvtDate(targetDate.toString());
             return visit;
         } catch (RuntimeException ex) {
             return null;
         }
     }
 
-    private MedicalOutpatientResponse.MedicalOutpatientEntry buildMedicalEntry(String facilityId, PatientVisitModel visit) {
+    private MedicalOutpatientResponse.MedicalOutpatientEntry buildMedicalEntry(String facilityId, PatientVisitModel visit,
+            LocalDate targetDate) {
         if (visit == null || visit.getPatientModel() == null) {
             return null;
         }
@@ -230,11 +231,11 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         entry.setPatient(summary);
 
         Map<String, MedicalOutpatientResponse.MedicalSection> sections = new LinkedHashMap<>();
-        sections.put("diagnosis", buildDiagnosisSection(karte));
-        sections.put("prescription", buildBundleSection(karte, IInfoModel.ENTITY_MED_ORDER, "prescription"));
-        sections.put("lab", buildBundleSection(karte, IInfoModel.ENTITY_LABO_TEST, "lab"));
-        sections.put("procedure", buildProcedureSection(karte));
-        sections.put("memo", buildMemoSection(karte));
+        sections.put("diagnosis", buildDiagnosisSection(karte, targetDate));
+        sections.put("prescription", buildBundleSection(karte, IInfoModel.ENTITY_MED_ORDER, "prescription", targetDate));
+        sections.put("lab", buildBundleSection(karte, IInfoModel.ENTITY_LABO_TEST, "lab", targetDate));
+        sections.put("procedure", buildProcedureSection(karte, targetDate));
+        sections.put("memo", buildMemoSection(karte, targetDate));
         entry.setSections(sections);
 
         int totalRecords = sections.values().stream()
@@ -264,7 +265,7 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         return visit.getDoctorId();
     }
 
-    private MedicalOutpatientResponse.MedicalSection buildDiagnosisSection(KarteBean karte) {
+    private MedicalOutpatientResponse.MedicalSection buildDiagnosisSection(KarteBean karte, LocalDate targetDate) {
         MedicalOutpatientResponse.MedicalSection section = new MedicalOutpatientResponse.MedicalSection();
         if (karteServiceBean == null) {
             section.setOutcome("MISSING");
@@ -276,6 +277,9 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         List<MedicalOutpatientResponse.MedicalSectionItem> items = new ArrayList<>();
         if (diagnoses != null) {
             for (RegisteredDiagnosisModel diagnosis : diagnoses) {
+                if (!isDiagnosisEffectiveOn(diagnosis, targetDate)) {
+                    continue;
+                }
                 MedicalOutpatientResponse.MedicalSectionItem item = new MedicalOutpatientResponse.MedicalSectionItem();
                 item.setName(diagnosis.getDiagnosis());
                 item.setCode(diagnosis.getDiagnosisCode());
@@ -294,10 +298,11 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         return section;
     }
 
-    private MedicalOutpatientResponse.MedicalSection buildBundleSection(KarteBean karte, String targetEntity, String mode) {
+    private MedicalOutpatientResponse.MedicalSection buildBundleSection(KarteBean karte, String targetEntity, String mode,
+            LocalDate targetDate) {
         MedicalOutpatientResponse.MedicalSection section = new MedicalOutpatientResponse.MedicalSection();
         List<MedicalOutpatientResponse.MedicalSectionItem> items = new ArrayList<>();
-        List<BundleDolphin> bundles = resolveBundles(karte, targetEntity);
+        List<BundleDolphin> bundles = resolveBundles(karte, targetEntity, targetDate);
         for (BundleDolphin bundle : bundles) {
             ClaimItem[] claimItems = bundle.getClaimItem();
             if (claimItems == null) {
@@ -322,10 +327,10 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         return section;
     }
 
-    private MedicalOutpatientResponse.MedicalSection buildProcedureSection(KarteBean karte) {
+    private MedicalOutpatientResponse.MedicalSection buildProcedureSection(KarteBean karte, LocalDate targetDate) {
         MedicalOutpatientResponse.MedicalSection section = new MedicalOutpatientResponse.MedicalSection();
         List<MedicalOutpatientResponse.MedicalSectionItem> items = new ArrayList<>();
-        List<BundleDolphin> bundles = resolveProcedureBundles(karte);
+        List<BundleDolphin> bundles = resolveProcedureBundles(karte, targetDate);
         for (BundleDolphin bundle : bundles) {
             ClaimItem[] claimItems = bundle.getClaimItem();
             if (claimItems == null) {
@@ -345,10 +350,10 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         return section;
     }
 
-    private MedicalOutpatientResponse.MedicalSection buildMemoSection(KarteBean karte) {
+    private MedicalOutpatientResponse.MedicalSection buildMemoSection(KarteBean karte, LocalDate targetDate) {
         MedicalOutpatientResponse.MedicalSection section = new MedicalOutpatientResponse.MedicalSection();
         List<MedicalOutpatientResponse.MedicalSectionItem> items = new ArrayList<>();
-        List<DocumentModel> documents = resolveDocuments(karte);
+        List<DocumentModel> documents = resolveDocuments(karte, targetDate);
         for (DocumentModel document : documents) {
             if (document.getModules() == null) {
                 continue;
@@ -371,12 +376,12 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         return section;
     }
 
-    private List<BundleDolphin> resolveBundles(KarteBean karte, String targetEntity) {
+    private List<BundleDolphin> resolveBundles(KarteBean karte, String targetEntity, LocalDate targetDate) {
         if (karteServiceBean == null) {
             return List.of();
         }
         List<BundleDolphin> bundles = new ArrayList<>();
-        for (DocumentModel document : resolveDocuments(karte)) {
+        for (DocumentModel document : resolveDocuments(karte, targetDate)) {
             if (document.getModules() == null) {
                 continue;
             }
@@ -394,12 +399,12 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         return bundles;
     }
 
-    private List<BundleDolphin> resolveProcedureBundles(KarteBean karte) {
+    private List<BundleDolphin> resolveProcedureBundles(KarteBean karte, LocalDate targetDate) {
         if (karteServiceBean == null) {
             return List.of();
         }
         List<BundleDolphin> bundles = new ArrayList<>();
-        for (DocumentModel document : resolveDocuments(karte)) {
+        for (DocumentModel document : resolveDocuments(karte, targetDate)) {
             if (document.getModules() == null) {
                 continue;
             }
@@ -429,11 +434,12 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         return bundles;
     }
 
-    private List<DocumentModel> resolveDocuments(KarteBean karte) {
+    private List<DocumentModel> resolveDocuments(KarteBean karte, LocalDate targetDate) {
         if (karteServiceBean == null) {
             return List.of();
         }
-        Instant since = Instant.now().minusSeconds(60L * 60L * 24L * 30L);
+        Instant since = targetDate.minusDays(30).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant();
+        Instant until = targetDate.plusDays(1).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant();
         List<open.dolphin.infomodel.DocInfoModel> docInfos =
                 karteServiceBean.getDocumentList(karte.getId(), java.util.Date.from(since), true);
         if (docInfos == null || docInfos.isEmpty()) {
@@ -446,7 +452,46 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         if (ids.isEmpty()) {
             return List.of();
         }
-        return karteServiceBean.getDocuments(ids);
+        List<DocumentModel> documents = karteServiceBean.getDocuments(ids);
+        if (documents == null || documents.isEmpty()) {
+            return List.of();
+        }
+        return documents.stream()
+                .filter(document -> isDocumentWithinRange(document, since, until))
+                .toList();
+    }
+
+    private boolean isDiagnosisEffectiveOn(RegisteredDiagnosisModel diagnosis, LocalDate targetDate) {
+        if (diagnosis == null || targetDate == null) {
+            return false;
+        }
+        LocalDate started = parseIsoDate(diagnosis.getStartDate());
+        if (started != null && started.isAfter(targetDate)) {
+            return false;
+        }
+        LocalDate ended = diagnosis.getEnded() != null
+                ? diagnosis.getEnded().toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                : null;
+        return ended == null || !ended.isBefore(targetDate);
+    }
+
+    private LocalDate parseIsoDate(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private boolean isDocumentWithinRange(DocumentModel document, Instant fromInclusive, Instant toExclusive) {
+        if (document == null || document.getStarted() == null) {
+            return false;
+        }
+        Instant started = document.getStarted().toInstant();
+        return !started.isBefore(fromInclusive) && started.isBefore(toExclusive);
     }
 
     private Object decodeModule(ModuleModel module) {

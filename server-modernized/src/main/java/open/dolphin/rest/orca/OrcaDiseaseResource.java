@@ -21,8 +21,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.KarteBean;
@@ -226,9 +228,17 @@ public class OrcaDiseaseResource extends AbstractOrcaRestResource {
                     recordAudit(request, "ORCA_DISEASE_MUTATION", audit, AuditEventEnvelope.Outcome.FAILURE);
                     throw validationError(request, "diagnosisName", "diagnosisName is required");
                 }
+                Date startDate = null;
+                Date endDate = null;
+                if ("create".equals(operation) || "update".equals(operation)) {
+                    startDate = requireMutationDate(request, facilityId, payload.getPatientId(), runId,
+                            entry.getOperation(), "startDate", entry.getStartDate(), true);
+                    endDate = requireMutationDate(request, facilityId, payload.getPatientId(), runId,
+                            entry.getOperation(), "endDate", entry.getEndDate(), false);
+                }
                 switch (operation) {
-                    case "create" -> adds.add(buildDiagnosis(entry, karte, user));
-                    case "update" -> updates.add(buildDiagnosis(entry, karte, user));
+                    case "create" -> adds.add(buildDiagnosis(entry, karte, user, startDate, endDate));
+                    case "update" -> updates.add(buildDiagnosis(entry, karte, user, startDate, endDate));
                     case "delete" -> {
                         if (entry.getDiagnosisId() != null) {
                             removes.add(entry.getDiagnosisId());
@@ -268,7 +278,7 @@ public class OrcaDiseaseResource extends AbstractOrcaRestResource {
     }
 
     private RegisteredDiagnosisModel buildDiagnosis(DiseaseMutationRequest.MutationEntry entry,
-            KarteBean karte, UserModel user) {
+            KarteBean karte, UserModel user, Date startDate, Date endDate) {
 
         RegisteredDiagnosisModel model = new RegisteredDiagnosisModel();
         if (entry.getDiagnosisId() != null) {
@@ -290,15 +300,15 @@ public class OrcaDiseaseResource extends AbstractOrcaRestResource {
             model.setOutcomeDesc(entry.getOutcome());
             model.setOutcomeCodeSys("ORCA");
         }
-        model.setFirstEncounterDate(entry.getStartDate());
+        model.setFirstEncounterDate(formatDate(startDate));
         model.setDepartment(entry.getDepartmentCode());
         model.setStatus(IInfoModel.STATUS_FINAL);
         Date now = new Date();
         model.setRecorded(now);
-        model.setConfirmed(parseDate(entry.getStartDate(), now));
-        model.setStarted(parseDate(entry.getStartDate(), now));
-        if (entry.getEndDate() != null && !entry.getEndDate().isBlank()) {
-            model.setEnded(parseDate(entry.getEndDate(), now));
+        model.setConfirmed(startDate);
+        model.setStarted(startDate);
+        if (endDate != null) {
+            model.setEnded(endDate);
         }
         return model;
     }
@@ -381,6 +391,55 @@ public class OrcaDiseaseResource extends AbstractOrcaRestResource {
         }
         Date parsed = ModelUtils.getDateAsObject(input);
         return parsed != null ? parsed : defaultValue;
+    }
+
+    private Date requireMutationDate(HttpServletRequest request, String facilityId, String patientId, String runId,
+            String operation, String field, String input, boolean required) {
+        if (input == null || input.isBlank()) {
+            if (!required) {
+                return null;
+            }
+            Map<String, Object> audit = new HashMap<>();
+            audit.put("facilityId", facilityId);
+            audit.put("patientId", patientId);
+            audit.put("runId", runId);
+            audit.put("validationError", Boolean.TRUE);
+            audit.put("field", field);
+            audit.put("operation", operation);
+            markFailureDetails(audit, Response.Status.BAD_REQUEST.getStatusCode(),
+                    "invalid_request", field + " is required");
+            recordAudit(request, "ORCA_DISEASE_MUTATION", audit, AuditEventEnvelope.Outcome.FAILURE);
+            throw validationError(request, field, field + " is required");
+        }
+
+        Date parsed = parseStrictIsoDate(input);
+        if (parsed != null) {
+            return parsed;
+        }
+
+        Map<String, Object> audit = new HashMap<>();
+        audit.put("facilityId", facilityId);
+        audit.put("patientId", patientId);
+        audit.put("runId", runId);
+        audit.put("validationError", Boolean.TRUE);
+        audit.put("field", field);
+        audit.put("operation", operation);
+        markFailureDetails(audit, Response.Status.BAD_REQUEST.getStatusCode(),
+                "invalid_request", field + " must be yyyy-MM-dd");
+        recordAudit(request, "ORCA_DISEASE_MUTATION", audit, AuditEventEnvelope.Outcome.FAILURE);
+        throw validationError(request, field, field + " must be yyyy-MM-dd");
+    }
+
+    private Date parseStrictIsoDate(String input) {
+        if (input == null) {
+            return null;
+        }
+        try {
+            LocalDate date = LocalDate.parse(input.trim());
+            return Date.from(date.atStartOfDay(ZoneId.systemDefault()).toInstant());
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
     }
 
     private boolean isSupportedOperation(String operation) {

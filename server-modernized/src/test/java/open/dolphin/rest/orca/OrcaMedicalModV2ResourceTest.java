@@ -115,6 +115,26 @@ class OrcaMedicalModV2ResourceTest extends RuntimeDelegateTestSupport {
         assertEquals(AuditEventEnvelope.Outcome.SUCCESS, auditDispatcher.outcome);
     }
 
+    @Test
+    void postOutpatientMedical_doesNotMixTodayDataWhenPastDateRequested() {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("Patient_ID", "00001");
+        payload.put("date", "2020-01-01");
+
+        MedicalOutpatientResponse response = resource.postOutpatientMedical(servletRequest, payload);
+
+        assertNotNull(response);
+        assertEquals(1, response.getRecordsReturned());
+        assertNotNull(response.getOutpatientList());
+        assertEquals(1, response.getOutpatientList().size());
+        MedicalOutpatientResponse.MedicalOutpatientEntry entry = response.getOutpatientList().get(0);
+        assertEquals("MISSING", entry.getOutcome());
+        assertNull(entry.getRecordsReturned());
+        assertEquals(0, entry.getSections().get("diagnosis").getRecordsReturned());
+        assertEquals(0, entry.getSections().get("prescription").getRecordsReturned());
+        assertEquals(0, entry.getSections().get("memo").getRecordsReturned());
+    }
+
     private static void injectField(Object target, String fieldName, Object value) throws Exception {
         Class<?> type = target.getClass();
         Field field = null;

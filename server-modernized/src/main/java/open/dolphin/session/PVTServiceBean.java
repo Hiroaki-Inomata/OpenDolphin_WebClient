@@ -1,15 +1,29 @@
 package open.dolphin.session;
 
+import java.beans.XMLDecoder;
+import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
@@ -54,6 +68,8 @@ public class PVTServiceBean {
     private static final String ID = "id";
     private static final String DATE = "date";
     private static final String PERCENT = "%";
+    private static final DateTimeFormatter PVT_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
+    private static final DateTimeFormatter PVT_DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
     private static final int LEGACY_FINALIZED_SAVE_BIT   = 1;
     private static final int LEGACY_FINALIZED_MODIFY_BIT = 2;
     private static final int LEGACY_FINALIZED_SAVE_STATE = 1 << LEGACY_FINALIZED_SAVE_BIT;   // 2
@@ -119,18 +135,22 @@ public class PVTServiceBean {
             List<HealthInsuranceModel> newOne = patient.getHealthInsurances();
 
             if (newOne != null && !newOne.isEmpty()) {
-                // 現在の保険情報を削除する
-                for (HealthInsuranceModel model : old) {
-                    em.remove(model);
+                // 受信保険を既存保険へマージする。部分更新時に既存を全削除しない。
+                InsuranceMergeResult mergeResult = mergeInsurances(old, newOne);
+
+                for (InsuranceUpdate update : mergeResult.updates()) {
+                    HealthInsuranceModel persisted = update.persisted();
+                    HealthInsuranceModel incoming = update.incoming();
+                    persisted.setBeanBytes(incoming.getBeanBytes());
+                    persisted.setPatient(exist);
                 }
 
-                // 新しい健康保険情報を登録する
-                for (HealthInsuranceModel model : newOne) {
+                for (HealthInsuranceModel model : mergeResult.additions()) {
                     model.setPatient(exist);
                     em.persist(model);
                 }
-                // 健康保険を新しいものに更新する
-                exist.setHealthInsurances(newOne);
+
+                exist.setHealthInsurances(mergeResult.merged());
             } else {
                 // pvtに保険情報が乗っかっていない場合は古いのを使う
                 exist.setHealthInsurances(old);
@@ -183,7 +203,9 @@ public class PVTServiceBean {
         }
 
         // ここからPVT登録処理
-        
+
+        pvt.setPvtDate(normalizePvtDateForStorage(pvt.getPvtDate()));
+
         // 旧仕様では患者情報のみを登録し、来院情報がない場合がある。
         // 来院情報を登録する。pvtDate == nullなら患者登録のみ
         if (pvt.getPvtDate() == null) {
@@ -194,8 +216,11 @@ public class PVTServiceBean {
         if (!isToday(pvt.getPvtDate())) {
             LOGGER.info("scheduled PVT: {}", pvt.getPvtDate());
             // 2重登録をチェックする
-            int index = pvt.getPvtDate().indexOf("T");
-            String test = pvt.getPvtDate().substring(0, index);
+            String test = extractPvtDatePart(pvt.getPvtDate());
+            if (test == null) {
+                LOGGER.warn("skip scheduled PVT registration because pvtDate is invalid: {}", pvt.getPvtDate());
+                return 0;
+            }
             List<PatientVisitModel> list = (List<PatientVisitModel>)em
             .createQuery(QUERY_PVT_BY_FID_PID_DATE)
             .setParameter(FID, fid)
@@ -363,17 +388,190 @@ public class PVTServiceBean {
      * @return 今日の時 true
      */
     private boolean isToday(String mmlDate) {
-        
-        try {
-            int index = mmlDate.indexOf("T");
-            String test = mmlDate.substring(0, index);
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-            String today = sdf.format(new Date());
-            return test.equals(today);
-        } catch (Exception e) {
+        String test = extractPvtDatePart(mmlDate);
+        if (test == null) {
+            return false;
         }
-        
-        return false;
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        String today = sdf.format(new Date());
+        return test.equals(today);
+    }
+
+    static InsuranceMergeResult mergeInsurances(List<HealthInsuranceModel> existing,
+            List<HealthInsuranceModel> incoming) {
+
+        List<HealthInsuranceModel> safeExisting = existing != null ? existing : List.of();
+        List<HealthInsuranceModel> safeIncoming = incoming != null ? incoming : List.of();
+        if (safeIncoming.isEmpty()) {
+            return new InsuranceMergeResult(List.of(), List.of(), new ArrayList<>(safeExisting));
+        }
+
+        Map<String, HealthInsuranceModel> existingByKey = new LinkedHashMap<>();
+        for (HealthInsuranceModel model : safeExisting) {
+            String key = resolveInsuranceKey(model);
+            if (key != null && !existingByKey.containsKey(key)) {
+                existingByKey.put(key, model);
+            }
+        }
+
+        Set<String> seenKeys = new HashSet<>();
+        List<InsuranceUpdate> updates = new ArrayList<>();
+        List<HealthInsuranceModel> additions = new ArrayList<>();
+        List<HealthInsuranceModel> merged = new ArrayList<>(safeExisting);
+
+        for (HealthInsuranceModel model : safeIncoming) {
+            if (model == null) {
+                continue;
+            }
+            String key = resolveInsuranceKey(model);
+            if (key != null && !seenKeys.add(key)) {
+                continue;
+            }
+            HealthInsuranceModel persisted = key != null ? existingByKey.get(key) : null;
+            if (persisted != null) {
+                updates.add(new InsuranceUpdate(persisted, model));
+            } else {
+                additions.add(model);
+                merged.add(model);
+            }
+        }
+        return new InsuranceMergeResult(updates, additions, merged);
+    }
+
+    static String normalizePvtDateForStorage(String rawPvtDate) {
+        String value = normalizeText(rawPvtDate);
+        if (value == null) {
+            return null;
+        }
+
+        try {
+            LocalDate date = LocalDate.parse(value, PVT_DATE_FORMATTER);
+            return date.atStartOfDay().format(PVT_DATE_TIME_FORMATTER);
+        } catch (DateTimeParseException ignore) {
+            // fall through
+        }
+
+        LocalDateTime dateTime = parseDateTime(value);
+        if (dateTime != null) {
+            return dateTime.withNano(0).format(PVT_DATE_TIME_FORMATTER);
+        }
+
+        String datePart = extractPvtDatePart(value);
+        if (datePart != null) {
+            return datePart + "T00:00:00";
+        }
+
+        return value;
+    }
+
+    static String extractPvtDatePart(String pvtDate) {
+        String value = normalizeText(pvtDate);
+        if (value == null || value.length() < 10) {
+            return null;
+        }
+        String candidate = value.substring(0, 10);
+        try {
+            LocalDate.parse(candidate, PVT_DATE_FORMATTER);
+            return candidate;
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
+    }
+
+    private static LocalDateTime parseDateTime(String value) {
+        try {
+            return LocalDateTime.parse(value, PVT_DATE_TIME_FORMATTER);
+        } catch (DateTimeParseException ignore) {
+            // fall through
+        }
+        try {
+            return LocalDateTime.parse(value, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        } catch (DateTimeParseException ignore) {
+            // fall through
+        }
+        try {
+            return OffsetDateTime.parse(value, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toLocalDateTime();
+        } catch (DateTimeParseException ignore) {
+            return null;
+        }
+    }
+
+    private static String resolveInsuranceKey(HealthInsuranceModel model) {
+        if (model == null) {
+            return null;
+        }
+
+        PVTHealthInsuranceModel insurance = decodeInsurance(model);
+        if (insurance != null) {
+            String guid = normalizeText(insurance.getGUID());
+            if (guid != null) {
+                return "guid:" + guid;
+            }
+            String metadataKey = joinInsuranceKey(
+                    insurance.getInsuranceClassCode(),
+                    insurance.getInsuranceNumber(),
+                    insurance.getClientGroup(),
+                    insurance.getClientNumber(),
+                    insurance.getFamilyClass(),
+                    insurance.getStartDate());
+            if (metadataKey != null) {
+                return "meta:" + metadataKey;
+            }
+        }
+
+        byte[] bytes = model.getBeanBytes();
+        if (bytes != null && bytes.length > 0) {
+            return "bytes:" + Arrays.hashCode(bytes);
+        }
+        return null;
+    }
+
+    private static PVTHealthInsuranceModel decodeInsurance(HealthInsuranceModel model) {
+        byte[] bytes = model != null ? model.getBeanBytes() : null;
+        if (bytes == null || bytes.length == 0) {
+            return null;
+        }
+        try (XMLDecoder decoder = new XMLDecoder(new BufferedInputStream(new ByteArrayInputStream(bytes)))) {
+            Object decoded = decoder.readObject();
+            if (decoded instanceof PVTHealthInsuranceModel insurance) {
+                return insurance;
+            }
+        } catch (Exception ignore) {
+            return null;
+        }
+        return null;
+    }
+
+    private static String joinInsuranceKey(String... parts) {
+        StringBuilder builder = new StringBuilder();
+        boolean hasValue = false;
+        for (int i = 0; i < parts.length; i++) {
+            if (i > 0) {
+                builder.append('|');
+            }
+            String normalized = normalizeText(parts[i]);
+            if (normalized != null) {
+                builder.append(normalized);
+                hasValue = true;
+            }
+        }
+        return hasValue ? builder.toString() : null;
+    }
+
+    private static String normalizeText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    record InsuranceUpdate(HealthInsuranceModel persisted, HealthInsuranceModel incoming) {
+    }
+
+    record InsuranceMergeResult(List<InsuranceUpdate> updates,
+            List<HealthInsuranceModel> additions,
+            List<HealthInsuranceModel> merged) {
     }
 
 //    /**
