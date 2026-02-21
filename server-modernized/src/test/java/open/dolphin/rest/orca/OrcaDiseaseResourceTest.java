@@ -94,6 +94,7 @@ class OrcaDiseaseResourceTest extends RuntimeDelegateTestSupport {
             DiseaseMutationRequest.MutationEntry entry = new DiseaseMutationRequest.MutationEntry();
             entry.setOperation(operation);
             entry.setDiagnosisName(diagnosisName);
+            entry.setStartDate("2025-01-01");
             if ("update".equals(operation)) {
                 entry.setDiagnosisId(100L);
             }
@@ -148,6 +149,37 @@ class OrcaDiseaseResourceTest extends RuntimeDelegateTestSupport {
     }
 
     @Test
+    void postDiseaseRejectsInvalidStartDate() {
+        DiseaseMutationRequest payload = new DiseaseMutationRequest();
+        payload.setPatientId("00001");
+        DiseaseMutationRequest.MutationEntry entry = new DiseaseMutationRequest.MutationEntry();
+        entry.setOperation("create");
+        entry.setDiagnosisName("テスト病名");
+        entry.setStartDate("2025/01/01");
+        payload.setOperations(List.of(entry));
+
+        WebApplicationException exception = catchThrowableOfType(
+                () -> resource.postDisease(servletRequest, payload), WebApplicationException.class);
+        assertNotNull(exception);
+        assertEquals(400, exception.getResponse().getStatus());
+        Map<String, Object> body = getErrorBody(exception);
+        assertEquals(Boolean.TRUE, body.get("validationError"));
+        assertEquals("startDate", body.get("field"));
+        assertEquals("startDate must be yyyy-MM-dd", body.get("message"));
+
+        assertNotNull(auditDispatcher.payload);
+        assertEquals("ORCA_DISEASE_MUTATION", auditDispatcher.payload.getAction());
+        Map<String, Object> details = auditDispatcher.payload.getDetails();
+        assertEquals(Boolean.TRUE, details.get("validationError"));
+        assertEquals("startDate", details.get("field"));
+        assertEquals("create", details.get("operation"));
+        assertEquals("invalid_request", details.get("errorCode"));
+        assertEquals("startDate must be yyyy-MM-dd", details.get("errorMessage"));
+        assertEquals(400, details.get("httpStatus"));
+        assertEquals(AuditEventEnvelope.Outcome.FAILURE, auditDispatcher.outcome);
+    }
+
+    @Test
     void postDiseaseSkipsNullOperationEntries() {
         DiseaseMutationRequest payload = new DiseaseMutationRequest();
         payload.setPatientId("00001");
@@ -155,6 +187,7 @@ class OrcaDiseaseResourceTest extends RuntimeDelegateTestSupport {
         DiseaseMutationRequest.MutationEntry validEntry = new DiseaseMutationRequest.MutationEntry();
         validEntry.setOperation("create");
         validEntry.setDiagnosisName("テスト病名");
+        validEntry.setStartDate("2025-01-01");
         payload.setOperations(Arrays.asList(null, emptyEntry, validEntry));
 
         assertNotNull(resource.postDisease(servletRequest, payload));

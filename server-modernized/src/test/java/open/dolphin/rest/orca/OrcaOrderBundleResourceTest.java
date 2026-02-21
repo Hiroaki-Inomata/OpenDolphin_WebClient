@@ -21,11 +21,14 @@ import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.ModuleInfoBean;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.PatientModel;
+import open.dolphin.infomodel.UserModel;
+import open.dolphin.rest.dto.orca.OrderBundleMutationRequest;
 import open.dolphin.rest.dto.orca.OrderBundleRecommendationResponse;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PatientServiceBean;
+import open.dolphin.session.UserServiceBean;
 import open.dolphin.testsupport.RuntimeDelegateTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +46,7 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         injectField(resource, "sessionAuditDispatcher", auditDispatcher);
         injectField(resource, "patientServiceBean", new FakePatientServiceBean());
         injectField(resource, "karteServiceBean", new FakeKarteServiceBean());
+        injectField(resource, "userServiceBean", new FakeUserServiceBean());
         servletRequest = (HttpServletRequest) Proxy.newProxyInstance(
                 getClass().getClassLoader(),
                 new Class[]{HttpServletRequest.class},
@@ -111,6 +115,35 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         assertNotNull(auditDispatcher.payload);
         assertEquals("ORCA_ORDER_RECOMMENDATION_FETCH", auditDispatcher.payload.getAction());
         assertEquals(AuditEventEnvelope.Outcome.SUCCESS, auditDispatcher.outcome);
+    }
+
+    @Test
+    void postBundlesRejectsInvalidStartDate() {
+        OrderBundleMutationRequest payload = new OrderBundleMutationRequest();
+        payload.setPatientId("00001");
+        OrderBundleMutationRequest.BundleOperation op = new OrderBundleMutationRequest.BundleOperation();
+        op.setOperation("create");
+        op.setEntity("medOrder");
+        op.setBundleName("降圧薬セット");
+        op.setStartDate("2025/01/01");
+        payload.setOperations(List.of(op));
+
+        WebApplicationException exception = null;
+        try {
+            resource.postBundles(servletRequest, payload);
+        } catch (WebApplicationException ex) {
+            exception = ex;
+        }
+
+        assertNotNull(exception);
+        assertEquals(400, exception.getResponse().getStatus());
+        Map<String, Object> body = getErrorBody(exception);
+        assertEquals(Boolean.TRUE, body.get("validationError"));
+        assertEquals("startDate", body.get("field"));
+        assertEquals("startDate must be yyyy-MM-dd", body.get("message"));
+        assertNotNull(auditDispatcher.payload);
+        assertEquals("ORCA_ORDER_BUNDLE_MUTATION", auditDispatcher.payload.getAction());
+        assertEquals(AuditEventEnvelope.Outcome.FAILURE, auditDispatcher.outcome);
     }
 
     @SuppressWarnings("unchecked")
@@ -214,6 +247,16 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
 
             document.setModules(List.of(module));
             return document;
+        }
+    }
+
+    private static final class FakeUserServiceBean extends UserServiceBean {
+        @Override
+        public UserModel getUser(String userId) {
+            UserModel user = new UserModel();
+            user.setUserId(userId);
+            user.setCommonName("テスト医師");
+            return user;
         }
     }
 }

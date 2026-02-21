@@ -539,7 +539,7 @@ public final class PVTBuilder {
         
         // InsuranceClass を解析する
         Element insuranceClassEle = hModule.getChild(insuranceClass, mmlHi);
-        if (insuranceClass != null) {
+        if (insuranceClassEle != null) {
             curInsurance.setInsuranceClass(insuranceClassEle.getTextTrim());
             if (insuranceClassEle.getAttribute(ClassCode, mmlHi) != null) {
                 curInsurance.setInsuranceClassCode(insuranceClassEle.getAttributeValue(ClassCode, mmlHi));
