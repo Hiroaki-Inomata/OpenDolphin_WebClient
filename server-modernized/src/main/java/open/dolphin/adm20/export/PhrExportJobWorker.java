@@ -2,10 +2,13 @@ package open.dolphin.adm20.export;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
+import java.io.BufferedOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -28,6 +31,7 @@ public class PhrExportJobWorker {
     private static final String ERROR_VALIDATION = "INVALID_REQUEST";
     private static final String ERROR_STORAGE = "STORAGE_ERROR";
     private static final String ERROR_UNEXPECTED = "UNEXPECTED_ERROR";
+    private static final int PROGRESS_UPDATE_INTERVAL = 20;
 
     @Inject
     private PHRAsyncJobServiceBean jobService;
@@ -70,46 +74,61 @@ public class PhrExportJobWorker {
         List<String> patientIds = request.getPatientIds();
         int total = patientIds.size();
         int processed = 0;
+        Path tempArchive = Files.createTempFile("phr-export-" + job.getJobId() + "-", ".zip");
 
-        try (ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-             ZipOutputStream zip = new ZipOutputStream(buffer, StandardCharsets.UTF_8)) {
-            OutputStreamWriter writer = new OutputStreamWriter(zip, StandardCharsets.UTF_8);
+        try {
+            try (BufferedOutputStream output = new BufferedOutputStream(Files.newOutputStream(tempArchive));
+                 ZipOutputStream zip = new ZipOutputStream(output, StandardCharsets.UTF_8)) {
+                OutputStreamWriter writer = new OutputStreamWriter(zip, StandardCharsets.UTF_8);
 
-            for (String patientId : patientIds) {
-                processed++;
-                String entryName = buildEntryName(patientId, processed);
-                zip.putNextEntry(new ZipEntry(entryName));
+                for (String patientId : patientIds) {
+                    processed++;
+                    String entryName = buildEntryName(patientId, processed);
+                    zip.putNextEntry(new ZipEntry(entryName));
 
-                var container = dataAssembler.buildContainer(
-                        facilityId,
-                        patientId,
-                        request.getDocumentSince(),
-                        request.getLabSince(),
-                        request.getRpRequest() != null ? request.getRpRequest() : 0,
-                        request.getReplyTo());
+                    var container = dataAssembler.buildContainer(
+                            facilityId,
+                            patientId,
+                            request.getDocumentSince(),
+                            request.getLabSince(),
+                            request.getRpRequest() != null ? request.getRpRequest() : 0,
+                            request.getReplyTo());
 
-                writer.write(dataAssembler.toJson(container));
+                    writer.write(dataAssembler.toJson(container));
+                    writer.flush();
+
+                    zip.closeEntry();
+                    if (shouldReportProgress(processed, total)) {
+                        int progress = Math.floorDiv(processed * 100, total);
+                        jobService.updateProgress(job.getJobId(), Math.min(progress, 99));
+                    }
+                }
+
+                zip.putNextEntry(new ZipEntry("metadata.json"));
+                String metadata = buildMetadata(request, facilityId, total);
+                writer.write(metadata);
                 writer.flush();
-
                 zip.closeEntry();
-                int progress = Math.floorDiv(processed * 100, total);
-                jobService.updateProgress(job.getJobId(), Math.min(progress, 99));
+                zip.finish();
             }
-
-            zip.putNextEntry(new ZipEntry("metadata.json"));
-            String metadata = buildMetadata(request, facilityId, total);
-            writer.write(metadata);
-            writer.flush();
-            zip.closeEntry();
-            zip.finish();
 
             PhrExportStorage storage = resolveStorage();
-            byte[] bytes = buffer.toByteArray();
-            try (ByteArrayInputStream inputStream = new ByteArrayInputStream(bytes)) {
-                PhrExportStorage.StorageResult result = storage.storeArtifact(job, inputStream, bytes.length, "application/zip");
+            long size = Files.size(tempArchive);
+            try (InputStream inputStream = Files.newInputStream(tempArchive)) {
+                PhrExportStorage.StorageResult result = storage.storeArtifact(job, inputStream, size, "application/zip");
                 jobService.completeSuccess(job.getJobId(), result.getLocation(), result.getSize());
             }
+        } finally {
+            try {
+                Files.deleteIfExists(tempArchive);
+            } catch (IOException ex) {
+                LOGGER.log(Level.FINE, "Failed to cleanup temporary PHR archive: {0}", tempArchive);
+            }
         }
+    }
+
+    private boolean shouldReportProgress(int processed, int total) {
+        return processed == total || processed % PROGRESS_UPDATE_INTERVAL == 0;
     }
 
     private PhrExportStorage resolveStorage() throws StorageException {

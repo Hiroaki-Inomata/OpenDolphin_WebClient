@@ -4,7 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.concurrent.ManagedScheduledExecutorService;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.sse.OutboundSseEvent;
 import jakarta.ws.rs.sse.Sse;
@@ -17,6 +19,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -45,19 +48,32 @@ public class ReceptionRealtimeSseSupport {
     private final AtomicLong sequence = new AtomicLong();
     private final ObjectMapper mapper = AbstractResource.getSerializeMapper();
 
+    @Resource(lookup = "java:jboss/ee/concurrency/scheduler/default")
+    private ManagedScheduledExecutorService managedKeepAliveScheduler;
+
     private ScheduledExecutorService keepAliveScheduler;
+    private ScheduledFuture<?> keepAliveTask;
+    private boolean ownsKeepAliveScheduler;
 
     @PostConstruct
     void initialize() {
-        keepAliveScheduler = Executors.newSingleThreadScheduledExecutor(new KeepAliveThreadFactory());
-        keepAliveScheduler.scheduleAtFixedRate(this::broadcastKeepAlive, KEEP_ALIVE_INTERVAL_SECONDS,
+        keepAliveScheduler = resolveKeepAliveScheduler();
+        keepAliveTask = keepAliveScheduler.scheduleAtFixedRate(this::broadcastKeepAlive, KEEP_ALIVE_INTERVAL_SECONDS,
                 KEEP_ALIVE_INTERVAL_SECONDS, TimeUnit.SECONDS);
     }
 
     @PreDestroy
     void shutdown() {
+        if (keepAliveTask != null) {
+            keepAliveTask.cancel(true);
+            keepAliveTask = null;
+        }
         if (keepAliveScheduler != null) {
-            keepAliveScheduler.shutdownNow();
+            if (ownsKeepAliveScheduler) {
+                keepAliveScheduler.shutdownNow();
+            }
+            keepAliveScheduler = null;
+            ownsKeepAliveScheduler = false;
         }
         facilityContexts.forEach((facilityId, context) -> context.closeAll());
         facilityContexts.clear();
@@ -208,6 +224,15 @@ public class ReceptionRealtimeSseSupport {
             LOGGER.log(Level.FINE, "Invalid Last-Event-ID: {0}", lastEventId);
             return -1L;
         }
+    }
+
+    private ScheduledExecutorService resolveKeepAliveScheduler() {
+        if (managedKeepAliveScheduler != null) {
+            ownsKeepAliveScheduler = false;
+            return managedKeepAliveScheduler;
+        }
+        ownsKeepAliveScheduler = true;
+        return Executors.newSingleThreadScheduledExecutor(new KeepAliveThreadFactory());
     }
 
     private static final class KeepAliveThreadFactory implements ThreadFactory {

@@ -9,9 +9,11 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Status;
 import jakarta.transaction.Synchronization;
+import jakarta.transaction.Transactional;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import open.dolphin.infomodel.AttachmentModel;
 import org.slf4j.Logger;
@@ -40,6 +42,9 @@ public class AttachmentStorageManager {
 
     @Inject
     AttachmentStorageConfigLoader configLoader;
+
+    @Inject
+    Instance<AttachmentStorageManager> selfReference;
 
     @Resource
     private TransactionSynchronizationRegistry registry;
@@ -79,9 +84,21 @@ public class AttachmentStorageManager {
         if (!settings.getMode().isS3() || attachments == null || attachments.isEmpty()) {
             return;
         }
+        AttachmentStorageManager invoker = selfReference != null && !selfReference.isUnsatisfied()
+                ? selfReference.get()
+                : this;
         attachments.stream()
                 .filter(Objects::nonNull)
-                .forEach(this::uploadToS3);
+                .forEach(attachment -> {
+                    if (invoker.uploadToS3OutsideTransaction(attachment)) {
+                        registerRollbackHook(attachment);
+                    }
+                });
+    }
+
+    @Transactional(Transactional.TxType.NOT_SUPPORTED)
+    public boolean uploadToS3OutsideTransaction(AttachmentModel attachment) {
+        return uploadToS3(attachment);
     }
 
     public void populateBinary(AttachmentModel attachment) {
@@ -127,17 +144,17 @@ public class AttachmentStorageManager {
         });
     }
 
-    private void uploadToS3(AttachmentModel attachment) {
+    private boolean uploadToS3(AttachmentModel attachment) {
         // Idempotency check: if already uploaded to S3, skip
         if ("s3".equals(attachment.getLocation()) && attachment.getUri() != null && !attachment.getUri().isBlank()) {
             LOGGER.debug("Attachment {} is already in S3 ({}); skipping upload.", attachment.getId(), attachment.getUri());
-            return;
+            return false;
         }
 
         byte[] bytes = attachment.getBytes();
         if (bytes == null || bytes.length == 0) {
             LOGGER.debug("Attachment {} has no binary payload; skip upload", attachment.getId());
-            return;
+            return false;
         }
         AttachmentStorageSettings.S3Settings s3Settings = settings.getS3()
                 .orElseThrow(() -> new AttachmentStorageException("S3 settings missing"));
@@ -158,9 +175,7 @@ public class AttachmentStorageManager {
             String s3Uri = String.format("s3://%s/%s", s3Settings.getBucket(), key);
             attachment.setUri(s3Uri);
             attachment.setLocation("s3");
-
-            // Register rollback hook
-            registerRollbackHook(attachment);
+            return true;
 
         } catch (Exception ex) {
             throw new AttachmentStorageException("Failed to upload attachment to S3: " + key, ex);

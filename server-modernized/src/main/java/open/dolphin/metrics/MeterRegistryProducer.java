@@ -2,6 +2,7 @@ package open.dolphin.metrics;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Metrics;
+import jakarta.annotation.PreDestroy;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
@@ -28,11 +29,7 @@ public class MeterRegistryProducer {
     private static final String DEFAULT_JNDI_NAME = "java:jboss/micrometer/registry";
     private static final String DISABLE_OTLP_ENV = "OPENDOLPHIN_DISABLE_OTLP_METRICS";
     private static final String DISABLE_OTLP_PROPERTY = "open.dolphin.metrics.otlp.disabled";
-    private static final ScheduledExecutorService OTLP_SWEEPER = Executors.newSingleThreadScheduledExecutor(r -> {
-        Thread t = new Thread(r, "otlp-metrics-sweeper");
-        t.setDaemon(true);
-        return t;
-    });
+    private ScheduledExecutorService otlpSweeper;
 
     @PostConstruct
     void initialize() {
@@ -43,8 +40,21 @@ public class MeterRegistryProducer {
             System.setProperty("management.otlp.metrics.export.enabled", "false");
             filterOutOtlp(Metrics.globalRegistry);
             // 起動後に追加される OTLP レジストリも除去するため、短周期でスイープする
-            OTLP_SWEEPER.scheduleAtFixedRate(() -> filterOutOtlp(Metrics.globalRegistry),
+            otlpSweeper = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "otlp-metrics-sweeper");
+                t.setDaemon(true);
+                return t;
+            });
+            otlpSweeper.scheduleAtFixedRate(() -> filterOutOtlp(Metrics.globalRegistry),
                     0, Duration.ofSeconds(20).toSeconds(), TimeUnit.SECONDS);
+        }
+    }
+
+    @PreDestroy
+    void shutdown() {
+        if (otlpSweeper != null) {
+            otlpSweeper.shutdownNow();
+            otlpSweeper = null;
         }
     }
 
