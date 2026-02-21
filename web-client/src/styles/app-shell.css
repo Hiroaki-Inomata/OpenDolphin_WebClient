@@ -96,6 +96,26 @@
   box-shadow: 0 10px 25px rgba(239, 68, 68, 0.25);
 }
 
+.app-shell__switch {
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  background: rgba(255, 255, 255, 0.88);
+  color: #0f172a;
+  padding: 0.5rem 0.95rem;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.app-shell__switch:hover,
+.app-shell__switch:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(30, 64, 175, 0.45);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+  outline: none;
+}
+
 .app-shell__admin {
   border: none;
   background: linear-gradient(90deg, #1d4ed8, #0ea5e9);
@@ -345,6 +365,16 @@
 
 .app-shell__body {
   padding: 0 1.25rem 2rem;
+}
+
+.app-shell__crash-fallback {
+  margin-top: 1rem;
+}
+
+.app-shell__crash-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .app-shell__notice-stack {

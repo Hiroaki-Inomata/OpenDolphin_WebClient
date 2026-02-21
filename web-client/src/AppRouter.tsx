@@ -1,4 +1,5 @@
 import {
+  Component,
   useCallback,
   useEffect,
   useMemo,
@@ -8,6 +9,8 @@ import {
   useContext,
   lazy,
   Suspense,
+  type ErrorInfo,
+  type ReactNode,
 } from 'react';
 import {
   BrowserRouter,
@@ -35,8 +38,8 @@ import { LegacyRestConsolePage } from './features/debug/LegacyRestConsolePage';
 import { MobilePatientPickerDemoPage } from './features/debug/MobilePatientPickerDemoPage';
 import { MobileImagesUploadPage } from './features/images/pages/MobileImagesUploadPage';
 import './styles/app-shell.css';
-import { resolveAriaLive, updateObservabilityMeta } from './libs/observability/observability';
-import { copyRunIdToClipboard } from './libs/observability/runIdCopy';
+import { getObservabilityMeta, resolveAriaLive, updateObservabilityMeta } from './libs/observability/observability';
+import { copyRunIdToClipboard, copyTextToClipboard } from './libs/observability/runIdCopy';
 import { AuthServiceProvider, clearStoredAuthFlags, useAuthService } from './features/charts/authService';
 import { PatientsPage } from './features/patients/PatientsPage';
 import { AdministrationPage } from './features/administration/AdministrationPage';
@@ -65,7 +68,8 @@ import { addRecentFacility } from './features/login/recentFacilityStore';
 import { resolveSwitchContext, type LoginSwitchContext } from './features/login/loginRouteState';
 import { isSystemAdminRole } from './libs/auth/roles';
 import { testOrcaConnection, type OrcaConnectionTestResponse } from './features/administration/orcaConnectionApi';
-import { NavigationGuardProvider } from './routes/NavigationGuardProvider';
+import { FocusTrapDialog } from './components/modals/FocusTrapDialog';
+import { NavigationGuardProvider, resolveScreenKey, useNavigationGuard } from './routes/NavigationGuardProvider';
 import { useAppNavigation } from './routes/useAppNavigation';
 
 type Session = LoginResult;
@@ -1059,16 +1063,97 @@ const isLoginRoute = (pathname: string) => {
   return match?.suffix === '/login';
 };
 
+type AppOutletErrorBoundaryProps = {
+  children: ReactNode;
+  screenKey: string;
+  runId?: string;
+  traceId?: string;
+  onReload: () => void;
+  onReturnToReception: () => void;
+  onCopyMeta?: () => void;
+};
+
+type AppOutletErrorBoundaryState = {
+  hasError: boolean;
+  errorMessage?: string;
+};
+
+class AppOutletErrorBoundary extends Component<AppOutletErrorBoundaryProps, AppOutletErrorBoundaryState> {
+  state: AppOutletErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(error: Error): AppOutletErrorBoundaryState {
+    return { hasError: true, errorMessage: error.message || 'unknown_error' };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    logAuditEvent({
+      runId: this.props.runId,
+      source: 'ui',
+      note: 'app layout render error',
+      payload: {
+        action: 'render',
+        screen: 'app-layout',
+        traceId: this.props.traceId,
+        errorName: error.name,
+        errorMessage: error.message,
+        componentStack: info.componentStack,
+      },
+    });
+  }
+
+  componentDidUpdate(prevProps: AppOutletErrorBoundaryProps) {
+    if (prevProps.screenKey !== this.props.screenKey && this.state.hasError) {
+      this.setState({ hasError: false, errorMessage: undefined });
+    }
+  }
+
+  render() {
+    if (!this.state.hasError) {
+      return this.props.children;
+    }
+    return (
+      <section className="status-message is-error app-shell__crash-fallback" role="alert">
+        <h2 style={{ marginTop: 0 }}>画面エラーが発生しました</h2>
+        <p>業務継続のため、画面を再読み込みするか受付へ戻ってください。</p>
+        {this.state.errorMessage ? <p>詳細: {this.state.errorMessage}</p> : null}
+        <p>
+          RUN_ID: {this.props.runId ?? '未取得'} / traceId: {this.props.traceId ?? '未取得'}
+        </p>
+        <div className="app-shell__crash-actions">
+          <button type="button" onClick={this.props.onReload}>
+            画面を再読み込み
+          </button>
+          <button type="button" onClick={this.props.onReturnToReception}>
+            受付へ戻る
+          </button>
+          {this.props.onCopyMeta ? (
+            <button type="button" onClick={this.props.onCopyMeta}>
+              RUN_ID/traceId をコピー
+            </button>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
+}
+
 function AppLayout({ onLogout }: { onLogout: () => void }) {
   const location = useLocation();
   const navigate = useNavigate();
   const session = useSession();
   const { flags } = useAuthService();
+  const { isDirty, dirtySources } = useNavigationGuard();
   const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
   const isSystemAdmin = isSystemAdminRole(session.role);
   const resolvedRunId = flags.runId || session.runId;
+  const traceId = getObservabilityMeta().traceId;
+  const outletScreenKey = useMemo(
+    () => resolveScreenKey({ pathname: location.pathname, search: location.search }),
+    [location.pathname, location.search],
+  );
   const [toasts, setToasts] = useState<AppToast[]>([]);
   const [orcaTopStatus, setOrcaTopStatus] = useState<OrcaTopStatus>(ORCA_TOP_STATUS_CHECKING);
+  const [sessionExitDialogOpen, setSessionExitDialogOpen] = useState(false);
   const toastTimers = useRef<Map<string, number>>(new Map());
   const runIdNoticeRef = useRef<string | undefined>(resolvedRunId);
 
@@ -1188,6 +1273,12 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
     enqueueToast({ tone: 'info', message: 'RUN_ID が更新されました', detail: resolvedRunId, id: `runid-${resolvedRunId}` });
   }, [enqueueToast, resolvedRunId]);
 
+  useEffect(() => {
+    if (!isDirty && sessionExitDialogOpen) {
+      setSessionExitDialogOpen(false);
+    }
+  }, [isDirty, sessionExitDialogOpen]);
+
   const orcaTopStatusTooltip = useMemo(() => {
     const checkedAt = formatOrcaTopStatusTimestamp(orcaTopStatus.checkedAt);
     if (!checkedAt) return orcaTopStatus.detail;
@@ -1217,7 +1308,7 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
     }
   };
 
-  const handleSwitchAccount = () => {
+  const executeSwitchAccount = useCallback(() => {
     const switchContext = buildSwitchContext(session, 'manual');
     logAuditEvent({
       runId: resolvedRunId,
@@ -1232,7 +1323,59 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
     });
     onLogout();
     navigate('/login', { state: { from: location, switchContext }, replace: true });
-  };
+  }, [location, navigate, onLogout, resolvedRunId, session]);
+
+  const requestLogout = useCallback(() => {
+    if (!isDirty) {
+      onLogout();
+      return;
+    }
+    setSessionExitDialogOpen(true);
+  }, [isDirty, onLogout]);
+
+  const requestSwitchAccount = useCallback(() => {
+    if (!isDirty) {
+      executeSwitchAccount();
+      return;
+    }
+    setSessionExitDialogOpen(true);
+  }, [executeSwitchAccount, isDirty]);
+
+  const handleSessionExitCancel = useCallback(() => {
+    setSessionExitDialogOpen(false);
+  }, []);
+
+  const handleSessionExitLogout = useCallback(() => {
+    setSessionExitDialogOpen(false);
+    onLogout();
+  }, [onLogout]);
+
+  const handleSessionExitSwitch = useCallback(() => {
+    setSessionExitDialogOpen(false);
+    executeSwitchAccount();
+  }, [executeSwitchAccount]);
+
+  const handleReloadApp = useCallback(() => {
+    window.location.reload();
+  }, []);
+
+  const handleReturnToReceptionFromError = useCallback(() => {
+    window.location.assign(buildFacilityPath(session.facilityId, '/reception'));
+  }, [session.facilityId]);
+
+  const handleCopyErrorMeta = useCallback(async () => {
+    const shareText = `runId=${resolvedRunId ?? 'unknown'} / traceId=${traceId ?? 'unknown'}`;
+    try {
+      const method = await copyTextToClipboard(shareText);
+      if (method === 'prompt') {
+        enqueueToast({ tone: 'info', message: '手動コピーを開きました', detail: shareText, durationMs: 3600 });
+      } else {
+        enqueueToast({ tone: 'success', message: '障害情報をコピーしました', detail: shareText, durationMs: 2400 });
+      }
+    } catch {
+      enqueueToast({ tone: 'error', message: '障害情報のコピーに失敗しました', detail: 'ブラウザ権限を確認してください。' });
+    }
+  }, [enqueueToast, resolvedRunId, traceId]);
 
   const handleOpenReception = () => {
     appNav.openReception();
@@ -1375,10 +1518,10 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
                 </button>
               </>
             ) : null}
-            <button type="button" className="app-shell__logout" onClick={handleSwitchAccount}>
+            <button type="button" className="app-shell__switch" onClick={requestSwitchAccount}>
               施設/ユーザー切替
             </button>
-            <button type="button" className="app-shell__logout" onClick={onLogout}>
+            <button type="button" className="app-shell__logout" onClick={requestLogout}>
               ログアウト
             </button>
           </div>
@@ -1387,10 +1530,19 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
         <MockModeBanner />
 
         <div className="app-shell__body" id="app-shell-main" tabIndex={-1}>
-          <Outlet key={location.pathname} />
+          <AppOutletErrorBoundary
+            screenKey={outletScreenKey}
+            runId={resolvedRunId}
+            traceId={traceId}
+            onReload={handleReloadApp}
+            onReturnToReception={handleReturnToReceptionFromError}
+            onCopyMeta={resolvedRunId || traceId ? handleCopyErrorMeta : undefined}
+          >
+            <Outlet key={outletScreenKey} />
+          </AppOutletErrorBoundary>
         </div>
 
-        <aside className="app-shell__notice-stack" aria-live={resolveAriaLive('info')} data-run-id={resolvedRunId}>
+        <aside className="app-shell__notice-stack" data-run-id={resolvedRunId}>
           {toasts.map((toast) => (
             <div
               key={toast.id}
@@ -1413,6 +1565,59 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
             </div>
           ))}
         </aside>
+
+        <FocusTrapDialog
+          open={sessionExitDialogOpen}
+          title="未保存の変更があります"
+          description="ログアウトまたは切替を実行すると、未保存の内容は破棄されます。"
+          role="alertdialog"
+          onClose={handleSessionExitCancel}
+          testId="session-exit-guard-dialog"
+        >
+          <div style={{ display: 'grid', gap: '0.75rem' }}>
+            {dirtySources.length > 0 ? (
+              <div>
+                <p style={{ margin: 0, fontWeight: 700 }}>未保存の内容</p>
+                <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.2rem' }}>
+                  {dirtySources.map((entry) => (
+                    <li key={entry.sourceKey}>{entry.reason ? entry.reason : entry.sourceKey}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button type="button" onClick={handleSessionExitCancel}>
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handleSessionExitLogout}
+                style={{
+                  background: '#b42318',
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: 8,
+                }}
+              >
+                破棄してログアウト
+              </button>
+              <button
+                type="button"
+                onClick={handleSessionExitSwitch}
+                style={{
+                  background: '#155eef',
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: 8,
+                }}
+              >
+                破棄して切替
+              </button>
+            </div>
+          </div>
+        </FocusTrapDialog>
       </div>
     </AppToastProvider>
   );

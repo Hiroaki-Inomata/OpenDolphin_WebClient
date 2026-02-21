@@ -294,15 +294,17 @@ export function useAppNavigation(scope: AppNavigationScope) {
     (opts: { state: Record<string, unknown>; from?: string; returnTo?: string; external?: ExternalParams; navigate?: NavigateExtras }) => {
       const from = opts.from ?? currentScreen;
       const returnTo = opts.returnTo ?? currentUrl;
+      const safeReturnTo = isSafeReturnTo(returnTo, facilityId) ? returnTo : undefined;
       const url = buildPrintUrl({
         facilityId,
         kind: 'outpatient',
         from,
+        returnTo: safeReturnTo,
         external: mergeExternal(baseExternal, opts.external),
       });
       guardedNavigate(url, {
         replace: opts.navigate?.replace,
-        state: { ...opts.state, from, returnTo },
+        state: { ...opts.state, from, returnTo: safeReturnTo },
       });
     },
     [baseExternal, currentScreen, currentUrl, facilityId, guardedNavigate],
@@ -312,15 +314,17 @@ export function useAppNavigation(scope: AppNavigationScope) {
     (opts: { state: Record<string, unknown>; from?: string; returnTo?: string; external?: ExternalParams; navigate?: NavigateExtras }) => {
       const from = opts.from ?? currentScreen;
       const returnTo = opts.returnTo ?? currentUrl;
+      const safeReturnTo = isSafeReturnTo(returnTo, facilityId) ? returnTo : undefined;
       const url = buildPrintUrl({
         facilityId,
         kind: 'document',
         from,
+        returnTo: safeReturnTo,
         external: mergeExternal(baseExternal, opts.external),
       });
       guardedNavigate(url, {
         replace: opts.navigate?.replace,
-        state: { ...opts.state, from, returnTo },
+        state: { ...opts.state, from, returnTo: safeReturnTo },
       });
     },
     [baseExternal, currentScreen, currentUrl, facilityId, guardedNavigate],
@@ -364,4 +368,3 @@ export function useAppNavigation(scope: AppNavigationScope) {
     openMobileImages,
   };
 }
-
