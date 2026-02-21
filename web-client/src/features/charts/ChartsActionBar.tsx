@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
 import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
@@ -359,10 +359,17 @@ export interface ChartsActionBarProps {
   onLockChange?: (locked: boolean, reason?: string) => void;
   onApprovalConfirmed?: (meta: { action: 'send'; actor?: string }) => void;
   onApprovalUnlock?: () => void;
+  onBeforeAction?: (action: ChartAction) => boolean | Promise<boolean>;
   sendConfirmSummary?: SendConfirmSummary;
 }
 
-export function ChartsActionBar({
+export type ChartsActionBarHandle = {
+  start: () => Promise<void>;
+  pause: () => Promise<void>;
+  finish: () => Promise<void>;
+};
+
+export const ChartsActionBar = forwardRef<ChartsActionBarHandle, ChartsActionBarProps>(function ChartsActionBar({
   runId,
   traceId,
   cacheHit,
@@ -399,8 +406,9 @@ export function ChartsActionBar({
   onLockChange,
   onApprovalConfirmed,
   onApprovalUnlock,
+  onBeforeAction,
   sendConfirmSummary,
-}: ChartsActionBarProps) {
+}: ChartsActionBarProps, ref) {
   const session = useOptionalSession();
   const storageScope = useMemo(
     () => ({ facilityId: session?.facilityId, userId: session?.userId }),
@@ -416,6 +424,8 @@ export function ChartsActionBar({
   const [confirmAction, setConfirmAction] = useState<ChartAction | null>(null);
   const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
   const [permissionDenied, setPermissionDenied] = useState(false);
+  const [approvalUnlockDialogStep, setApprovalUnlockDialogStep] = useState<'confirm' | 'final' | null>(null);
+  const [forceTakeoverDialogStep, setForceTakeoverDialogStep] = useState<'confirm' | 'final' | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const outpatientResultRef = useRef(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -430,7 +440,7 @@ export function ChartsActionBar({
   const actionLocked = uiLocked || isRunning || readOnly;
   const isLocked = actionLocked || approvalLocked;
   const resolvedTraceId = traceId ?? getObservabilityMeta().traceId;
-  const resolvedPatientId = patientId ?? selectedEntry?.patientId ?? selectedEntry?.id;
+  const resolvedPatientId = patientId ?? selectedEntry?.patientId;
   const resolvedAppointmentId = queueEntry?.appointmentId ?? selectedEntry?.appointmentId;
   const resolvedReceptionId = selectedEntry?.receptionId;
   const isServerRoute = dataSourceTransition === 'server';
@@ -797,8 +807,17 @@ export function ChartsActionBar({
       });
     }
 
+    if (!resolvedPatientId) {
+      reasons.push({
+        key: 'patient_not_selected',
+        summary: '患者未選択: 対象未確定で診察終了不可',
+        detail: 'patientId が未確定のため診察終了を実行できません。',
+        next: ['Patients で患者を選択', 'Reception へ戻って対象患者を確定'],
+      });
+    }
+
     return reasons;
-  }, [approvalLocked, approvalReason, isRunning, readOnly, readOnlyReason, resolvedLockReason, uiLocked]);
+  }, [approvalLocked, approvalReason, isRunning, readOnly, readOnlyReason, resolvedLockReason, uiLocked, resolvedPatientId]);
 
   const sendDisabled = isRunning || approvalLocked || sendPrecheckReasons.length > 0;
   const primaryAction = useMemo<ChartAction | 'sending'>(() => {
@@ -1007,7 +1026,7 @@ export function ChartsActionBar({
 
   const sendDialogSummary = useMemo(() => {
     const patientName = sendConfirmSummary?.patientName?.trim() || selectedEntry?.name?.trim() || '—';
-    const patientLabel = sendConfirmSummary?.patientId?.trim() || resolvedPatientId?.trim() || '—';
+    const patientIdLabel = sendConfirmSummary?.patientId?.trim() || resolvedPatientId?.trim() || '—';
     const selectedBirthDate = (selectedEntry as Partial<{ birthDate?: string }> | undefined)?.birthDate;
     const birthDate = sendConfirmSummary?.birthDate?.trim() || selectedBirthDate?.trim() || '—';
     const ageLabel = sendConfirmSummary?.age?.trim() || '';
@@ -1024,7 +1043,7 @@ export function ChartsActionBar({
 
     return {
       patientName,
-      patientLabel,
+      patientIdLabel,
       birthDate,
       ageLabel,
       visitLabel,
@@ -1344,6 +1363,42 @@ export function ChartsActionBar({
         },
       });
       return;
+    }
+
+    if (action === 'finish' && !resolvedPatientId) {
+      const blockedReason = '患者IDが未確定のため診察終了を実行できません。Patients で患者を選択してください。';
+      setBanner({ tone: 'warning', message: `診察終了を停止: ${blockedReason}`, nextAction: 'Patients で対象患者を選択してください。' });
+      setRetryAction(null);
+      setToast(null);
+      logTelemetry(action, 'blocked', undefined, blockedReason, blockedReason);
+      logUiState({
+        action: 'finish',
+        screen: 'charts/action-bar',
+        controlId: `action-${action}`,
+        runId,
+        cacheHit,
+        missingMaster,
+        dataSourceTransition,
+        fallbackUsed,
+        details: { operationPhase: 'lock', blocked: true, reasons: ['patient_not_selected'], traceId: resolvedTraceId },
+      });
+      logAudit(action, 'blocked', blockedReason, undefined, {
+        phase: 'lock',
+        details: {
+          trigger: 'patient_not_selected',
+          traceId: resolvedTraceId,
+          blockedReasons: ['patient_not_selected'],
+        },
+      });
+      return;
+    }
+
+    if (onBeforeAction) {
+      const allowAction = await Promise.resolve(onBeforeAction(action));
+      if (!allowAction) {
+        setRetryAction(null);
+        return;
+      }
     }
 
     if (action === 'send' && (fallbackUsed || missingMaster)) {
@@ -2164,6 +2219,12 @@ export function ChartsActionBar({
     }
   };
 
+  useImperativeHandle(ref, () => ({
+    start: () => handleAction('start'),
+    pause: () => handleAction('pause'),
+    finish: () => handleAction('finish'),
+  }));
+
   const handlePrintExport = () => {
     if (printPrecheckReasons.length > 0) {
       const head = printPrecheckReasons[0];
@@ -2449,21 +2510,7 @@ export function ChartsActionBar({
 
   const handleApprovalUnlock = () => {
     if (!approvalLocked || !onApprovalUnlock) return;
-    const first = typeof window !== 'undefined'
-      ? window.confirm('承認ロック（署名確定）を解除しますか？この操作は危険です。')
-      : false;
-    if (!first) return;
-    const second = typeof window !== 'undefined'
-      ? window.confirm('最終確認: 承認ロック解除（署名取消）を実行します。よろしいですか？')
-      : false;
-    if (!second) return;
-    onApprovalUnlock();
-    setBanner({
-      tone: 'warning',
-      message: '承認ロックを解除しました。署名確定が取り消され、編集が再開できます。',
-      nextAction: '編集前に内容確認と再署名が必要か確認してください。',
-    });
-    setToast(null);
+    setApprovalUnlockDialogStep('confirm');
   };
 
   const handleReloadLatest = async () => {
@@ -2519,15 +2566,8 @@ export function ChartsActionBar({
   };
 
   const handleForceTakeover = () => {
-    const confirmed = typeof window !== 'undefined'
-      ? window.confirm('別タブが保持している編集ロックを引き継ぎますか？（上書きの可能性があります）')
-      : false;
-    if (!confirmed) return;
-    const second = typeof window !== 'undefined'
-      ? window.confirm('最終確認: 編集ロックの引き継ぎを実行します。よろしいですか？')
-      : false;
-    if (!second) return;
-    onForceTakeover?.();
+    if (!onForceTakeover) return;
+    setForceTakeoverDialogStep('confirm');
   };
 
   const showDraftAction = !embedded;
@@ -2694,10 +2734,14 @@ export function ChartsActionBar({
             <h3>患者確認</h3>
             <p className="charts-actions__send-confirm-identity">
               <strong>
-                {sendDialogSummary.patientName}（{sendDialogSummary.patientLabel}）
+                {sendDialogSummary.patientName}
               </strong>
             </p>
             <dl className="charts-actions__send-confirm-list">
+              <div>
+                <dt>患者ID</dt>
+                <dd>{sendDialogSummary.patientIdLabel}</dd>
+              </div>
               <div>
                 <dt>生年月日 / 年齢</dt>
                 <dd>
@@ -2760,6 +2804,122 @@ export function ChartsActionBar({
             送信する
           </button>
         </div>
+      </FocusTrapDialog>
+
+      <FocusTrapDialog
+        open={approvalUnlockDialogStep !== null}
+        role="alertdialog"
+        title={approvalUnlockDialogStep === 'final' ? '承認ロック解除: 最終確認' : '承認ロック解除'}
+        description="署名確定を取り消し、編集可能状態に戻します。監査対象の危険操作です。"
+        onClose={() => setApprovalUnlockDialogStep(null)}
+        testId="charts-approval-unlock-dialog"
+      >
+        <section className="charts-actions__send-confirm" aria-label="承認ロック解除確認">
+          <dl className="charts-actions__send-confirm-list">
+            <div>
+              <dt>患者名</dt>
+              <dd>{selectedEntry?.name ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>患者ID</dt>
+              <dd>{resolvedPatientId ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>診療日</dt>
+              <dd>{resolvedVisitDate ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>受付ID / 予約ID</dt>
+              <dd>{resolvedReceptionId ?? '—'} / {resolvedAppointmentId ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>影響範囲</dt>
+              <dd>署名確定が解除され、編集・送信が再開可能になります。</dd>
+            </div>
+          </dl>
+          <div className="charts-tab-guard__actions" role="group" aria-label="承認ロック解除操作">
+            <button type="button" onClick={() => setApprovalUnlockDialogStep(null)}>
+              キャンセル
+            </button>
+            {approvalUnlockDialogStep === 'confirm' ? (
+              <button type="button" className="charts-tab-guard__danger" onClick={() => setApprovalUnlockDialogStep('final')}>
+                最終確認へ
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="charts-tab-guard__danger"
+                onClick={() => {
+                  setApprovalUnlockDialogStep(null);
+                  onApprovalUnlock?.();
+                  setBanner({
+                    tone: 'warning',
+                    message: '承認ロックを解除しました。署名確定が取り消され、編集が再開できます。',
+                    nextAction: '編集前に内容確認と再署名が必要か確認してください。',
+                  });
+                  setToast(null);
+                }}
+              >
+                解除を実行
+              </button>
+            )}
+          </div>
+        </section>
+      </FocusTrapDialog>
+
+      <FocusTrapDialog
+        open={forceTakeoverDialogStep !== null}
+        role="alertdialog"
+        title={forceTakeoverDialogStep === 'final' ? '編集ロック引き継ぎ: 最終確認' : '編集ロック引き継ぎ'}
+        description="別タブの編集ロックを現在タブへ引き継ぎます。上書き競合の可能性があります。"
+        onClose={() => setForceTakeoverDialogStep(null)}
+        testId="charts-force-takeover-dialog"
+      >
+        <section className="charts-actions__send-confirm" aria-label="編集ロック引き継ぎ確認">
+          <dl className="charts-actions__send-confirm-list">
+            <div>
+              <dt>患者名</dt>
+              <dd>{selectedEntry?.name ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>患者ID</dt>
+              <dd>{resolvedPatientId ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>診療日</dt>
+              <dd>{resolvedVisitDate ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>受付ID / 予約ID</dt>
+              <dd>{resolvedReceptionId ?? '—'} / {resolvedAppointmentId ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>影響範囲</dt>
+              <dd>他タブの編集内容と競合する可能性があります。</dd>
+            </div>
+          </dl>
+          <div className="charts-tab-guard__actions" role="group" aria-label="編集ロック引き継ぎ操作">
+            <button type="button" onClick={() => setForceTakeoverDialogStep(null)}>
+              キャンセル
+            </button>
+            {forceTakeoverDialogStep === 'confirm' ? (
+              <button type="button" className="charts-tab-guard__danger" onClick={() => setForceTakeoverDialogStep('final')}>
+                最終確認へ
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="charts-tab-guard__danger"
+                onClick={() => {
+                  setForceTakeoverDialogStep(null);
+                  onForceTakeover?.();
+                }}
+              >
+                引き継ぎを実行
+              </button>
+            )}
+          </div>
+        </section>
       </FocusTrapDialog>
 
       <ReportPrintDialog
@@ -2916,9 +3076,15 @@ export function ChartsActionBar({
                 type="button"
                 id="charts-action-finish"
                 className={`charts-actions__button charts-actions__button--encounter-finish${primaryAction === 'finish' ? ' charts-actions__button--primary-route' : ''}`}
-                disabled={otherBlocked}
-                data-disabled-reason={otherBlocked ? (isLocked ? 'locked' : undefined) : undefined}
-                title={otherBlocked ? statusLine : undefined}
+                disabled={otherBlocked || !resolvedPatientId}
+                data-disabled-reason={
+                  otherBlocked
+                    ? (isLocked ? 'locked' : undefined)
+                    : !resolvedPatientId
+                      ? 'patient_not_selected'
+                      : undefined
+                }
+                title={!resolvedPatientId ? '患者未選択のため終了できません。' : otherBlocked ? statusLine : undefined}
                 onClick={() => handleAction('finish')}
                 aria-keyshortcuts="Alt+E"
               >
@@ -3049,4 +3215,6 @@ export function ChartsActionBar({
       </div>
     </section>
   );
-}
+});
+
+ChartsActionBar.displayName = 'ChartsActionBar';

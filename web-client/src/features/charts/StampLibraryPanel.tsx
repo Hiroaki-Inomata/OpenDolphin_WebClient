@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { readStoredAuth } from '../../libs/auth/storedAuth';
+import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 import type { OrderBundleItem } from './orderBundleApi';
 import { fetchStampDetail, fetchStampTree, fetchUserProfile, type StampBundleJson, type StampTree } from './stampApi';
 import {
@@ -178,6 +179,7 @@ export function StampLibraryPanel({ phase }: StampLibraryPanelProps) {
   const [localStamps, setLocalStamps] = useState<LocalStampEntry[]>([]);
   const [clipboard, setClipboard] = useState<StampClipboardEntry | null>(null);
   const [editor, setEditor] = useState<StampEditorState>(() => buildInitialEditor(today));
+  const [deleteLocalDialogOpen, setDeleteLocalDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!userName) {
@@ -520,9 +522,12 @@ export function StampLibraryPanel({ phase }: StampLibraryPanelProps) {
       setEditorNotice({ tone: 'error', message: '削除対象のローカルスタンプを読み込んでください。' });
       return;
     }
-    if (!window.confirm('このローカルスタンプを削除しますか？')) {
-      return;
-    }
+    setDeleteLocalDialogOpen(true);
+  };
+
+  const confirmDeleteLocalStamp = () => {
+    if (!userName || !editor.localStampId) return;
+    setDeleteLocalDialogOpen(false);
     const removed = deleteLocalStamp(userName, editor.localStampId);
     if (!removed) {
       setEditorNotice({ tone: 'error', message: '削除対象のローカルスタンプが見つかりません。' });
@@ -554,6 +559,39 @@ export function StampLibraryPanel({ phase }: StampLibraryPanelProps) {
 
   return (
     <div className="charts-side-panel__content" data-test-id="stamp-library-panel">
+      <FocusTrapDialog
+        open={deleteLocalDialogOpen}
+        role="alertdialog"
+        title="ローカルスタンプを削除しますか？"
+        description="削除対象と影響範囲を確認して実行してください。"
+        onClose={() => setDeleteLocalDialogOpen(false)}
+        testId="stamp-local-delete-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="ローカルスタンプ削除確認">
+          <dl className="charts-actions__send-confirm-list">
+            <div>
+              <dt>対象名</dt>
+              <dd>{editor.name?.trim() || '名称未設定'}</dd>
+            </div>
+            <div>
+              <dt>対象entity</dt>
+              <dd>{editor.target || '—'}</dd>
+            </div>
+            <div>
+              <dt>影響範囲</dt>
+              <dd>ローカル保存スタンプを削除し、復元できません。</dd>
+            </div>
+          </dl>
+          <div className="charts-tab-guard__actions" role="group" aria-label="ローカルスタンプ削除操作">
+            <button type="button" onClick={() => setDeleteLocalDialogOpen(false)}>
+              キャンセル
+            </button>
+            <button type="button" className="charts-tab-guard__danger" onClick={confirmDeleteLocalStamp}>
+              削除する
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
       <header>
         <p className="charts-side-panel__message">独立スタンプ管理（Phase{phase}）</p>
         <p className="charts-side-panel__message">

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { logUiState } from '../../libs/audit/auditLogger';
 import { readStoredAuth, resolveAuditActor } from '../../libs/auth/storedAuth';
+import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 import { hasStoredAuth } from '../../libs/http/httpClient';
 import { ensureObservabilityMeta, resolveAriaLive } from '../../libs/observability/observability';
 import {
@@ -593,6 +594,7 @@ export function DocumentCreatePanel({
   const [filterOutput, setFilterOutput] = useState<'all' | 'available' | 'blocked'>('all');
   const [filterAudit, setFilterAudit] = useState<'all' | 'success' | 'failed' | 'pending'>('all');
   const [filterPatient, setFilterPatient] = useState<'current' | 'all'>('current');
+  const [deleteTargetDoc, setDeleteTargetDoc] = useState<SavedDocument | null>(null);
   const lastOpenRequestRef = useRef<string | null>(null);
   const pendingOutputResultRef = useRef<DocumentOutputResult | null>(null);
   const historyRequestSeqRef = useRef(0);
@@ -1104,22 +1106,30 @@ export function DocumentCreatePanel({
         setNotice({ tone: 'error', message: '文書IDが取得できないため削除できません。' });
         return;
       }
-      const confirmed = typeof window !== 'undefined'
-        ? window.confirm(`「${doc.title}」を削除しますか？`)
-        : true;
-      if (!confirmed) return;
-      const result = await deleteLetter({ letterId: doc.letterId });
-      if (!result.ok) {
-        setNotice({
-          tone: 'error',
-          message: `文書削除に失敗しました: ${result.error ?? `HTTP ${result.status}`}`,
-        });
-        return;
-      }
-      setNotice({ tone: 'success', message: '文書を削除しました。' });
-      await refreshDocumentHistory();
+      setDeleteTargetDoc(doc);
     },
-    [refreshDocumentHistory],
+    [],
+  );
+
+  const handleConfirmDeleteDocument = useCallback(async () => {
+    const target = deleteTargetDoc;
+    if (!target?.letterId) {
+      setDeleteTargetDoc(null);
+      return;
+    }
+    setDeleteTargetDoc(null);
+    const result = await deleteLetter({ letterId: target.letterId });
+    if (!result.ok) {
+      setNotice({
+        tone: 'error',
+        message: `文書削除に失敗しました: ${result.error ?? `HTTP ${result.status}`}`,
+      });
+      return;
+    }
+    setNotice({ tone: 'success', message: '文書を削除しました。' });
+    await refreshDocumentHistory();
+  },
+    [deleteTargetDoc, refreshDocumentHistory],
   );
 
   const applyTemplate = () => {
@@ -1724,6 +1734,39 @@ export function DocumentCreatePanel({
 
   return (
     <section className="charts-side-panel__section" data-test-id="document-create-panel">
+      <FocusTrapDialog
+        open={Boolean(deleteTargetDoc)}
+        role="alertdialog"
+        title="文書を削除しますか？"
+        description="削除対象と影響範囲を確認して実行してください。"
+        onClose={() => setDeleteTargetDoc(null)}
+        testId="document-delete-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="文書削除確認">
+          <dl className="charts-actions__send-confirm-list">
+            <div>
+              <dt>対象文書</dt>
+              <dd>{deleteTargetDoc?.title ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>患者ID</dt>
+              <dd>{deleteTargetDoc?.patientId ?? patientId ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>影響範囲</dt>
+              <dd>保存済み文書履歴から削除され、元に戻せません。</dd>
+            </div>
+          </dl>
+          <div className="charts-tab-guard__actions" role="group" aria-label="文書削除操作">
+            <button type="button" onClick={() => setDeleteTargetDoc(null)}>
+              キャンセル
+            </button>
+            <button type="button" className="charts-tab-guard__danger" onClick={() => void handleConfirmDeleteDocument()}>
+              削除する
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
       <header className="charts-side-panel__section-header">
         <div>
           <h4>文書作成メニュー</h4>

@@ -896,6 +896,7 @@ export function OrderBundleEditPanel({
   const [selectedUsageMasterMeta, setSelectedUsageMasterMeta] = useState<UsageMasterMeta | null>(null);
   const contraConfirmResolveRef = useRef<((value: boolean) => void) | null>(null);
   const [contraConfirmOpen, setContraConfirmOpen] = useState(false);
+  const [clearRowsDialogOpen, setClearRowsDialogOpen] = useState(false);
   const [contraConfirmPayload, setContraConfirmPayload] = useState<{
     summary: string;
     details: string[];
@@ -2671,7 +2672,11 @@ export function OrderBundleEditPanel({
   };
 
   const clearItemRows = () => {
-    if (!window.confirm(`${orderUiProfile.mainItemLabel}・コメントの入力をすべてクリアしますか？`)) return;
+    setClearRowsDialogOpen(true);
+  };
+
+  const confirmClearItemRows = () => {
+    setClearRowsDialogOpen(false);
     setForm((prev) => ({
       ...prev,
       items: [buildEmptyItem()],
@@ -2792,6 +2797,39 @@ export function OrderBundleEditPanel({
             </button>
           </div>
         </div>
+      </FocusTrapDialog>
+      <FocusTrapDialog
+        open={clearRowsDialogOpen}
+        role="alertdialog"
+        title="入力を全クリアしますか？"
+        description={`${orderUiProfile.mainItemLabel}・コメント入力を初期化します。`}
+        onClose={() => setClearRowsDialogOpen(false)}
+        testId="order-bundle-clear-all-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="オーダー入力全クリア確認">
+          <dl className="charts-actions__send-confirm-list">
+            <div>
+              <dt>対象</dt>
+              <dd>{title}</dd>
+            </div>
+            <div>
+              <dt>患者ID</dt>
+              <dd>{patientId}</dd>
+            </div>
+            <div>
+              <dt>影響範囲</dt>
+              <dd>{orderUiProfile.mainItemLabel}・コメント入力がすべて消去されます。</dd>
+            </div>
+          </dl>
+          <div className="charts-tab-guard__actions" role="group" aria-label="オーダー入力全クリア操作">
+            <button type="button" onClick={() => setClearRowsDialogOpen(false)}>
+              キャンセル
+            </button>
+            <button type="button" className="charts-tab-guard__danger" onClick={confirmClearItemRows}>
+              クリアする
+            </button>
+          </div>
+        </section>
       </FocusTrapDialog>
       <header className="charts-side-panel__section-header">
         <div className="charts-side-panel__section-header-main">

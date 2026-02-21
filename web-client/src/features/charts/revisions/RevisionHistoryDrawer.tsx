@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { formatSoapAuthoredAt, type SoapEntry } from '../soapNote';
+import { FocusTrapDialog } from '../../../components/modals/FocusTrapDialog';
 
 import { fetchRevisionHistory } from './revisionHistoryApi';
 import { createKarteRevision } from './revisionWriteApi';
@@ -43,6 +44,12 @@ export function RevisionHistoryDrawer({ open, onClose, meta, soapHistory }: Revi
   const [actionLoading, setActionLoading] = useState(false);
   const [actionFeedback, setActionFeedback] = useState<{ tone: 'info' | 'success' | 'warning' | 'error'; message: string } | null>(null);
   const [conflictBaseRevisionId, setConflictBaseRevisionId] = useState<number | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    operation: 'revise' | 'restore';
+    entry: RevisionHistoryEntry;
+    options?: { baseRevisionIdOverride?: number; label?: string };
+    label: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -103,25 +110,14 @@ export function RevisionHistoryDrawer({ open, onClose, meta, soapHistory }: Revi
     setLoading(false);
   };
 
-  const handleAction = async (
+  const executeAction = async (
     operation: 'revise' | 'restore',
     entry: RevisionHistoryEntry,
     options?: { baseRevisionIdOverride?: number; label?: string },
   ) => {
     const revisionId = parseRevisionId(entry.revisionId);
-    if (!revisionId) {
-      setActionFeedback({ tone: 'warning', message: 'この版は server revisionId が不明のため操作できません。' });
-      return;
-    }
-    if (!meta.patientId || !meta.visitDate) {
-      setActionFeedback({ tone: 'warning', message: 'patientId/visitDate が不足しているため操作できません。' });
-      return;
-    }
-
+    if (!revisionId || !meta.patientId || !meta.visitDate) return;
     const label = options?.label ?? (operation === 'revise' ? '改訂版追加' : 'restore');
-    const confirmed = typeof window === 'undefined' ? true : window.confirm(`${label} を実行しますか？（閲覧用の試験導線）`);
-    if (!confirmed) return;
-
     setActionLoading(true);
     setActionFeedback({ tone: 'info', message: `${label} を送信中…` });
 
@@ -153,6 +149,25 @@ export function RevisionHistoryDrawer({ open, onClose, meta, soapHistory }: Revi
     setActionLoading(false);
   };
 
+  const handleAction = async (
+    operation: 'revise' | 'restore',
+    entry: RevisionHistoryEntry,
+    options?: { baseRevisionIdOverride?: number; label?: string },
+  ) => {
+    const revisionId = parseRevisionId(entry.revisionId);
+    if (!revisionId) {
+      setActionFeedback({ tone: 'warning', message: 'この版は server revisionId が不明のため操作できません。' });
+      return;
+    }
+    if (!meta.patientId || !meta.visitDate) {
+      setActionFeedback({ tone: 'warning', message: 'patientId/visitDate が不足しているため操作できません。' });
+      return;
+    }
+
+    const label = options?.label ?? (operation === 'revise' ? '改訂版追加' : 'restore');
+    setConfirmAction({ operation, entry, options, label });
+  };
+
   return (
     <aside className="revision-drawer" data-open={String(open)} aria-label="版履歴（閲覧のみ）">
       <div className="revision-drawer__header">
@@ -176,6 +191,53 @@ export function RevisionHistoryDrawer({ open, onClose, meta, soapHistory }: Revi
         {actionLoading ? <span>action…</span> : null}
         {remoteHint ? <span>{remoteHint}</span> : null}
       </div>
+
+      <FocusTrapDialog
+        open={Boolean(confirmAction)}
+        role="alertdialog"
+        title={`${confirmAction?.label ?? '操作'}を実行しますか？`}
+        description="版履歴操作を実行します。対象と影響範囲を確認してください。"
+        onClose={() => setConfirmAction(null)}
+        testId="revision-action-confirm-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="版履歴操作確認">
+          <dl className="charts-actions__send-confirm-list">
+            <div>
+              <dt>対象患者ID</dt>
+              <dd>{meta.patientId ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>診療日</dt>
+              <dd>{meta.visitDate ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>対象revision</dt>
+              <dd>{confirmAction?.entry.revisionId ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>影響範囲</dt>
+              <dd>選択版を基準に新規改訂または復元を実行します。</dd>
+            </div>
+          </dl>
+          <div className="charts-tab-guard__actions" role="group" aria-label="版履歴操作選択">
+            <button type="button" onClick={() => setConfirmAction(null)}>
+              キャンセル
+            </button>
+            <button
+              type="button"
+              className="charts-tab-guard__danger"
+              onClick={() => {
+                if (!confirmAction) return;
+                const payload = confirmAction;
+                setConfirmAction(null);
+                void executeAction(payload.operation, payload.entry, payload.options);
+              }}
+            >
+              実行する
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
 
       {actionFeedback ? (
         <p className={`revision-drawer__status revision-drawer__status--${actionFeedback.tone}`} role="status">

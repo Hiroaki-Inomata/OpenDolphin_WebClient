@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ReturnToBar } from '../../shared/ReturnToBar';
+import { FocusTrapDialog } from '../../../components/modals/FocusTrapDialog';
 
 import { useSession } from '../../../AppRouter';
 import { buildFacilityPath } from '../../../routes/facilityRoutes';
@@ -38,10 +39,17 @@ export function OrderSetEditorPage() {
   const [name, setName] = useState('');
   const [snapshot, setSnapshot] = useState<ChartOrderSetSnapshot | null>(null);
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
+  const [pendingSetId, setPendingSetId] = useState<string | null>(null);
+  const [switchDialogOpen, setSwitchDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const selectedSet = useMemo(
     () => sets.find((item) => item.id === selectedId) ?? null,
     [selectedId, sets],
+  );
+  const pendingSet = useMemo(
+    () => (pendingSetId ? sets.find((item) => item.id === pendingSetId) ?? null : null),
+    [pendingSetId, sets],
   );
 
   const isDirty = useMemo(() => {
@@ -72,16 +80,19 @@ export function OrderSetEditorPage() {
     return () => registerDirty('orderSets', false);
   }, [registerDirty]);
 
-  const refreshSets = () => {
+  const refreshSets = (preferredId?: string) => {
     const next = listChartOrderSets(session.facilityId);
     setSets(next);
     if (next.length === 0) {
       setSelectedId('');
       return;
     }
-    if (!next.some((item) => item.id === selectedId)) {
-      setSelectedId(next[0].id);
+    const targetId = preferredId ?? selectedId;
+    if (targetId && next.some((item) => item.id === targetId)) {
+      setSelectedId(targetId);
+      return;
     }
+    setSelectedId(next[0].id);
   };
 
   const handleSave = () => {
@@ -93,15 +104,79 @@ export function OrderSetEditorPage() {
       name,
       snapshot,
     });
-    refreshSets();
-    setSelectedId(saved.id);
+    refreshSets(saved.id);
     setNotice({ tone: 'success', message: 'オーダーセットを更新しました。' });
+  };
+
+  const requestSelectSet = (nextId: string) => {
+    if (nextId === selectedId) return;
+    if (!isDirty) {
+      setSelectedId(nextId);
+      return;
+    }
+    setPendingSetId(nextId);
+    setSwitchDialogOpen(true);
+  };
+
+  const closeSwitchDialog = () => {
+    setSwitchDialogOpen(false);
+    setPendingSetId(null);
+  };
+
+  const handleSaveAndSwitch = () => {
+    if (!pendingSetId) {
+      setSwitchDialogOpen(false);
+      return;
+    }
+    if (!selectedSet || !snapshot) {
+      setSelectedId(pendingSetId);
+      closeSwitchDialog();
+      return;
+    }
+    try {
+      const saved = saveChartOrderSet({
+        facilityId: session.facilityId,
+        userId: session.userId,
+        id: selectedSet.id,
+        name,
+        snapshot,
+      });
+      refreshSets(pendingSetId);
+      setNotice({
+        tone: 'success',
+        message: `保存して「${pendingSet?.name ?? pendingSetId}」へ切替えました。`,
+      });
+      if (saved.id !== selectedSet.id) {
+        setNotice({
+          tone: 'info',
+          message: '保存対象が変更されたため、内容を再確認してください。',
+        });
+      }
+      closeSwitchDialog();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setNotice({ tone: 'error', message: `保存に失敗したため切替を中止しました: ${detail}` });
+    }
+  };
+
+  const handleDiscardAndSwitch = () => {
+    if (!pendingSetId) {
+      closeSwitchDialog();
+      return;
+    }
+    setSelectedId(pendingSetId);
+    setNotice({ tone: 'info', message: `変更を破棄して「${pendingSet?.name ?? pendingSetId}」へ切替えました。` });
+    closeSwitchDialog();
   };
 
   const handleDelete = () => {
     if (!selectedSet) return;
-    const confirmed = typeof window !== 'undefined' ? window.confirm(`「${selectedSet.name}」を削除しますか？`) : true;
-    if (!confirmed) return;
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!selectedSet) return;
+    setDeleteDialogOpen(false);
     const deleted = deleteChartOrderSet({ facilityId: session.facilityId, id: selectedSet.id });
     if (!deleted) {
       setNotice({ tone: 'error', message: '削除対象のオーダーセットが見つかりませんでした。' });
@@ -148,6 +223,81 @@ export function OrderSetEditorPage() {
         </div>
       ) : null}
 
+      <FocusTrapDialog
+        open={switchDialogOpen}
+        role="alertdialog"
+        title="未保存の変更があります"
+        description="保存して切替えるか、破棄して切替えるか、キャンセルするかを選択してください。"
+        onClose={closeSwitchDialog}
+        testId="order-set-switch-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="オーダーセット切替確認">
+          <dl className="charts-actions__send-confirm-list">
+            <div>
+              <dt>現在のセット</dt>
+              <dd>{selectedSet?.name ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>切替先セット</dt>
+              <dd>{pendingSet?.name ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>未保存対象</dt>
+              <dd>名称 / 病名 / SOAP / オーダー / 画像</dd>
+            </div>
+            <div>
+              <dt>影響範囲</dt>
+              <dd>保存しない場合、現在セットの未保存変更が失われます。</dd>
+            </div>
+          </dl>
+          <div className="charts-tab-guard__actions" role="group" aria-label="オーダーセット切替操作">
+            <button type="button" onClick={closeSwitchDialog}>
+              キャンセル
+            </button>
+            <button type="button" onClick={handleSaveAndSwitch}>
+              保存して切替
+            </button>
+            <button type="button" className="charts-tab-guard__danger" onClick={handleDiscardAndSwitch}>
+              破棄して切替
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
+
+      <FocusTrapDialog
+        open={deleteDialogOpen}
+        role="alertdialog"
+        title="オーダーセットを削除しますか？"
+        description="削除対象と影響範囲を確認して実行してください。"
+        onClose={() => setDeleteDialogOpen(false)}
+        testId="order-set-delete-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="オーダーセット削除確認">
+          <dl className="charts-actions__send-confirm-list">
+            <div>
+              <dt>削除対象</dt>
+              <dd>{selectedSet?.name ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>患者ID</dt>
+              <dd>{selectedSet?.snapshot.sourcePatientId || '—'}</dd>
+            </div>
+            <div>
+              <dt>影響範囲</dt>
+              <dd>オーダーセット定義が削除され、元に戻せません。</dd>
+            </div>
+          </dl>
+          <div className="charts-tab-guard__actions" role="group" aria-label="オーダーセット削除操作">
+            <button type="button" onClick={() => setDeleteDialogOpen(false)}>
+              キャンセル
+            </button>
+            <button type="button" className="charts-tab-guard__danger" onClick={handleConfirmDelete}>
+              削除する
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
+
       <section style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: '280px 1fr', gap: '1rem' }}>
         <aside style={{ border: '1px solid #d0d7de', borderRadius: 8, padding: '0.75rem' }}>
           <h2 style={{ fontSize: '1rem', marginTop: 0 }}>登録済みセット</h2>
@@ -157,7 +307,7 @@ export function OrderSetEditorPage() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setSelectedId(item.id)}
+                onClick={() => requestSelectSet(item.id)}
                 aria-pressed={selectedId === item.id}
                 style={{
                   textAlign: 'left',

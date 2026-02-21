@@ -13,7 +13,7 @@ import { MedicalOutpatientRecordPanel } from '../MedicalOutpatientRecordPanel';
 import { OrcaOriginalPanel } from '../OrcaOriginalPanel';
 import { PatientsTab } from '../PatientsTab';
 import { TelemetryFunnelPanel } from '../TelemetryFunnelPanel';
-import { ChartsActionBar } from '../ChartsActionBar';
+import { ChartsActionBar, type ChartsActionBarHandle } from '../ChartsActionBar';
 import { ChartsPatientSummaryBar } from '../ChartsPatientSummaryBar';
 	import { DiagnosisEditPanel } from '../DiagnosisEditPanel';
 	import { DocumentCreatePanel } from '../DocumentCreatePanel';
@@ -300,6 +300,32 @@ type ImageUtilityState = {
   queueCount: number;
   uploadingCount: number;
   hasError: boolean;
+};
+
+type EncounterExitAction = 'pause' | 'finish';
+type EncounterExitChoice = 'save' | 'discard' | 'cancel';
+type EncounterExitGuardState = {
+  action: EncounterExitAction;
+  patientName: string;
+  patientId?: string;
+  visitDate?: string;
+  receptionId?: string;
+  appointmentId?: string;
+  dirtySources: string[];
+};
+
+type SoapSaveRequestState = {
+  token: string;
+  reason: 'pause' | 'finish';
+};
+
+type SoapSaveRequestResult = {
+  token: string;
+  ok: boolean;
+  message: string;
+  serverSynced: boolean;
+  localSaved: boolean;
+  error?: string | null;
 };
 
 const resolveUtilityVisualKind = (action: DockedUtilityAction | null): UtilityVisualKind => {
@@ -642,11 +668,36 @@ function ChartsContent() {
     error: undefined,
     savedAt: undefined,
   });
+  const chartsActionBarRef = useRef<ChartsActionBarHandle | null>(null);
+  const [encounterExitGuard, setEncounterExitGuard] = useState<EncounterExitGuardState | null>(null);
+  const encounterExitResolverRef = useRef<((choice: EncounterExitChoice) => void) | null>(null);
+  const [soapSaveRequest, setSoapSaveRequest] = useState<SoapSaveRequestState | null>(null);
+  const pendingSoapSaveTokenRef = useRef<string | null>(null);
+  const soapSaveResolverRef = useRef<((result: SoapSaveRequestResult) => void) | null>(null);
 
   useEffect(() => {
     registerDirty('charts', draftState.dirty, 'カルテ: 未保存の入力があります');
     return () => registerDirty('charts', false);
   }, [draftState.dirty, registerDirty]);
+
+  useEffect(() => {
+    return () => {
+      encounterExitResolverRef.current?.('cancel');
+      encounterExitResolverRef.current = null;
+      if (pendingSoapSaveTokenRef.current) {
+        soapSaveResolverRef.current?.({
+          token: pendingSoapSaveTokenRef.current,
+          ok: false,
+          message: '保存要求を完了できませんでした。',
+          serverSynced: false,
+          localSaved: false,
+          error: 'save_request_aborted',
+        });
+      }
+      pendingSoapSaveTokenRef.current = null;
+      soapSaveResolverRef.current = null;
+    };
+  }, []);
 
   const [soapHistoryByEncounter, setSoapHistoryByEncounter] = useState<Record<string, SoapEntry[]>>(() => {
     const stored = readSoapHistoryStorage(storageScope);
@@ -2003,10 +2054,7 @@ function ChartsContent() {
     if (!encounterContext.patientId) return undefined;
     return patientEntries.find((entry) => {
       const pid = (entry.patientId ?? '').trim();
-      if (pid && pid === encounterContext.patientId) return true;
-      const fallback = (entry.id ?? '').trim();
-      if (!/^\d+$/.test(fallback)) return false;
-      return fallback === encounterContext.patientId;
+      return pid && pid === encounterContext.patientId;
     });
   }, [encounterContext.appointmentId, encounterContext.patientId, encounterContext.receptionId, patientEntries]);
 
@@ -2014,8 +2062,7 @@ function ChartsContent() {
     ? (() => {
         const pid = (selectedEntry.patientId ?? '').trim();
         if (pid.length > 0) return pid;
-        const fallback = (selectedEntry.id ?? '').trim();
-        return /^\d+$/.test(fallback) ? fallback : undefined;
+        return undefined;
       })()
     : undefined;
   const patientId = selectedEntryPatientId ?? encounterContext.patientId;
@@ -2300,7 +2347,7 @@ function ChartsContent() {
   }, [fallbackPatient?.name, patientTabKeyForContext, patientTabsState.tabs, selectedEntry?.name]);
 
   const lockTarget = useMemo(() => {
-    const patientId = selectedEntry?.patientId ?? selectedEntry?.id ?? encounterContext.patientId;
+    const patientId = selectedEntry?.patientId ?? encounterContext.patientId;
     return {
       facilityId: session.facilityId,
       patientId,
@@ -2312,7 +2359,6 @@ function ChartsContent() {
     encounterContext.patientId,
     encounterContext.receptionId,
     selectedEntry?.appointmentId,
-    selectedEntry?.id,
     selectedEntry?.patientId,
     selectedEntry?.receptionId,
     session.facilityId,
@@ -2824,14 +2870,109 @@ function ChartsContent() {
       runId: resolvedRunId ?? flags.runId,
       scope: storageScope,
       fallbackEntry: selectedEntry
-        ? {
-            ...selectedEntry,
-            patientId,
-            visitDate: actionVisitDate,
-          }
-        : undefined,
+      ? {
+          ...selectedEntry,
+          patientId,
+          visitDate: actionVisitDate,
+        }
+      : undefined,
     });
   }, [actionVisitDate, flags.runId, patientId, resolvedRunId, selectedEntry, storageScope]);
+
+  const requestEncounterExitChoice = useCallback(
+    (action: EncounterExitAction) =>
+      new Promise<EncounterExitChoice>((resolve) => {
+        encounterExitResolverRef.current = resolve;
+        setEncounterExitGuard({
+          action,
+          patientName: patientDisplay.name?.trim() || selectedEntry?.name?.trim() || '患者未選択',
+          patientId: patientId ?? selectedEntry?.patientId ?? encounterContext.patientId,
+          visitDate: actionVisitDate,
+          receptionId: receptionId ?? selectedEntry?.receptionId ?? encounterContext.receptionId,
+          appointmentId: appointmentId ?? selectedEntry?.appointmentId ?? encounterContext.appointmentId,
+          dirtySources: draftState.dirtySources ?? [],
+        });
+      }),
+    [
+      actionVisitDate,
+      appointmentId,
+      draftState.dirtySources,
+      encounterContext.appointmentId,
+      encounterContext.patientId,
+      encounterContext.receptionId,
+      patientDisplay.name,
+      patientId,
+      receptionId,
+      selectedEntry?.appointmentId,
+      selectedEntry?.name,
+      selectedEntry?.patientId,
+      selectedEntry?.receptionId,
+    ],
+  );
+
+  const handleEncounterExitChoice = useCallback((choice: EncounterExitChoice) => {
+    setEncounterExitGuard(null);
+    encounterExitResolverRef.current?.(choice);
+    encounterExitResolverRef.current = null;
+  }, []);
+
+  const requestSoapSaveForEncounterAction = useCallback(
+    (reason: 'pause' | 'finish') =>
+      new Promise<SoapSaveRequestResult>((resolve) => {
+        if (soapSyncState.isSaving) {
+          resolve({
+            token: 'saving',
+            ok: false,
+            message: 'SOAPを保存中のため完了待ちです。保存完了後に再実行してください。',
+            serverSynced: false,
+            localSaved: false,
+            error: 'saving_in_progress',
+          });
+          return;
+        }
+        const token = `charts-soap-save-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        pendingSoapSaveTokenRef.current = token;
+        soapSaveResolverRef.current = resolve;
+        setSoapSaveRequest({ token, reason });
+      }),
+    [soapSyncState.isSaving],
+  );
+
+  const handleSoapSaveRequestResult = useCallback((result: SoapSaveRequestResult) => {
+    if (!pendingSoapSaveTokenRef.current || result.token !== pendingSoapSaveTokenRef.current) return;
+    pendingSoapSaveTokenRef.current = null;
+    setSoapSaveRequest(null);
+    soapSaveResolverRef.current?.(result);
+    soapSaveResolverRef.current = null;
+  }, []);
+
+  const handleBeforeChartsAction = useCallback(
+    async (action: 'start' | 'pause' | 'finish' | 'send' | 'draft' | 'cancel' | 'print') => {
+      if (action !== 'pause' && action !== 'finish') return true;
+      const needsGuard = draftState.dirty || !soapSyncState.serverSynced || soapSyncState.isSaving;
+      if (!needsGuard) return true;
+      const choice = await requestEncounterExitChoice(action);
+      if (choice === 'cancel') return false;
+      if (choice === 'discard') return true;
+      const saveResult = await requestSoapSaveForEncounterAction(action);
+      if (!saveResult.ok || !saveResult.serverSynced) {
+        const label = action === 'finish' ? '診察終了' : '診察中断';
+        setContextAlert({
+          tone: 'warning',
+          message: `${label}を中止しました。SOAP保存に失敗: ${saveResult.message}`,
+        });
+        return false;
+      }
+      return true;
+    },
+    [
+      draftState.dirty,
+      requestEncounterExitChoice,
+      requestSoapSaveForEncounterAction,
+      soapSyncState.isSaving,
+      soapSyncState.serverSynced,
+    ],
+  );
 
   const handleAfterStart = useCallback(async () => {
     if (patientId && actionVisitDate) {
@@ -2897,7 +3038,7 @@ function ChartsContent() {
     storageScope,
   ]);
 
-  const handleAfterFinish = useCallback(async (options?: { forceClose?: boolean }) => {
+  const handleAfterFinish = useCallback(async () => {
     if (patientId && actionVisitDate) {
       upsertReceptionStatusOverride({
         date: actionVisitDate,
@@ -2918,19 +3059,11 @@ function ChartsContent() {
     await handleRefreshSummary();
     const activeKey = activePatientTabKey;
     if (!activeKey) return;
-    // 診療終了 = この患者のタブを閉じて次へ進む運用。
-    if (draftState.dirty && !options?.forceClose) {
-      setTabGuard({ action: 'close', targetKey: activeKey });
-      return;
-    }
-    if (options?.forceClose) {
-      setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
-    }
+    setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
     forceClosePatientTab(activeKey);
   }, [
     actionVisitDate,
     activePatientTabKey,
-    draftState.dirty,
     flags.runId,
     forceClosePatientTab,
     handleRefreshSummary,
@@ -2938,7 +3071,6 @@ function ChartsContent() {
     resolvedRunId,
     selectedEntry,
     storageScope,
-    setDraftState,
   ]);
 
   const editStateBar = useMemo(() => {
@@ -3856,6 +3988,59 @@ function ChartsContent() {
           </div>
         </section>
       </FocusTrapDialog>
+      <FocusTrapDialog
+        open={Boolean(encounterExitGuard)}
+        role="alertdialog"
+        title={encounterExitGuard?.action === 'finish' ? '診察終了の確認' : '診察中断の確認'}
+        description="未保存入力があります。保存して続行するか、破棄して続行するかを選択してください。"
+        onClose={() => handleEncounterExitChoice('cancel')}
+        testId="charts-encounter-exit-guard-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="診察終了/中断の未保存確認">
+          <p className="charts-tab-guard__message">SOAP等の未保存入力があります。続行方法を選択してください。</p>
+          <dl className="charts-actions__send-confirm-list">
+            <div>
+              <dt>患者名</dt>
+              <dd>{encounterExitGuard?.patientName ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>患者ID</dt>
+              <dd>{encounterExitGuard?.patientId ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>診療日</dt>
+              <dd>{encounterExitGuard?.visitDate ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>受付ID / 予約ID</dt>
+              <dd>{encounterExitGuard?.receptionId ?? '—'} / {encounterExitGuard?.appointmentId ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>未保存要因</dt>
+              <dd>
+                {encounterExitGuard && encounterExitGuard.dirtySources.length > 0
+                  ? encounterExitGuard.dirtySources.join(' / ')
+                  : !soapSyncState.serverSynced
+                    ? 'SOAPサーバ未反映'
+                    : soapSyncState.isSaving
+                      ? 'SOAP保存中'
+                      : 'SOAP未保存'}
+              </dd>
+            </div>
+          </dl>
+          <div className="charts-tab-guard__actions" role="group" aria-label="診察終了/中断の選択">
+            <button type="button" onClick={() => handleEncounterExitChoice('cancel')}>
+              キャンセル
+            </button>
+            <button type="button" onClick={() => handleEncounterExitChoice('save')}>
+              保存して{encounterExitGuard?.action === 'finish' ? '終了' : '中断'}
+            </button>
+            <button type="button" className="charts-tab-guard__danger" onClick={() => handleEncounterExitChoice('discard')}>
+              保存せず{encounterExitGuard?.action === 'finish' ? '終了' : '中断'}
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
       <main
         id="charts-main"
         tabIndex={-1}
@@ -4178,14 +4363,15 @@ function ChartsContent() {
                       lockStatus={lockStatus}
                       onOpenPatientPanel={() => setIsPatientPanelOpen(true)}
                       onFinishEncounter={() => {
-                        void handleAfterFinish({ forceClose: true });
+                        void chartsActionBarRef.current?.finish();
                       }}
                       onPauseEncounter={() => {
-                        void handleAfterPause();
+                        void chartsActionBarRef.current?.pause();
                       }}
-                      encounterActionDisabled={!activePatientTabKey || lockState.locked}
+                      encounterActionDisabled={!activePatientTabKey || lockState.locked || tabLock.isReadOnly || approvalLocked}
                       inlineActionBar={
                         <ChartsActionBar
+                          ref={chartsActionBarRef}
                           runId={resolvedRunId ?? flags.runId}
                           cacheHit={resolvedCacheHit ?? false}
                           missingMaster={resolvedMissingMaster ?? false}
@@ -4276,6 +4462,7 @@ function ChartsContent() {
                           }}
                           onApprovalConfirmed={handleApprovalConfirmed}
                           onApprovalUnlock={handleApprovalUnlock}
+                          onBeforeAction={handleBeforeChartsAction}
                           showOperationalMeta={showOperationalMeta}
                           onAfterSend={handleRefreshSummary}
                           onAfterStart={handleAfterStart}
@@ -4366,6 +4553,8 @@ function ChartsContent() {
 			                      onOrderHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
 			                      onDraftSnapshot={setSoapDraftSnapshot}
 			                      replaceDraftRequest={replaceSoapDraftRequest}
+                        saveRequest={soapSaveRequest}
+                        onSaveRequestResult={handleSoapSaveRequestResult}
 		                      attachmentInsert={pendingSoapAttachment}
 		                      onAttachmentInserted={() => setPendingSoapAttachment(null)}
 		                      onAppendHistory={appendSoapHistory}
