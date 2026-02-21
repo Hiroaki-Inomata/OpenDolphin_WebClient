@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { getAuditEventLog, logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
@@ -473,9 +473,17 @@ const resolveDeliverySectionFromSearch = (params: URLSearchParams): DeliverySect
   if (isDeliverySection(section)) return section;
   return DEFAULT_DELIVERY_SECTION;
 };
-const readCurrentSearchParams = () => {
-  if (typeof window === 'undefined') return new URLSearchParams();
-  return new URLSearchParams(window.location.search);
+const normalizeAdministrationSearchParams = (params: URLSearchParams) => {
+  const normalized = new URLSearchParams(params);
+  const tab = resolveAdministrationTabFromSearch(params);
+  if (tab === 'delivery') {
+    normalized.delete('tab');
+    normalized.set('section', resolveDeliverySectionFromSearch(params));
+    return normalized;
+  }
+  normalized.set('tab', tab);
+  normalized.delete('section');
+  return normalized;
 };
 
 const buildMedicationTemplateXml = (baseDate: string) =>
@@ -492,43 +500,42 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const isSystemAdmin = isSystemAdminRole(role);
   const session = useSession();
   const { enqueue } = useAppToast();
-  const [, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<AdministrationTab>(() => resolveAdministrationTabFromSearch(readCurrentSearchParams()));
-  const [activeDeliverySection, setActiveDeliverySection] = useState<DeliverySection>(() =>
-    resolveDeliverySectionFromSearch(readCurrentSearchParams()),
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const normalizedSearchParams = useMemo(() => normalizeAdministrationSearchParams(searchParams), [searchParams]);
+  const activeTab = useMemo(() => resolveAdministrationTabFromSearch(normalizedSearchParams), [normalizedSearchParams]);
+  const activeDeliverySection = useMemo(
+    () => resolveDeliverySectionFromSearch(normalizedSearchParams),
+    [normalizedSearchParams],
   );
   useEffect(() => {
-    const syncFromLocation = () => {
-      const params = readCurrentSearchParams();
-      setActiveTab(resolveAdministrationTabFromSearch(params));
-      setActiveDeliverySection(resolveDeliverySectionFromSearch(params));
-    };
-    window.addEventListener('popstate', syncFromLocation);
-    return () => window.removeEventListener('popstate', syncFromLocation);
-  }, []);
+    const normalizedSearch = normalizedSearchParams.toString();
+    const currentSearch = searchParams.toString();
+    if (normalizedSearch === currentSearch) return;
+    setSearchParams(normalizedSearchParams, { replace: true });
+  }, [normalizedSearchParams, searchParams, setSearchParams]);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.title = `管理画面 | 施設ID=${session.facilityId ?? 'unknown'}`;
+  }, [location.pathname, session.facilityId]);
   const handleTabChange = (next: AdministrationTab) => {
-    setActiveTab(next);
+    const params = new URLSearchParams(searchParams);
     if (next === 'delivery') {
-      const params = readCurrentSearchParams();
-      const nextSection = resolveDeliverySectionFromSearch(params);
-      setActiveDeliverySection(nextSection);
+      const nextSection = resolveDeliverySectionFromSearch(searchParams);
       params.delete('tab');
       params.set('section', nextSection);
-      setSearchParams(params, { replace: false });
+      setSearchParams(normalizeAdministrationSearchParams(params), { replace: false });
       return;
     }
-    const params = readCurrentSearchParams();
     params.set('tab', next);
     params.delete('section');
-    setSearchParams(params, { replace: false });
+    setSearchParams(normalizeAdministrationSearchParams(params), { replace: false });
   };
   const handleDeliverySectionChange = (next: DeliverySection) => {
-    setActiveTab('delivery');
-    setActiveDeliverySection(next);
-    const params = readCurrentSearchParams();
+    const params = new URLSearchParams(searchParams);
     params.delete('tab');
     params.set('section', next);
-    setSearchParams(params, { replace: false });
+    setSearchParams(normalizeAdministrationSearchParams(params), { replace: false });
   };
   const appliedMeta = useRef<Partial<AuthServiceFlags>>({});
   const guardLogRef = useRef<{ runId?: string; role?: string }>({});
