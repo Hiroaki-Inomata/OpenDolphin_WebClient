@@ -159,7 +159,8 @@ describe('ChartsActionBar', () => {
 
     await user.click(screen.getByRole('button', { name: 'ORCA 送信' }));
     expect(screen.getByRole('heading', { name: '患者確認' })).toBeInTheDocument();
-    expect(screen.getByText('山田太郎（P-777）')).toBeInTheDocument();
+    expect(screen.getByText('山田太郎')).toBeInTheDocument();
+    expect(screen.getByText('P-777')).toBeInTheDocument();
     expect(screen.getByText('1980-05-20 / 45歳')).toBeInTheDocument();
     expect(screen.getByText('R-777')).toBeInTheDocument();
     expect(screen.getByText('A-777')).toBeInTheDocument();
@@ -260,5 +261,20 @@ describe('ChartsActionBar', () => {
     const printButton = screen.getByRole('button', { name: '印刷/エクスポート' });
     expect(printButton).toBeDisabled();
     expect(screen.getAllByText(/ロック中: 操作中で印刷不可/).length).toBeGreaterThan(0);
+  });
+
+  it('selectedEntry.id は patientId として扱わず送信/終了をブロックする', () => {
+    render(
+      <MemoryRouter>
+        <ChartsActionBar
+          {...baseProps}
+          visitDate="2026-01-09"
+          selectedEntry={{ id: 'row-100', appointmentId: 'APT-ROW', visitDate: '2026-01-09' } as any}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('button', { name: '診察終了' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'ORCA 送信' })).toBeDisabled();
   });
 });

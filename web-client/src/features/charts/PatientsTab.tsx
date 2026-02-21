@@ -1476,7 +1476,7 @@ export function PatientsTab({
       </div>
 
       <div className="patients-tab__body">
-        <div className="patients-tab__table" role="list" aria-label="外来一覧（患者切替）">
+        <div className="patients-tab__table" aria-label="外来一覧（患者切替）">
           {showCurrentHiddenNotice ? (
             <div className="patients-tab__filter-notice" role="status" aria-live={infoLive}>
               <span>現在の患者は検索結果に含まれていません（フィルタ中）</span>
@@ -1862,7 +1862,7 @@ export function PatientsTab({
                     </label>
                   </div>
                 ) : null}
-                <div className="patients-tab__history" role="list" aria-label="受診履歴一覧">
+                <div className="patients-tab__history" aria-label="受診履歴一覧">
                   {historyEntriesForSelected.length === 0 ? (
                     <p className="patients-tab__detail-empty" role="status" aria-live={infoLive}>
                       該当する履歴がありません。必要なら「全期間検索」へ切り替え、期間やキーワードを見直してください。
@@ -2094,7 +2094,7 @@ export function PatientsTab({
             <p className="patients-tab__modal-sub">
               runId={flags.runId} ／ patientId={selectedPatientId ?? '—'} ／ traceId={(auditEvent as any)?.details?.traceId ?? '—'}
             </p>
-            <div className="patients-tab__modal-list" role="list">
+            <div className="patients-tab__modal-list">
               {relevantAuditEvents.length === 0 ? (
                 <p className="patients-tab__detail-empty" role="status" aria-live={infoLive}>
                   まだ操作履歴がありません（Charts/Patients で保存するとここに反映されます）。

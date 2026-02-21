@@ -23,6 +23,7 @@ import type { RpHistoryEntry } from './karteExtrasApi';
 import type { OrderBundle } from './orderBundleApi';
 import { OrderDockPanel } from './OrderDockPanel';
 import { resolveAriaLive } from '../../libs/observability/observability';
+import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 
 export type SoapNoteMeta = {
   runId?: string;
@@ -75,6 +76,15 @@ type SoapNotePanelProps = {
   onDraftSnapshot?: (draft: SoapDraft) => void;
   replaceDraftRequest?: { token: string; draft: SoapDraft; note?: string } | null;
   applyDraftPatch?: { token: string; section: SoapSectionKey; body: string; note?: string } | null;
+  saveRequest?: { token: string; reason?: string } | null;
+  onSaveRequestResult?: (result: {
+    token: string;
+    ok: boolean;
+    message: string;
+    serverSynced: boolean;
+    localSaved: boolean;
+    error?: string | null;
+  }) => void;
   attachmentInsert?: { attachment: ChartImageAttachment; section: SoapSectionKey; token: string } | null;
   onAttachmentInserted?: () => void;
   onAppendHistory?: (entries: SoapEntry[]) => void;
@@ -140,6 +150,8 @@ export function SoapNotePanel({
   onDraftSnapshot,
   replaceDraftRequest,
   applyDraftPatch,
+  saveRequest,
+  onSaveRequestResult,
   attachmentInsert,
   onAttachmentInserted,
   onAppendHistory,
@@ -206,6 +218,8 @@ export function SoapNotePanel({
   });
   const [revisionDrawerOpen, setRevisionDrawerOpen] = useState(false);
   const [subjectivesOpen, setSubjectivesOpen] = useState(false);
+  const [clearHistoryDialogOpen, setClearHistoryDialogOpen] = useState(false);
+  const [saveRequestTokenHandled, setSaveRequestTokenHandled] = useState<string | null>(null);
 
   const latestBySection = useMemo(() => getLatestSoapEntries(history), [history]);
   const firstBySection = useMemo(() => {
@@ -500,10 +514,17 @@ export function SoapNotePanel({
     ],
   );
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(async (): Promise<{
+    ok: boolean;
+    message: string;
+    serverSynced: boolean;
+    localSaved: boolean;
+    error?: string | null;
+  }> => {
     if (readOnly) {
-      setFeedback(readOnlyReason ?? '読み取り専用のため保存できません。');
-      return;
+      const message = readOnlyReason ?? '読み取り専用のため保存できません。';
+      setFeedback(message);
+      return { ok: false, message, serverSynced: false, localSaved: false, error: 'read_only' };
     }
 
     const authoredAt = new Date().toISOString();
@@ -572,7 +593,8 @@ export function SoapNotePanel({
 
     if (emptyClears.length > 0) {
       const targets = emptyClears.map((section) => SOAP_SECTION_LABELS[section]).join(', ');
-      setFeedback(`保存前確認: 既存記載を空欄にする削除操作は未対応です。対象: ${targets}`);
+      const message = `保存前確認: 既存記載を空欄にする削除操作は未対応です。対象: ${targets}`;
+      setFeedback(message);
       setSyncState({
         localSaved: false,
         serverSynced: false,
@@ -588,12 +610,13 @@ export function SoapNotePanel({
         visitDate: meta.visitDate,
         dirtySources: ['soap'],
       });
-      return;
+      return { ok: false, message, serverSynced: false, localSaved: false, error: 'clear_not_supported' };
     }
 
     if (entries.length === 0) {
-      setFeedback('変更がないため保存できません。');
-      return;
+      const message = '変更がないため保存できません。';
+      setFeedback(message);
+      return { ok: false, message, serverSynced: syncState.serverSynced, localSaved: syncState.localSaved, error: 'no_changes' };
     }
 
     setSyncState({
@@ -618,7 +641,8 @@ export function SoapNotePanel({
       onAuditLogged?.();
       setPendingTemplate({});
       const detail = '患者未選択のためサーバ保存を実行できません。患者選択後に再確認してください。';
-      setFeedback(`${entries.length} セクションをローカル保存しました。${detail}`);
+      const message = `${entries.length} セクションをローカル保存しました。${detail}`;
+      setFeedback(message);
       setSyncState({
         localSaved: true,
         serverSynced: false,
@@ -626,7 +650,7 @@ export function SoapNotePanel({
         error: detail,
         savedAt: authoredAt,
       });
-      return;
+      return { ok: false, message, serverSynced: false, localSaved: true, error: detail };
     }
 
     const performDate = meta.visitDate ?? new Date().toISOString().slice(0, 10);
@@ -646,7 +670,8 @@ export function SoapNotePanel({
       onAppendHistory?.(entries);
       onAuditLogged?.();
       setPendingTemplate({});
-      setFeedback(`SOAP保存完了（ローカル保存のみ: ${entries.length} セクション）`);
+      const message = `SOAP保存完了（ローカル保存のみ: ${entries.length} セクション）`;
+      setFeedback(message);
       setSyncState({
         localSaved: true,
         serverSynced: true,
@@ -662,7 +687,7 @@ export function SoapNotePanel({
         visitDate: meta.visitDate,
         dirtySources: [],
       });
-      return;
+      return { ok: true, message, serverSynced: true, localSaved: true };
     }
 
     try {
@@ -678,7 +703,8 @@ export function SoapNotePanel({
       const failures = results.filter((result) => !result.ok || (result.apiResult && result.apiResult !== '00'));
       if (failures.length > 0) {
         const detail = failures[0]?.apiResultMessage ?? failures[0]?.apiResult ?? 'unknown';
-        setFeedback(`SOAPサーバ保存に失敗しました: ${detail}（再試行してください）`);
+        const message = `SOAPサーバ保存に失敗しました: ${detail}（再試行してください）`;
+        setFeedback(message);
         setSyncState({
           localSaved: false,
           serverSynced: false,
@@ -694,13 +720,14 @@ export function SoapNotePanel({
           visitDate: meta.visitDate,
           dirtySources: ['soap'],
         });
-        return;
+        return { ok: false, message, serverSynced: false, localSaved: false, error: detail };
       }
 
       onAppendHistory?.(entries);
       onAuditLogged?.();
       setPendingTemplate({});
-      setFeedback(`SOAP保存完了（ローカル+サーバ ${results.length} 件）`);
+      const message = `SOAP保存完了（ローカル+サーバ ${results.length} 件）`;
+      setFeedback(message);
       setSyncState({
         localSaved: true,
         serverSynced: true,
@@ -716,9 +743,11 @@ export function SoapNotePanel({
         visitDate: meta.visitDate,
         dirtySources: [],
       });
+      return { ok: true, message, serverSynced: true, localSaved: true };
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      setFeedback(`SOAPサーバ保存に失敗しました: ${detail}（再試行してください）`);
+      const message = `SOAPサーバ保存に失敗しました: ${detail}（再試行してください）`;
+      setFeedback(message);
       setSyncState({
         localSaved: false,
         serverSynced: false,
@@ -734,6 +763,7 @@ export function SoapNotePanel({
         visitDate: meta.visitDate,
         dirtySources: ['soap'],
       });
+      return { ok: false, message, serverSynced: false, localSaved: false, error: detail };
     }
   }, [
     author,
@@ -754,7 +784,26 @@ export function SoapNotePanel({
     pendingTemplate,
     readOnly,
     readOnlyReason,
+    syncState.localSaved,
+    syncState.serverSynced,
   ]);
+
+  useEffect(() => {
+    if (!saveRequest?.token) return;
+    if (saveRequest.token === saveRequestTokenHandled) return;
+    setSaveRequestTokenHandled(saveRequest.token);
+    void (async () => {
+      const result = await handleSave();
+      onSaveRequestResult?.({
+        token: saveRequest.token,
+        ok: result.ok,
+        message: result.message,
+        serverSynced: result.serverSynced,
+        localSaved: result.localSaved,
+        error: result.error,
+      });
+    })();
+  }, [handleSave, onSaveRequestResult, saveRequest, saveRequestTokenHandled]);
 
   const handleClear = useCallback(() => {
     markDirtyPendingSync();
@@ -779,8 +828,12 @@ export function SoapNotePanel({
 
   const handleClearHistory = useCallback(() => {
     if (!onClearHistory) return;
-    const confirmed = typeof window === 'undefined' ? true : window.confirm('SOAP履歴をクリアしますか？');
-    if (!confirmed) return;
+    setClearHistoryDialogOpen(true);
+  }, [onClearHistory]);
+
+  const handleConfirmClearHistory = useCallback(() => {
+    if (!onClearHistory) return;
+    setClearHistoryDialogOpen(false);
     onClearHistory();
     setDraft({
       free: '',
@@ -1035,6 +1088,39 @@ export function SoapNotePanel({
           soapHistory={history}
         />
       ) : null}
+      <FocusTrapDialog
+        open={clearHistoryDialogOpen}
+        role="alertdialog"
+        title="SOAP履歴をクリアしますか？"
+        description="この患者の画面上履歴をクリアします。影響範囲を確認して実行してください。"
+        onClose={() => setClearHistoryDialogOpen(false)}
+        testId="soap-clear-history-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="SOAP履歴クリア確認">
+          <dl className="charts-actions__send-confirm-list">
+            <div>
+              <dt>対象患者ID</dt>
+              <dd>{meta.patientId ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>診療日</dt>
+              <dd>{meta.visitDate ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>影響範囲</dt>
+              <dd>SOAP履歴表示をクリアし、編集入力も初期化します。</dd>
+            </div>
+          </dl>
+          <div className="charts-tab-guard__actions" role="group" aria-label="SOAP履歴クリア操作">
+            <button type="button" onClick={() => setClearHistoryDialogOpen(false)}>
+              キャンセル
+            </button>
+            <button type="button" className="charts-tab-guard__danger" onClick={handleConfirmClearHistory}>
+              クリアを実行
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
       {readOnly ? (
         <p className="soap-note__guard">読み取り専用: {readOnlyReason ?? '編集はロック中です。'}</p>
       ) : null}

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { forwardRef, useImperativeHandle } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import { AuthServiceProvider } from '../authService';
 import { ChartsPage } from '../pages/ChartsPage';
@@ -143,8 +144,55 @@ vi.mock('../MedicalOutpatientRecordPanel', () => ({ MedicalOutpatientRecordPanel
 vi.mock('../OrcaOriginalPanel', () => ({ OrcaOriginalPanel: () => null }));
 vi.mock('../PatientsTab', () => ({ PatientsTab: () => null }));
 vi.mock('../TelemetryFunnelPanel', () => ({ TelemetryFunnelPanel: () => null }));
-vi.mock('../ChartsActionBar', () => ({ ChartsActionBar: () => null }));
-vi.mock('../ChartsPatientSummaryBar', () => ({ ChartsPatientSummaryBar: () => null }));
+vi.mock('../ChartsActionBar', () => ({
+  ChartsActionBar: forwardRef(({ onBeforeAction, onAfterFinish }: any, ref) => {
+    const runFinish = async () => {
+      const allow = (await onBeforeAction?.('finish')) ?? true;
+      if (allow) await onAfterFinish?.();
+    };
+    useImperativeHandle(
+      ref,
+      () => ({
+        finish: runFinish,
+        pause: async () => {
+          const allow = (await onBeforeAction?.('pause')) ?? true;
+          return allow;
+        },
+        start: async () => {
+          const allow = (await onBeforeAction?.('start')) ?? true;
+          return allow;
+        },
+      }),
+      [onAfterFinish, onBeforeAction],
+    );
+    return React.createElement(
+      'button',
+      {
+        type: 'button',
+        onClick: runFinish,
+      },
+      '診察終了（モック）',
+    );
+  }),
+}));
+vi.mock('../ChartsPatientSummaryBar', () => ({
+  ChartsPatientSummaryBar: ({ onFinishEncounter, inlineActionBar }: any) =>
+    React.createElement(
+      'div',
+      null,
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          onClick: () => {
+            void onFinishEncounter?.();
+          },
+        },
+        '診察終了（上部モック）',
+      ),
+      inlineActionBar ?? null,
+    ),
+}));
 vi.mock('../DiagnosisEditPanel', () => ({ DiagnosisEditPanel: () => null }));
 vi.mock('../DocumentCreatePanel', () => ({ DocumentCreatePanel: () => null }));
 vi.mock('../OrderBundleEditPanel', () => ({ OrderBundleEditPanel: () => null }));
@@ -161,10 +209,14 @@ vi.mock('../../reception/styles', () => ({ receptionStyles: '' }));
 vi.mock('../../outpatient/appointmentDataBanner', () => ({ getAppointmentDataBanner: () => null }));
 
 vi.mock('../SoapNotePanel', () => ({
-  SoapNotePanel: ({ onDraftDirtyChange, onSyncStateChange }: any) => {
+  SoapNotePanel: ({ onDraftDirtyChange, onSyncStateChange, saveRequest, onSaveRequestResult }: any) => {
     React.useEffect(() => {
       onDraftDirtyChange?.({
         dirty: true,
+        patientId: 'P-001',
+        appointmentId: 'A-001',
+        receptionId: 'R-001',
+        visitDate: '2026-02-16',
         dirtySources: ['soap'],
       });
       onSyncStateChange?.({
@@ -173,6 +225,29 @@ vi.mock('../SoapNotePanel', () => ({
         isSaving: false,
       });
     }, [onDraftDirtyChange, onSyncStateChange]);
+    React.useEffect(() => {
+      if (!saveRequest?.token) return;
+      onSaveRequestResult?.({
+        token: saveRequest.token,
+        ok: true,
+        message: 'SOAP保存完了（モック）',
+        serverSynced: true,
+        localSaved: true,
+      });
+      onDraftDirtyChange?.({
+        dirty: false,
+        patientId: 'P-001',
+        appointmentId: 'A-001',
+        receptionId: 'R-001',
+        visitDate: '2026-02-16',
+        dirtySources: [],
+      });
+      onSyncStateChange?.({
+        localSaved: true,
+        serverSynced: true,
+        isSaving: false,
+      });
+    }, [onDraftDirtyChange, onSaveRequestResult, onSyncStateChange, saveRequest]);
     return React.createElement('div', { 'data-test-id': 'soap-note-mock' });
   },
 }));
@@ -225,5 +300,62 @@ describe('ChartsPage patient tab dirty indicator', () => {
     await waitFor(() =>
       expect(document.querySelector('.charts-patient-tabs__dirty-dot')).not.toBeNull(),
     );
+  });
+
+  it('未保存状態で診察終了すると保存/破棄/キャンセルの3択ダイアログを表示する', async () => {
+    const patientTabKey = 'P-001::2026-02-16';
+    const storageKey = 'opendolphin:web-client:charts:patient-tabs:v1:facility:doctor';
+    sessionStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        version: 1,
+        updatedAt: '2026-02-16T10:00:00.000Z',
+        activeKey: patientTabKey,
+        tabs: [
+          {
+            key: patientTabKey,
+            patientId: 'P-001',
+            visitDate: '2026-02-16',
+            appointmentId: 'A-001',
+            receptionId: 'R-001',
+            name: '患者A',
+            openedAt: '2026-02-16T10:00:00.000Z',
+          },
+        ],
+      }),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthServiceProvider initialFlags={{ runId: 'RUN-AUTH', cacheHit: true, missingMaster: false, dataSourceTransition: 'server' }}>
+          <MemoryRouter initialEntries={['/f/facility/charts']}>
+            <NavigationGuardProvider>
+              <ChartsPage />
+            </NavigationGuardProvider>
+          </MemoryRouter>
+        </AuthServiceProvider>
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: '診察終了（上部モック）' }));
+
+    const dialog = screen.getByRole('alertdialog', { name: '診察終了の確認' });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByText('患者A')).toBeInTheDocument();
+    expect(within(dialog).getByText('P-001')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '保存して終了' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '保存せず終了' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '保存して終了' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog', { name: '診察終了の確認' })).toBeNull();
+    });
   });
 });

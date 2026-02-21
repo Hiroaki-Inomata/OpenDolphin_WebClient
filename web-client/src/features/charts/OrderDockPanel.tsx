@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { useOptionalSession } from '../../AppRouter';
+import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 import { mutateOrderBundles, type OrderBundle, type OrderBundleItem } from './orderBundleApi';
 import { OrderBundleEditPanel, type OrderBundleEditPanelMeta, type OrderBundleEditPanelRequest } from './OrderBundleEditPanel';
 import type { OrderRecommendationCandidate } from './orderRecommendationApi';
@@ -541,6 +542,7 @@ export function OrderDockPanel(props: {
 
   const [recommendModalOpen, setRecommendModalOpen] = useState(false);
   const [recommendModalEntity, setRecommendModalEntity] = useState<PastOrderEntity | ''>('');
+  const [deleteTarget, setDeleteTarget] = useState<{ bundle: OrderBundle; label: string; groupLabel: string } | null>(null);
   const openRecommendationModal = useCallback((entity: PastOrderEntity) => {
     setRecommendModalEntity(entity);
     setRecommendModalOpen(true);
@@ -942,8 +944,7 @@ export function OrderDockPanel(props: {
                       className="order-dock__bundle-action order-dock__bundle-action--danger"
                       onClick={() => {
                         if (!canMutate) return;
-                        if (!window.confirm(`このオーダーを削除しますか？\n${bundleLabel}`)) return;
-                        deleteMutation.mutate(bundle);
+                        setDeleteTarget({ bundle, label: bundleLabel, groupLabel: group.label });
                       }}
                       disabled={!canMutate || deleteMutation.isPending}
                       title={!canMutate ? editDisabledReason : undefined}
@@ -962,6 +963,53 @@ export function OrderDockPanel(props: {
 
   return (
     <div className="order-dock" data-has-orders={hasAnyOrders ? '1' : '0'}>
+      <FocusTrapDialog
+        open={Boolean(deleteTarget)}
+        role="alertdialog"
+        title="オーダーを削除しますか？"
+        description="対象と影響範囲を確認して実行してください。"
+        onClose={() => setDeleteTarget(null)}
+        testId="order-dock-delete-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="オーダー削除確認">
+          <dl className="charts-actions__send-confirm-list">
+            <div>
+              <dt>対象名</dt>
+              <dd>{deleteTarget?.label ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>患者ID</dt>
+              <dd>{patientId ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>対象カテゴリ</dt>
+              <dd>{deleteTarget?.groupLabel ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>影響範囲</dt>
+              <dd>該当オーダー束が一覧から削除されます。</dd>
+            </div>
+          </dl>
+          <div className="charts-tab-guard__actions" role="group" aria-label="オーダー削除操作">
+            <button type="button" onClick={() => setDeleteTarget(null)}>
+              キャンセル
+            </button>
+            <button
+              type="button"
+              className="charts-tab-guard__danger"
+              onClick={() => {
+                if (!deleteTarget) return;
+                deleteMutation.mutate(deleteTarget.bundle, {
+                  onSettled: () => setDeleteTarget(null),
+                });
+              }}
+              disabled={deleteMutation.isPending}
+            >
+              削除する
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
       <header className="order-dock__header">
         <div>
           <strong>オーダー入力</strong>
