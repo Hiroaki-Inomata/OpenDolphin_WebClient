@@ -8,13 +8,13 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import open.dolphin.rest.AbstractResource;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 import open.dolphin.security.SecondFactorSecurityConfig;
 import open.dolphin.security.totp.TotpSecretProtector;
 import org.slf4j.Logger;
@@ -392,17 +392,13 @@ public class OrcaConnectionConfigStore {
     }
 
     private static Path resolveStoragePath() {
-        String base = System.getProperty("jboss.server.data.dir");
-        if (base == null || base.isBlank()) {
-            base = System.getProperty("java.io.tmpdir");
-        }
+        Path base = RuntimeConfigurationSupport.resolveServerDataDirectoryOrThrow("OrcaConnectionConfigStore");
         try {
-            Path dir = Paths.get(base, STORAGE_DIR);
+            Path dir = base.resolve(STORAGE_DIR);
             Files.createDirectories(dir);
             return dir.resolve(STORAGE_FILE);
         } catch (IOException ex) {
-            LOGGER.warn("Failed to create ORCA config directory: {}", ex.getMessage());
-            return null;
+            throw new IllegalStateException("Failed to create ORCA config directory: " + base, ex);
         }
     }
 

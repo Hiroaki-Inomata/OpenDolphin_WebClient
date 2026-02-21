@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import open.dolphin.infrastructure.concurrent.ConcurrencyResourceNames;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 import open.dolphin.rest.dto.orca.PatientSyncRequest;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
 import open.orca.rest.ORCAConnection;
@@ -29,11 +30,13 @@ public class OrcaPatientSyncScheduler {
     private static final Logger LOGGER = Logger.getLogger(OrcaPatientSyncScheduler.class.getName());
 
     private static final String ENV_ENABLED = "ORCA_PATIENT_SYNC_ENABLED";
+    private static final String PROP_ENABLED = "opendolphin.orca.patient.sync.enabled";
     private static final String ENV_INTERVAL_MINUTES = "ORCA_PATIENT_SYNC_INTERVAL_MINUTES";
     private static final String ENV_LOOKBACK_DAYS = "ORCA_PATIENT_SYNC_INITIAL_LOOKBACK_DAYS";
     private static final String ENV_INCLUDE_TEST_PATIENT = "ORCA_PATIENT_SYNC_INCLUDE_TEST_PATIENT";
     private static final String ENV_INCLUDE_INSURANCE = "ORCA_PATIENT_SYNC_INCLUDE_INSURANCE";
     private static final String ENV_FACILITY_ID = "ORCA_PATIENT_SYNC_FACILITY_ID";
+    private static final java.time.ZoneId SYNC_ZONE = RuntimeConfigurationSupport.resolveTimezone();
 
     @Resource(lookup = ConcurrencyResourceNames.DEFAULT_SCHEDULER)
     private ManagedScheduledExecutorService scheduler;
@@ -49,7 +52,7 @@ public class OrcaPatientSyncScheduler {
     @PostConstruct
     public void start() {
         if (!resolveEnabled()) {
-            LOGGER.info("ORCA patient sync scheduler is disabled.");
+            LOGGER.info("ORCA patient sync scheduler is disabled. Set ORCA_PATIENT_SYNC_ENABLED=true to enable.");
             return;
         }
         if (scheduler == null) {
@@ -63,7 +66,8 @@ public class OrcaPatientSyncScheduler {
         long intervalMs = Duration.ofMinutes(intervalMinutes).toMillis();
         long initialDelayMs = 10_000L;
         scheduled = scheduler.scheduleAtFixedRate(this::runSyncSafely, initialDelayMs, intervalMs, TimeUnit.MILLISECONDS);
-        LOGGER.log(Level.INFO, "ORCA patient sync scheduled. intervalMinutes={0}", intervalMinutes);
+        LOGGER.log(Level.INFO, "ORCA patient sync scheduled. intervalMinutes={0} timezone={1}",
+                new Object[]{intervalMinutes, SYNC_ZONE.getId()});
     }
 
     @PreDestroy
@@ -79,7 +83,7 @@ public class OrcaPatientSyncScheduler {
             LOGGER.warning("ORCA patient sync skipped: facilityId is not configured.");
             return;
         }
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(SYNC_ZONE);
         LocalDate startDate = resolveStartDate(facilityId, today);
         boolean includeTestPatient = resolveBooleanEnv(ENV_INCLUDE_TEST_PATIENT, false);
         boolean includeInsurance = resolveBooleanEnv(ENV_INCLUDE_INSURANCE, false);
@@ -133,12 +137,18 @@ public class OrcaPatientSyncScheduler {
     }
 
     private boolean resolveEnabled() {
-        String raw = System.getenv(ENV_ENABLED);
+        return resolveEnabledFromEnvironment();
+    }
+
+    public static boolean resolveEnabledFromEnvironment() {
+        String raw = RuntimeConfigurationSupport.firstNonBlank(
+                System.getProperty(PROP_ENABLED),
+                System.getenv(ENV_ENABLED));
         if (raw == null || raw.isBlank()) {
-            return true; // default on for development
+            return false;
         }
-        String normalized = raw.trim().toLowerCase(Locale.ROOT);
-        return !("0".equals(normalized) || "false".equals(normalized) || "off".equals(normalized) || "no".equals(normalized));
+        Boolean parsed = RuntimeConfigurationSupport.parseBooleanFlag(raw);
+        return parsed != null && parsed;
     }
 
     private static boolean resolveBooleanEnv(String key, boolean fallback) {
@@ -191,4 +201,3 @@ public class OrcaPatientSyncScheduler {
         return null;
     }
 }
-

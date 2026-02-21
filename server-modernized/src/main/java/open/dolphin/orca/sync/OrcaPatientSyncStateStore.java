@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 
 /**
  * Persists ORCA patient sync cursor (last successful date) on local filesystem.
@@ -39,8 +40,8 @@ public class OrcaPatientSyncStateStore {
         if (configured != null && !configured.isBlank()) {
             return Paths.get(configured.trim()).toAbsolutePath();
         }
-        Path home = Paths.get(System.getProperty("user.home"));
-        return home.resolve(".opendolphin").resolve("orca").resolve("patient-sync-state.json");
+        Path dataRoot = RuntimeConfigurationSupport.resolveServerDataDirectoryOrThrow("OrcaPatientSyncStateStore");
+        return dataRoot.resolve("opendolphin").resolve("orca").resolve("patient-sync-state.json");
     }
 
     public FacilityState loadFacilityState(String facilityId) {
@@ -154,4 +155,3 @@ public class OrcaPatientSyncStateStore {
         public String lastError;
     }
 }
-

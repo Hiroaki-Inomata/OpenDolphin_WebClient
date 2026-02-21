@@ -6,19 +6,23 @@ import jakarta.annotation.Resource;
 import jakarta.enterprise.concurrent.ManagedScheduledExecutorService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.GregorianCalendar;
 import java.util.Properties;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import open.dolphin.infrastructure.concurrent.ConcurrencyResourceNames;
+import open.dolphin.orca.sync.OrcaPatientSyncScheduler;
 import open.dolphin.session.ChartEventServiceBean;
 import open.dolphin.session.SystemServiceBean;
+import open.dolphin.rest.StubEndpointExposureFilter;
+import open.dolphin.rest.masterupdate.MasterUpdateScheduler;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 import open.orca.rest.ORCAConnection;
 
 /**
@@ -29,7 +33,7 @@ public class ServletStartup {
 
     private static final Logger LOGGER = Logger.getLogger(ServletStartup.class.getSimpleName());
     private static final Logger DOLPHIN_LOGGER = Logger.getLogger("open.dolphin");
-    private static final ZoneId DEFAULT_ZONE = ZoneId.systemDefault();
+    private static final ZoneId DEFAULT_ZONE = RuntimeConfigurationSupport.resolveTimezone();
 
     @Resource(lookup = ConcurrencyResourceNames.DEFAULT_SCHEDULER)
     private ManagedScheduledExecutorService scheduler;
@@ -51,6 +55,7 @@ public class ServletStartup {
         contextHolder.ensureDateInitialized();
         eventServiceBean.ensureInitialized();
         ORCAConnection.getInstance().validateDatasourceSecretsOrThrow();
+        logRuntimeConfigurationSummary();
         if (scheduler == null) {
             LOGGER.warning("ManagedScheduledExecutorService is not available. Timed jobs will not be executed.");
             return;
@@ -103,10 +108,10 @@ public class ServletStartup {
             Properties config = ORCAConnection.getInstance().getProperties();
             String zero = config.getProperty("cloud.zero");
             if ("true".equalsIgnoreCase(zero)) {
-                GregorianCalendar gc = new GregorianCalendar();
-                gc.add(GregorianCalendar.MONTH, -1);
-                int year = gc.get(GregorianCalendar.YEAR);
-                int month = gc.get(GregorianCalendar.MONTH);
+                ZonedDateTime targetMonth = ZonedDateTime.now(DEFAULT_ZONE).minusMonths(1);
+                int year = targetMonth.getYear();
+                // Legacy SystemServiceBean expects Calendar-style month index (0-11).
+                int month = targetMonth.getMonthValue() - 1;
                 DOLPHIN_LOGGER.info("Send monthly Activities.");
                 systemServiceBean.sendMonthlyActivities(year, month);
             }
@@ -134,5 +139,26 @@ public class ServletStartup {
             next = next.plusMonths(1).withDayOfMonth(1);
         }
         return next.toInstant();
+    }
+
+    private void logRuntimeConfigurationSummary() {
+        String environment = RuntimeConfigurationSupport.resolveEnvironment();
+        boolean stubEndpointsAllowed = StubEndpointExposureFilter.resolveAllowStubEndpoints();
+        boolean orcaPatientSyncEnabled = OrcaPatientSyncScheduler.resolveEnabledFromEnvironment();
+        boolean masterUpdateSchedulerEnabled = MasterUpdateScheduler.resolveEnabledFromEnvironment();
+        String dataDir = RuntimeConfigurationSupport.describeServerDataDirectory();
+        String configStorePath = dataDir.startsWith("MISSING(")
+                ? dataDir
+                : Path.of(dataDir, "opendolphin").toString();
+        LOGGER.info(() -> "Runtime config summary: environment=" + safe(environment)
+                + ", timezone=" + DEFAULT_ZONE.getId()
+                + ", stubEndpoints=" + (stubEndpointsAllowed ? "allow" : "block")
+                + ", schedulers={orcaPatientSync:" + (orcaPatientSyncEnabled ? "on" : "off")
+                + ",masterUpdate:" + (masterUpdateSchedulerEnabled ? "on" : "off") + "}"
+                + ", configStorePath=" + configStorePath);
+    }
+
+    private static String safe(String value) {
+        return value == null || value.isBlank() ? "unset" : value.trim();
     }
 }
