@@ -25,7 +25,7 @@ const RETURN_LABELS: Record<string, string> = {
   debug: 'デバッグ',
 };
 
-export function ReturnToBar({ scope, returnTo, from, fallbackUrl, showShortcuts = true }: ReturnToBarProps) {
+export function ReturnToBar({ scope, returnTo, from, fallbackUrl, showShortcuts = false }: ReturnToBarProps) {
   const { guardedNavigate } = useNavigationGuard();
   const nav = useAppNavigation(scope);
 
@@ -73,4 +73,3 @@ export function ReturnToBar({ scope, returnTo, from, fallbackUrl, showShortcuts 
     </div>
   );
 }
-

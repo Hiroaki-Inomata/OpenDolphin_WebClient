@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import type { LiveRegionAria } from '../../libs/observability/types';
-import { resolveAriaLive, resolveRunId } from '../../libs/observability/observability';
+import { resolveRunId } from '../../libs/observability/observability';
 
 export type StatusPillTone = 'neutral' | 'info' | 'success' | 'warning' | 'error';
 export type StatusPillSize = 'xs' | 'sm' | 'md';
@@ -37,17 +37,15 @@ export function StatusPill({
   children,
 }: StatusPillProps) {
   const resolvedRunId = resolveRunId(runId);
-  const liveTone =
-    tone === 'neutral'
-      ? undefined
-      : tone === 'error'
-        ? 'error'
-        : tone === 'warning'
-          ? 'warning'
-          : tone === 'success'
-            ? 'success'
-            : 'info';
-  const live = ariaLive ?? (liveTone ? resolveAriaLive(liveTone) : 'off');
+  const live = ariaLive ?? 'off';
+  const liveProps =
+    live === 'off'
+      ? {}
+      : {
+          role: 'status' as const,
+          'aria-live': live,
+          'aria-atomic': 'true' as const,
+        };
   const childrenText = typeof children === 'string' || typeof children === 'number' ? String(children) : undefined;
   const ariaText = ariaLabel ?? childrenText ?? buildAriaText(label, value);
 
@@ -61,9 +59,7 @@ export function StatusPill({
   return (
     <span
       className={`status-pill status-pill--${tone} status-pill--${size}${className ? ` ${className}` : ''}`}
-      role="status"
-      aria-live={live}
-      aria-atomic="true"
+      {...liveProps}
       aria-label={ariaText}
       data-run-id={resolvedRunId}
     >

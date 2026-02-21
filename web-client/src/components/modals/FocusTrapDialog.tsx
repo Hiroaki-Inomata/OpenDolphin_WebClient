@@ -36,6 +36,9 @@ export interface FocusTrapDialogProps {
   children: ReactNode;
   initialFocus?: 'first' | 'none';
   restoreFocus?: boolean;
+  closeOnBackdrop?: boolean;
+  showCloseButton?: boolean;
+  closeOnEscape?: boolean;
   testId?: string;
 }
 
@@ -48,6 +51,9 @@ export function FocusTrapDialog({
   children,
   initialFocus = 'first',
   restoreFocus = true,
+  closeOnBackdrop = true,
+  showCloseButton = true,
+  closeOnEscape = true,
   testId,
 }: FocusTrapDialogProps) {
   const internalId = useId();
@@ -93,7 +99,7 @@ export function FocusTrapDialog({
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (!isTopMost(stackId)) return;
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && closeOnEscape) {
         event.preventDefault();
         event.stopPropagation();
         onClose();
@@ -117,7 +123,7 @@ export function FocusTrapDialog({
     };
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [onClose, open, stackId]);
+  }, [closeOnEscape, onClose, open, stackId]);
 
   if (!open) return null;
 
@@ -127,6 +133,7 @@ export function FocusTrapDialog({
       data-test-id={testId}
       onMouseDown={() => {
         if (!isTopMost(stackId)) return;
+        if (!closeOnBackdrop) return;
         onClose();
       }}
     >
@@ -143,9 +150,11 @@ export function FocusTrapDialog({
           <h2 id={titleId} className="focus-trap-dialog__title">
             {title}
           </h2>
-          <button type="button" className="focus-trap-dialog__close" onClick={onClose} aria-label="ダイアログを閉じる">
-            ×
-          </button>
+          {showCloseButton ? (
+            <button type="button" className="focus-trap-dialog__close" onClick={onClose} aria-label="ダイアログを閉じる">
+              ×
+            </button>
+          ) : null}
         </header>
         {description ? (
           <p id={descriptionId} className="focus-trap-dialog__description">

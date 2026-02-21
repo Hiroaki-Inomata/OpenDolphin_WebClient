@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 
 import { ToneBanner } from '../reception/components/ToneBanner';
 import { buildApiFailureBanner, type ApiErrorContext } from './apiError';
@@ -59,8 +59,10 @@ export function ApiFailureBanner({
   const resolvedRunId = resolveRunId(runId);
   const resolvedTraceId = resolveTraceId(traceId);
   const canShareLog = Boolean(resolvedRunId || resolvedTraceId);
-  const shareEnabled = showLogShare ?? true;
-  const shareLabel = logShareLabel ?? '管理者共有';
+  const shareEnabled = showLogShare ?? canShareLog;
+  const shareLabel = logShareLabel ?? '問い合わせ用IDをコピー';
+  const shareUnavailableHint = '問い合わせ用IDがまだ発行されていないため、コピーできません。再試行後に確認してください。';
+  const shareHelpId = useId();
   const logShareDetail = `runId=${resolvedRunId ?? 'unknown'} / traceId=${resolvedTraceId ?? 'unknown'}`;
   const logShareText = [
     `subject=${subject}`,
@@ -96,7 +98,7 @@ export function ApiFailureBanner({
 
   const handleShareLog = async () => {
     if (!canShareLog) {
-      enqueue({ tone: 'error', message: '管理者共有用IDが未取得です', detail: '再試行後に再度お試しください。' });
+      enqueue({ tone: 'error', message: '問い合わせ用IDが未取得です', detail: '再試行後に再度お試しください。' });
       return;
     }
     try {
@@ -104,10 +106,10 @@ export function ApiFailureBanner({
       if (method === 'prompt') {
         enqueue({ tone: 'info', message: '手動コピーを開きました', detail: logShareDetail });
       } else {
-        enqueue({ tone: 'success', message: '管理者共有用IDをコピーしました', detail: logShareDetail });
+        enqueue({ tone: 'success', message: '問い合わせ用IDをコピーしました', detail: logShareDetail });
       }
     } catch {
-      enqueue({ tone: 'error', message: '管理者共有用IDのコピーに失敗しました', detail: 'クリップボード権限を確認してください。' });
+      enqueue({ tone: 'error', message: '問い合わせ用IDのコピーに失敗しました', detail: 'クリップボード権限を確認してください。' });
     }
   };
   const retryDisabledByCooldown = cooldownActive;
@@ -155,15 +157,27 @@ export function ApiFailureBanner({
             </button>
           ) : null}
           {shareEnabled ? (
-            <button
-              type="button"
-              className="api-failure__button"
-              onClick={handleShareLog}
-              disabled={!canShareLog}
-              aria-label={`${subject}の管理者共有用IDをコピー`}
-            >
-              {shareLabel}
-            </button>
+            <>
+              <button
+                type="button"
+                className="api-failure__button"
+                onClick={handleShareLog}
+                disabled={!canShareLog}
+                aria-label={
+                  canShareLog
+                    ? `${subject}の問い合わせ用IDをコピー`
+                    : `${subject}の問い合わせ用IDをコピー（ID未取得のため現在は利用できません）`
+                }
+                aria-describedby={!canShareLog ? shareHelpId : undefined}
+              >
+                {shareLabel}
+              </button>
+              {!canShareLog ? (
+                <span id={shareHelpId} className="api-failure__note">
+                  {shareUnavailableHint}
+                </span>
+              ) : null}
+            </>
           ) : null}
         </div>
       ) : null}
