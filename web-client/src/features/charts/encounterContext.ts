@@ -26,11 +26,35 @@ const LEGACY_STORAGE_KEY = `${STORAGE_BASE_KEY}:v1`;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const RUN_ID_RE = /^\d{8}T\d{6}Z$/;
+const NUMERIC_ID_RE = /^\d+$/;
 
 const normalizeOptionalId = (value?: string | null): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+};
+
+type EncounterEntryLike = {
+  patientId?: string;
+  id?: string;
+  appointmentId?: string;
+  receptionId?: string;
+};
+
+export const resolveEncounterPatientIdFromEntry = (entry?: EncounterEntryLike): string | undefined => {
+  const directPatientId = normalizeOptionalId(entry?.patientId);
+  if (directPatientId) return directPatientId;
+
+  const fallbackId = normalizeOptionalId(entry?.id);
+  if (!fallbackId || !NUMERIC_ID_RE.test(fallbackId)) return undefined;
+
+  // 受付/予約IDが数値の場合は row id と同値になり得るため、患者ID代替としては扱わない。
+  const receptionId = normalizeOptionalId(entry?.receptionId);
+  if (receptionId && receptionId === fallbackId) return undefined;
+  const appointmentId = normalizeOptionalId(entry?.appointmentId);
+  if (appointmentId && appointmentId === fallbackId) return undefined;
+
+  return fallbackId;
 };
 
 export const CHARTS_CONTEXT_QUERY_KEYS = {
