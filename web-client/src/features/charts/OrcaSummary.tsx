@@ -769,8 +769,12 @@ export function OrcaSummary({
           {appointmentList.length > 0 && (
             <ul>
               {appointmentList.map((entry, index) => {
-                const appointmentKey =
-                  entry.appointmentId ?? entry.patientId ?? `${entry.appointmentTime ?? 'time'}-${index}`;
+                const appointmentKey = [
+                  entry.appointmentId ?? 'appointment',
+                  entry.patientId ?? 'patient',
+                  entry.appointmentTime ?? 'time',
+                  index,
+                ].join(':');
                 return (
                   <li key={appointmentKey}>
                     {entry.appointmentTime ?? '--:--'} ｜ {entry.department ?? '科未設定'} ｜ {entry.status} ｜ {entry.name ?? '氏名未設定'}

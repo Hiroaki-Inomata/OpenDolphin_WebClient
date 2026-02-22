@@ -134,6 +134,7 @@ export async function fetchOrcaConnectionConfig(): Promise<OrcaConnectionConfigR
   const response = await httpFetch('/api/admin/orca/connection', {
     method: 'GET',
     headers: { Accept: 'application/json' },
+    notifySessionExpired: false,
   });
   let json: unknown = null;
   try {
@@ -174,6 +175,7 @@ export async function saveOrcaConnectionConfig(req: OrcaConnectionSaveRequest): 
     method: 'PUT',
     headers: { Accept: 'application/json' },
     body: form,
+    notifySessionExpired: false,
   });
   let json: unknown = null;
   try {
@@ -189,6 +191,7 @@ export async function testOrcaConnection(): Promise<OrcaConnectionTestResponse> 
   const response = await httpFetch('/api/admin/orca/connection/test', {
     method: 'POST',
     headers: { Accept: 'application/json' },
+    notifySessionExpired: false,
   });
   let json: unknown = null;
   try {
@@ -198,4 +201,3 @@ export async function testOrcaConnection(): Promise<OrcaConnectionTestResponse> 
   }
   return normalizeTest(response.status, response.ok, json, beforeMeta);
 }
-

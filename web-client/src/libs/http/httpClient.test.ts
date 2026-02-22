@@ -184,7 +184,21 @@ describe('httpFetch session expiry reasons', () => {
     expect(notifySpy).not.toHaveBeenCalled();
   });
 
-  it('attaches auth headers only for ORCA endpoints in DEV', async () => {
+  it('does not notify for /karte and /odletter endpoints on 401', async () => {
+    setSession();
+    const { sessionExpiry, httpClient } = await importSubjects();
+    const notifySpy = vi.spyOn(sessionExpiry, 'notifySessionExpired');
+
+    mockFetchSequence([401]);
+    await httpClient.httpFetch('/karte/pid/00001,2000-01-01%2000%3A00%3A00', { method: 'GET' });
+    expect(notifySpy).not.toHaveBeenCalled();
+
+    mockFetchSequence([401]);
+    await httpClient.httpFetch('/odletter/list/1', { method: 'GET' });
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
+  it('attaches auth headers for ORCA and KARTE-family endpoints in DEV', async () => {
     setSession();
     setDevAuth();
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
@@ -199,6 +213,10 @@ describe('httpFetch session expiry reasons', () => {
     await httpClient.httpFetch('/orca/appointments/list', { method: 'GET' });
     const orcaHeaders = new Headers((fetchSpy.mock.calls[1]?.[1] as RequestInit | undefined)?.headers ?? {});
     expect(orcaHeaders.has('Authorization') || orcaHeaders.has('userName') || orcaHeaders.has('password')).toBe(true);
+
+    await httpClient.httpFetch('/karte/pid/00001,2000-01-01%2000%3A00%3A00', { method: 'GET' });
+    const karteHeaders = new Headers((fetchSpy.mock.calls[2]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(karteHeaders.has('Authorization') || karteHeaders.has('userName') || karteHeaders.has('password')).toBe(true);
   });
 
   it('does not notify for /api21 and /blobapi endpoints on 401/403', async () => {
