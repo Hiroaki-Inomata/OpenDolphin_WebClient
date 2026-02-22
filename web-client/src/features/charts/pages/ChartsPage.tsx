@@ -36,8 +36,8 @@ import { fetchPatients, type PatientRecord } from '../../patients/api';
 import { getAuditEventLog, logAuditEvent, logUiState, type AuditEventRecord } from '../../../libs/audit/auditLogger';
 import { fetchOrcaOutpatientSummary } from '../api';
 import { fetchKarteIdByPatientId, type LetterModulePayload } from '../letterApi';
-import { fetchOrderBundles, mutateOrderBundles, type OrderBundle } from '../orderBundleApi';
-import { fetchDiseases, mutateDiseases } from '../diseaseApi';
+import { fetchOrderBundlesWithPatientImportRecovery, mutateOrderBundles, type OrderBundle } from '../orderBundleApi';
+import { fetchDiseases, fetchDiseasesWithPatientImportRecovery, mutateDiseases, type DiseaseImportResponse } from '../diseaseApi';
 import { useAdminBroadcast } from '../../../libs/admin/useAdminBroadcast';
 import { AdminBroadcastBanner } from '../../shared/AdminBroadcastBanner';
 import { RunIdBadge } from '../../shared/RunIdBadge';
@@ -55,7 +55,6 @@ import { hasStoredAuth } from '../../../libs/http/httpClient';
 import { isSystemAdminRole } from '../../../libs/auth/roles';
 import { fetchOrcaPushEvents, fetchOrcaQueue } from '../../outpatient/orcaQueueApi';
 import { resolveOrcaSendStatus, toClaimQueueEntryFromOrcaQueueEntry } from '../../outpatient/orcaQueueStatus';
-import { importPatientsFromOrca } from '../../outpatient/orcaPatientImportApi';
 import { fetchRpHistory, fetchSafetySummary } from '../karteExtrasApi';
 import {
   buildChartsEncounterSearch,
@@ -2130,53 +2129,52 @@ function ChartsContent() {
   const orderBundleSummaryQuery = useQuery({
     queryKey: ['charts-order-bundles', patientId, actionVisitDate],
     queryFn: async () => {
-      if (!patientId) return { ok: false, bundles: [] as OrderBundle[], message: 'patientId is missing' };
+      if (!patientId) return { ok: false as const, bundles: [] as OrderBundle[], message: 'patientId is missing' };
       try {
-        const result = await fetchOrderBundles({ patientId, from: actionVisitDate });
-        if (result.ok) return result;
-
-        if (result.status === 404 && result.errorCode === 'patient_not_found' && /^\d+$/.test(patientId)) {
-          const importResult = await importPatientsFromOrca({ patientIds: [patientId], runId: result.runId });
-          if (!importResult.ok) {
-            return {
-              ok: false,
-              bundles: [] as OrderBundle[],
-              message: importResult.error ?? '患者情報の取り込みに失敗しました。',
-            };
-          }
-          return await fetchOrderBundles({ patientId, from: actionVisitDate });
-        }
-
-        return result;
+        return await fetchOrderBundlesWithPatientImportRecovery({ patientId, from: actionVisitDate });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return { ok: false, bundles: [] as OrderBundle[], message };
+        return { ok: false as const, bundles: [] as OrderBundle[], message };
       }
     },
     enabled: Boolean(patientId),
     staleTime: 30_000,
+    retry: false,
   });
   const diagnosisSummaryQuery = useQuery({
     queryKey: ['charts-diagnosis-summary', patientId, actionVisitDate],
     queryFn: async () => {
-      if (!patientId) return { ok: false as const, diseases: [] as Array<Record<string, unknown>>, message: 'patientId is missing' };
+      if (!patientId) {
+        return {
+          ok: false,
+          diseases: [],
+          message: 'patientId is missing',
+          errorKind: 'http',
+          routeMismatch: false,
+          patientImportAttempted: false,
+        } satisfies DiseaseImportResponse;
+      }
       try {
-        const result = await fetchDiseases({
+        return await fetchDiseasesWithPatientImportRecovery({
           patientId,
           from: actionVisitDate,
           to: actionVisitDate,
         });
-        return {
-          ok: true as const,
-          diseases: result.diseases ?? [],
-        };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return { ok: false as const, diseases: [] as Array<Record<string, unknown>>, message };
+        return {
+          ok: false,
+          diseases: [],
+          message,
+          errorKind: 'http',
+          routeMismatch: false,
+          patientImportAttempted: false,
+        } satisfies DiseaseImportResponse;
       }
     },
     enabled: Boolean(patientId && actionVisitDate),
     staleTime: 30_000,
+    retry: false,
   });
 
   const safetyPayload = safetySummaryQuery.data?.ok ? safetySummaryQuery.data.payload : undefined;
@@ -2189,6 +2187,40 @@ function ChartsContent() {
     orderBundleSummaryQuery.data && !orderBundleSummaryQuery.data.ok
       ? orderBundleSummaryQuery.data.message ?? 'オーダー情報の取得に失敗しました。'
       : undefined;
+  const orcaRecoveryAlert = useMemo(() => {
+    if (!patientId) return null;
+    const candidates = [
+      orderBundleSummaryQuery.data && !orderBundleSummaryQuery.data.ok
+        ? {
+            message: orderBundleSummaryQuery.data.message,
+            errorKind: orderBundleSummaryQuery.data.errorKind,
+            routeMismatch: orderBundleSummaryQuery.data.routeMismatch,
+            patientImportAttempted: orderBundleSummaryQuery.data.patientImportAttempted,
+          }
+        : null,
+      diagnosisSummaryQuery.data && diagnosisSummaryQuery.data.ok === false
+        ? {
+            message: diagnosisSummaryQuery.data.message,
+            errorKind: diagnosisSummaryQuery.data.errorKind,
+            routeMismatch: diagnosisSummaryQuery.data.routeMismatch,
+            patientImportAttempted: diagnosisSummaryQuery.data.patientImportAttempted,
+          }
+        : null,
+    ];
+    for (const candidate of candidates) {
+      if (!candidate?.message) continue;
+      const isAuth = candidate.errorKind === 'auth';
+      const isRouteMismatch = candidate.routeMismatch || candidate.errorKind === 'route_not_found';
+      const isBusinessNotFound = candidate.errorKind === 'business_not_found';
+      if (!candidate.patientImportAttempted && !isAuth && !isRouteMismatch && !isBusinessNotFound) continue;
+      const tone: 'error' | 'warning' = isAuth || isRouteMismatch ? 'error' : 'warning';
+      return {
+        tone,
+        message: candidate.message,
+      };
+    }
+    return null;
+  }, [diagnosisSummaryQuery.data, orderBundleSummaryQuery.data, patientId]);
   const diagnosisCountForSend =
     diagnosisSummaryQuery.data && diagnosisSummaryQuery.data.ok
       ? (diagnosisSummaryQuery.data.diseases ?? []).length
@@ -3172,7 +3204,7 @@ function ChartsContent() {
 
       return {
         saved,
-        diseaseOk: diseaseResult.apiResult ? /^0+$/.test(diseaseResult.apiResult) : true,
+        diseaseOk: diseaseResult.ok !== false && (diseaseResult.apiResult ? /^0+$/.test(diseaseResult.apiResult) : true),
         imageOk: imageResult.ok,
       };
     },
@@ -4184,6 +4216,16 @@ function ChartsContent() {
           destination="Charts"
           nextAction="必要なら Reception で再選択"
           runId={flags.runId}
+        />
+      ) : null}
+      {orcaRecoveryAlert ? (
+        <ToneBanner
+          tone={orcaRecoveryAlert.tone}
+          message={orcaRecoveryAlert.message}
+          destination="ORCA連携"
+          nextAction="患者情報または ORCA 認証 / プロキシ設定を確認"
+          runId={resolvedRunId ?? flags.runId}
+          ariaLive={resolveAriaLive(orcaRecoveryAlert.tone, 'assertive')}
         />
       ) : null}
       {editLockAlert ? (
