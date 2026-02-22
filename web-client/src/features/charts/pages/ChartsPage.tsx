@@ -66,6 +66,7 @@ import {
   parseChartsEncounterContext,
   parseChartsNavigationMeta,
   parseReceptionCarryoverParams,
+  resolveEncounterPatientIdFromEntry,
   storeChartsEncounterContext,
   type OutpatientEncounterContext,
 } from '../encounterContext';
@@ -2754,22 +2755,16 @@ function ChartsContent() {
   useEffect(() => {
     if (patientEntries.length === 0) return;
     if (draftState.dirty || lockState.locked || tabLock.isReadOnly) return;
-    const resolveEntryPatientId = (entry: ReceptionEntry) => {
-      const pid = (entry.patientId ?? '').trim();
-      if (pid.length > 0) return pid;
-      const fallback = (entry.id ?? '').trim();
-      return /^\d+$/.test(fallback) ? fallback : undefined;
-    };
     const resolve = (entries: ReceptionEntry[], context: OutpatientEncounterContext) => {
       if (context.receptionId) return entries.find((entry) => entry.receptionId === context.receptionId);
       if (context.appointmentId) return entries.find((entry) => entry.appointmentId === context.appointmentId);
-      if (context.patientId) return entries.find((entry) => resolveEntryPatientId(entry) === context.patientId);
+      if (context.patientId) return entries.find((entry) => resolveEncounterPatientIdFromEntry(entry) === context.patientId);
       return undefined;
     };
 
     const resolved = resolve(patientEntries, encounterContext);
     const head = patientEntries[0];
-    const headPatientId = resolveEntryPatientId(head);
+    const headPatientId = resolveEncounterPatientIdFromEntry(head);
     if (!resolved && hasEncounterContext(encounterContext)) {
       // If an explicit patientId is already present (e.g. deep link), don't auto-switch to a synthetic row id.
       if (encounterContext.patientId) return;
@@ -2825,7 +2820,7 @@ function ChartsContent() {
 
     const chosen = resolved ?? head;
     const nextContext: OutpatientEncounterContext = {
-      patientId: resolveEntryPatientId(chosen) ?? encounterContext.patientId,
+      patientId: resolveEncounterPatientIdFromEntry(chosen) ?? encounterContext.patientId,
       appointmentId: chosen.appointmentId,
       receptionId: chosen.receptionId,
       visitDate: normalizeVisitDate(chosen.visitDate) ?? encounterContext.visitDate ?? today,

@@ -15,6 +15,7 @@ import type { ReceptionEntry, ReceptionStatus } from '../reception/api';
 import type { AppointmentDataBanner } from '../outpatient/appointmentDataBanner';
 import {
   normalizeVisitDate,
+  resolveEncounterPatientIdFromEntry,
   type OutpatientEncounterContext,
   type ReceptionCarryoverParams,
 } from './encounterContext';
@@ -23,14 +24,9 @@ import { useAppNavigation } from '../../routes/useAppNavigation';
 import { fetchPatients, type PatientRecord } from '../patients/api';
 import { PatientInfoEditDialog } from './PatientInfoEditDialog';
 
-const resolveEntryPatientId = (entry?: Pick<ReceptionEntry, 'patientId' | 'id'>): string | undefined => {
-  if (!entry) return undefined;
-  const pid = (entry.patientId ?? '').trim();
-  if (pid.length > 0) return pid;
-  const fallback = (entry.id ?? '').trim();
-  // `ReceptionEntry.id` may be a synthetic row id (e.g. `visit-0`). Only treat it as a patientId if it looks like one.
-  return /^\d+$/.test(fallback) ? fallback : undefined;
-};
+const resolveEntryPatientId = (
+  entry?: Pick<ReceptionEntry, 'patientId' | 'id' | 'appointmentId' | 'receptionId'>,
+): string | undefined => resolveEncounterPatientIdFromEntry(entry);
 
 type PatientListSortKey = 'time' | 'status' | 'name' | 'id';
 
