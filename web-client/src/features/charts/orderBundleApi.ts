@@ -1,5 +1,9 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { generateRunId, getObservabilityMeta, updateObservabilityMeta } from '../../libs/observability/observability';
+import { importPatientsFromOrca } from '../outpatient/orcaPatientImportApi';
+import { buildPatientImportFailureMessage, isRecoverableOrcaNotFound } from '../shared/orcaPatientImportRecovery';
+import type { OrcaResponseErrorKind } from '../shared/orcaApiResponse';
+import { parseOrcaApiResponse } from '../shared/orcaApiResponse';
 
 export type OrderBundleItem = {
   code?: string;
@@ -34,6 +38,16 @@ export type OrderBundleFetchResult = {
   message?: string;
   status?: number;
   errorCode?: string;
+  errorKind?: OrcaResponseErrorKind;
+  routeMismatch?: boolean;
+  patientImportAttempted?: boolean;
+  patientImportStatus?: number;
+};
+
+type FetchOrderBundlesParams = {
+  patientId: string;
+  entity?: string;
+  from?: string;
 };
 
 export type OrderBundleOperation = {
@@ -64,42 +78,85 @@ export type OrderBundleMutationResult = {
   raw?: unknown;
 };
 
-export async function fetchOrderBundles(params: {
-  patientId: string;
-  entity?: string;
-  from?: string;
-}): Promise<OrderBundleFetchResult> {
+export async function fetchOrderBundles(params: FetchOrderBundlesParams): Promise<OrderBundleFetchResult> {
   const runId = getObservabilityMeta().runId ?? generateRunId();
   updateObservabilityMeta({ runId });
   const query = new URLSearchParams();
   if (params.entity) query.set('entity', params.entity);
   if (params.from) query.set('from', params.from);
   const response = await httpFetch(`/orca/order/bundles?patientId=${encodeURIComponent(params.patientId)}${query.toString() ? `&${query.toString()}` : ''}`);
-  const status = response.status;
-  const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  const message =
-    typeof json.message === 'string'
-      ? (json.message as string)
-      : typeof json.apiResultMessage === 'string'
-        ? (json.apiResultMessage as string)
-        : undefined;
-  const errorCode =
-    typeof json.errorCode === 'string'
-      ? (json.errorCode as string)
-      : typeof json.code === 'string'
-        ? (json.code as string)
-        : typeof json.error === 'string'
-          ? (json.error as string)
-          : undefined;
+  const parsed = await parseOrcaApiResponse(response, { fallbackMessage: 'オーダー情報の取得に失敗しました。' });
+  const json = parsed.json ?? {};
+  if (parsed.ok && !parsed.json) {
+    return {
+      ok: false,
+      runId,
+      patientId: params.patientId,
+      bundles: [],
+      message: 'オーダー情報APIがJSON以外を返しました。ルーティング設定を確認してください。',
+      status: parsed.status,
+      errorKind: 'route_not_found',
+      routeMismatch: true,
+    };
+  }
   return {
-    ok: response.ok,
-    runId: typeof json.runId === 'string' ? (json.runId as string) : runId,
+    ok: parsed.ok,
+    runId: typeof json.runId === 'string' ? (json.runId as string) : parsed.runId ?? runId,
     patientId: typeof json.patientId === 'string' ? (json.patientId as string) : params.patientId,
     recordsReturned: typeof json.recordsReturned === 'number' ? (json.recordsReturned as number) : undefined,
     bundles: Array.isArray(json.bundles) ? (json.bundles as OrderBundle[]) : [],
-    message,
-    status,
-    errorCode: response.ok ? undefined : errorCode,
+    message: parsed.message,
+    status: parsed.status,
+    errorCode: parsed.ok ? undefined : parsed.errorCode,
+    errorKind: parsed.ok ? undefined : parsed.errorKind,
+    routeMismatch: parsed.ok ? false : parsed.routeMismatch,
+  };
+}
+
+export async function fetchOrderBundlesWithPatientImportRecovery(
+  params: FetchOrderBundlesParams,
+): Promise<OrderBundleFetchResult> {
+  const primary = await fetchOrderBundles(params);
+  if (primary.ok) return primary;
+
+  if (
+    !isRecoverableOrcaNotFound({
+      patientId: params.patientId,
+      status: primary.status,
+      errorCode: primary.errorCode,
+      errorKind: primary.errorKind,
+    })
+  ) {
+    return primary;
+  }
+
+  const importResult = await importPatientsFromOrca({
+    patientIds: [params.patientId],
+    runId: primary.runId,
+  });
+
+  if (!importResult.ok) {
+    return {
+      ...primary,
+      ok: false,
+      bundles: [],
+      runId: importResult.runId ?? primary.runId,
+      status: importResult.status || primary.status,
+      message: buildPatientImportFailureMessage('オーダー情報', importResult),
+      errorCode: importResult.errorCode ?? primary.errorCode,
+      errorKind: importResult.errorKind ?? primary.errorKind,
+      routeMismatch: importResult.routeMismatch ?? primary.routeMismatch,
+      patientImportAttempted: true,
+      patientImportStatus: importResult.status,
+    };
+  }
+
+  const retried = await fetchOrderBundles(params);
+  return {
+    ...retried,
+    runId: retried.runId ?? importResult.runId ?? primary.runId,
+    patientImportAttempted: true,
+    patientImportStatus: importResult.status,
   };
 }
 

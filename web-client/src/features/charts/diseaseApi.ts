@@ -1,5 +1,9 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { generateRunId, getObservabilityMeta, updateObservabilityMeta } from '../../libs/observability/observability';
+import { importPatientsFromOrca } from '../outpatient/orcaPatientImportApi';
+import { buildPatientImportFailureMessage, isRecoverableOrcaNotFound } from '../shared/orcaPatientImportRecovery';
+import type { OrcaResponseErrorKind } from '../shared/orcaApiResponse';
+import { parseOrcaApiResponse } from '../shared/orcaApiResponse';
 
 export type DiseaseEntry = {
   diagnosisId?: number;
@@ -15,12 +19,27 @@ export type DiseaseEntry = {
 };
 
 export type DiseaseImportResponse = {
+  ok?: boolean;
+  status?: number;
+  message?: string;
+  errorCode?: string;
+  errorKind?: OrcaResponseErrorKind;
+  routeMismatch?: boolean;
   patientId?: string;
   baseDate?: string;
   apiResult?: string;
   apiResultMessage?: string;
   runId?: string;
   diseases?: DiseaseEntry[];
+  patientImportAttempted?: boolean;
+  patientImportStatus?: number;
+};
+
+type FetchDiseasesParams = {
+  patientId: string;
+  from?: string;
+  to?: string;
+  activeOnly?: boolean;
 };
 
 export type DiseaseMutationOperation = {
@@ -48,12 +67,7 @@ export type DiseaseMutationResult = {
   raw?: unknown;
 };
 
-export async function fetchDiseases(params: {
-  patientId: string;
-  from?: string;
-  to?: string;
-  activeOnly?: boolean;
-}): Promise<DiseaseImportResponse> {
+export async function fetchDiseases(params: FetchDiseasesParams): Promise<DiseaseImportResponse> {
   const runId = getObservabilityMeta().runId ?? generateRunId();
   updateObservabilityMeta({ runId });
   const query = new URLSearchParams();
@@ -62,8 +76,77 @@ export async function fetchDiseases(params: {
   if (params.activeOnly) query.set('activeOnly', 'true');
   const queryString = query.toString();
   const response = await httpFetch(`/orca/disease/import/${encodeURIComponent(params.patientId)}${queryString ? `?${queryString}` : ''}`);
-  const json = (await response.json().catch(() => ({}))) as DiseaseImportResponse;
-  return json;
+  const parsed = await parseOrcaApiResponse(response, { fallbackMessage: '病名情報の取得に失敗しました。' });
+  if (parsed.ok && !parsed.json) {
+    return {
+      ok: false,
+      status: parsed.status,
+      message: '病名情報APIがJSON以外を返しました。ルーティング設定を確認してください。',
+      errorKind: 'route_not_found',
+      routeMismatch: true,
+      runId,
+      diseases: [],
+    };
+  }
+  const json = (parsed.json ?? {}) as DiseaseImportResponse;
+  return {
+    ...json,
+    ok: parsed.ok,
+    status: parsed.status,
+    message: parsed.message,
+    errorCode: parsed.ok ? undefined : parsed.errorCode,
+    errorKind: parsed.ok ? undefined : parsed.errorKind,
+    routeMismatch: parsed.ok ? false : parsed.routeMismatch,
+    runId: json.runId ?? parsed.runId ?? runId,
+    diseases: Array.isArray(json.diseases) ? json.diseases : [],
+  };
+}
+
+export async function fetchDiseasesWithPatientImportRecovery(
+  params: FetchDiseasesParams,
+): Promise<DiseaseImportResponse> {
+  const primary = await fetchDiseases(params);
+  if (primary.ok) return primary;
+
+  if (
+    !isRecoverableOrcaNotFound({
+      patientId: params.patientId,
+      status: primary.status,
+      errorCode: primary.errorCode,
+      errorKind: primary.errorKind,
+    })
+  ) {
+    return primary;
+  }
+
+  const importResult = await importPatientsFromOrca({
+    patientIds: [params.patientId],
+    runId: primary.runId,
+  });
+
+  if (!importResult.ok) {
+    return {
+      ...primary,
+      ok: false,
+      diseases: [],
+      runId: importResult.runId ?? primary.runId,
+      status: importResult.status || primary.status,
+      message: buildPatientImportFailureMessage('病名情報', importResult),
+      errorCode: importResult.errorCode ?? primary.errorCode,
+      errorKind: importResult.errorKind ?? primary.errorKind,
+      routeMismatch: importResult.routeMismatch ?? primary.routeMismatch,
+      patientImportAttempted: true,
+      patientImportStatus: importResult.status,
+    };
+  }
+
+  const retried = await fetchDiseases(params);
+  return {
+    ...retried,
+    runId: retried.runId ?? importResult.runId ?? primary.runId,
+    patientImportAttempted: true,
+    patientImportStatus: importResult.status,
+  };
 }
 
 export async function mutateDiseases(params: {
