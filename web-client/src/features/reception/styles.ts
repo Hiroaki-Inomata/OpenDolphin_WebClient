@@ -968,13 +968,22 @@ export const receptionStyles = css`
 
   .reception-accept-modal__left {
     padding: 0.8rem;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    overflow: hidden;
   }
 
   .reception-accept-modal__left .reception-patient-search__form {
     margin-top: 0.25rem;
+  }
+
+  .reception-accept-modal__search-results {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    min-height: 0;
+    flex: 1;
   }
 
   .reception-accept-modal__right {
@@ -1005,22 +1014,48 @@ export const receptionStyles = css`
     flex-direction: column;
     gap: 0.65rem;
     min-height: 0;
-    overflow: auto;
-    padding-top: 0.65rem;
+    overflow: hidden;
+    padding-top: 0.55rem;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
   }
 
-  .reception-accept-modal__right .reception-patient-search__list {
+  .reception-accept-modal__search-results .reception-patient-search__list {
+    flex: 1;
+    min-height: 0;
     max-height: none;
+  }
+
+  .reception-accept-modal__accept-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.6rem;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+    padding-bottom: 0.6rem;
+  }
+
+  .reception-accept-modal__accept-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #0f172a;
+  }
+
+  .reception-accept-modal__accept-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.45rem;
   }
 
   .reception-accept-modal__accept {
     display: flex;
     flex-direction: column;
     gap: 0.65rem;
-    border-top: 1px solid rgba(148, 163, 184, 0.22);
-    padding-top: 0.45rem;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .reception-accept-workflow-modal.is-collapsed .reception-accept-workflow-modal__body {
@@ -2896,6 +2931,12 @@ export const receptionStyles = css`
     align-items: flex-end;
   }
 
+  .reception-patient-search__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
   .reception-patient-search__field {
     flex: 1 1 220px;
     display: flex;
@@ -3082,9 +3123,15 @@ export const receptionStyles = css`
   }
 
   .reception-patient-search__item.is-selected {
-    border-color: rgba(37, 99, 235, 0.75);
-    box-shadow: 0 12px 26px rgba(37, 99, 235, 0.16);
-    background: #ffffff;
+    border-color: rgba(37, 99, 235, 0.95);
+    box-shadow:
+      0 0 0 2px rgba(37, 99, 235, 0.28),
+      0 12px 26px rgba(37, 99, 235, 0.16);
+    background: linear-gradient(180deg, rgba(239, 246, 255, 0.9), #ffffff);
+  }
+
+  .reception-patient-search__item.is-selected .reception-patient-search__item-id {
+    color: #1d4ed8;
   }
 
   .reception-patient-search__item strong {
@@ -3754,8 +3801,13 @@ export const receptionStyles = css`
       padding: 0.7rem;
     }
 
-    .reception-accept-modal__right .reception-patient-search__list {
-      max-height: none;
+    .reception-accept-modal__accept-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .reception-accept-modal__accept-actions {
+      justify-content: flex-end;
     }
 
     .reception-patient-search-panel {

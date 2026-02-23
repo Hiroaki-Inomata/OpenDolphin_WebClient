@@ -4,100 +4,97 @@ import userEvent from '@testing-library/user-event';
 
 import { ChartsPatientSummaryBar } from '../ChartsPatientSummaryBar';
 
-vi.mock('../../shared/RunIdBadge', () => ({
-  RunIdBadge: ({ runId, className }: { runId?: string; className?: string }) => (
-    <span className={className} data-testid="runid-badge-mock">
-      {runId ?? 'RUN'}
-    </span>
-  ),
-}));
-
-vi.mock('../../shared/PatientMetaRow', () => ({
-  PatientMetaRow: () => <div data-testid="patient-meta-row-mock" />,
-}));
-
 const baseProps = {
   patientDisplay: {
     name: '山田 太郎',
     kana: 'ヤマダ タロウ',
     sex: '男',
-    age: '45歳',
-    birthDateEra: '昭和55年5月20日',
+    age: '45歳6ヶ月',
     birthDateIso: '1980-05-20',
-    note: 'アレルギー: ペニシリン注意。転倒歴あり。',
-    status: '診療中',
-    department: '内科',
-    physician: '田中医師',
-    insurance: '国保',
-    visitDate: '2026-02-16',
-    appointmentTime: '09:30',
+    zip: '100-0001',
+    address: '東京都千代田区千代田1-1',
+    note: '転倒歴あり。採血時は左腕を優先。',
   },
   patientId: '000001',
-  receptionId: 'R-001',
-  appointmentId: 'A-001',
   runId: 'RUN-CHARTS',
-  allergies: [
-    { factor: 'ペニシリン', severity: '重度', identifiedDate: '2024-01-15', memo: '皮疹あり' },
-    { factor: 'エビ', severity: '中等度', identifiedDate: '2022-11-03', memo: '発赤' },
-  ],
 };
 
 describe('ChartsPatientSummaryBar', () => {
-  it('初期表示は補助パネルを閉じ、診療操作ボタンを表示する', () => {
+  it('必要な患者情報と操作ボタンを表示する', () => {
     render(<ChartsPatientSummaryBar {...baseProps} />);
 
-    const memoPanel = document.getElementById('charts-patient-summary-memo');
-    const allergiesPanel = document.getElementById('charts-patient-summary-allergies');
+    expect(screen.getByRole('button', { name: '診察開始' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '閉じる' })).toBeInTheDocument();
 
-    expect(memoPanel).not.toBeNull();
-    expect(allergiesPanel).not.toBeNull();
-    expect(memoPanel?.hidden).toBe(true);
-    expect(allergiesPanel?.hidden).toBe(true);
-    expect(screen.getByRole('button', { name: '診察終了' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '診察中断' })).toBeInTheDocument();
+    expect(screen.getByText('診察券番号')).toBeInTheDocument();
+    expect(screen.getByText('000001')).toBeInTheDocument();
+    expect(screen.getByText('山田 太郎')).toBeInTheDocument();
+    expect(screen.getByText('ヤマダ タロウ')).toBeInTheDocument();
+    expect(screen.getByText('性別')).toBeInTheDocument();
+    expect(screen.getByText('男')).toBeInTheDocument();
+    expect(screen.getByText('45歳6ヶ月')).toBeInTheDocument();
+    expect(screen.getByText('1980-05-20')).toBeInTheDocument();
+    expect(screen.getByText(/〒100-0001/)).toBeInTheDocument();
+    expect(screen.getByText(/東京都千代田区千代田1-1/)).toBeInTheDocument();
+
+    expect(screen.getByRole('heading', { name: '患者メモ' })).toBeInTheDocument();
+    expect(screen.getByText('転倒歴あり。採血時は左腕を優先。')).toBeInTheDocument();
+
+    expect(screen.queryByRole('button', { name: '診察終了' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '診察中断' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '詳細を開く' })).toBeNull();
   });
 
-  it('ボタン操作で診療イベントとメモ/アレルギー展開が動作する', async () => {
+  it('診察開始とカルテを閉じる操作を呼び出せる', async () => {
     const user = userEvent.setup();
-    const onFinishEncounter = vi.fn();
-    const onPauseEncounter = vi.fn();
-    render(<ChartsPatientSummaryBar {...baseProps} onFinishEncounter={onFinishEncounter} onPauseEncounter={onPauseEncounter} />);
-
-    const memoPanel = document.getElementById('charts-patient-summary-memo');
-    const allergiesPanel = document.getElementById('charts-patient-summary-allergies');
-
-    await user.click(screen.getByRole('button', { name: '診察終了' }));
-    await user.click(screen.getByRole('button', { name: '診察中断' }));
-    await user.click(screen.getByRole('button', { name: /^アレルギー\/メモ:/ }));
-    await user.click(screen.getByRole('button', { name: 'アレルギーあり（2）' }));
-
-    expect(onFinishEncounter).toHaveBeenCalledTimes(1);
-    expect(onPauseEncounter).toHaveBeenCalledTimes(1);
-    expect(memoPanel?.hidden).toBe(false);
-    expect(allergiesPanel?.hidden).toBe(false);
-    expect(screen.getByText('ペニシリン')).toBeInTheDocument();
-  });
-
-  it('患者切替時に展開状態をリセットする', async () => {
-    const user = userEvent.setup();
-    const { rerender } = render(<ChartsPatientSummaryBar {...baseProps} />);
-
-    await user.click(screen.getByRole('button', { name: /^アレルギー\/メモ:/ }));
-    await user.click(screen.getByRole('button', { name: 'アレルギーあり（2）' }));
-
-    rerender(
+    const onStartEncounter = vi.fn();
+    const onCloseChart = vi.fn();
+    render(
       <ChartsPatientSummaryBar
         {...baseProps}
-        patientId="000002"
-        appointmentId="A-002"
+        onStartEncounter={onStartEncounter}
+        onCloseChart={onCloseChart}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '診察開始' }));
+    await user.click(screen.getByRole('button', { name: '閉じる' }));
+
+    expect(onStartEncounter).toHaveBeenCalledTimes(1);
+    expect(onCloseChart).toHaveBeenCalledTimes(1);
+  });
+
+  it('郵便番号と住所は値があるときだけ表示する', () => {
+    render(
+      <ChartsPatientSummaryBar
+        {...baseProps}
         patientDisplay={{
           ...baseProps.patientDisplay,
-          name: '鈴木 花子',
+          zip: undefined,
+          address: undefined,
+          note: undefined,
         }}
       />,
     );
 
-    expect(document.getElementById('charts-patient-summary-memo')?.hidden).toBe(true);
-    expect(document.getElementById('charts-patient-summary-allergies')?.hidden).toBe(true);
+    expect(screen.queryByText('郵便番号')).toBeNull();
+    expect(screen.queryByText('住所')).toBeNull();
+    expect(screen.getByText('患者メモなし')).toBeInTheDocument();
+  });
+
+  it('性別コードは表示用ラベルへ正規化する', () => {
+    render(
+      <ChartsPatientSummaryBar
+        {...baseProps}
+        patientDisplay={{
+          ...baseProps.patientDisplay,
+          sex: '1',
+        }}
+      />,
+    );
+
+    expect(screen.getByText('性別')).toBeInTheDocument();
+    expect(screen.getByText('男')).toBeInTheDocument();
+    expect(screen.queryByText('性別: 1')).toBeNull();
   });
 });

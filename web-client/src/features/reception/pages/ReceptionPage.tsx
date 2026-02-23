@@ -3259,15 +3259,7 @@ export function ReceptionPage({
   }, [manualAcceptConfirmedKey, manualMismatchKey]);
 
   const acceptTargetPatientId = acceptTarget.patientId;
-  const acceptTargetPatientLabel = acceptTarget.name || acceptTarget.patientId || '未選択';
   const acceptTargetMetaMissing = Boolean(acceptTarget.patientId && (!acceptTarget.birthDate || !acceptTarget.sex));
-  const acceptRequiredMissingItems = useMemo(() => {
-    const missing: string[] = [];
-    if (!acceptTargetPatientId) missing.push('患者ID');
-    if (!resolvedDepartmentCode) missing.push('診療科');
-    if (!resolvedPhysicianCode) missing.push('担当医');
-    return missing;
-  }, [acceptTargetPatientId, resolvedDepartmentCode, resolvedPhysicianCode]);
 
   const handleConfirmManualMismatch = useCallback(() => {
     if (!manualMismatchKey) return;
@@ -4167,45 +4159,6 @@ export function ReceptionPage({
       }
     },
     [acceptPaymentMode, acceptVisitKind, acceptWorkflowModalOpen, masterSearchResults],
-  );
-
-  const renderAcceptBar = (placement: 'sidepane' | 'modal') => (
-    <div
-      className={`reception-accept__acceptbar${placement === 'modal' ? ' reception-accept__acceptbar--modal' : ''}`}
-      data-test-id={placement === 'modal' ? 'reception-accept-bar-modal' : 'reception-accept-bar'}
-      aria-live={infoLive}
-    >
-      <div className="reception-accept__acceptbar-main">
-        <span className="reception-accept__acceptbar-label">受付対象</span>
-        <strong>{acceptTargetPatientLabel}</strong>
-        <span className="reception-accept__acceptbar-meta">患者ID: {acceptTargetPatientId || '—'}</span>
-        {acceptDetailsCollapsed && acceptRequiredMissingItems.length > 0 ? (
-          <span className="reception-accept__acceptbar-meta">未設定: {acceptRequiredMissingItems.join(' / ')}</span>
-        ) : null}
-      </div>
-      <div className="reception-accept__acceptbar-actions">
-        <button
-          type="button"
-          className="reception-search__button ghost"
-          onClick={() => setAcceptDetailsCollapsed((prev) => !prev)}
-          aria-expanded={!acceptDetailsCollapsed}
-          data-test-id="reception-accept-toggle-details"
-        >
-          {acceptDetailsCollapsed ? '詳細' : '詳細を閉じる'}
-        </button>
-        <button
-          type="button"
-          className="reception-search__button primary"
-          onClick={(event) => void handleAcceptRegister(event)}
-          disabled={isAcceptSubmitting || acceptRegisterDecision.disabled}
-          aria-disabled={isAcceptSubmitting || acceptRegisterDecision.disabled}
-          data-test-id="reception-accept-register"
-          title={acceptRegisterDecision.reason}
-        >
-          {isAcceptSubmitting ? '受付中…' : acceptRegisterDecision.label}
-        </button>
-      </div>
-    </div>
   );
 
   const renderAcceptDetailPanel = (placement: 'sidepane' | 'modal') => (
@@ -5960,7 +5913,7 @@ export function ReceptionPage({
                           />
                         </label>
                       </div>
-                      <div className="reception-patient-search__row">
+                      <div className="reception-patient-search__grid">
                         <label className="reception-patient-search__field">
                           <span>氏名（姓）</span>
                           <input
@@ -5985,8 +5938,6 @@ export function ReceptionPage({
                             placeholder="太郎"
                           />
                         </label>
-                      </div>
-                      <div className="reception-patient-search__row">
                         <label className="reception-patient-search__field">
                           <span>カナ（セイ）</span>
                           <input
@@ -6034,167 +5985,199 @@ export function ReceptionPage({
                         ariaLive="assertive"
                       />
                     ) : null}
+
+                    <section
+                      className="reception-accept-modal__search-results"
+                      role="region"
+                      aria-label="患者検索結果モーダル"
+                      data-run-id={resolvedRunId}
+                    >
+                      <header className="reception-accept-modal__results-header">
+                        <div>
+                          <h3>患者検索結果</h3>
+                          <span className="reception-patient-search__meta" aria-live={infoLive}>
+                            {patientSearchMutation.isPending
+                              ? '検索中…'
+                              : showPatientSearchPagination
+                                ? `${patientSearchResults.length}件（${patientSearchRangeLabel}）`
+                                : `${patientSearchResults.length}件`}
+                          </span>
+                        </div>
+                        <button type="button" className="reception-search__button ghost" onClick={closeAcceptWorkflowModal}>
+                          閉じる
+                        </button>
+                      </header>
+                      <div className="reception-accept-modal__results-body">
+                        <div className="reception-patient-search__list" role="list" aria-label="検索結果">
+                          {patientSearchMutation.isPending ? (
+                            <p className="reception-sidepane__empty">検索中…</p>
+                          ) : patientSearchResults.length === 0 ? (
+                            <p className="reception-sidepane__empty">検索結果がありません。</p>
+                          ) : (
+                            pagedPatientSearchResults.map((patient, pageIndex) => {
+                              const index = (patientSearchPage - 1) * PATIENT_SEARCH_PAGE_SIZE + pageIndex;
+                              const key = patient.patientId ?? `${patient.name ?? 'unknown'}-${index}`;
+                              const resolvedPatientId = patient.patientId?.trim() ?? '';
+                              const isSelected =
+                                patientSearchSelected === patient ||
+                                (Boolean(resolvedPatientId) &&
+                                  Boolean(patientSearchSelected?.patientId) &&
+                                  resolvedPatientId === patientSearchSelected?.patientId);
+                              const matchedEntry = resolvedPatientId
+                                ? sortedEntries.find((entry) => entry.patientId === resolvedPatientId)
+                                : undefined;
+                              const matchedTodayEntry = matchedEntry && matchedEntry.status !== '予約' ? matchedEntry : undefined;
+                              return (
+                                <div key={key} className={`reception-patient-search__item${isSelected ? ' is-selected' : ''}`} role="listitem">
+                                  <button
+                                    type="button"
+                                    className="reception-patient-search__item-select"
+                                    onClick={() => handleSelectPatientSearchResult(patient)}
+                                    data-test-id={`reception-patient-search-select-${resolvedPatientId || index}`}
+                                  >
+                                    <div className="reception-patient-search__item-main">
+                                      <strong>{patient.name ?? '氏名未登録'}</strong>
+                                      <span className="reception-patient-search__item-id">ID: {patient.patientId ?? '—'}</span>
+                                    </div>
+                                    <small>{isSelected ? '選択中（詳細表示）' : '選択して詳細を表示'}</small>
+                                  </button>
+                                  {isSelected ? (
+                                    <div className="reception-patient-search__item-details" aria-label="患者詳細">
+                                      <div className="reception-patient-search__item-meta">
+                                        <span>患者ID: {patient.patientId ?? '—'}</span>
+                                        {patient.kana ? <span>カナ: {patient.kana}</span> : null}
+                                        {patient.birthDate ? <span>生年月日: {patient.birthDate}</span> : null}
+                                        {patient.sex ? <span>性別: {patient.sex}</span> : null}
+                                        {patient.insurance ? <span>保険: {patient.insurance}</span> : null}
+                                        {patient.lastVisit ? <span>直近: {patient.lastVisit}</span> : null}
+                                        {matchedEntry?.status ? <span>今日: {matchedEntry.status}</span> : null}
+                                      </div>
+                                      <div className="reception-patient-search__item-actions" role="group" aria-label="カルテ操作">
+                                        <button
+                                          type="button"
+                                          className="reception-search__button ghost"
+                                          onClick={() =>
+                                            openMedicalRecordsModal({ patientId: patient.patientId, name: patient.name }, 'search')
+                                          }
+                                          disabled={!resolvedPatientId}
+                                          title={
+                                            resolvedPatientId
+                                              ? '過去カルテをモーダルで確認'
+                                              : '患者IDが未登録のため過去カルテを表示できません'
+                                          }
+                                        >
+                                          過去カルテ
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="reception-search__button primary"
+                                          onClick={() => {
+                                            if (!resolvedPatientId) return;
+                                            if (matchedTodayEntry) {
+                                              handleOpenCharts(matchedTodayEntry);
+                                              return;
+                                            }
+                                            const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
+                                            if (guardRunId) bumpRunId(guardRunId);
+                                            const visitDate = patient.lastVisit?.trim() || undefined;
+                                            appNav.openCharts({
+                                              encounter: { patientId: resolvedPatientId, visitDate },
+                                              carryover: receptionCarryover,
+                                              runId: guardRunId,
+                                              navigate: {
+                                                state: {
+                                                  runId: guardRunId,
+                                                  patientId: resolvedPatientId,
+                                                  visitDate,
+                                                },
+                                              },
+                                            });
+                                          }}
+                                          disabled={!resolvedPatientId}
+                                          title={
+                                            resolvedPatientId
+                                              ? matchedTodayEntry
+                                                ? '当日のカルテを開く'
+                                                : '直近来院日のカルテを開く'
+                                              : '患者IDが未登録のためカルテを開けません'
+                                          }
+                                        >
+                                          カルテを開く
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                        {showPatientSearchPagination ? (
+                          <nav className="reception-patient-search__pagination" aria-label="検索結果ページ">
+                            <span className="reception-patient-search__pagination-range">{patientSearchRangeLabel}</span>
+                            <div className="reception-patient-search__pagination-actions">
+                              <button
+                                type="button"
+                                className="reception-search__button ghost"
+                                onClick={() => setPatientSearchPage((prev) => Math.max(1, prev - 1))}
+                                disabled={patientSearchPage <= 1}
+                              >
+                                前へ
+                              </button>
+                              <span
+                                className="reception-patient-search__pagination-page"
+                                data-test-id="reception-patient-search-page-indicator"
+                              >
+                                {patientSearchPage} / {patientSearchTotalPages}
+                              </span>
+                              <button
+                                type="button"
+                                className="reception-search__button ghost"
+                                onClick={() => setPatientSearchPage((prev) => Math.min(patientSearchTotalPages, prev + 1))}
+                                disabled={patientSearchPage >= patientSearchTotalPages}
+                              >
+                                次へ
+                              </button>
+                            </div>
+                          </nav>
+                        ) : null}
+                      </div>
+                    </section>
                   </section>
 
                   <section
                     className="reception-accept-modal__right"
                     role="region"
-                    aria-label="患者検索結果モーダル"
+                    aria-label="受付登録モーダル"
                     data-run-id={resolvedRunId}
                   >
-                    <header className="reception-accept-modal__results-header">
-                      <div>
-                        <h3>患者検索結果</h3>
-                        <span className="reception-patient-search__meta" aria-live={infoLive}>
-                          {patientSearchMutation.isPending
-                            ? '検索中…'
-                            : showPatientSearchPagination
-                              ? `${patientSearchResults.length}件（${patientSearchRangeLabel}）`
-                              : `${patientSearchResults.length}件`}
-                        </span>
+                    <header className="reception-accept-modal__accept-header">
+                      <h3>受付登録</h3>
+                      <div className="reception-accept-modal__accept-actions">
+                        <button
+                          type="button"
+                          className="reception-search__button ghost"
+                          onClick={() => setAcceptDetailsCollapsed((prev) => !prev)}
+                          aria-expanded={!acceptDetailsCollapsed}
+                          data-test-id="reception-accept-toggle-details"
+                        >
+                          {acceptDetailsCollapsed ? '詳細' : '詳細を閉じる'}
+                        </button>
+                        <button
+                          type="button"
+                          className="reception-search__button primary"
+                          onClick={(event) => void handleAcceptRegister(event)}
+                          disabled={isAcceptSubmitting || acceptRegisterDecision.disabled}
+                          aria-disabled={isAcceptSubmitting || acceptRegisterDecision.disabled}
+                          data-test-id="reception-accept-register"
+                          title={acceptRegisterDecision.reason}
+                        >
+                          {isAcceptSubmitting ? '受付中…' : acceptRegisterDecision.label}
+                        </button>
                       </div>
-                      <button type="button" className="reception-search__button ghost" onClick={closeAcceptWorkflowModal}>
-                        閉じる
-                      </button>
                     </header>
-                    <div className="reception-accept-modal__results-body">
-                      <div className="reception-patient-search__list" role="list" aria-label="検索結果">
-                        {patientSearchMutation.isPending ? (
-                          <p className="reception-sidepane__empty">検索中…</p>
-                        ) : patientSearchResults.length === 0 ? (
-                          <p className="reception-sidepane__empty">検索結果がありません。</p>
-                        ) : (
-                          pagedPatientSearchResults.map((patient, pageIndex) => {
-                            const index = (patientSearchPage - 1) * PATIENT_SEARCH_PAGE_SIZE + pageIndex;
-                            const key = patient.patientId ?? `${patient.name ?? 'unknown'}-${index}`;
-                            const resolvedPatientId = patient.patientId?.trim() ?? '';
-                            const isSelected =
-                              patientSearchSelected === patient ||
-                              (Boolean(resolvedPatientId) &&
-                                Boolean(patientSearchSelected?.patientId) &&
-                                resolvedPatientId === patientSearchSelected?.patientId);
-                            const matchedEntry = resolvedPatientId
-                              ? sortedEntries.find((entry) => entry.patientId === resolvedPatientId)
-                              : undefined;
-                            const matchedTodayEntry = matchedEntry && matchedEntry.status !== '予約' ? matchedEntry : undefined;
-                            return (
-                              <div key={key} className={`reception-patient-search__item${isSelected ? ' is-selected' : ''}`} role="listitem">
-                                <button
-                                  type="button"
-                                  className="reception-patient-search__item-select"
-                                  onClick={() => handleSelectPatientSearchResult(patient)}
-                                  data-test-id={`reception-patient-search-select-${resolvedPatientId || index}`}
-                                >
-                                  <div className="reception-patient-search__item-main">
-                                    <strong>{patient.name ?? '氏名未登録'}</strong>
-                                    <span className="reception-patient-search__item-id">ID: {patient.patientId ?? '—'}</span>
-                                  </div>
-                                  <small>{isSelected ? '選択中（詳細表示）' : '選択して詳細を表示'}</small>
-                                </button>
-                                {isSelected ? (
-                                  <div className="reception-patient-search__item-details" aria-label="患者詳細">
-                                    <div className="reception-patient-search__item-meta">
-                                      <span>患者ID: {patient.patientId ?? '—'}</span>
-                                      {patient.kana ? <span>カナ: {patient.kana}</span> : null}
-                                      {patient.birthDate ? <span>生年月日: {patient.birthDate}</span> : null}
-                                      {patient.sex ? <span>性別: {patient.sex}</span> : null}
-                                      {patient.insurance ? <span>保険: {patient.insurance}</span> : null}
-                                      {patient.lastVisit ? <span>直近: {patient.lastVisit}</span> : null}
-                                      {matchedEntry?.status ? <span>今日: {matchedEntry.status}</span> : null}
-                                    </div>
-                                    <div className="reception-patient-search__item-actions" role="group" aria-label="カルテ操作">
-                                      <button
-                                        type="button"
-                                        className="reception-search__button ghost"
-                                        onClick={() =>
-                                          openMedicalRecordsModal({ patientId: patient.patientId, name: patient.name }, 'search')
-                                        }
-                                        disabled={!resolvedPatientId}
-                                        title={
-                                          resolvedPatientId
-                                            ? '過去カルテをモーダルで確認'
-                                            : '患者IDが未登録のため過去カルテを表示できません'
-                                        }
-                                      >
-                                        過去カルテ
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="reception-search__button primary"
-                                        onClick={() => {
-                                          if (!resolvedPatientId) return;
-                                          if (matchedTodayEntry) {
-                                            handleOpenCharts(matchedTodayEntry);
-                                            return;
-                                          }
-                                          const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
-                                          if (guardRunId) bumpRunId(guardRunId);
-                                          const visitDate = patient.lastVisit?.trim() || undefined;
-                                          appNav.openCharts({
-                                            encounter: { patientId: resolvedPatientId, visitDate },
-                                            carryover: receptionCarryover,
-                                            runId: guardRunId,
-                                            navigate: {
-                                              state: {
-                                                runId: guardRunId,
-                                                patientId: resolvedPatientId,
-                                                visitDate,
-                                              },
-                                            },
-                                          });
-                                        }}
-                                        disabled={!resolvedPatientId}
-                                        title={
-                                          resolvedPatientId
-                                            ? matchedTodayEntry
-                                              ? '当日のカルテを開く'
-                                              : '直近来院日のカルテを開く'
-                                            : '患者IDが未登録のためカルテを開けません'
-                                        }
-                                      >
-                                        カルテを開く
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                      {showPatientSearchPagination ? (
-                        <nav className="reception-patient-search__pagination" aria-label="検索結果ページ">
-                          <span className="reception-patient-search__pagination-range">{patientSearchRangeLabel}</span>
-                          <div className="reception-patient-search__pagination-actions">
-                            <button
-                              type="button"
-                              className="reception-search__button ghost"
-                              onClick={() => setPatientSearchPage((prev) => Math.max(1, prev - 1))}
-                              disabled={patientSearchPage <= 1}
-                            >
-                              前へ
-                            </button>
-                            <span
-                              className="reception-patient-search__pagination-page"
-                              data-test-id="reception-patient-search-page-indicator"
-                            >
-                              {patientSearchPage} / {patientSearchTotalPages}
-                            </span>
-                            <button
-                              type="button"
-                              className="reception-search__button ghost"
-                              onClick={() => setPatientSearchPage((prev) => Math.min(patientSearchTotalPages, prev + 1))}
-                              disabled={patientSearchPage >= patientSearchTotalPages}
-                            >
-                              次へ
-                            </button>
-                          </div>
-                        </nav>
-                      ) : null}
-                      <div className="reception-accept-modal__accept">
-                        {renderAcceptBar('modal')}
-                        {renderAcceptDetailPanel('modal')}
-                      </div>
+                    <div className="reception-accept-modal__accept">
+                      {renderAcceptDetailPanel('modal')}
                     </div>
                   </section>
                 </div>

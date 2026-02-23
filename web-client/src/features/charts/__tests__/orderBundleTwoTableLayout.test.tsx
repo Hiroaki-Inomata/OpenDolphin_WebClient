@@ -58,8 +58,8 @@ afterEach(() => {
   localStorage.clear();
 });
 
-describe('OrderBundleEditPanel two-table layout', () => {
-  it('確定/候補の2表が描画され、候補は候補欄に表示される', async () => {
+describe('OrderBundleEditPanel predictive options', () => {
+  it('候補は入力欄の選択肢として表示される', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
 
@@ -81,7 +81,6 @@ describe('OrderBundleEditPanel two-table layout', () => {
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
     const confirmed = screen.getByTestId('order-bundle-confirmed-table');
-    const candidates = screen.getByTestId('order-bundle-candidate-table');
 
     const itemNameInput = within(confirmed).getByPlaceholderText('薬剤名');
     await user.type(itemNameInput, 'アム');
@@ -89,6 +88,8 @@ describe('OrderBundleEditPanel two-table layout', () => {
     await waitFor(() =>
       expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'drug', keyword: 'アム' })),
     );
-    await waitFor(() => expect(within(candidates).getByText('アムロジピン')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(document.querySelector('datalist[id$="-item-predictive-list"] option[value="アムロジピン"]')).not.toBeNull(),
+    );
   });
 });

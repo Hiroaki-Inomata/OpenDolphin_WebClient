@@ -300,6 +300,9 @@ const openAcceptWorkflowModal = async (user: ReturnType<typeof userEvent.setup>)
   return (await screen.findByRole('region', { name: '当日受付/患者検索' })) as HTMLElement;
 };
 
+const getAcceptRegisterPanel = (workflowModal: HTMLElement) =>
+  within(workflowModal).getByRole('region', { name: '受付登録モーダル' });
+
 beforeEach(() => {
   mockClaimData = { ...baseClaimData };
   mockAppointmentData = { ...baseAppointmentData };
@@ -357,9 +360,9 @@ describe('ReceptionPage accept UX', () => {
     });
 
     await user.click(form.getByRole('button', { name: '検索' }));
-    const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
-    await user.click(within(resultPanel).getByRole('button', { name: '詳細' }));
-    const paymentSelect = within(resultPanel).getByLabelText(/保険\/自費/);
+    const acceptPanel = getAcceptRegisterPanel(workflowModal);
+    await user.click(within(acceptPanel).getByRole('button', { name: '詳細' }));
+    const paymentSelect = within(acceptPanel).getByLabelText(/保険\/自費/);
     expect(paymentSelect).toHaveValue('insurance');
 
     const row2 = screen.getByRole('row', { name: /佐藤花子/ });
@@ -413,8 +416,9 @@ describe('ReceptionPage accept UX', () => {
 
     await user.click(form.getByRole('button', { name: '検索' }));
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
-    await user.click(within(resultPanel).getByRole('button', { name: '詳細' }));
-    const paymentSelect = within(resultPanel).getByLabelText(/保険\/自費/);
+    const acceptPanel = getAcceptRegisterPanel(workflowModal);
+    await user.click(within(acceptPanel).getByRole('button', { name: '詳細' }));
+    const paymentSelect = within(acceptPanel).getByLabelText(/保険\/自費/);
     expect(paymentSelect).toHaveValue('insurance');
 
     const row2 = screen.getByRole('row', { name: /田中二郎/ });
@@ -423,7 +427,7 @@ describe('ReceptionPage accept UX', () => {
     expect(patientInput).toHaveValue('MANUAL-999');
     expect(paymentSelect).toHaveValue('self');
     expect(within(resultPanel).queryByText(/手入力患者ID\(MANUAL-999\).*一致していません/)).toBeNull();
-    expect(within(resultPanel).getByRole('button', { name: '予約外受付' })).toBeEnabled();
+    expect(within(acceptPanel).getByRole('button', { name: '予約外受付' })).toBeEnabled();
   });
 
   it('enables cancel action only when entry has a receptionId', async () => {
@@ -533,11 +537,11 @@ describe('ReceptionPage accept UX', () => {
 
     await user.type(form.getByLabelText('患者ID'), 'P-555');
     await user.click(form.getByRole('button', { name: '検索' }));
-    const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
-    await user.click(within(resultPanel).getByRole('button', { name: '詳細' }));
-    await user.selectOptions(within(resultPanel).getByLabelText(/診療科/), '01');
-    await user.selectOptions(within(resultPanel).getByLabelText(/担当医/), '10001');
-    const submitButton = within(resultPanel).getByRole('button', { name: '予約外受付' });
+    const acceptPanel = getAcceptRegisterPanel(workflowModal);
+    await user.click(within(acceptPanel).getByRole('button', { name: '詳細' }));
+    await user.selectOptions(within(acceptPanel).getByLabelText(/診療科/), '01');
+    await user.selectOptions(within(acceptPanel).getByLabelText(/担当医/), '10001');
+    const submitButton = within(acceptPanel).getByRole('button', { name: '予約外受付' });
     await user.click(submitButton);
 
     const resultHeading = await screen.findByRole('heading', { name: '送信結果' });
@@ -698,14 +702,16 @@ describe('ReceptionPage list and side pane guidance', () => {
     await waitFor(() => {
       expect(within(resultPanel).getAllByText('検索患者一').length).toBeGreaterThan(0);
     });
+    const acceptPanel = getAcceptRegisterPanel(workflowModal);
 
+    expect(within(workflowModal).queryByText('受付対象')).toBeNull();
     expect(within(resultPanel).getAllByText('生年月日: 1980-01-01').length).toBeGreaterThan(0);
     expect(within(resultPanel).getByRole('button', { name: 'カルテを開く' })).toBeInTheDocument();
-    expect(within(resultPanel).getByRole('button', { name: '予約外受付' })).toBeInTheDocument();
-    await user.click(within(resultPanel).getByRole('button', { name: '詳細' }));
-    expect(within(resultPanel).getByLabelText(/診療科/)).toBeInTheDocument();
-    expect(within(resultPanel).getByLabelText(/保険\/自費/)).toBeInTheDocument();
-    expect(within(resultPanel).queryByText(/InsuranceProvider_Class/)).toBeNull();
+    expect(within(acceptPanel).getByRole('button', { name: '予約外受付' })).toBeInTheDocument();
+    await user.click(within(acceptPanel).getByRole('button', { name: '詳細' }));
+    expect(within(acceptPanel).getByLabelText(/診療科/)).toBeInTheDocument();
+    expect(within(acceptPanel).getByLabelText(/保険\/自費/)).toBeInTheDocument();
+    expect(within(acceptPanel).queryByText(/InsuranceProvider_Class/)).toBeNull();
     expect(within(resultPanel).queryByText('生年月日: 1990-02-02')).toBeNull();
   });
 
@@ -802,7 +808,8 @@ describe('ReceptionPage list and side pane guidance', () => {
 
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
     expect(within(resultPanel).getByRole('button', { name: /折りたたみ患者/ })).toBeInTheDocument();
-    expect(within(resultPanel).getByRole('button', { name: '予約外受付' })).toBeInTheDocument();
+    const acceptPanel = getAcceptRegisterPanel(workflowModal);
+    expect(within(acceptPanel).getByRole('button', { name: '予約外受付' })).toBeInTheDocument();
   });
 
   it('allows collapsing/expanding accept workflow panel and keeps background controls operable', async () => {
@@ -946,8 +953,8 @@ describe('ReceptionPage status/date/card action UX', () => {
     const workflowModal = await openAcceptWorkflowModal(user);
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
     await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
-    const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
-    const registerButton = within(resultPanel).getByRole('button', { name: '受付済み' });
+    const acceptPanel = getAcceptRegisterPanel(workflowModal);
+    const registerButton = within(acceptPanel).getByRole('button', { name: '受付済み' });
     await waitFor(() => {
       expect(registerButton).toBeDisabled();
       expect(registerButton).toHaveTextContent('受付済み');

@@ -1,6 +1,6 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { getObservabilityMeta, updateObservabilityMeta } from '../../libs/observability/observability';
-import { escapeXml, isOrcaApiResultOk } from '../../libs/xml/xmlUtils';
+import { isOrcaApiResultOk } from '../../libs/xml/xmlUtils';
 
 export type OrcaQueueEntry = {
   patientId: string;
@@ -94,35 +94,20 @@ const parseNumberHeader = (value: string | null) => {
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 
-const formatLocalDate = (date: Date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-export const buildOrcaPushEventRequestXml = (params?: {
-  requestNumber?: string;
-  baseDate?: string;
+type OrcaPushEventRequestParams = {
   event?: string;
   user?: string;
   startTime?: string;
   endTime?: string;
-}) => {
-  const requestNumber = params?.requestNumber ?? '01';
-  const baseDate = params?.baseDate ?? formatLocalDate(new Date());
-  const fragments = [
-    '<data>',
-    '  <pusheventgetv2req type="record">',
-    `    <Request_Number type="string">${escapeXml(requestNumber)}</Request_Number>`,
-    `    <Base_Date type="string">${escapeXml(baseDate)}</Base_Date>`,
-  ];
-  if (params?.event) fragments.push(`    <Event type="string">${escapeXml(params.event)}</Event>`);
-  if (params?.user) fragments.push(`    <User type="string">${escapeXml(params.user)}</User>`);
-  if (params?.startTime) fragments.push(`    <Start_Time type="string">${escapeXml(params.startTime)}</Start_Time>`);
-  if (params?.endTime) fragments.push(`    <End_Time type="string">${escapeXml(params.endTime)}</End_Time>`);
-  fragments.push('  </pusheventgetv2req>', '</data>');
-  return fragments.join('\n');
+};
+
+export const buildOrcaPushEventRequestJson = (params?: OrcaPushEventRequestParams) => {
+  const request: Record<string, string> = {};
+  if (params?.event) request.event = params.event;
+  if (params?.user) request.user = params.user;
+  if (params?.startTime) request.start_time = params.startTime;
+  if (params?.endTime) request.end_time = params.endTime;
+  return JSON.stringify({ pusheventgetv2req: request });
 };
 
 const normalizeQueue = (json: unknown, headers: Headers): OrcaQueueResponse => {
@@ -278,25 +263,18 @@ export async function discardOrcaQueue(patientId: string): Promise<OrcaQueueResp
   return normalizeQueue(json, response.headers);
 }
 
-export async function fetchOrcaPushEvents(params?: {
-  requestNumber?: string;
-  baseDate?: string;
-  event?: string;
-  user?: string;
-  startTime?: string;
-  endTime?: string;
-}): Promise<OrcaPushEventResponse> {
+export async function fetchOrcaPushEvents(params?: OrcaPushEventRequestParams): Promise<OrcaPushEventResponse> {
   if (isOrcaPollingDisabled() || orcaPushEventUnavailable) {
     return buildUnavailablePushEventResponse(0, 'orca-push-events disabled');
   }
-  const requestXml = buildOrcaPushEventRequestXml(params);
+  const requestBody = buildOrcaPushEventRequestJson(params);
   const response = await httpFetch(ORCA_PUSH_EVENT_ENDPOINT, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/xml; charset=UTF-8',
+      'Content-Type': 'application/json; charset=UTF-8',
       Accept: 'application/json',
     },
-    body: requestXml,
+    body: requestBody,
     notifySessionExpired: false,
   });
   if (response.status === 404) {

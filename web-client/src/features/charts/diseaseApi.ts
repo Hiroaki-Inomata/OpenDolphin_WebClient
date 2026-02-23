@@ -67,6 +67,247 @@ export type DiseaseMutationResult = {
   raw?: unknown;
 };
 
+type DiseaseMasterEntry = {
+  code?: string;
+  name?: string;
+  kana?: string;
+  icdTen?: string;
+  disUseDate?: string;
+};
+
+type ResolveDiseaseCodeParams = {
+  diagnosisName: string;
+  prefix?: string;
+  mainName?: string;
+  suffix?: string;
+  referenceDate?: string;
+};
+
+const ORCA_DISEASE_CODE_REGEX = /^[0-9]{7}$/;
+
+const normalizeTerm = (value?: string | null) => (value ?? '').trim();
+
+const normalizeMasterReferenceDate = (referenceDate?: string) => {
+  const normalized = (referenceDate ?? '').replaceAll('-', '').trim();
+  if (/^\d{8}$/.test(normalized)) {
+    return normalized;
+  }
+  return new Date().toISOString().slice(0, 10).replaceAll('-', '');
+};
+
+const pickStringValue = (record: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === 'number') {
+      return String(value);
+    }
+  }
+  return undefined;
+};
+
+const toDiseaseMasterEntry = (record: Record<string, unknown>): DiseaseMasterEntry | null => {
+  const entry: DiseaseMasterEntry = {
+    code: pickStringValue(record, ['code', 'Code', 'diseaseCode', 'Disease_Code', 'byomeicd', 'byomeiCd']),
+    name: pickStringValue(record, ['name', 'Name', 'diseaseName', 'Disease_Name', 'byomei']),
+    kana: pickStringValue(record, ['kana', 'Kana', 'byomeikana']),
+    icdTen: pickStringValue(record, ['icdTen', 'IcdTen', 'icd10', 'icd10_1']),
+    disUseDate: pickStringValue(record, ['disUseDate', 'DisUseDate', 'haisiymd']),
+  };
+  if (!entry.code && !entry.name) {
+    return null;
+  }
+  return entry;
+};
+
+const extractDiseaseMasterEntries = (raw: unknown): DiseaseMasterEntry[] => {
+  if (!raw || typeof raw !== 'object') {
+    return [];
+  }
+  const queue: unknown[] = [raw];
+  const entries: DiseaseMasterEntry[] = [];
+  const seen = new Set<string>();
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+    if (!current || typeof current !== 'object') {
+      continue;
+    }
+    const record = current as Record<string, unknown>;
+    const parsed = toDiseaseMasterEntry(record);
+    if (parsed) {
+      const key = `${parsed.code ?? ''}\u0000${parsed.name ?? ''}\u0000${parsed.kana ?? ''}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        entries.push(parsed);
+      }
+    }
+    for (const value of Object.values(record)) {
+      if (value && typeof value === 'object') {
+        queue.push(value);
+      }
+    }
+  }
+  return entries;
+};
+
+async function fetchDiseaseMasterByName(params: {
+  term: string;
+  referenceDate: string;
+  partialMatch?: boolean;
+}): Promise<DiseaseMasterEntry[]> {
+  const term = normalizeTerm(params.term);
+  if (!term) {
+    return [];
+  }
+  const requestParam = `${encodeURIComponent(term)},${encodeURIComponent(params.referenceDate)},${params.partialMatch ? 'true' : 'false'}`;
+  const response = await httpFetch(`/orca/disease/name/${requestParam}/`);
+  if (!response.ok) {
+    return [];
+  }
+  const json = (await response.json().catch(() => null)) as unknown;
+  return extractDiseaseMasterEntries(json);
+}
+
+const toUniqueCodes = (entries: DiseaseMasterEntry[], matcher: (code: string) => boolean) =>
+  [...new Set(entries.map((entry) => (entry.code ?? '').trim()).filter((code) => code && matcher(code)))];
+
+const pickCode = (codes: string[]) => (codes.length === 1 ? codes[0] : undefined);
+
+const buildCompositeCode = (prefixCode: string | null | undefined, baseCode: string, suffixCode: string | null | undefined) =>
+  [prefixCode, baseCode, suffixCode].filter((part): part is string => !!part && part.trim().length > 0).join('.');
+
+const collectCompositeCandidates = async (
+  diagnosisName: string,
+  lookupExactCodes: (term: string, codeType: 'base' | 'modifier') => Promise<string[]>,
+): Promise<Set<string>> => {
+  const candidates = new Set<string>();
+  const length = diagnosisName.length;
+
+  for (let split = 1; split < length; split += 1) {
+    const prefix = diagnosisName.slice(0, split);
+    const base = diagnosisName.slice(split);
+    const prefixCodes = await lookupExactCodes(prefix, 'modifier');
+    const baseCodes = await lookupExactCodes(base, 'base');
+    for (const prefixCode of prefixCodes) {
+      for (const baseCode of baseCodes) {
+        candidates.add(buildCompositeCode(prefixCode, baseCode, null));
+      }
+    }
+  }
+
+  for (let split = length - 1; split > 0; split -= 1) {
+    const base = diagnosisName.slice(0, split);
+    const suffix = diagnosisName.slice(split);
+    const baseCodes = await lookupExactCodes(base, 'base');
+    const suffixCodes = await lookupExactCodes(suffix, 'modifier');
+    for (const baseCode of baseCodes) {
+      for (const suffixCode of suffixCodes) {
+        candidates.add(buildCompositeCode(null, baseCode, suffixCode));
+      }
+    }
+  }
+
+  for (let left = 1; left < length - 1; left += 1) {
+    for (let right = left + 1; right < length; right += 1) {
+      const prefix = diagnosisName.slice(0, left);
+      const base = diagnosisName.slice(left, right);
+      const suffix = diagnosisName.slice(right);
+      const prefixCodes = await lookupExactCodes(prefix, 'modifier');
+      const baseCodes = await lookupExactCodes(base, 'base');
+      const suffixCodes = await lookupExactCodes(suffix, 'modifier');
+      for (const prefixCode of prefixCodes) {
+        for (const baseCode of baseCodes) {
+          for (const suffixCode of suffixCodes) {
+            candidates.add(buildCompositeCode(prefixCode, baseCode, suffixCode));
+          }
+        }
+      }
+    }
+  }
+
+  return candidates;
+};
+
+export async function resolveDiseaseCodeFromOrcaMaster(params: ResolveDiseaseCodeParams): Promise<string | undefined> {
+  const diagnosisName = normalizeTerm(params.diagnosisName);
+  if (!diagnosisName) {
+    return undefined;
+  }
+  const referenceDate = normalizeMasterReferenceDate(params.referenceDate);
+  const exactLookupCache = new Map<string, Promise<DiseaseMasterEntry[]>>();
+  const fetchExactEntries = async (term: string) => {
+    const normalized = normalizeTerm(term);
+    if (!normalized) {
+      return [] as DiseaseMasterEntry[];
+    }
+    const cacheKey = `${referenceDate}:${normalized}`;
+    if (!exactLookupCache.has(cacheKey)) {
+      exactLookupCache.set(cacheKey, fetchDiseaseMasterByName({ term: normalized, referenceDate, partialMatch: false }));
+    }
+    return exactLookupCache.get(cacheKey) ?? Promise.resolve([]);
+  };
+
+  const lookupExactCodes = async (term: string, codeType: 'base' | 'modifier') => {
+    const normalized = normalizeTerm(term);
+    if (!normalized) {
+      return [] as string[];
+    }
+    const entries = await fetchExactEntries(normalized);
+    const exactByName = entries.filter((entry) => normalizeTerm(entry.name) === normalized);
+    if (codeType === 'base') {
+      return toUniqueCodes(exactByName, (code) => ORCA_DISEASE_CODE_REGEX.test(code));
+    }
+    return toUniqueCodes(exactByName, (code) => !ORCA_DISEASE_CODE_REGEX.test(code));
+  };
+
+  const lookupExactCodesAny = async (term: string) => {
+    const normalized = normalizeTerm(term);
+    if (!normalized) {
+      return [] as string[];
+    }
+    const entries = await fetchExactEntries(normalized);
+    const exactByName = entries.filter((entry) => normalizeTerm(entry.name) === normalized);
+    return [...new Set(exactByName.map((entry) => (entry.code ?? '').trim()).filter((code) => code.length > 0))];
+  };
+
+  try {
+    const hintedPrefix = normalizeTerm(params.prefix);
+    const hintedMainName = normalizeTerm(params.mainName);
+    const hintedSuffix = normalizeTerm(params.suffix);
+
+    const exactAnyCode = pickCode(await lookupExactCodesAny(diagnosisName));
+    if (exactAnyCode) {
+      return exactAnyCode;
+    }
+
+    if (hintedMainName && (hintedPrefix || hintedSuffix)) {
+      const baseCode = pickCode(await lookupExactCodes(hintedMainName, 'base'));
+      const prefixCode = hintedPrefix ? pickCode(await lookupExactCodes(hintedPrefix, 'modifier')) : null;
+      const suffixCode = hintedSuffix ? pickCode(await lookupExactCodes(hintedSuffix, 'modifier')) : null;
+      const hintedResolved =
+        baseCode &&
+        (hintedPrefix ? !!prefixCode : true) &&
+        (hintedSuffix ? !!suffixCode : true)
+          ? buildCompositeCode(prefixCode, baseCode, suffixCode)
+          : undefined;
+      if (hintedResolved) {
+        return hintedResolved;
+      }
+    }
+
+    const compositeCandidates = await collectCompositeCandidates(diagnosisName, lookupExactCodes);
+    return compositeCandidates.size === 1 ? [...compositeCandidates][0] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function fetchDiseases(params: FetchDiseasesParams): Promise<DiseaseImportResponse> {
   const runId = getObservabilityMeta().runId ?? generateRunId();
   updateObservabilityMeta({ runId });

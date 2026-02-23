@@ -78,7 +78,6 @@ import {
 import { AuditSummaryInline } from '../shared/AuditSummaryInline';
 import { RunIdBadge } from '../shared/RunIdBadge';
 import { ConfirmDialog } from './components/ConfirmDialog';
-import { AdminStatusPill } from './components/AdminStatusPill';
 import { DeliverySubNav } from './delivery/DeliverySubNav';
 import { DeliveryDashboard } from './delivery/DeliveryDashboard';
 import { WebOrcaConnectionCard } from './delivery/WebOrcaConnectionCard';
@@ -165,12 +164,6 @@ type GuardAction =
   | 'orca-connection'
   | 'legacy-rest'
   | 'touch-adm-phr';
-
-const deliveryFlagStateLabel = (state: AdminDeliveryFlagState) => {
-  if (state === 'applied') return '配信済み';
-  if (state === 'pending') return '未反映';
-  return '不明';
-};
 
 const DEFAULT_ORCA_ENDPOINT =
   (import.meta.env as Record<string, string | undefined>).VITE_ORCA_ENDPOINT ?? 'https://localhost:9080/openDolphin/resources';
@@ -387,13 +380,6 @@ const formatTimestampWithAgo = (iso?: string) => {
   return `${formatTimestamp(iso)}（${formatTimeAgo(iso)}）`;
 };
 
-const formatDateTime = (date?: string, time?: string) => {
-  if (!date && !time) return '―';
-  if (!time) return date ?? '―';
-  if (!date) return time ?? '―';
-  return `${date} ${time}`;
-};
-
 const QUEUE_DELAY_WARNING_MS = ORCA_QUEUE_STALL_THRESHOLD_MS;
 
 const getStringValue = (value: unknown) => (typeof value === 'string' ? value : undefined);
@@ -412,12 +398,6 @@ const extractPatientIdFromPayload = (
 
 const extractOperationFromPayload = (payload?: Record<string, unknown>) =>
   payload ? getStringValue(payload.operation) : undefined;
-
-const toStatusClass = (status: string) => {
-  if (status === 'delivered') return 'admin-queue__status admin-queue__status--delivered';
-  if (status === 'failed') return 'admin-queue__status admin-queue__status--failed';
-  return 'admin-queue__status admin-queue__status--pending';
-};
 
 const normalizeEnvironmentLabel = (raw?: string) => {
   if (!raw) return undefined;
@@ -457,8 +437,6 @@ const summarizeDeliveryStatus = (status: AdminDeliveryStatus) => {
     summary: hasPending ? '次回リロード' : hasApplied ? '即時反映' : '不明',
   };
 };
-
-const formatDeliveryValue = (value: boolean | string | undefined) => (value === undefined ? '―' : String(value));
 const DEFAULT_DELIVERY_SECTION: DeliverySection = 'dashboard';
 const isDeliverySection = (value: string | null): value is DeliverySection =>
   DELIVERY_SECTION_ITEMS.some((item) => item.id === value);
@@ -1560,27 +1538,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     internalWrapperResult ?? null,
     internalWrapperMutation.isPending,
   );
-  const internalWrapperStubFixed = internalWrapperOption?.stubFixed ?? false;
-  const internalWrapperStubLabel = internalWrapperResult
-    ? internalWrapperResult.stub
-      ? 'stub'
-      : internalWrapperResult.ok
-        ? 'real'
-        : 'error'
-    : '―';
-  const internalWrapperGuidance = (() => {
-    if (currentInternalWrapper?.parseError) {
-      return 'JSON payload を修正してください。';
-    }
-    if (!internalWrapperResult) return undefined;
-    if (!internalWrapperResult.ok) {
-      return 'payload の必須項目（patientId/operation 等）を再確認し、Trial 未開放の API は stub 固定です。';
-    }
-    if (internalWrapperResult.stub || internalWrapperStubFixed) {
-      return 'Trial 未開放のため stub 応答固定です。実データ検証は本番環境で再実施してください。';
-    }
-    return undefined;
-  })();
 
   const queueEntries: OrcaQueueEntry[] = useMemo(
     () => queueQuery.data?.queue ?? [],
@@ -1952,7 +1909,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const deliveryStatus = buildChartsDeliveryStatus(rawConfig, rawDelivery);
   const deliverySummary = summarizeDeliveryStatus(deliveryStatus);
   const lastDeliveredAt = rawDelivery?.deliveredAt ?? configQuery.data?.deliveredAt;
-  const deliveryPriorityLabel = rawDelivery ? 'delivery → config' : 'config（delivery未取得）';
   const deliveryFlagRows = [
     {
       key: 'chartsDisplayEnabled',
@@ -1977,7 +1933,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     },
   ];
   const masterVersionDiffs = countVersionDiffs(masterLastUpdateResult?.versions);
-  const systemVersionDiffs = countVersionDiffs(systemInfoResult?.versions);
   const masterStatusTone = resolveStatusTone(masterLastUpdateResult, masterLastUpdateMutation.isPending);
   const masterStatusLabel = resolveStatusLabel(masterLastUpdateResult, masterLastUpdateMutation.isPending);
   const medicationStatusTone = resolveStatusTone(medicationSyncResult, medicationModMutation.isPending);
@@ -1988,8 +1943,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
   const orcaConnectionStatusTone = resolveStatusTone(orcaConnectionTestResult, orcaConnectionTestMutation.isPending);
   const orcaConnectionStatusLabel = resolveStatusLabel(orcaConnectionTestResult, orcaConnectionTestMutation.isPending);
   const xmlProxyStatusLabel = resolveStatusLabel(xmlProxyResult, xmlProxyMutation.isPending);
-  const isMasterUpdateDetected = masterUpdateLabel === '更新あり';
-  const masterUpdateHeadline = isMasterUpdateDetected ? '更新検知: 同期推奨' : `更新検知: ${masterUpdateLabel}`;
   const traceId = queueQuery.data?.traceId ?? orcaConnectionTestResult?.traceId;
   const queueSummary = useMemo(() => {
     let pending = 0;

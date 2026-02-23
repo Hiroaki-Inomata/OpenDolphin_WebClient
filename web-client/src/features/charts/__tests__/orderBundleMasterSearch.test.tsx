@@ -64,7 +64,10 @@ describe('OrderBundleEditPanel master search UI', () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
     const searchMock = vi.mocked(fetchOrderMasterSearch);
-    searchMock.mockImplementation(async ({ keyword }) => {
+    searchMock.mockImplementation(async ({ type, keyword }) => {
+      if (type !== 'drug') {
+        return { ok: true, items: [], totalCount: 0 };
+      }
       if (keyword.includes('ベル')) {
         return {
           ok: true,
@@ -102,42 +105,51 @@ describe('OrderBundleEditPanel master search UI', () => {
     await waitFor(() =>
       expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'drug', keyword: 'アム' })),
     );
-    expect(screen.getByText('アムロジピン')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.querySelector('datalist[id$="-item-predictive-list"] option[value="アムロジピン"]')).not.toBeNull(),
+    );
 
     await user.clear(itemNameInput);
     await user.type(itemNameInput, 'ベル');
 
-    await waitFor(() => expect(screen.getByText('ベルベリン')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(document.querySelector('datalist[id$="-item-predictive-list"] option[value="ベルベリン"]')).not.toBeNull(),
+    );
   });
 
   it('検索結果の行選択で項目が追加される', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
     const searchMock = vi.mocked(fetchOrderMasterSearch);
-    searchMock.mockImplementation(async () => ({
-      ok: true,
-      items: [
-        {
-          type: 'drug',
-          code: 'A100',
-          name: 'アムロジピン',
-          unit: '錠',
-        },
-      ],
-      totalCount: 1,
-    }));
+    searchMock.mockImplementation(async ({ type }) => {
+      if (type !== 'drug') {
+        return { ok: true, items: [], totalCount: 0 };
+      }
+      return {
+        ok: true,
+        items: [
+          {
+            type: 'drug',
+            code: 'A100',
+            name: 'アムロジピン',
+            unit: '錠',
+          },
+        ],
+        totalCount: 1,
+      };
+    });
 
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
     const itemNameInput = screen.getByPlaceholderText('薬剤名');
     await user.type(itemNameInput, 'アム');
-
-    await waitFor(() => expect(screen.getByText('アムロジピン')).toBeInTheDocument());
-
-    const rowButton = screen.getByText('アムロジピン').closest('button');
-    expect(rowButton).not.toBeNull();
-    await user.click(rowButton!);
+    await waitFor(() =>
+      expect(document.querySelector('datalist[id$="-item-predictive-list"] option[value="アムロジピン"]')).not.toBeNull(),
+    );
+    await user.clear(itemNameInput);
+    await user.type(itemNameInput, 'アムロジピン');
+    await user.tab();
 
     const selectedItemNameInputs = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
     expect(selectedItemNameInputs[0]?.value).toBe('アムロジピン');
@@ -182,8 +194,9 @@ describe('OrderBundleEditPanel master search UI', () => {
       expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'drug', keyword: 'アム' })),
     );
 
-    const predictiveOption = container.querySelector('datalist[id$="-item-predictive-list"] option[value="アムロジピン"]');
-    expect(predictiveOption).not.toBeNull();
+    await waitFor(() =>
+      expect(container.querySelector('datalist[id$="-item-predictive-list"] option[value="アムロジピン"]')).not.toBeNull(),
+    );
 
     await user.clear(itemNameInput);
     await user.type(itemNameInput, 'アムロジピン');
@@ -194,7 +207,7 @@ describe('OrderBundleEditPanel master search UI', () => {
     expect(itemUnitInput?.value).toBe('錠');
   });
 
-  it('候補が多い場合はページ切替で全件を確認できる', async () => {
+  it('候補が多い場合でも入力欄の選択肢で全件参照できる', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
     const items = Array.from({ length: 60 }, (_, index) => ({
@@ -204,10 +217,15 @@ describe('OrderBundleEditPanel master search UI', () => {
       unit: '錠',
     }));
     const searchMock = vi.mocked(fetchOrderMasterSearch);
-    searchMock.mockResolvedValue({
-      ok: true,
-      items,
-      totalCount: items.length,
+    searchMock.mockImplementation(async ({ type }) => {
+      if (type !== 'drug') {
+        return { ok: true, items: [], totalCount: 0 };
+      }
+      return {
+        ok: true,
+        items,
+        totalCount: items.length,
+      };
     });
 
     const user = userEvent.setup();
@@ -216,14 +234,15 @@ describe('OrderBundleEditPanel master search UI', () => {
     const itemNameInput = screen.getByPlaceholderText('薬剤名');
     await user.type(itemNameInput, '薬剤');
 
-    await waitFor(() => expect(screen.getByText('60件')).toBeInTheDocument());
-    expect(screen.getByText('1 / 2')).toBeInTheDocument();
-    expect(screen.getByText('薬剤1')).toBeInTheDocument();
-    expect(screen.queryByText('薬剤60')).toBeNull();
-
-    await user.click(screen.getByRole('button', { name: '次へ' }));
-    await waitFor(() => expect(screen.getByText('2 / 2')).toBeInTheDocument());
-    expect(screen.getByText('薬剤60')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'drug', keyword: '薬剤' })),
+    );
+    await waitFor(() =>
+      expect(document.querySelectorAll(`datalist[id$="-item-predictive-list"] option`).length).toBeGreaterThan(0),
+    );
+    const datalistOptions = Array.from(document.querySelectorAll(`datalist[id$="-item-predictive-list"] option`));
+    expect(datalistOptions.map((option) => option.getAttribute('value'))).toContain('薬剤1');
+    expect(datalistOptions.map((option) => option.getAttribute('value'))).toContain('薬剤60');
   });
 
   it('readOnly の場合は検索入力が無効化される', async () => {
@@ -361,7 +380,7 @@ describe('OrderBundleEditPanel master search UI', () => {
     );
 
     expect(screen.getByText('候補対象: 注射薬剤 / 注射手技')).toBeInTheDocument();
-    expect(screen.getByText('用法候補')).toBeInTheDocument();
+    expect(screen.queryByText('用法候補')).not.toBeInTheDocument();
     expect(screen.getByLabelText('投与指示')).toBeInTheDocument();
   });
 

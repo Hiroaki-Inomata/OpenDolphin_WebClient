@@ -218,35 +218,33 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
         },
       });
       if (import.meta.env.DEV) {
+        const urlFacilityId = normalize(initialFacilityId ?? '');
+        const storedFacilityId = urlFacilityId || normalizedValues.facilityId;
+        const passwordMd5 = hashPasswordMd5(normalizedValues.password);
         try {
-          const urlFacilityId = normalize(initialFacilityId ?? '');
-          const storedFacilityId = urlFacilityId || normalizedValues.facilityId;
           // サーバーからの result.userId は "facilityId:userId" 形式で返されるが、
           // httpClient.ts は devFacilityId と devUserId を結合するため、
           // ユーザー入力値 (normalizedValues) を保存しないと二重結合になる。
           // facilityId は URL 由来の値を優先して保存し、遷移先と整合させる。
           localStorage.setItem('devFacilityId', storedFacilityId);
           localStorage.setItem('devUserId', normalizedValues.userId);
-          localStorage.setItem('devPasswordMd5', hashPasswordMd5(normalizedValues.password));
+          localStorage.setItem('devPasswordMd5', passwordMd5);
           localStorage.setItem('devClientUuid', result.clientUuid);
+        } catch {
+          // keep login flow unchanged if local storage is unavailable
+        }
+        try {
           if (typeof sessionStorage !== 'undefined') {
+            // 同一ブラウザで複数ユーザーを扱うケースでも、
+            // 現在タブは最新ログイン情報を優先して使えるよう sessionStorage を常に更新する。
+            sessionStorage.setItem('devFacilityId', storedFacilityId);
+            sessionStorage.setItem('devUserId', normalizedValues.userId);
+            sessionStorage.setItem('devPasswordMd5', passwordMd5);
+            sessionStorage.setItem('devClientUuid', result.clientUuid);
             sessionStorage.setItem('devPasswordPlain', normalizedValues.password);
           }
-        } catch (storageError) {
-          try {
-            if (typeof sessionStorage !== 'undefined') {
-              const urlFacilityId = normalize(initialFacilityId ?? '');
-              const storedFacilityId = urlFacilityId || normalizedValues.facilityId;
-              sessionStorage.setItem('devFacilityId', storedFacilityId);
-              sessionStorage.setItem('devUserId', normalizedValues.userId);
-              sessionStorage.setItem('devPasswordMd5', hashPasswordMd5(normalizedValues.password));
-              sessionStorage.setItem('devClientUuid', result.clientUuid);
-              sessionStorage.setItem('devPasswordPlain', normalizedValues.password);
-            }
-          } catch {
-            // ignore fallback failures
-          }
-          console.warn('認証情報の保存に失敗しましたが、ログイン処理は継続します。', storageError);
+        } catch {
+          // ignore fallback failures
         }
       }
       onLoginSuccess?.(result);

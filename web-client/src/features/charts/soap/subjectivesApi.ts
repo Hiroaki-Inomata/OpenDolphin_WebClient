@@ -46,7 +46,11 @@ export type SubjectivesModResponse = {
   error?: string;
 };
 
-const SUBJECTIVES_LIST_PATH = '/orca/subjectiveslstv2';
+// NOTE:
+// `/orca/subjectiveslstv2` is not exposed on some server-modernized builds and returns
+// JSON 404 (`RESTEASY003210`), which then breaks XML parsing on the client.
+// Use the canonical ORCA XML endpoint path instead.
+const SUBJECTIVES_LIST_PATH = '/api01rv2/subjectiveslstv2';
 const SUBJECTIVES_MOD_PATH = '/orca25/subjectivesv2';
 
 export const buildSubjectivesListRequestXml = (params: {

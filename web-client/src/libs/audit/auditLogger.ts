@@ -15,6 +15,7 @@ export type UiAction =
   | 'memo_edit_toggle'
   | 'diff'
   | 'send'
+  | 'claim_send'
   | 'save'
   | 'print'
   | 'start'

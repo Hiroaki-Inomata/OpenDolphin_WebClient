@@ -216,7 +216,7 @@ test('Patients 検索→詳細→編集→保存→再表示 (MSW)', async ({ pa
   );
 
   await page.goto(`${baseUrl}/patients?msw=1`);
-  await expect(page.getByRole('heading', { name: '患者一覧と編集' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '患者管理' })).toBeVisible();
 
   await page.locator('#patients-filter-keyword').fill('000001');
   await page.locator('#patients-filter-department').fill('内科');
@@ -237,28 +237,28 @@ test('Patients 検索→詳細→編集→保存→再表示 (MSW)', async ({ pa
   await expect(page.locator('#patients-form-patientId')).toHaveValue('000001');
   await expect(page.locator('#patients-form-name')).toHaveValue('山田 花子');
 
-  const memoField = page.locator('#patients-form-memo');
-  const newMemo = `高血圧フォロー（${RUN_ID}）`;
-  await memoField.fill(newMemo);
-  await expect(memoField).toHaveValue(newMemo);
+  const phoneField = page.locator('#patients-form-phone');
+  const newPhone = '03-9999-0001';
+  await phoneField.fill(newPhone);
+  await expect(phoneField).toHaveValue(newPhone);
 
   await page.locator('.patients-page__form').screenshot({ path: path.join(artifactDir, 'patients-edit-input.png') });
 
-  await page.locator('.patients-page__form').getByRole('button', { name: '保存', exact: true }).click();
+  await page.locator('.patients-page__form').getByRole('button', { name: /保存/ }).click();
 
   await expect(page.locator('.patients-page__toast')).toContainText('保存しました');
   const payloadLog = await page.evaluate(() => (window as any).__PATIENTS_EDIT_LAST_PAYLOAD__);
   if (payloadLog) {
     fs.writeFileSync(path.join(artifactDir, 'patients-edit-save-payload.json'), JSON.stringify(payloadLog, null, 2));
   }
-  await expect(memoField).toHaveValue(newMemo);
+  await expect(phoneField).toHaveValue(newPhone);
 
   await page.locator('.patients-page__form').screenshot({ path: path.join(artifactDir, 'patients-edit-saved.png') });
 
   const otherRow = page.locator('.patients-page__row').filter({ hasText: '000002' }).first();
   await otherRow.click();
   await targetRow.click();
-  await expect(memoField).toHaveValue(newMemo);
+  await expect(phoneField).toHaveValue(newPhone);
 
   await page.locator('.patients-page__form').screenshot({ path: path.join(artifactDir, 'patients-edit-reopen.png') });
 
@@ -274,14 +274,14 @@ test('Patients 検索→詳細→編集→保存→再表示 (MSW)', async ({ pa
       '## 実施内容',
       '- 検索条件: キーワード=000001 / 診療科=内科 / 担当医=藤井 / 保険=保険',
       '- 患者詳細: 000001 山田 花子 を選択',
-      `- 編集: memo を「${newMemo}」へ更新`,
+      `- 編集: 電話番号を「${newPhone}」へ更新`,
       '- 保存: 保存後に一覧再取得が走り、フォーム値が保持されることを確認',
-      '- 再表示: 000002 を選択後、再度 000001 を選択し memo が保持されることを確認',
+      '- 再表示: 000002 を選択後、再度 000001 を選択し電話番号が保持されることを確認',
       '',
       '## 結果',
       '- 検索条件入力/保存の基本動作は OK（入力値保持）',
       '- 保存トースト表示 OK',
-      '- 再表示で memo 更新内容が保持されることを確認',
+      '- 再表示で電話番号の更新内容が保持されることを確認',
       '',
       '## 証跡',
       '- patients-edit-input.png',

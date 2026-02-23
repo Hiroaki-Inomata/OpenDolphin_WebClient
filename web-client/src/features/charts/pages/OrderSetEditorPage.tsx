@@ -202,7 +202,7 @@ export function OrderSetEditorPage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button type="button" onClick={refreshSets}>
+          <button type="button" onClick={() => refreshSets()}>
             再読込
           </button>
         </div>

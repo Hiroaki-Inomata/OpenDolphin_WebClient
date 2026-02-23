@@ -55,7 +55,7 @@ import { hasStoredAuth } from '../../../libs/http/httpClient';
 import { isSystemAdminRole } from '../../../libs/auth/roles';
 import { fetchOrcaPushEvents, fetchOrcaQueue } from '../../outpatient/orcaQueueApi';
 import { resolveOrcaSendStatus, toClaimQueueEntryFromOrcaQueueEntry } from '../../outpatient/orcaQueueStatus';
-import { fetchRpHistory, fetchSafetySummary } from '../karteExtrasApi';
+import { fetchRpHistory } from '../karteExtrasApi';
 import {
   buildChartsEncounterSearch,
   hasEncounterContext,
@@ -2102,16 +2102,6 @@ function ChartsContent() {
   });
   const karteId = karteIdQuery.data?.karteId ?? null;
 
-  const safetySummaryQuery = useQuery({
-    queryKey: ['charts-safety-summary', karteId],
-    queryFn: () => {
-      if (!karteId) throw new Error('karteId is missing');
-      return fetchSafetySummary({ karteId });
-    },
-    enabled: Boolean(karteId),
-    staleTime: 60_000,
-  });
-
   const rpHistoryQuery = useQuery({
     queryKey: ['charts-rp-history', karteId, actionVisitDate],
     queryFn: () => {
@@ -2177,10 +2167,6 @@ function ChartsContent() {
     staleTime: 30_000,
     retry: false,
   });
-
-  const safetyPayload = safetySummaryQuery.data?.ok ? safetySummaryQuery.data.payload : undefined;
-  const allergies = safetyPayload?.allergies ?? [];
-  const allergiesError = safetySummaryQuery.data && !safetySummaryQuery.data.ok ? safetySummaryQuery.data.error : undefined;
   const rpEntries = rpHistoryQuery.data?.ok ? rpHistoryQuery.data.entries : [];
   const rpError = rpHistoryQuery.data && !rpHistoryQuery.data.ok ? rpHistoryQuery.data.error : undefined;
   const orderBundles = orderBundleSummaryQuery.data?.ok ? orderBundleSummaryQuery.data.bundles : [];
@@ -2270,6 +2256,8 @@ function ChartsContent() {
       birthDateEra: birthDateParts.era,
       age: formatAge(birthDateRaw, baseDate),
       sex: selectedEntry?.sex ?? fallbackPatient?.sex ?? '—',
+      zip: fallbackPatient?.zip ?? '—',
+      address: fallbackPatient?.address ?? '—',
       status: selectedEntry?.status ?? '—',
       department: selectedEntry?.department ?? '—',
       physician: selectedEntry?.physician ?? '—',
@@ -2287,6 +2275,8 @@ function ChartsContent() {
     fallbackPatient?.memo,
     fallbackPatient?.name,
     fallbackPatient?.sex,
+    fallbackPatient?.zip,
+    fallbackPatient?.address,
     patientId,
     receptionId,
     selectedEntry?.appointmentTime,
@@ -2764,24 +2754,6 @@ function ChartsContent() {
       }),
     [appointmentQuery.error, appointmentQuery.isError, appointmentQuery.isLoading, patientEntries, today],
   );
-  const approvalLabel = approvalLocked ? '承認済（署名確定）' : '未承認';
-  const approvalDetail = approvalLocked
-    ? approvalState.record?.approvedAt
-      ? `承認時刻: ${approvalState.record.approvedAt}`
-      : '承認済み'
-    : '署名未確定';
-  const lockStatus = useMemo(() => {
-    if (approvalLocked) {
-      return { label: '編集不可', detail: approvalReason ?? '承認済みロック中' };
-    }
-    if (tabLock.isReadOnly) {
-      return { label: '閲覧専用', detail: tabLock.readOnlyReason ?? '別タブが編集中です。' };
-    }
-    if (lockState.locked) {
-      return { label: '操作中ロック', detail: lockState.reason ?? '処理中のため一時ロックしています。' };
-    }
-    return { label: '解除済み', detail: '編集可能' };
-  }, [approvalLocked, approvalReason, lockState.locked, lockState.reason, tabLock.isReadOnly, tabLock.readOnlyReason]);
   const switchLocked = lockState.locked || tabLock.isReadOnly;
   const switchLockedReason = lockState.reason ?? (tabLock.isReadOnly ? tabLock.readOnlyReason : undefined);
   useEffect(() => {
@@ -4383,27 +4355,23 @@ function ChartsContent() {
                     <ChartsPatientSummaryBar
                       patientDisplay={patientDisplay}
                       patientId={patientId}
-                      receptionId={receptionId}
-                      appointmentId={appointmentId}
                       runId={resolvedRunId ?? flags.runId}
-                      allergies={allergies}
-                      allergiesLoading={safetySummaryQuery.isFetching}
-                      allergiesError={allergiesError}
                       missingMaster={resolvedMissingMaster}
                       fallbackUsed={resolvedFallbackUsed}
                       cacheHit={resolvedCacheHit}
                       dataSourceTransition={resolvedTransition}
-                      recordsReturned={appointmentMeta?.recordsReturned}
-                      fetchedAt={appointmentMeta?.fetchedAt}
-                      approvalLabel={approvalLabel}
-                      approvalDetail={approvalDetail}
-                      lockStatus={lockStatus}
-                      onOpenPatientPanel={() => setIsPatientPanelOpen(true)}
+                      onStartEncounter={() => {
+                        void chartsActionBarRef.current?.start();
+                      }}
                       onFinishEncounter={() => {
                         void chartsActionBarRef.current?.finish();
                       }}
                       onPauseEncounter={() => {
                         void chartsActionBarRef.current?.pause();
+                      }}
+                      onCloseChart={() => {
+                        if (!activePatientTabKey) return;
+                        requestClosePatientTab(activePatientTabKey);
                       }}
                       encounterActionDisabled={!activePatientTabKey || lockState.locked || tabLock.isReadOnly || approvalLocked}
                       inlineActionBar={

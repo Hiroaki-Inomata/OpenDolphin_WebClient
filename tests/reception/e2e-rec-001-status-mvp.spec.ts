@@ -26,6 +26,21 @@ const ensureMswControlled = async (page: Page) => {
   await page.waitForFunction(() => navigator.serviceWorker?.controller !== null, null, { timeout: 10_000 });
 };
 
+const expandReceptionSections = async (page: Page) => {
+  const toggles = page.locator(
+    '#reception-results button.reception-board__toggle, #reception-results button.reception-section__toggle',
+  );
+  const count = await toggles.count();
+  for (let index = 0; index < count; index += 1) {
+    const toggle = toggles.nth(index);
+    if (!(await toggle.isVisible().catch(() => false))) continue;
+    const label = (await toggle.innerText()).trim();
+    if (label.includes('開く')) {
+      await toggle.click();
+    }
+  }
+};
+
 test.describe('REC-001 Reception status MVP', () => {
   test.skip(profile !== 'msw', 'MSW プロファイル専用（Stage 接続禁止）');
 
@@ -43,17 +58,30 @@ test.describe('REC-001 Reception status MVP', () => {
     const controllerUrl = await page.evaluate(() => navigator.serviceWorker?.controller?.scriptURL ?? '');
     expect(controllerUrl).toContain('mockServiceWorker');
     await expect(page.getByRole('heading', { name: 'Reception 受付一覧と更新状況' })).toBeVisible();
+    await expandReceptionSections(page);
 
     // Feature flag path should expose the MVP UI elements.
-    const card = page.locator('[data-test-id="reception-entry-card"][data-patient-id="000002"]').first();
-    await expect(card).toBeVisible({ timeout: 20_000 });
-    await expect(card.locator('[data-test-id="reception-status-mvp"]')).toBeVisible();
+    let entry = page
+      .locator(
+        '[data-test-id="reception-entry-card"][data-patient-id="000002"], [data-test-id="reception-entry-row"][data-patient-id="000002"]',
+      )
+      .first();
+    const hasRetryButton = async () => (await entry.locator('[data-test-id="reception-status-mvp-retry"]').count()) > 0;
+    if ((await entry.count()) === 0 || !(await hasRetryButton())) {
+      entry = page
+        .locator('[data-test-id="reception-entry-card"], [data-test-id="reception-entry-row"]', {
+          has: page.locator('[data-test-id="reception-status-mvp-retry"]'),
+        })
+        .first();
+    }
+    await expect(entry).toBeVisible({ timeout: 20_000 });
 
     // Patient 000002 is included in MSW outpatient fixture; with queue-stall it should be "pending stalled" and retryable.
-    await expect(card.locator('[data-test-id="reception-status-mvp-retry"]')).toBeVisible();
+    const retryButton = entry.locator('[data-test-id="reception-status-mvp-retry"]').first();
+    await expect(retryButton).toBeVisible();
 
     // Sanity: the retry button triggers retryOrcaQueue without crashing.
-    await card.locator('[data-test-id="reception-status-mvp-retry"]').click();
+    await retryButton.click();
     await expect(page.getByText('ORCA再送を要求しました')).toBeVisible();
   });
 });

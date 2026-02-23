@@ -225,6 +225,18 @@ const quickAddCategories = [
   { key: 'charge', label: '+算定', entity: null },
 ] as const;
 
+const formatSentAt = (value?: string) => {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  const year = String(parsed.getFullYear());
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const hour = String(parsed.getHours()).padStart(2, '0');
+  const minute = String(parsed.getMinutes()).padStart(2, '0');
+  return `${year}/${month}/${day} ${hour}:${minute}`;
+};
+
 export function OrderDockPanel(props: {
   patientId?: string;
   meta: OrderBundleEditPanelMeta;
@@ -341,6 +353,12 @@ export function OrderDockPanel(props: {
 
   const [activeEntity, setActiveEntity] = useState<PastOrderEntity | null>(null);
   const [activeRequest, setActiveRequest] = useState<OrderBundleEditPanelRequest | null>(null);
+  const [quickAddGroupKey, setQuickAddGroupKey] = useState<OrderGroupKey | null>(null);
+  const isQuickAddMode = quickAddGroupKey !== null;
+  const quickAddModeSpec = useMemo(
+    () => (quickAddGroupKey ? quickAddCategories.find((item) => item.key === quickAddGroupKey) ?? null : null),
+    [quickAddGroupKey],
+  );
   const quickAddEntityByGroup = useMemo<Record<OrderGroupKey, PastOrderEntity>>(
     () => ({
       prescription: 'medOrder',
@@ -455,10 +473,13 @@ export function OrderDockPanel(props: {
       if (groupKey === 'charge') {
         setChargeEntity(entity as ChargeOrderEntity);
       }
+      if (quickAddGroupKey && groupKey !== quickAddGroupKey) {
+        setQuickAddGroupKey(null);
+      }
       setActiveEntity(entity);
       setActiveRequest(request);
     },
-    [],
+    [quickAddGroupKey],
   );
 
   const closeEditor = useCallback(() => {
@@ -471,6 +492,7 @@ export function OrderDockPanel(props: {
     if (!openRequest) return;
     if (openRequest.requestId === lastOpenRequestIdRef.current) return;
     lastOpenRequestIdRef.current = openRequest.requestId;
+    setQuickAddGroupKey(null);
     openEditor(openRequest.entity, { requestId: openRequest.requestId, kind: 'new' });
     onOpenRequestConsumed?.(openRequest.requestId);
   }, [onOpenRequestConsumed, openEditor, openRequest]);
@@ -492,6 +514,7 @@ export function OrderDockPanel(props: {
     if (groupKey === 'charge') {
       setChargeEntity(historyCopyRequest.entity as ChargeOrderEntity);
     }
+    setQuickAddGroupKey(null);
     setActiveEntity(historyCopyRequest.entity);
     setActiveRequest(null);
   }, [historyCopyRequest]);
@@ -548,12 +571,25 @@ export function OrderDockPanel(props: {
     setRecommendModalOpen(true);
   }, []);
 
+  const handleQuickAdd = useCallback(
+    (groupKey: OrderGroupKey) => {
+      setQuickAddGroupKey(groupKey);
+      openEditor(quickAddEntityByGroup[groupKey], { requestId: buildRequestId(), kind: 'new' });
+    },
+    [openEditor, quickAddEntityByGroup],
+  );
+
+  const handleQuickAddExit = useCallback(() => {
+    setQuickAddGroupKey(null);
+  }, []);
+
   const handleQuickSearchApply = useCallback(
     (candidate: SearchCandidate) => {
       if (!canEdit) {
         setNotice({ tone: 'error', message: editDisabledReason ?? '編集不可のため追加できません。' });
         return;
       }
+      setQuickAddGroupKey(null);
       const requestId = buildRequestId();
       if (candidate.bundle) {
         openEditor(candidate.entity, { requestId, kind: 'copy', bundle: candidate.bundle });
@@ -571,6 +607,7 @@ export function OrderDockPanel(props: {
     (candidate: OrderRecommendationCandidate, entity: string) => {
       const resolved = entity.trim();
       if (!isPastOrderEntity(resolved)) return;
+      setQuickAddGroupKey(null);
       openEditor(resolved, { requestId: buildRequestId(), kind: 'recommendation', candidate });
       setRecommendModalOpen(false);
     },
@@ -583,6 +620,14 @@ export function OrderDockPanel(props: {
     const sorted = entries.slice().sort((a, b) => (b.issuedDate ?? '').localeCompare(a.issuedDate ?? ''));
     return sorted[0] ?? null;
   }, [rpHistory]);
+  const sendStatusLabel = orcaSendEntry?.sendStatus === 'success' ? '送信済み' : orcaSendEntry?.sendStatus === 'error' ? '送信失敗' : '未送信';
+  const sendStatusTone = orcaSendEntry?.sendStatus === 'success' ? 'success' : orcaSendEntry?.sendStatus === 'error' ? 'error' : 'idle';
+  const lastSentAt = formatSentAt(orcaSendEntry?.savedAt);
+  const visibleGroupBundles = useMemo(
+    () => (quickAddGroupKey ? groupBundles.filter((group) => group.key === quickAddGroupKey) : groupBundles),
+    [quickAddGroupKey, groupBundles],
+  );
+  const hasVisibleOrders = visibleGroupBundles.some((group) => group.bundles.length > 0);
   const prescriptionDrugs = useMemo(() => latestPrescription?.rpList ?? [], [latestPrescription]);
   const prescriptionIssuedDate = latestPrescription?.issuedDate?.trim() ?? '';
   const prescriptionMemo = latestPrescription?.memo?.trim() ?? '';
@@ -619,32 +664,60 @@ export function OrderDockPanel(props: {
     };
   }, [latestPrescription?.rpList, orderVisitDate]);
 
-  const renderQuickAdds = () => (
-    <div className="order-dock__quick-add" role="group" aria-label="オーダー追加">
-      {quickAddCategories.map((item) => (
+  const renderQuickAdds = () => {
+    if (isQuickAddMode && quickAddModeSpec) {
+      return (
+        <div className="order-dock__quick-add" role="group" aria-label="オーダー追加">
+          <span className="order-dock__quick-add-mode">クイック追加中: {quickAddModeSpec.label.replace('+', '')}</span>
+          <button
+            type="button"
+            className="order-dock__mini-add"
+            data-test-id={`order-dock-quick-add-${quickAddModeSpec.key}`}
+            onClick={() => handleQuickAdd(quickAddModeSpec.key)}
+            disabled={!canEdit}
+            title={!canEdit ? editDisabledReason : undefined}
+          >
+            {quickAddModeSpec.label}
+          </button>
+          <button
+            type="button"
+            className="order-dock__mini-secondary"
+            data-test-id="order-dock-quick-add-exit"
+            onClick={handleQuickAddExit}
+          >
+            通常閲覧へ戻る
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="order-dock__quick-add" role="group" aria-label="オーダー追加">
+        {quickAddCategories.map((item) => (
+          <button
+            key={item.label}
+            type="button"
+            className="order-dock__mini-add"
+            data-test-id={`order-dock-quick-add-${item.key}`}
+            onClick={() => handleQuickAdd(item.key)}
+            disabled={!canEdit}
+            title={!canEdit ? editDisabledReason : undefined}
+          >
+            {item.label}
+          </button>
+        ))}
         <button
-          key={item.label}
           type="button"
-          className="order-dock__mini-add"
-          data-test-id={`order-dock-quick-add-${item.key}`}
-          onClick={() => openEditor(quickAddEntityByGroup[item.key], { requestId: buildRequestId(), kind: 'new' })}
-          disabled={!canEdit}
-          title={!canEdit ? editDisabledReason : undefined}
+          className="order-dock__mini-secondary"
+          onClick={() => openRecommendationModal('medOrder')}
+          disabled={!patientId}
+          title={!patientId ? '患者未選択のため開けません。' : undefined}
         >
-          {item.label}
+          頻用
         </button>
-      ))}
-      <button
-        type="button"
-        className="order-dock__mini-secondary"
-        onClick={() => openRecommendationModal('medOrder')}
-        disabled={!patientId}
-        title={!patientId ? '患者未選択のため開けません。' : undefined}
-      >
-        頻用
-      </button>
-    </div>
-  );
+      </div>
+    );
+  };
 
   const renderGroup = (group: (typeof groupBundles)[number]) => {
     const defaultEntity = (() => {
@@ -675,8 +748,10 @@ export function OrderDockPanel(props: {
           return { showAll: false, label: '' };
       }
     })();
+    const isQuickAddTarget = quickAddGroupKey === group.key;
     const visibleBundles = (() => {
       if (group.bundles.length === 0) return [];
+      if (isQuickAddMode && isQuickAddTarget) return group.bundles;
       if (group.key === 'treatment' && !treatmentShowAll) {
         return group.bundles.filter((bundle) => (bundle.entity?.trim() || defaultEntity) === treatmentEntity);
       }
@@ -689,6 +764,7 @@ export function OrderDockPanel(props: {
       return group.bundles;
     })();
     const showEntityBadge = Boolean(
+      (isQuickAddMode && isQuickAddTarget) ||
       (group.key === 'treatment' && treatmentShowAll) ||
         (group.key === 'test' && testShowAll) ||
         (group.key === 'charge' && chargeShowAll),
@@ -703,11 +779,15 @@ export function OrderDockPanel(props: {
         <header className="order-dock__group-header">
           <div className="order-dock__group-title">
             <strong>{group.label}</strong>
-            <span className="order-dock__group-count">
-              {visibleBundles.length}
-              {visibleBundles.length !== group.bundles.length ? `/${group.bundles.length}` : ''}件
-              {selectionMeta.label && !selectionMeta.showAll ? `(${selectionMeta.label})` : ''}
-            </span>
+            {isQuickAddMode ? (
+              <span className="order-dock__group-mode">クイック追加</span>
+            ) : (
+              <span className="order-dock__group-count">
+                {visibleBundles.length}
+                {visibleBundles.length !== group.bundles.length ? `/${group.bundles.length}` : ''}件
+                {selectionMeta.label && !selectionMeta.showAll ? `(${selectionMeta.label})` : ''}
+              </span>
+            )}
           </div>
           <div className="order-dock__group-actions" role="group" aria-label={`${group.label}操作`}>
             <button
@@ -732,7 +812,7 @@ export function OrderDockPanel(props: {
           </div>
         </header>
 
-        {group.key === 'treatment' ? (
+        {!isQuickAddMode && group.key === 'treatment' ? (
           <div className="order-dock__subtype-tabs" role="tablist" aria-label="処置種類">
             {(
               [
@@ -767,7 +847,7 @@ export function OrderDockPanel(props: {
             </button>
           </div>
         ) : null}
-        {group.key === 'test' ? (
+        {!isQuickAddMode && group.key === 'test' ? (
           <div className="order-dock__subtype-tabs" role="tablist" aria-label="検査種類">
             {(
               [
@@ -802,7 +882,7 @@ export function OrderDockPanel(props: {
             </button>
           </div>
         ) : null}
-        {group.key === 'charge' ? (
+        {!isQuickAddMode && group.key === 'charge' ? (
           <div className="order-dock__subtype-tabs" role="tablist" aria-label="算定種類">
             {(
               [
@@ -863,9 +943,9 @@ export function OrderDockPanel(props: {
 
         <div className="order-dock__bundle-list" role="list" aria-label={`${group.label}オーダー一覧`}>
           {group.bundles.length === 0 ? (
-            <p className="order-dock__empty">まだありません。</p>
+            isQuickAddMode ? null : <p className="order-dock__empty">まだありません。</p>
           ) : visibleBundles.length === 0 ? (
-            <p className="order-dock__empty">この種類のオーダーはまだありません。</p>
+            isQuickAddMode ? null : <p className="order-dock__empty">この種類のオーダーはまだありません。</p>
           ) : (
             visibleBundles.map((bundle, index) => {
               const bundleEntity = (bundle.entity?.trim() || defaultEntity) as PastOrderEntity;
@@ -1011,7 +1091,8 @@ export function OrderDockPanel(props: {
         </section>
       </FocusTrapDialog>
       <header className="order-dock__header">
-        <div>
+        <div className="order-dock__header-main">
+          <span className="order-dock__step-label">1. 受診ヘッダ固定</span>
           <strong>オーダー入力</strong>
           <span className="order-dock__meta">診療日:{orderVisitDate || '—'}</span>
         </div>
@@ -1030,61 +1111,72 @@ export function OrderDockPanel(props: {
           </button>
         </div>
       </header>
-      <div className="order-dock__search" aria-label="検索して追加">
-        <div className="order-dock__search-row">
-          <label htmlFor="order-dock-search-input">検索して追加</label>
-          <input
-            id="order-dock-search-input"
-            type="search"
-            value={quickSearch}
-            onChange={(event) => setQuickSearch(event.target.value)}
-            placeholder="オーダー名・薬剤名・コード"
-            disabled={!patientId || !canEdit}
-            aria-label="オーダー検索"
-          />
-          <select
-            value={quickSearchGroup}
-            onChange={(event) => setQuickSearchGroup(event.target.value as OrderGroupKey | 'all')}
-            disabled={!patientId || !canEdit}
-            aria-label="カテゴリ選択"
-          >
-            <option value="all">全カテゴリ</option>
-            <option value="prescription">処方</option>
-            <option value="injection">注射</option>
-            <option value="treatment">処置</option>
-            <option value="test">検査</option>
-            <option value="charge">算定</option>
-          </select>
-        </div>
-        {quickSearchCandidates.length > 0 ? (
-          <ul className="order-dock__search-results" role="listbox" aria-label="検索候補">
-            {quickSearchCandidates.map((candidate) => (
-              <li key={candidate.id}>
-                <button
-                  type="button"
-                  className="order-dock__search-result"
-                  onClick={() => handleQuickSearchApply(candidate)}
-                  disabled={!canEdit}
-                  title={!canEdit ? editDisabledReason : candidate.detail}
-                >
-                  <strong>{candidate.label}</strong>
-                  <span>{candidate.detail ?? '候補'}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : quickSearch.trim().length > 0 ? (
-          <p className="order-dock__search-empty">候補が見つかりません。カテゴリを変えて検索してください。</p>
+      <section className="order-dock__stage" aria-label="カテゴリ入力">
+        <p className="order-dock__stage-title">2. カテゴリ入力</p>
+        {!orderBundlesLoading && !orderBundlesError ? renderQuickAdds() : null}
+        {!isQuickAddMode ? (
+          <div className="order-dock__search" aria-label="検索して追加">
+            <div className="order-dock__search-row">
+              <label htmlFor="order-dock-search-input">検索して追加</label>
+              <input
+                id="order-dock-search-input"
+                type="search"
+                value={quickSearch}
+                onChange={(event) => setQuickSearch(event.target.value)}
+                placeholder="オーダー名・薬剤名・コード"
+                disabled={!patientId || !canEdit}
+                aria-label="オーダー検索"
+              />
+              <select
+                value={quickSearchGroup}
+                onChange={(event) => setQuickSearchGroup(event.target.value as OrderGroupKey | 'all')}
+                disabled={!patientId || !canEdit}
+                aria-label="カテゴリ選択"
+              >
+                <option value="all">全カテゴリ</option>
+                <option value="prescription">処方</option>
+                <option value="injection">注射</option>
+                <option value="treatment">処置</option>
+                <option value="test">検査</option>
+                <option value="charge">算定</option>
+              </select>
+            </div>
+            {quickSearchCandidates.length > 0 ? (
+              <ul className="order-dock__search-results" role="listbox" aria-label="検索候補">
+                {quickSearchCandidates.map((candidate) => (
+                  <li key={candidate.id}>
+                    <button
+                      type="button"
+                      className="order-dock__search-result"
+                      onClick={() => handleQuickSearchApply(candidate)}
+                      disabled={!canEdit}
+                      title={!canEdit ? editDisabledReason : candidate.detail}
+                    >
+                      <strong>{candidate.label}</strong>
+                      <span>{candidate.detail ?? '候補'}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : quickSearch.trim().length > 0 ? (
+              <p className="order-dock__search-empty">候補が見つかりません。カテゴリを変えて検索してください。</p>
+            ) : null}
+          </div>
         ) : null}
-      </div>
+      </section>
+      <section className="order-dock__stage order-dock__stage--send" aria-label="送信/差分">
+        <p className="order-dock__stage-title">3. 送信/差分</p>
+        <div className="order-dock__send-summary" role="status" aria-live="polite">
+          <span className={`order-dock__send-status order-dock__send-status--${sendStatusTone}`}>送信状態: {sendStatusLabel}</span>
+          <span className="order-dock__send-last">最終送信: {lastSentAt}</span>
+        </div>
+      </section>
 
       {notice ? <div className={`order-dock__notice order-dock__notice--${notice.tone}`}>{notice.message}</div> : null}
       {orderBundlesLoading ? <p className="order-dock__empty">オーダー情報を取得しています...</p> : null}
       {orderBundlesError ? <p className="order-dock__empty">オーダー情報の取得に失敗しました: {orderBundlesError}</p> : null}
-
-      {!orderBundlesLoading && !orderBundlesError ? renderQuickAdds() : null}
-      {!orderBundlesLoading && !orderBundlesError && (hasAnyOrders || activeEntity) ? (
-        <div className="order-dock__groups">{groupBundles.map(renderGroup)}</div>
+      {!orderBundlesLoading && !orderBundlesError && (hasVisibleOrders || activeEntity) ? (
+        <div className="order-dock__groups">{visibleGroupBundles.map(renderGroup)}</div>
       ) : null}
 
       {rpHistoryLoading || rpHistoryError || prescriptionDrugs.length > 0 || prescriptionMemo ? (

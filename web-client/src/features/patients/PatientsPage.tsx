@@ -308,7 +308,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   const [form, setForm] = useState<PatientRecord>({});
   const [baseline, setBaseline] = useState<PatientRecord | null>(null);
   const [selectionNotice, setSelectionNotice] = useState<{ tone: 'info' | 'warning'; message: string } | null>(null);
-  const [selectionLost, setSelectionLost] = useState(false);
+  const [, setSelectionLost] = useState(false);
   const [pendingSelection, setPendingSelection] = useState<PatientRecord | null>(null);
   const [switchingSelection, setSwitchingSelection] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);

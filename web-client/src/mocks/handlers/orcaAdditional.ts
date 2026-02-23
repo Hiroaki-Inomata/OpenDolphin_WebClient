@@ -20,18 +20,23 @@ const respondXml = (xml: string, status = 200) =>
 
 const respondEmpty = (status = 200) => HttpResponse.text('', { status });
 
+const handleSubjectivesList = async ({ request }: { request: Request }) => {
+  const fault = parseFaultSpec(request);
+  await applyFaultDelay(fault);
+  const omitRequired = fault.tokens.has('missing-required');
+  const xml = buildSubjectivesListXml({ omitApiResult: omitRequired });
+  if (fault.tokens.has('timeout')) return respondXml(xml, 504);
+  if (fault.tokens.has('http-500') || fault.tokens.has('500')) return respondXml(xml, 500);
+  if (fault.tokens.has('empty-body')) return respondEmpty();
+  if (fault.tokens.has('invalid-xml')) return respondXml(ORCA_ADDITIONAL_INVALID_XML);
+  return respondXml(xml);
+};
+
 export const orcaAdditionalHandlers = [
-  http.post('/orca/subjectiveslstv2', async ({ request }) => {
-    const fault = parseFaultSpec(request);
-    await applyFaultDelay(fault);
-    const omitRequired = fault.tokens.has('missing-required');
-    const xml = buildSubjectivesListXml({ omitApiResult: omitRequired });
-    if (fault.tokens.has('timeout')) return respondXml(xml, 504);
-    if (fault.tokens.has('http-500') || fault.tokens.has('500')) return respondXml(xml, 500);
-    if (fault.tokens.has('empty-body')) return respondEmpty();
-    if (fault.tokens.has('invalid-xml')) return respondXml(ORCA_ADDITIONAL_INVALID_XML);
-    return respondXml(xml);
-  }),
+  http.post('/api01rv2/subjectiveslstv2', handleSubjectivesList),
+  http.post('/orca/subjectiveslstv2', handleSubjectivesList),
+  http.post('/api/orca/subjectiveslstv2', handleSubjectivesList),
+  http.post('/api/api01rv2/subjectiveslstv2', handleSubjectivesList),
   http.post('/orca25/subjectivesv2', async ({ request }) => {
     const fault = parseFaultSpec(request);
     await applyFaultDelay(fault);

@@ -23,8 +23,16 @@ const writeNote = (fileName: string, body: string) => {
   fs.writeFileSync(path.join(artifactDir, fileName), body);
 };
 
+const openOrderQuickAdd = async (page: Parameters<typeof withChartLock>[0], key: 'prescription' | 'treatment') => {
+  const label = key === 'prescription' ? '+処方' : '+処置';
+  const quickAdd = page.getByRole('button', { name: label }).first();
+  await expect(quickAdd).toBeVisible({ timeout: 10_000 });
+  await quickAdd.click();
+};
+
 test.use({
   ignoreHTTPSErrors: true,
+  serviceWorkers: 'block',
   extraHTTPHeaders: {
     'x-msw-missing-master': '0',
     'x-msw-transition': 'server',
@@ -35,6 +43,7 @@ test.use({
 });
 
 test('薬剤/処置マスタ検索→入力が反映される (MSW)', async ({ page }) => {
+  test.setTimeout(90_000);
   fs.mkdirSync(artifactDir, { recursive: true });
 
   await withChartLock(page, async () => {
@@ -98,6 +107,72 @@ test('薬剤/処置マスタ検索→入力が反映される (MSW)', async ({ p
         body: JSON.stringify(buildPatientListFixture(outpatientFlags, '/orca/patients/local-search')),
       }),
     );
+    await page.route('**/orca/order/bundles**', async (route) => {
+      const method = route.request().method().toUpperCase();
+      if (method === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            runId: RUN_ID,
+            createdDocumentIds: [910001],
+            updatedDocumentIds: [],
+            deletedDocumentIds: [],
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          runId: RUN_ID,
+          patientId: '000001',
+          recordsReturned: 0,
+          bundles: [],
+        }),
+      });
+    });
+    await page.route('**/orca/master/drug**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              code: 'A100',
+              name: 'アムロジピン',
+              unit: '錠',
+              category: '降圧薬',
+              note: 'E2E',
+              validFrom: '20240101',
+              validTo: '99999999',
+            },
+          ],
+          totalCount: 1,
+        }),
+      }),
+    );
+    await page.route('**/orca/master/material**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            {
+              code: 'M001',
+              name: '処置材料A',
+              unit: '個',
+              category: '処置',
+              note: 'E2E',
+              validFrom: '20240101',
+              validTo: '99999999',
+            },
+          ],
+          totalCount: 1,
+        }),
+      }),
+    );
 
     await page.addInitScript((runId) => {
       const raw = window.sessionStorage.getItem('opendolphin:web-client:auth');
@@ -130,9 +205,64 @@ test('薬剤/処置マスタ検索→入力が反映される (MSW)', async ({ p
         },
       },
     );
-    await page.addInitScript((headers) => {
+    await page.addInitScript(({ headers, masterMocks, runId }) => {
       const originalFetch = window.fetch.bind(window);
+      const resolveMethod = (input: RequestInfo | URL, init: RequestInit | undefined) => {
+        if (init?.method) return init.method.toUpperCase();
+        if (input instanceof Request && input.method) return input.method.toUpperCase();
+        return 'GET';
+      };
       window.fetch = (input, init = {}) => {
+        const requestUrl =
+          typeof input === 'string'
+            ? input
+            : input instanceof Request
+              ? input.url
+              : input instanceof URL
+                ? input.href
+                : String(input);
+        const method = resolveMethod(input, init);
+        if (requestUrl.includes('/orca/order/bundles')) {
+          if (method === 'POST') {
+            return Promise.resolve(
+              new Response(
+                JSON.stringify({
+                  runId,
+                  createdDocumentIds: [910001],
+                  updatedDocumentIds: [],
+                  deletedDocumentIds: [],
+                }),
+                {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' },
+                },
+              ),
+            );
+          }
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                runId,
+                patientId: '000001',
+                recordsReturned: 0,
+                bundles: [],
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          );
+        }
+        const matched = masterMocks.find((entry) => requestUrl.includes(entry.path));
+        if (matched) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ items: matched.items, totalCount: matched.items.length }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          );
+        }
         const nextHeaders = new Headers(init.headers || {});
         Object.entries(headers).forEach(([key, value]) => {
           if (!nextHeaders.has(key)) {
@@ -142,11 +272,44 @@ test('薬剤/処置マスタ検索→入力が反映される (MSW)', async ({ p
         return originalFetch(input, { ...init, headers: nextHeaders });
       };
     }, {
-      'x-msw-missing-master': '0',
-      'x-msw-transition': 'server',
-      'x-msw-cache-hit': '0',
-      'x-msw-fallback-used': '0',
-      'x-msw-run-id': RUN_ID,
+      headers: {
+        'x-msw-missing-master': '0',
+        'x-msw-transition': 'server',
+        'x-msw-cache-hit': '0',
+        'x-msw-fallback-used': '0',
+        'x-msw-run-id': RUN_ID,
+      },
+      runId: RUN_ID,
+      masterMocks: [
+        {
+          path: '/orca/master/drug',
+          items: [
+            {
+              code: 'A100',
+              name: 'アムロジピン',
+              unit: '錠',
+              category: '降圧薬',
+              note: 'E2E',
+              validFrom: '20240101',
+              validTo: '99999999',
+            },
+          ],
+        },
+        {
+          path: '/orca/master/material',
+          items: [
+            {
+              code: 'M001',
+              name: '処置材料A',
+              unit: '個',
+              category: '処置',
+              note: 'E2E',
+              validFrom: '20240101',
+              validTo: '99999999',
+            },
+          ],
+        },
+      ],
     });
 
     await page.goto(`${baseUrl}/f/${facilityId}/charts?patientId=000001&visitDate=2026-02-04&msw=1`);
@@ -193,41 +356,41 @@ test('薬剤/処置マスタ検索→入力が反映される (MSW)', async ({ p
     }
     await expect(topbarMeta).toHaveAttribute('data-missing-master', 'false', { timeout: 10_000 });
     await expect(topbarMeta).toHaveAttribute('data-source-transition', 'server', { timeout: 10_000 });
+    const orderPane = page.locator('#charts-order-pane');
 
     // 薬剤マスタ（処方）検索
-    await page.locator('[data-utility-action="prescription-edit"]').click();
-    const panel = page.locator('.charts-side-panel__content');
-    const masterKeyword = panel.locator('input[id$="-master-keyword"]');
-    await expect(masterKeyword).toBeVisible({ timeout: 10_000 });
-    await masterKeyword.fill('アム');
+    await openOrderQuickAdd(page, 'prescription');
+    const itemNameInput = orderPane.locator('input[placeholder="薬剤名"]').first();
+    await expect(itemNameInput).toBeVisible({ timeout: 10_000 });
+    await itemNameInput.fill('アム');
+    await expect(orderPane.locator('datalist[id$="-item-predictive-list"] option[value="アムロジピン"]')).toHaveCount(1, {
+      timeout: 10_000,
+    });
+    await itemNameInput.fill('アムロジピン');
+    await itemNameInput.press('Tab');
 
-    const medCandidate = panel.getByRole('button', { name: /アムロジピン/ });
-    await expect(medCandidate).toBeVisible({ timeout: 5_000 });
-    await medCandidate.click();
-
-    const itemNameInput = panel.getByPlaceholder('項目名');
-    await expect(itemNameInput).toHaveValue(/A100 アムロジピン/);
+    await expect(itemNameInput).toHaveValue(/(?:A100\s+)?アムロジピン/);
 
     await page.screenshot({
       path: path.join(artifactDir, 'order-master-medication.png'),
       fullPage: true,
     });
 
+    // quick-add フォーカスを解除してから次カテゴリを追加
+    await orderPane.getByRole('button', { name: '通常閲覧へ戻る' }).click();
+
     // 処置マスタ（材料）検索
-    await page.locator('[data-utility-action="order-edit"]').click();
-    const panel2 = page.locator('.charts-side-panel__content');
-    const masterKeyword2 = panel2.locator('input[id$="-master-keyword"]');
-    await expect(masterKeyword2).toBeVisible({ timeout: 10_000 });
+    await openOrderQuickAdd(page, 'treatment');
+    const treatmentItemNameInput = orderPane.locator('input[placeholder="処置項目名"]').first();
+    await expect(treatmentItemNameInput).toBeVisible({ timeout: 10_000 });
+    await treatmentItemNameInput.fill('処置');
+    await expect(orderPane.locator('datalist[id$="-item-predictive-list"] option[value="処置材料A"]')).toHaveCount(1, {
+      timeout: 10_000,
+    });
+    await treatmentItemNameInput.fill('処置材料A');
+    await treatmentItemNameInput.press('Tab');
 
-    await panel2.getByLabel('検索種別').selectOption('material');
-    await masterKeyword2.fill('処置');
-
-    const procCandidate = panel2.getByRole('button', { name: /処置材料A/ });
-    await expect(procCandidate).toBeVisible({ timeout: 5_000 });
-    await procCandidate.click();
-
-    const itemNameInput2 = panel2.getByPlaceholder('項目名');
-    await expect(itemNameInput2).toHaveValue(/M001 処置材料A/);
+    await expect(treatmentItemNameInput).toHaveValue(/(?:M001\s+)?処置材料A/);
 
     await page.screenshot({
       path: path.join(artifactDir, 'order-master-procedure.png'),

@@ -98,6 +98,18 @@ test('SOAP入力の保存/再表示/編集ができる (MSW)', async ({ page }) 
         body: JSON.stringify(buildPatientListFixture(outpatientFlags, '/orca/patients/local-search')),
       }),
     );
+    await page.route('**/orca/chart/subjectives**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          apiResult: '00',
+          apiResultMessage: 'OK',
+          runId: RUN_ID,
+          recordedAt: new Date().toISOString(),
+        }),
+      }),
+    );
 
     await page.addInitScript((runId) => {
       const raw = window.sessionStorage.getItem('opendolphin:web-client:auth');
@@ -130,9 +142,31 @@ test('SOAP入力の保存/再表示/編集ができる (MSW)', async ({ page }) 
         },
       },
     );
-    await page.addInitScript((headers) => {
+    await page.addInitScript(({ headers, runId }) => {
       const originalFetch = window.fetch.bind(window);
       window.fetch = (input, init = {}) => {
+        const requestUrl =
+          typeof input === 'string'
+            ? input
+            : input instanceof Request
+              ? input.url
+              : String(input);
+        if (requestUrl.includes('/orca/chart/subjectives')) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                apiResult: '00',
+                apiResultMessage: 'OK',
+                runId,
+                recordedAt: new Date().toISOString(),
+              }),
+              {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            ),
+          );
+        }
         const nextHeaders = new Headers(init.headers || {});
         Object.entries(headers).forEach(([key, value]) => {
           if (!nextHeaders.has(key)) {
@@ -142,11 +176,14 @@ test('SOAP入力の保存/再表示/編集ができる (MSW)', async ({ page }) 
         return originalFetch(input, { ...init, headers: nextHeaders });
       };
     }, {
-      'x-msw-missing-master': '0',
-      'x-msw-transition': 'server',
-      'x-msw-cache-hit': '0',
-      'x-msw-fallback-used': '0',
-      'x-msw-run-id': RUN_ID,
+      runId: RUN_ID,
+      headers: {
+        'x-msw-missing-master': '0',
+        'x-msw-transition': 'server',
+        'x-msw-cache-hit': '0',
+        'x-msw-fallback-used': '0',
+        'x-msw-run-id': RUN_ID,
+      },
     });
 
     await page.goto(
@@ -185,16 +222,17 @@ test('SOAP入力の保存/再表示/編集ができる (MSW)', async ({ page }) 
     await expect(topbarMeta).toHaveAttribute('data-missing-master', 'false', { timeout: 10_000 });
     await expect(topbarMeta).toHaveAttribute('data-source-transition', 'server', { timeout: 10_000 });
     const summaryBar = page.locator('#charts-patient-summary');
-    await expect(summaryBar.getByText('APT-2401')).toBeVisible({ timeout: 10_000 });
+    await expect(summaryBar).toContainText('診察券番号', { timeout: 10_000 });
+    await expect(summaryBar).toContainText('000001', { timeout: 10_000 });
 
     const soapPanel = page.locator('#charts-soap-note');
     await expect(soapPanel).toBeVisible();
 
     const soapInput = {
-      subjective: 'S: 頭痛あり。2日前から。',
-      objective: 'O: 体温 37.2℃、BP 120/70。',
-      assessment: 'A: 緊張型頭痛の疑い。',
-      plan: 'P: 鎮痛薬処方、1週間後フォロー。',
+      subjective: `S: 頭痛あり。2日前から。(${RUN_ID})`,
+      objective: `O: 体温 37.2℃、BP 120/70。(${RUN_ID})`,
+      assessment: `A: 緊張型頭痛の疑い。(${RUN_ID})`,
+      plan: `P: 鎮痛薬処方、1週間後フォロー。(${RUN_ID})`,
     };
 
     await soapPanel.locator('#soap-note-subjective').fill(soapInput.subjective);
@@ -204,14 +242,12 @@ test('SOAP入力の保存/再表示/編集ができる (MSW)', async ({ page }) 
 
     await soapPanel.screenshot({ path: path.join(artifactDir, 'soap-note-input.png') });
 
-    await soapPanel.getByRole('button', { name: '保存' }).click();
-
-    const sections = ['subjective', 'objective', 'assessment', 'plan'] as const;
-    for (const section of sections) {
-      await expect(
-        soapPanel.locator(`[data-section="${section}"] .soap-note__section-header span`),
-      ).not.toHaveText('記載履歴なし');
-    }
+    const saveButton = soapPanel.locator('button.soap-note__primary');
+    await expect(saveButton).toBeEnabled();
+    await saveButton.dispatchEvent('click');
+    await expect(soapPanel.locator('.soap-note__sync-badge')).toHaveText(/サーバ反映済|ローカル保存済 \/ サーバ未反映/, {
+      timeout: 10_000,
+    });
 
     await expect(soapPanel.locator('#soap-note-subjective')).toHaveValue(soapInput.subjective);
     await expect(soapPanel.locator('#soap-note-objective')).toHaveValue(soapInput.objective);
@@ -222,15 +258,22 @@ test('SOAP入力の保存/再表示/編集ができる (MSW)', async ({ page }) 
 
     const editedPlan = `${soapInput.plan}（編集追記）`;
     await soapPanel.locator('#soap-note-plan').fill(editedPlan);
-    await soapPanel.getByRole('button', { name: '更新' }).click();
+    const updateButton = soapPanel.locator('button.soap-note__primary');
+    await expect(updateButton).toBeEnabled();
+    await updateButton.dispatchEvent('click');
+    await expect(soapPanel.locator('.soap-note__sync-badge')).toHaveText(/サーバ反映済|ローカル保存済 \/ サーバ未反映/, {
+      timeout: 10_000,
+    });
     await expect(soapPanel.locator('#soap-note-plan')).toHaveValue(editedPlan);
 
     await soapPanel.screenshot({ path: path.join(artifactDir, 'soap-note-edited.png') });
 
+    const sections = ['subjective', 'objective', 'assessment', 'plan'] as const;
     const headerTexts = await Promise.all(
-      sections.map((section) =>
-        soapPanel.locator(`[data-section="${section}"] .soap-note__section-header span`).innerText(),
-      ),
+      sections.map(async (section) => {
+        const texts = await soapPanel.locator(`[data-section="${section}"] .soap-note__section-header span`).allInnerTexts();
+        return texts.join(' / ');
+      }),
     );
 
     writeNote(

@@ -1,4 +1,4 @@
-# 開発状況（単一参照, 更新日: 2026-02-20）
+# 開発状況（単一参照, 更新日: 2026-02-22）
 
 ## 現行ステータス
 - Phase2 開発ドキュメントは **Legacy/Archive（参照専用）**。Phase2 を現行フェーズとして扱わない。
@@ -30,6 +30,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-02-22: ORCA `pusheventgetv2` の Webクライアント送信形式を公式仕様（`Content-Type: application/json` / `pusheventgetv2req`）に修正（RUN_ID=20260222T230107Z）。
+  - 内容: `fetchOrcaPushEvents` の要求bodyを XML から JSON に変更し、送信ヘッダを `application/json; charset=UTF-8` へ統一。既存のレスポンス正規化（`Api_Result` / `Event_Information`）は維持。
+  - 成果物: `web-client/src/features/outpatient/orcaQueueApi.ts` / `web-client/src/features/outpatient/__tests__/orcaQueueApi.test.ts`。
+  - 検証: `npx vitest run src/features/outpatient/__tests__/orcaQueueApi.test.ts` PASS、`npx vitest run src/features/outpatient/__tests__/fetchWithResolver.test.ts src/features/outpatient/__tests__/appointmentDataBanner.test.ts src/features/outpatient/__tests__/orcaQueueApi.test.ts` PASS。
+- 2026-02-22: Webクライアント既存の typecheck 不整合（未使用シンボル/型不一致）を修正し、`tsc -b --noEmit` を通過（RUN_ID=20260222T230107Z）。
+  - 内容: `AdministrationPage` の未使用シンボル整理、`OrderSetEditorPage` の `onClick` ハンドラ型修正、`PatientsPage` の未使用state値整理、`ReceptionPage` のフィルタ復元型（`sort` / `visitDate`）を明示、`auditLogger` の `UiAction` に `claim_send` を追加、`ReceptionPage.test` の未使用変数を整理。
+  - 成果物: `web-client/src/features/administration/AdministrationPage.tsx` / `web-client/src/features/charts/pages/OrderSetEditorPage.tsx` / `web-client/src/features/patients/PatientsPage.tsx` / `web-client/src/features/reception/pages/ReceptionPage.tsx` / `web-client/src/features/reception/__tests__/ReceptionPage.test.tsx` / `web-client/src/libs/audit/auditLogger.ts`。
+  - 検証: `npm -C web-client run typecheck` PASS、`npx vitest run src/features/outpatient/__tests__/orcaQueueApi.test.ts src/features/reception/__tests__/ReceptionPage.test.tsx` PASS。
 - 2026-02-20: Reception 一覧の他端末同期を SSE で本実装化（RUN_ID=20260219T210316Z）。
   - 内容: `server-modernized` に `GET /realtime/reception`（SSE）と in-memory broadcaster を追加し、`POST /orca/visits/mutation` 成功時（requestNumber `00` 以外）に `reception.updated` を配信。payload は `type/facilityId/date/patientId/requestNumber/revision/updatedAt/runId` を含む。keep-alive は 20 秒間隔、履歴ギャップ時は `reception.replay-gap` を送信。
   - Web対応: `ReceptionPage` で `EventSource` 購読を追加し、受信時に `['outpatient-appointments']` と `['orca-queue']` を invalidate。`receptionDailyState` はイベント受信時に status override を解除してサーバー優先表示へ寄せ、メタバーに `RT同期` ステータスを追加。

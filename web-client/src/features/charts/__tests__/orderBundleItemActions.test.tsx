@@ -92,8 +92,8 @@ afterEach(() => {
 describe('OrderBundleEditPanel item actions', () => {
   const mockUsageMaster = () => {
     const searchMock = vi.mocked(fetchOrderMasterSearch);
-    searchMock.mockImplementation(async ({ type, keyword }) => {
-      if (type === 'youhou' && keyword.trim().length > 0) {
+    searchMock.mockImplementation(async ({ type }) => {
+      if (type === 'youhou') {
         return {
           ok: true,
           items: [{ type: 'youhou', name: '1回' }],
@@ -105,10 +105,16 @@ describe('OrderBundleEditPanel item actions', () => {
   };
 
   const selectUsage = async (user: ReturnType<typeof userEvent.setup>) => {
-    const usageInput = screen.getByLabelText('用法') as HTMLInputElement;
-    await user.type(usageInput, '1回');
-    await waitFor(() => expect(screen.getByText('1回')).toBeInTheDocument());
-    await user.click(screen.getByText('1回').closest('button')!);
+    const usageSelect = screen.getByLabelText('用法') as HTMLSelectElement;
+    let optionValue = '';
+    await waitFor(() => {
+      const targetOption = Array.from(usageSelect.options).find((option) => option.text === '1回');
+      expect(targetOption).toBeDefined();
+      optionValue = targetOption?.value ?? '';
+      expect(optionValue).not.toBe('');
+    });
+    await user.selectOptions(usageSelect, optionValue);
+    expect(usageSelect.selectedOptions[0]?.text).toBe('1回');
   };
 
   it('末尾行に入力すると空行が自動追加される', async () => {
@@ -125,6 +131,27 @@ describe('OrderBundleEditPanel item actions', () => {
       expect(nameInputsAfter).toHaveLength(2);
       expect(nameInputsAfter[0]?.value).toBe('ア');
       expect(nameInputsAfter[1]?.value).toBe('');
+    });
+  });
+
+  it('空行は待機行として強調表示され、行削除ボタンを表示しない', async () => {
+    const user = userEvent.setup();
+    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    const initialRows = screen.getAllByTestId('order-bundle-item-row');
+    expect(initialRows).toHaveLength(1);
+    expect(initialRows[0]).toHaveClass('charts-side-panel__item-row--inactive');
+    expect(screen.queryByLabelText('行 1 を削除')).not.toBeInTheDocument();
+
+    const nameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
+    await user.type(nameInput, 'ア');
+
+    await waitFor(() => {
+      const rows = screen.getAllByTestId('order-bundle-item-row');
+      expect(rows).toHaveLength(2);
+      expect(rows[1]).toHaveClass('charts-side-panel__item-row--inactive');
+      expect(screen.getByLabelText('行 1 を削除')).toBeInTheDocument();
+      expect(screen.queryByLabelText('行 2 を削除')).not.toBeInTheDocument();
     });
   });
 
@@ -236,7 +263,7 @@ describe('OrderBundleEditPanel item actions', () => {
     const user = userEvent.setup();
     const searchMock = vi.mocked(fetchOrderMasterSearch);
     searchMock.mockImplementation(async ({ type, keyword }) => {
-      if (type === 'youhou' && keyword.trim().length > 0) {
+      if (type === 'youhou') {
         return {
           ok: true,
           items: [{ type: 'youhou', name: '1回' }],
@@ -266,8 +293,10 @@ describe('OrderBundleEditPanel item actions', () => {
     const nameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
     await user.click(nameInput);
     await user.type(nameInput, 'アムロジピン');
-    const suggestion = await screen.findByRole('button', { name: /612345678/ });
-    await user.click(suggestion);
+    await waitFor(() =>
+      expect(document.querySelector('datalist[id$="-item-predictive-list"] option[value="アムロジピン"]')).not.toBeNull(),
+    );
+    await user.tab();
 
     const genericGroup = screen.getAllByRole('group', { name: '一般名' })[0];
     const genericOnButton = within(genericGroup).getByRole('button', { name: '一般名' });
@@ -275,10 +304,7 @@ describe('OrderBundleEditPanel item actions', () => {
     await user.click(genericOnButton);
     await user.type(screen.getByLabelText('薬剤コメント 1'), '食後');
 
-    const usageInput = screen.getByLabelText('用法') as HTMLInputElement;
-    await user.type(usageInput, '1回');
-    await waitFor(() => expect(screen.getByText('1回')).toBeInTheDocument());
-    await user.click(screen.getByText('1回').closest('button')!);
+    await selectUsage(user);
 
     await user.click(screen.getByRole('button', { name: '保存して追加' }));
 
@@ -325,7 +351,8 @@ describe('OrderBundleEditPanel item actions', () => {
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
     await user.selectOptions(screen.getByLabelText('最近使った用法'), '1日2回 朝夕食後');
-    expect((screen.getByLabelText('用法') as HTMLInputElement).value).toBe('1日2回 朝夕食後');
+    const usageSelect = screen.getByLabelText('用法') as HTMLSelectElement;
+    await waitFor(() => expect(usageSelect.selectedOptions[0]?.text).toBe('1日2回 朝夕食後'));
   });
 
   it('保存成功時に最近使った用法履歴へ追加される', async () => {
@@ -346,8 +373,8 @@ describe('OrderBundleEditPanel item actions', () => {
   it('injectionOrder でも用法候補を利用でき、経路コード順で表示される', async () => {
     const user = userEvent.setup();
     const searchMock = vi.mocked(fetchOrderMasterSearch);
-    searchMock.mockImplementation(async ({ type, keyword }) => {
-      if (type === 'youhou' && keyword.trim().length > 0) {
+    searchMock.mockImplementation(async ({ type }) => {
+      if (type === 'youhou') {
         return {
           ok: true,
           items: [
@@ -362,16 +389,13 @@ describe('OrderBundleEditPanel item actions', () => {
 
     renderWithClient(<OrderBundleEditPanel {...injectionProps} />);
 
-    const usageInput = screen.getByLabelText('投与指示') as HTMLInputElement;
-    await user.type(usageInput, '候補');
-
-    const rows = await screen.findAllByRole('button', { name: /候補/ });
-    expect(rows[0]).toHaveTextContent('静注候補');
-    expect(rows[1]).toHaveTextContent('外用候補');
-
-    await user.click(rows[0]);
-    expect(usageInput.value).toBe('Y100 静注候補');
-    expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'youhou', keyword: '候補' }));
+    const usageSelect = screen.getByLabelText('投与指示') as HTMLSelectElement;
+    await waitFor(() => expect(usageSelect.options.length).toBeGreaterThan(2));
+    expect(usageSelect.options[1]?.text).toBe('静注候補');
+    expect(usageSelect.options[2]?.text).toBe('外用候補');
+    await user.selectOptions(usageSelect, usageSelect.options[1]?.value ?? '');
+    expect(usageSelect.selectedOptions[0]?.text).toBe('静注候補');
+    expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'youhou', keyword: '', allowEmpty: true }));
   });
 
   it.each([
@@ -392,8 +416,8 @@ describe('OrderBundleEditPanel item actions', () => {
     expect(screen.getByRole('button', { name: '追加' })).toBeDisabled();
     const nameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
     expect(nameInput).toBeDisabled();
-    const deleteButtons = screen.getAllByLabelText(/削除/);
-    deleteButtons.forEach((button) => expect(button).toBeDisabled());
+    expect(screen.getByRole('button', { name: '選択行削除' })).toBeDisabled();
+    expect(screen.queryByLabelText('行 1 を削除')).not.toBeInTheDocument();
   });
 
   it('行削除で最終行が初期化される', async () => {
@@ -403,8 +427,8 @@ describe('OrderBundleEditPanel item actions', () => {
 
     const nameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
     await user.type(nameInput, 'A');
-    const deleteButtons = screen.getAllByLabelText(/削除/);
-    await user.click(deleteButtons[0]);
+    const rowDeleteButton = await screen.findByLabelText('行 1 を削除');
+    await user.click(rowDeleteButton);
 
     const cleared = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
     expect(cleared).toHaveLength(1);

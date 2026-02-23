@@ -11,12 +11,21 @@ const setSession = () => {
   );
 };
 
-const setDevAuth = () => {
-  localStorage.setItem('devFacilityId', 'f001');
-  localStorage.setItem('devUserId', 'user01');
-  localStorage.setItem('devPasswordPlain', 'plain-password');
-  localStorage.setItem('devPasswordMd5', 'md5-password');
-  localStorage.setItem('devClientUuid', 'client-uuid-1');
+const setDevAuth = (
+  storage: Storage = localStorage,
+  values: {
+    facilityId?: string;
+    userId?: string;
+    passwordPlain?: string;
+    passwordMd5?: string;
+    clientUuid?: string;
+  } = {},
+) => {
+  storage.setItem('devFacilityId', values.facilityId ?? 'f001');
+  storage.setItem('devUserId', values.userId ?? 'user01');
+  storage.setItem('devPasswordPlain', values.passwordPlain ?? 'plain-password');
+  storage.setItem('devPasswordMd5', values.passwordMd5 ?? 'md5-password');
+  storage.setItem('devClientUuid', values.clientUuid ?? 'client-uuid-1');
 };
 
 const mockFetchSequence = (statuses: number[]) => {
@@ -217,6 +226,36 @@ describe('httpFetch session expiry reasons', () => {
     await httpClient.httpFetch('/karte/pid/00001,2000-01-01%2000%3A00%3A00', { method: 'GET' });
     const karteHeaders = new Headers((fetchSpy.mock.calls[2]?.[1] as RequestInit | undefined)?.headers ?? {});
     expect(karteHeaders.has('Authorization') || karteHeaders.has('userName') || karteHeaders.has('password')).toBe(true);
+  });
+
+  it('prefers tab-local auth after re-login when localStorage has stale credentials', async () => {
+    setSession();
+    setDevAuth(localStorage, {
+      userId: 'dolphindev',
+      passwordPlain: 'dolphin-pass',
+      passwordMd5: 'legacy-md5',
+      clientUuid: 'legacy-client',
+    });
+    setDevAuth(sessionStorage, {
+      userId: 'ormaster',
+      passwordPlain: 'change_me',
+      passwordMd5: 'latest-md5',
+      clientUuid: 'latest-client',
+    });
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+    const { httpClient } = await importSubjects();
+
+    await httpClient.httpFetch('/orca/appointments/list', { method: 'GET' });
+    const headers = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
+    const authorization = headers.get('Authorization');
+    if (authorization) {
+      const token = authorization.replace(/^Basic\s+/i, '');
+      expect(atob(token)).toBe('ormaster:change_me');
+    } else {
+      expect(headers.get('userName')).toBe('f001:ormaster');
+    }
+    expect(headers.get('X-Facility-Id')).toBe('f001');
   });
 
   it('does not notify for /api21 and /blobapi endpoints on 401/403', async () => {

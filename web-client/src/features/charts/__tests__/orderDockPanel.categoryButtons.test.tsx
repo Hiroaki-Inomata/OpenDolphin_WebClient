@@ -56,6 +56,11 @@ describe('OrderDockPanel category quick-add', () => {
     expect(document.querySelector('[data-test-id="order-dock-group-add-treatment"]')).not.toBeNull();
     expect(document.querySelector('[data-test-id="order-dock-group-add-test"]')).not.toBeNull();
     expect(document.querySelector('[data-test-id="order-dock-group-add-charge"]')).not.toBeNull();
+    expect(screen.getByText('1. 受診ヘッダ固定')).toBeInTheDocument();
+    expect(screen.getByText('2. カテゴリ入力')).toBeInTheDocument();
+    expect(screen.getByText('3. 送信/差分')).toBeInTheDocument();
+    expect(screen.getByText(/送信状態: 未送信/)).toBeInTheDocument();
+    expect(screen.getByText(/最終送信: —/)).toBeInTheDocument();
   });
 
   it('カテゴリ候補からインライン編集を開いても検索UIが残り、閉じるで閉じる', async () => {
@@ -110,16 +115,52 @@ describe('OrderDockPanel category quick-add', () => {
 
     await user.click(screen.getByRole('button', { name: '+処置' }));
     expect(screen.getByLabelText('処置入力')).toBeInTheDocument();
-    expect(screen.getByRole('searchbox', { name: 'オーダー検索' })).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox', { name: 'オーダー検索' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '通常閲覧へ戻る' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '通常閲覧へ戻る' }));
     await user.click(screen.getByRole('button', { name: '閉じる' }));
 
     await user.click(screen.getByRole('button', { name: '+検査' }));
     expect(screen.getByLabelText('検査入力')).toBeInTheDocument();
-    expect(screen.getByRole('searchbox', { name: 'オーダー検索' })).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox', { name: 'オーダー検索' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '通常閲覧へ戻る' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '通常閲覧へ戻る' }));
     await user.click(screen.getByRole('button', { name: '閉じる' }));
 
     await user.click(screen.getByRole('button', { name: '+算定' }));
     expect(screen.getByLabelText('基本料入力')).toBeInTheDocument();
+  });
+
+  it('quick-add 新規入力中は押下カテゴリのみ表示し、通常閲覧へ戻れる', async () => {
+    const user = userEvent.setup();
+    renderWithClient(<OrderDockPanel patientId="P-100" meta={baseMeta} visitDate="2026-02-17" orderBundles={[]} />);
+
+    await user.click(screen.getByRole('button', { name: '+処置' }));
+    expect(screen.getByLabelText('処置入力')).toBeInTheDocument();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-treatment"]')).not.toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-prescription"]')).toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-injection"]')).toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-test"]')).toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-charge"]')).toBeNull();
+    expect(screen.queryByRole('tablist', { name: '処置種類' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: '検査種類' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: '算定種類' })).not.toBeInTheDocument();
+    expect(screen.queryByText('まだありません。')).not.toBeInTheDocument();
+    expect(screen.queryByText('この種類のオーダーはまだありません。')).not.toBeInTheDocument();
+    expect(screen.queryByRole('searchbox', { name: 'オーダー検索' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+処方' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '+算定' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '通常閲覧へ戻る' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '通常閲覧へ戻る' }));
+    expect(screen.getByRole('searchbox', { name: 'オーダー検索' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+処方' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+算定' })).toBeInTheDocument();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-prescription"]')).not.toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-injection"]')).not.toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-treatment"]')).not.toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-test"]')).not.toBeNull();
+    expect(document.querySelector('[data-test-id="order-dock-group-add-charge"]')).not.toBeNull();
   });
 
   it('medOrder item memo の userComment を表示し __orca_meta__ は露出しない', () => {

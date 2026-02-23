@@ -5,7 +5,7 @@ import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { recordOutpatientFunnel } from '../../libs/telemetry/telemetryClient';
 import { resolveAriaLive } from '../../libs/observability/observability';
 import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
-import { fetchDiseases, mutateDiseases, type DiseaseEntry } from './diseaseApi';
+import { fetchDiseases, mutateDiseases, resolveDiseaseCodeFromOrcaMaster, type DiseaseEntry } from './diseaseApi';
 import type { DataSourceTransition } from './authService';
 
 export type DiagnosisEditPanelMeta = {
@@ -176,6 +176,16 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
       const category = payload.isMain ? '主病名' : '副病名';
       const suspectedFlag = payload.isSuspected ? '疑い' : undefined;
       const combinedName = `${payload.prefix ?? ''}${payload.name ?? ''}${payload.suffix ?? ''}`.trim();
+      const explicitCode = payload.code?.trim();
+      const resolvedCode =
+        explicitCode ||
+        (await resolveDiseaseCodeFromOrcaMaster({
+          diagnosisName: combinedName,
+          prefix: payload.prefix,
+          mainName: payload.name,
+          suffix: payload.suffix,
+          referenceDate: payload.startDate,
+        }));
       return mutateDiseases({
         patientId,
         operations: [
@@ -183,7 +193,7 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
             operation,
             diagnosisId: payload.diagnosisId,
             diagnosisName: combinedName,
-            diagnosisCode: payload.code || undefined,
+            diagnosisCode: resolvedCode || undefined,
             startDate: payload.startDate || undefined,
             endDate: payload.endDate || undefined,
             outcome: payload.outcome || undefined,

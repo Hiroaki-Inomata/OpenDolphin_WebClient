@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Locator, Page } from '@playwright/test';
 
 import { expect, test } from '../playwright/fixtures';
 import { baseUrl, runId, seedAuthSession } from '../e2e/helpers/orcaMaster';
@@ -12,6 +13,60 @@ const buildArtifactRoot = (): string => {
 };
 
 const artifactRoot = buildArtifactRoot();
+
+const receptionEntrySelector = '[data-test-id="reception-entry-card"], [data-test-id="reception-entry-row"]';
+
+const receptionEntryByPatientSelector = (patientId: string) =>
+  `[data-test-id="reception-entry-card"][data-patient-id="${patientId}"], [data-test-id="reception-entry-row"][data-patient-id="${patientId}"]`;
+
+const receptionEntryByPatientAndStatusSelector = (patientId: string, status: string) =>
+  `[data-test-id="reception-entry-card"][data-patient-id="${patientId}"][data-reception-status="${status}"], [data-test-id="reception-entry-row"][data-patient-id="${patientId}"][data-reception-status="${status}"]`;
+
+const ensureAcceptRequiredSelections = async (acceptSection: Locator) => {
+  const details = acceptSection.locator('[data-test-id="reception-accept-details"]');
+  if ((await details.count()) === 0) {
+    await acceptSection.locator('[data-test-id="reception-accept-toggle-details"]').click();
+  }
+
+  const department = acceptSection.locator('#reception-accept-department');
+  if ((await department.inputValue()) === '') {
+    await department.selectOption({ index: 1 });
+  }
+  const physician = acceptSection.locator('#reception-accept-physician');
+  if ((await physician.inputValue()) === '') {
+    await physician.selectOption({ index: 1 });
+  }
+};
+
+const expandReceptionSections = async (page: Page) => {
+  const toggles = page.locator(
+    '#reception-results button.reception-board__toggle, #reception-results button.reception-section__toggle',
+  );
+  const count = await toggles.count();
+  for (let index = 0; index < count; index += 1) {
+    const toggle = toggles.nth(index);
+    if (!(await toggle.isVisible().catch(() => false))) continue;
+    const label = (await toggle.innerText()).trim();
+    if (label.includes('開く')) {
+      await toggle.click();
+    }
+  }
+};
+
+const clickCancelActionForEntry = async (page: Page, entry: Locator) => {
+  const inlineCancelButton = entry.getByRole('button', { name: '受付取消' }).first();
+  if ((await inlineCancelButton.count()) > 0 && (await inlineCancelButton.isVisible().catch(() => false))) {
+    await inlineCancelButton.click();
+    return;
+  }
+
+  const menuToggle = entry.getByRole('button', { name: 'その他' }).first();
+  await expect(menuToggle).toBeVisible();
+  await menuToggle.click();
+  const menuCancelButton = page.getByRole('menuitem', { name: '受付取消' }).first();
+  await expect(menuCancelButton).toBeVisible();
+  await menuCancelButton.click();
+};
 
 test.use({ trace: 'off' });
 
@@ -179,12 +234,13 @@ test.describe('Reception acceptmodv2 (/orca/visits/mutation)', () => {
 
     await page.context().tracing.start({ screenshots: true, snapshots: true });
 
-    const cards = page.locator('[data-test-id="reception-entry-card"]');
-    const dataCountBefore = await cards.count();
+    const entries = page.locator(receptionEntrySelector);
+    const dataCountBefore = await entries.count();
 
     const acceptSection = page.locator('[data-test-id="reception-accept"]');
     await expect(acceptSection.locator('[data-test-id="reception-accept-details"]')).toHaveCount(0);
-    await acceptSection.getByLabel(/患者ID/).fill('000123');
+    await acceptSection.locator('#reception-patient-search-patient-id').fill('000123');
+    await ensureAcceptRequiredSelections(acceptSection);
 
     const registerRequest = page.waitForRequest((request) => {
       if (!request.url().includes('/orca/visits/mutation')) return false;
@@ -218,14 +274,15 @@ test.describe('Reception acceptmodv2 (/orca/visits/mutation)', () => {
       JSON.stringify(receptionAudits, null, 2),
       'utf8',
     );
+    await expandReceptionSections(page);
 
-    const newCard = page.locator('[data-test-id="reception-entry-card"][data-patient-id="000123"]').first();
-    await expect(newCard).toBeVisible({ timeout: 10_000 });
-    const dataCountAfter = await cards.count();
+    const newEntry = page.locator(receptionEntryByPatientSelector('000123')).first();
+    await expect(newEntry).toBeVisible({ timeout: 10_000 });
+    const dataCountAfter = await entries.count();
     expect(dataCountAfter).toBe(dataCountBefore + 1);
 
     // Charts へ遷移し runId / traceId を確認
-    await newCard.dblclick();
+    await newEntry.dblclick();
     await expect(page).toHaveURL(/charts/);
     const chartsMain = page.locator('.charts-page');
     await expect(chartsMain).toBeVisible({ timeout: 15_000 });
@@ -249,11 +306,12 @@ test.describe('Reception acceptmodv2 (/orca/visits/mutation)', () => {
 
     await page.context().tracing.start({ screenshots: true, snapshots: true });
 
-    const cards = page.locator('[data-test-id="reception-entry-card"]');
-    const dataCountBefore = await cards.count();
+    const entries = page.locator(receptionEntrySelector);
+    const dataCountBefore = await entries.count();
 
     const acceptSection = page.locator('[data-test-id="reception-accept"]');
-    await acceptSection.getByLabel(/患者ID/).fill('00021');
+    await acceptSection.locator('#reception-patient-search-patient-id').fill('00021');
+    await ensureAcceptRequiredSelections(acceptSection);
 
     const warningRequest = page.waitForRequest((request) => {
       if (!request.url().includes('/orca/visits/mutation')) return false;
@@ -270,7 +328,7 @@ test.describe('Reception acceptmodv2 (/orca/visits/mutation)', () => {
     const warning = acceptSection.locator('.tone-banner--warning').filter({ hasText: '受付なし' });
     await expect(warning).toBeVisible({ timeout: 10_000 });
     await expect(warning).toContainText(/受付なし/);
-    const dataCountAfter = await cards.count();
+    const dataCountAfter = await entries.count();
     expect(dataCountAfter).toBe(dataCountBefore);
 
     await page.screenshot({ path: path.join(artifactRoot, 'acceptmodv2-api21.png'), fullPage: true });
@@ -287,23 +345,22 @@ test.describe('Reception acceptmodv2 (/orca/visits/mutation)', () => {
     const acceptSection = page.locator('[data-test-id="reception-accept"]');
 
     // まず登録して1件増やす
-    await acceptSection.getByLabel(/患者ID/).fill('000555');
+    await acceptSection.locator('#reception-patient-search-patient-id').fill('000555');
+    await ensureAcceptRequiredSelections(acceptSection);
     await acceptSection.locator('[data-test-id="reception-accept-register"]').click();
     await expect(acceptSection.locator('.tone-banner--info')).toContainText(/受付登録が完了しました/, { timeout: 10_000 });
+    await expandReceptionSections(page);
 
-    const cards = page.locator('[data-test-id="reception-entry-card"]');
-    const dataCountAfterRegister = await cards.count();
+    const entries = page.locator(receptionEntrySelector);
+    const dataCountAfterRegister = await entries.count();
 
-    const targetCard = page
-      .locator(
-        '[data-test-id="reception-entry-card"][data-patient-id="000555"][data-reception-status="受付中"]',
-      )
-      .first();
-    await expect(targetCard).toBeVisible({ timeout: 10_000 });
-    await targetCard.click();
+    const targetEntry = page.locator(receptionEntryByPatientAndStatusSelector('000555', '受付中')).first();
+    await expect(targetEntry).toBeVisible({ timeout: 10_000 });
+    await targetEntry.click();
 
-    const cancelButton = page.locator('[data-test-id="reception-cancel-selected"]');
-    await expect(cancelButton).toBeEnabled();
+    await clickCancelActionForEntry(page, targetEntry);
+    const cancelModal = page.locator('[data-test-id="reception-cancel-confirm-modal"]');
+    await expect(cancelModal).toBeVisible();
 
     const cancelRequest = page.waitForRequest((request) => {
       if (!request.url().includes('/orca/visits/mutation')) return false;
@@ -315,17 +372,17 @@ test.describe('Reception acceptmodv2 (/orca/visits/mutation)', () => {
       }
     });
 
-    await Promise.all([cancelRequest, cancelButton.click()]);
+    await Promise.all([cancelRequest, cancelModal.getByRole('button', { name: '取消を実行' }).click()]);
     const cancelBody = JSON.parse((await cancelRequest).postData() ?? '{}') as Record<string, any>;
     expect(cancelBody.requestNumber).toBe('02');
     expect(cancelBody.patientId).toBe('000555');
     expect(cancelBody.acceptanceId).toBeTruthy();
 
     await expect(acceptSection.locator('.tone-banner--info')).toContainText(/受付取消が完了しました/, { timeout: 10_000 });
-    await expect(page.locator('[data-test-id="reception-entry-card"][data-patient-id="000555"]')).toHaveCount(0, {
+    await expect(page.locator(receptionEntryByPatientSelector('000555'))).toHaveCount(0, {
       timeout: 10_000,
     });
-    const dataCountAfterCancel = await cards.count();
+    const dataCountAfterCancel = await entries.count();
     expect(dataCountAfterCancel).toBe(dataCountAfterRegister - 1);
     const cancelDurationText = await page.locator('[data-test-id="accept-duration-ms"]').innerText();
     const cancelDurationMs = Number(cancelDurationText.replace(/\D+/g, ''));

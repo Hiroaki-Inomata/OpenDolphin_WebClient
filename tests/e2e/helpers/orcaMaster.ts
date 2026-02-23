@@ -125,6 +125,31 @@ export async function gotoOrcaMaster(page: Page, path: string = defaultChartPath
   await page.goto(`${baseUrl}${path}`);
 }
 
+export async function expandChartsQuickActions(page: Page) {
+  const closeToggle = page.getByRole('button', { name: '操作を閉じる' }).first();
+  if (await closeToggle.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const openToggle = page.getByRole('button', { name: '操作を開く' }).first();
+  if (!(await openToggle.isVisible().catch(() => false))) {
+    await openToggle.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => null);
+  }
+  if (!(await openToggle.isVisible().catch(() => false))) {
+    return;
+  }
+  await openToggle.click();
+  await expect(closeToggle).toBeVisible({ timeout: 5_000 });
+}
+
+export async function expandReceptionStatusSections(page: Page) {
+  for (let i = 0; i < 10; i += 1) {
+    const openButtons = page.getByRole('button', { name: '開く' });
+    if ((await openButtons.count()) === 0) break;
+    await openButtons.first().click();
+  }
+}
+
 export async function mockTensuNameSuccess(page: Page) {
   await page.route('**/orca/tensu/name/**', (route) =>
     route.fulfill({

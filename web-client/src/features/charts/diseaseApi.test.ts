@@ -16,7 +16,7 @@ vi.mock('../outpatient/orcaPatientImportApi', () => ({
 
 import { httpFetch } from '../../libs/http/httpClient';
 import { importPatientsFromOrca } from '../outpatient/orcaPatientImportApi';
-import { fetchDiseases, fetchDiseasesWithPatientImportRecovery } from './diseaseApi';
+import { fetchDiseases, fetchDiseasesWithPatientImportRecovery, resolveDiseaseCodeFromOrcaMaster } from './diseaseApi';
 
 describe('diseaseApi', () => {
   beforeEach(() => {
@@ -117,5 +117,143 @@ describe('diseaseApi', () => {
     expect(result.routeMismatch).toBe(true);
     expect(result.patientImportAttempted).toBe(true);
     expect(result.message).toContain('経路不一致');
+  });
+
+  it('resolves diagnosis code by exact ORCA disease name match', async () => {
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          list: [{ code: '8832114', name: '皮膚腫瘍' }],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    const code = await resolveDiseaseCodeFromOrcaMaster({
+      diagnosisName: '皮膚腫瘍',
+      referenceDate: '2026-02-23',
+    });
+
+    expect(code).toBe('8832114');
+    expect(httpFetch).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(httpFetch).mock.calls[0]?.[0]).toContain('/orca/disease/name/');
+  });
+
+  it('resolves exact composite code when ORCA master directly returns combined disease code', async () => {
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          list: [{ code: '2056.8832114', name: '顔皮膚腫瘍' }],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    const code = await resolveDiseaseCodeFromOrcaMaster({
+      diagnosisName: '顔皮膚腫瘍',
+      referenceDate: '2026-02-23',
+    });
+
+    expect(code).toBe('2056.8832114');
+    expect(httpFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves composite code from prefix + disease split when exact name is absent', async () => {
+    vi.mocked(httpFetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const decoded = decodeURIComponent(typeof input === 'string' ? input : input.toString());
+      if (decoded.includes('/orca/disease/name/顔皮膚腫瘍,')) {
+        return new Response(JSON.stringify({ list: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (decoded.includes('/orca/disease/name/顔,')) {
+        return new Response(
+          JSON.stringify({
+            list: [{ code: '2056', name: '顔' }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+      if (decoded.includes('/orca/disease/name/皮膚腫瘍,')) {
+        return new Response(
+          JSON.stringify({
+            list: [{ code: '8832114', name: '皮膚腫瘍' }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+      return new Response(JSON.stringify({ list: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const code = await resolveDiseaseCodeFromOrcaMaster({
+      diagnosisName: '顔皮膚腫瘍',
+      referenceDate: '2026-02-23',
+    });
+
+    expect(code).toBe('2056.8832114');
+  });
+
+  it('returns undefined when multiple composite candidates exist', async () => {
+    vi.mocked(httpFetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const decoded = decodeURIComponent(typeof input === 'string' ? input : input.toString());
+      if (decoded.includes('/orca/disease/name/顔皮膚腫瘍,')) {
+        return new Response(JSON.stringify({ list: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (decoded.includes('/orca/disease/name/顔,')) {
+        return new Response(
+          JSON.stringify({
+            list: [
+              { code: '2056', name: '顔' },
+              { code: '2057', name: '顔' },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+      if (decoded.includes('/orca/disease/name/皮膚腫瘍,')) {
+        return new Response(
+          JSON.stringify({
+            list: [{ code: '8832114', name: '皮膚腫瘍' }],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+      return new Response(JSON.stringify({ list: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const code = await resolveDiseaseCodeFromOrcaMaster({
+      diagnosisName: '顔皮膚腫瘍',
+      referenceDate: '2026-02-23',
+    });
+
+    expect(code).toBeUndefined();
   });
 });

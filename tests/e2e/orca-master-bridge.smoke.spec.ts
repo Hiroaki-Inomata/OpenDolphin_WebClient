@@ -1,7 +1,9 @@
 import { test, expect } from '../playwright/fixtures';
 import { gotoOrcaMaster, seedAuthSession, runId as defaultRunId } from './helpers/orcaMaster';
 
-test.use({ ignoreHTTPSErrors: true });
+// This smoke relies on page.route stubs for /orca/master/* and must not be
+// preempted by MSW service-worker fetch handlers.
+test.use({ ignoreHTTPSErrors: true, serviceWorkers: 'block' });
 
 type AuditMeta = {
   runId?: string;
@@ -82,7 +84,7 @@ test('@master-bridge ORCA master audit smoke', async ({ page }) => {
   }
 
   await seedAuthSession(page);
-  await gotoOrcaMaster(page);
+  await gotoOrcaMaster(page, '/charts/72001');
 
   const primaryResponsePromise = page.waitForResponse((res) =>
     res.url().includes('/orca/master/generic-class'),

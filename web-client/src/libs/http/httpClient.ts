@@ -42,18 +42,31 @@ const readOptionalItem = (storage: Storage | undefined, key: string): string | u
 
 function readStoredAuth(): StoredAuth | null {
   if (!import.meta.env.DEV) return null;
-  const stored = readAuthFromStorage(typeof localStorage === 'undefined' ? undefined : localStorage);
-  if (stored) {
-    const sessionPasswordPlain = readOptionalItem(
-      typeof sessionStorage === 'undefined' ? undefined : sessionStorage,
-      'devPasswordPlain',
-    );
-    if (sessionPasswordPlain && !stored.passwordPlain) {
-      return { ...stored, passwordPlain: sessionPasswordPlain };
-    }
-    return stored;
+  const sessionAuth = readAuthFromStorage(typeof sessionStorage === 'undefined' ? undefined : sessionStorage);
+  const localAuth = readAuthFromStorage(typeof localStorage === 'undefined' ? undefined : localStorage);
+
+  // 再ログイン直後の最新資格情報はタブ単位の sessionStorage を優先する。
+  if (sessionAuth) {
+    return {
+      ...sessionAuth,
+      passwordPlain: sessionAuth.passwordPlain ?? localAuth?.passwordPlain,
+      passwordMd5: sessionAuth.passwordMd5 ?? localAuth?.passwordMd5,
+      clientUuid: sessionAuth.clientUuid ?? localAuth?.clientUuid,
+    };
   }
-  return readAuthFromStorage(typeof sessionStorage === 'undefined' ? undefined : sessionStorage);
+
+  if (!localAuth) {
+    return null;
+  }
+
+  const sessionPasswordPlain = readOptionalItem(
+    typeof sessionStorage === 'undefined' ? undefined : sessionStorage,
+    'devPasswordPlain',
+  );
+  if (sessionPasswordPlain && !localAuth.passwordPlain) {
+    return { ...localAuth, passwordPlain: sessionPasswordPlain };
+  }
+  return localAuth;
 }
 
 export function hasStoredAuth(): boolean {

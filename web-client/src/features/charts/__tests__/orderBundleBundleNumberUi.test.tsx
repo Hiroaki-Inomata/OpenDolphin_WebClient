@@ -61,8 +61,8 @@ afterEach(() => {
 describe('OrderBundleEditPanel bundle number UI', () => {
   const mockUsageMaster = () => {
     const searchMock = vi.mocked(fetchOrderMasterSearch);
-    searchMock.mockImplementation(async ({ type, keyword }) => {
-      if (type === 'youhou' && keyword.trim().length > 0) {
+    searchMock.mockImplementation(async ({ type }) => {
+      if (type === 'youhou') {
         return {
           ok: true,
           items: [{ type: 'youhou', name: '1日1回' }],
@@ -74,11 +74,16 @@ describe('OrderBundleEditPanel bundle number UI', () => {
   };
 
   const selectUsage = async (user: ReturnType<typeof userEvent.setup>) => {
-    const usageInput = screen.getByLabelText('用法') as HTMLInputElement;
-    await user.clear(usageInput);
-    await user.type(usageInput, '1日1回');
-    await waitFor(() => expect(screen.getByText('1日1回')).toBeInTheDocument());
-    await user.click(screen.getByText('1日1回').closest('button')!);
+    const usageSelect = screen.getByLabelText('用法') as HTMLSelectElement;
+    let optionValue = '';
+    await waitFor(() => {
+      const targetOption = Array.from(usageSelect.options).find((option) => option.text === '1日1回');
+      expect(targetOption).toBeDefined();
+      optionValue = targetOption?.value ?? '';
+      expect(optionValue).not.toBe('');
+    });
+    await user.selectOptions(usageSelect, optionValue);
+    expect(usageSelect.selectedOptions[0]?.text).toBe('1日1回');
   };
 
   it('用法入力後に日数入力が編集可能になる', async () => {
@@ -165,7 +170,8 @@ describe('OrderBundleEditPanel bundle number UI', () => {
 
     const bundleNumberInput = screen.getByLabelText('回数') as HTMLInputElement;
     expect(bundleNumberInput.value).toBe('2');
-    expect((screen.getByLabelText('用法') as HTMLInputElement).value).toBe('1回');
+    const usageSelect = screen.getByLabelText('用法') as HTMLSelectElement;
+    expect(usageSelect.selectedOptions[0]?.text).toBe('1回');
     expect(screen.getByText('頓用/臨時は回数として扱われます。')).toBeInTheDocument();
   });
 });

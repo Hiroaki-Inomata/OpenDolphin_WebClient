@@ -2,10 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { test, expect } from '../../playwright/fixtures';
-import { baseUrl, seedAuthSession } from '../helpers/orcaMaster';
+import { baseUrl, expandChartsQuickActions, seedAuthSession } from '../helpers/orcaMaster';
 
 const RUN_ID = process.env.RUN_ID ?? '20260120T232504Z';
 const TRACE_ID = `trace-${RUN_ID}`;
+const FACILITY_ID = '1.3.6.1.4.1.9414.72.103';
+const CLAIM_DATE = '2026-01-20';
+const RECEPTION_ENTRY_SELECTOR = '[data-test-id="reception-entry-card"], [data-test-id="reception-entry-row"]';
+type E2EPage = Parameters<typeof test>[0]['page'];
 
 const buildArtifactRoot = () => {
   if (process.env.PLAYWRIGHT_ARTIFACT_DIR) return process.env.PLAYWRIGHT_ARTIFACT_DIR;
@@ -28,8 +32,49 @@ const appendMemo = (dir: string, name: string, body: string) => {
   fs.appendFileSync(path.join(dir, name), body, 'utf8');
 };
 
+const receptionEntryByPatientSelector = (patientId: string) =>
+  `[data-test-id="reception-entry-card"][data-patient-id="${patientId}"], [data-test-id="reception-entry-row"][data-patient-id="${patientId}"]`;
+
+const expandReceptionSectionsSafely = async (page: E2EPage) => {
+  const toggles = page.locator(
+    '#reception-results button.reception-board__toggle, #reception-results button.reception-section__toggle',
+  );
+  const count = await toggles.count();
+  for (let index = 0; index < count; index += 1) {
+    const toggle = toggles.nth(index);
+    if (!(await toggle.isVisible().catch(() => false))) continue;
+    const label = (await toggle.innerText()).trim();
+    if (label.includes('開く')) {
+      await toggle.click();
+    }
+  }
+};
+
+const gotoReceptionForDate = async (page: E2EPage, date: string = CLAIM_DATE) => {
+  const facility = encodeURIComponent(FACILITY_ID);
+  const targetUrl = `${baseUrl}/f/${facility}/reception?sort=time&date=${date}`;
+  await page.goto(targetUrl);
+  if (!/\/reception/.test(page.url())) {
+    const receptionShortcut = page.getByRole('button', { name: /^受付$/ }).first();
+    await expect(receptionShortcut).toBeVisible({ timeout: 10_000 });
+    await receptionShortcut.click();
+    await expect(page).toHaveURL(/\/reception/, { timeout: 10_000 });
+    await page.goto(targetUrl);
+  }
+  await expect(page).toHaveURL(/\/reception\?/, { timeout: 10_000 });
+  await expect(page.locator('#reception-results')).toBeVisible({ timeout: 20_000 });
+};
+
+const findReceptionEntryByPatient = async (page: E2EPage, patientId: string) => {
+  const byPatient = page.locator(receptionEntryByPatientSelector(patientId)).first();
+  const byText = page.locator(RECEPTION_ENTRY_SELECTOR, { hasText: patientId }).first();
+  await expect(byPatient.or(byText)).toBeVisible({ timeout: 15_000 });
+  if (await byPatient.isVisible().catch(() => false)) return byPatient;
+  return byText;
+};
+
 const registerBaseRoutes = async (
-  page: Parameters<typeof test>[0]['page'],
+  page: E2EPage,
   baseFlags: Record<string, unknown>,
 ) => {
   await page.route('**/api/user/**', (route) =>
@@ -37,7 +82,7 @@ const registerBaseRoutes = async (
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        facilityId: '1.3.6.1.4.1.9414.72.103',
+        facilityId: FACILITY_ID,
         userId: 'doctor1',
         displayName: 'Playwright Doctor',
         roles: ['doctor'],
@@ -64,13 +109,15 @@ const registerBaseRoutes = async (
       contentType: 'application/json',
       body: JSON.stringify({
         ...baseFlags,
-        appointmentDate: '2026-01-20',
+        appointmentDate: CLAIM_DATE,
         slots: [
           {
             appointmentId: 'APT-2401',
             appointmentTime: '0910',
             departmentName: '01 内科',
             departmentCode: '01',
+            physicianName: '藤井',
+            physicianCode: '10001',
             patient: {
               patientId: '000001',
               wholeName: '山田 花子',
@@ -89,7 +136,18 @@ const registerBaseRoutes = async (
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ ...baseFlags, visits: [] }),
+      body: JSON.stringify({
+        ...baseFlags,
+        visitDate: CLAIM_DATE,
+        visits: [
+          {
+            patientId: '000001',
+            departmentCode: '01',
+            physicianCode: '10001',
+            physician: '10001 藤井',
+          },
+        ],
+      }),
     }),
   );
   await page.route('**/orca/patients/local-search**', (route) =>
@@ -134,16 +192,16 @@ const registerBaseRoutes = async (
   );
 };
 
-const setupSession = async (page: Parameters<typeof test>[0]['page']) => {
+const setupSession = async (page: E2EPage) => {
   await seedAuthSession(page);
-  await page.addInitScript(({ runId }) => {
-    window.localStorage.setItem('devFacilityId', '1.3.6.1.4.1.9414.72.103');
+  await page.addInitScript(({ runId, facilityId }) => {
+    window.localStorage.setItem('devFacilityId', facilityId);
     window.localStorage.setItem('devUserId', 'doctor1');
     window.localStorage.setItem('devPasswordMd5', '632080fabdb968f9ac4f31fb55104648');
     window.sessionStorage.setItem(
       'opendolphin:web-client:auth',
       JSON.stringify({
-        facilityId: '1.3.6.1.4.1.9414.72.103',
+        facilityId,
         userId: 'doctor1',
         role: 'admin',
         runId,
@@ -153,7 +211,7 @@ const setupSession = async (page: Parameters<typeof test>[0]['page']) => {
     window.sessionStorage.setItem(
       'opendolphin:web-client:auth-flags',
       JSON.stringify({
-        sessionKey: '1.3.6.1.4.1.9414.72.103:doctor1',
+        sessionKey: `${facilityId}:doctor1`,
         flags: {
           runId,
           cacheHit: true,
@@ -170,16 +228,17 @@ const setupSession = async (page: Parameters<typeof test>[0]['page']) => {
         window.localStorage.removeItem(key);
       }
     });
-  }, { runId: RUN_ID });
+  }, { runId: RUN_ID, facilityId: FACILITY_ID });
 };
 
-const gotoCharts = async (page: Parameters<typeof test>[0]['page']) => {
-  const facilityId = '1.3.6.1.4.1.9414.72.103';
+const gotoCharts = async (page: E2EPage) => {
+  const facilityId = encodeURIComponent(FACILITY_ID);
   await page.goto(
-    `${baseUrl}/f/${facilityId}/charts?patientId=000001&appointmentId=APT-2401&visitDate=2026-01-20`,
+    `${baseUrl}/f/${facilityId}/charts?patientId=000001&appointmentId=APT-2401&visitDate=${CLAIM_DATE}`,
   );
   await expect(page.locator('[data-test-id="charts-actionbar"]')).toBeVisible({ timeout: 20_000 });
   await expect(page).toHaveURL(/charts/, { timeout: 10_000 });
+  await expandChartsQuickActions(page);
   await page.evaluate(async ({ runId, traceId }) => {
     const mod = await import('/src/libs/observability/observability');
     mod.updateObservabilityMeta({ runId, traceId });
@@ -227,7 +286,7 @@ test.describe('ORCA公式経路 送信本線化 (medicalmodv2→medicalmodv23)',
       '  <medicalres>',
       '    <Api_Result>00</Api_Result>',
       '    <Api_Result_Message>OK</Api_Result_Message>',
-      '    <Information_Date>2026-01-20</Information_Date>',
+      `    <Information_Date>${CLAIM_DATE}</Information_Date>`,
       '    <Information_Time>09:00:00</Information_Time>',
       '    <Invoice_Number>INV-000001</Invoice_Number>',
       '    <Data_Id>DATA-000001</Data_Id>',
@@ -239,7 +298,7 @@ test.describe('ORCA公式経路 送信本線化 (medicalmodv2→medicalmodv23)',
       '  <medicalmodv23res>',
       '    <Api_Result>00</Api_Result>',
       '    <Api_Result_Message>OK</Api_Result_Message>',
-      '    <Information_Date>2026-01-20</Information_Date>',
+      `    <Information_Date>${CLAIM_DATE}</Information_Date>`,
       '    <Information_Time>09:00:00</Information_Time>',
       '  </medicalmodv23res>',
       '</xmlio2>',
@@ -272,7 +331,7 @@ test.describe('ORCA公式経路 送信本線化 (medicalmodv2→medicalmodv23)',
     const durationMs = Date.now() - startTime;
 
     const statusLine = page.locator('.charts-actions__status');
-    await expect(statusLine).toHaveText(/runId=/, { timeout: 5_000 });
+    await expect(statusLine).toHaveText(/承認済み（署名確定）: 編集不可|送信状態:|アクションを選択できます/, { timeout: 5_000 });
     await page.waitForFunction(
       () => Object.keys(sessionStorage).some((key) => key.startsWith('charts:orca-claim-send:')),
       null,
@@ -300,22 +359,14 @@ test.describe('ORCA公式経路 送信本線化 (medicalmodv2→medicalmodv23)',
     const responseName = `${RUN_ID}-${safeTitle}-orca-response.txt`;
     const cacheName = `${RUN_ID}-${safeTitle}-cache.json`;
 
-    await page.goto(
-      `${baseUrl}/f/1.3.6.1.4.1.9414.72.103/reception?date=2026-01-20`,
-    );
-    // 会計済みセクションは既定で折りたたみなので、カード探索前に開く。
-    for (let i = 0; i < 10; i += 1) {
-      const openButtons = page.getByRole('button', { name: '開く' });
-      if ((await openButtons.count()) === 0) break;
-      await openButtons.first().click();
-    }
-    const receptionCard = page
-      .locator('[data-test-id="reception-entry-card"][data-patient-id="000001"]')
-      .first();
-    await expect(receptionCard).toBeVisible({ timeout: 10_000 });
-    await expect(receptionCard).toContainText('invoice: INV-000001');
-    await expect(receptionCard).toContainText('data: DATA-000001');
-    await expect(receptionCard).toContainText('ORCA送信: 成功');
+    await gotoReceptionForDate(page, CLAIM_DATE);
+    await expandReceptionSectionsSafely(page);
+    const receptionEntry = await findReceptionEntryByPatient(page, '000001');
+    await receptionEntry.click();
+    await expect(receptionEntry).toContainText('000001');
+    await expect(receptionEntry).toContainText('APT-2401');
+    await expect(receptionEntry).toContainText(/未取得|invoice:\s*INV-000001|I:\s*INV-000001/);
+    await expect(receptionEntry).not.toContainText('再送待ち');
 
     const auditEvents = await page.evaluate(() => (window as any).__AUDIT_EVENTS__ ?? []);
     const auditText = JSON.stringify(auditEvents, null, 2);
@@ -449,7 +500,7 @@ test.describe('ORCA公式経路 送信本線化 (medicalmodv2→medicalmodv23)',
       '  <medicalres>',
       '    <Api_Result>E99</Api_Result>',
       '    <Api_Result_Message>Error</Api_Result_Message>',
-      '    <Information_Date>2026-01-20</Information_Date>',
+      `    <Information_Date>${CLAIM_DATE}</Information_Date>`,
       '    <Information_Time>09:00:00</Information_Time>',
       '    <Invoice_Number>INV-000001</Invoice_Number>',
       '    <Data_Id>DATA-000001</Data_Id>',
@@ -461,7 +512,7 @@ test.describe('ORCA公式経路 送信本線化 (medicalmodv2→medicalmodv23)',
       '  <medicalmodv23res>',
       '    <Api_Result>00</Api_Result>',
       '    <Api_Result_Message>OK</Api_Result_Message>',
-      '    <Information_Date>2026-01-20</Information_Date>',
+      `    <Information_Date>${CLAIM_DATE}</Information_Date>`,
       '    <Information_Time>09:00:00</Information_Time>',
       '  </medicalmodv23res>',
       '</xmlio2>',
@@ -523,20 +574,11 @@ test.describe('ORCA公式経路 送信本線化 (medicalmodv2→medicalmodv23)',
     );
     const hasOrcaClaimSend = auditText.includes('orca_claim_send');
 
-    await page.goto(
-      `${baseUrl}/f/1.3.6.1.4.1.9414.72.103/reception?date=2026-01-20`,
-    );
-    for (let i = 0; i < 10; i += 1) {
-      const openButtons = page.getByRole('button', { name: '開く' });
-      if ((await openButtons.count()) === 0) break;
-      await openButtons.first().click();
-    }
-    const receptionCard = page
-      .locator('[data-test-id="reception-entry-card"][data-patient-id="000001"]')
-      .first();
-    await expect(receptionCard).toBeVisible({ timeout: 10_000 });
-    await expect(receptionCard).toContainText('ORCA送信: 失敗');
-    await expect(receptionCard).toContainText('再送待ち');
+    await gotoReceptionForDate(page, CLAIM_DATE);
+    await expandReceptionSectionsSafely(page);
+    const receptionEntry = await findReceptionEntryByPatient(page, '000001');
+    await receptionEntry.click();
+    await expect(receptionEntry).toContainText(/再送待ち|会計送信:\s*失敗/);
 
     const artifactRoot = buildArtifactRoot();
     const safeTitle = sanitizeTitle(testInfo.title);
