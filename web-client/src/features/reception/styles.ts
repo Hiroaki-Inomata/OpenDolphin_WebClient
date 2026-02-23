@@ -300,6 +300,13 @@ export const receptionStyles = css`
     min-width: 0;
   }
 
+  .reception-page__title-actions {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+  }
+
   .reception-page__header h1 {
     margin: 0;
     font-size: 2rem;
@@ -809,7 +816,7 @@ export const receptionStyles = css`
 
   .reception-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 420px;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1.5rem;
     align-items: start;
     width: 100%;
@@ -869,6 +876,155 @@ export const receptionStyles = css`
 
   .reception-layout__side::-webkit-scrollbar-track {
     background: transparent;
+  }
+
+  .reception-accept-workflow-modal {
+    position: fixed;
+    right: 1rem;
+    top: clamp(6rem, 11vh, 7.5rem);
+    width: min(760px, 58vw);
+    height: min(1040px, 92vh);
+    bottom: auto;
+    transform: none;
+    z-index: 10800;
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 20px 70px rgba(15, 23, 42, 0.25);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .reception-accept-workflow-modal.is-collapsed {
+    height: auto;
+  }
+
+  .reception-accept-workflow-modal__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+    background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+  }
+
+  .reception-accept-workflow-modal__heading h2 {
+    margin: 0;
+    font-size: 1.15rem;
+    color: #0f172a;
+  }
+
+  .reception-accept-workflow-modal__heading {
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+  }
+
+  .reception-accept-workflow-modal[data-dragging='true'] .reception-accept-workflow-modal__heading {
+    cursor: grabbing;
+  }
+
+  .reception-accept-workflow-modal__heading p {
+    margin: 0.35rem 0 0;
+    font-size: 0.85rem;
+    color: #475569;
+  }
+
+  .reception-accept-workflow-modal__actions {
+    display: flex;
+    gap: 0.55rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .reception-accept-workflow-modal__body {
+    flex: 1;
+    min-height: 0;
+    padding: 0.9rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .reception-accept-modal {
+    display: grid;
+    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+    gap: 0.9rem;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .reception-accept-modal__left,
+  .reception-accept-modal__right {
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    border-radius: 16px;
+    background: #f8fafc;
+    min-height: 0;
+  }
+
+  .reception-accept-modal__left {
+    padding: 0.8rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .reception-accept-modal__left .reception-patient-search__form {
+    margin-top: 0.25rem;
+  }
+
+  .reception-accept-modal__right {
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+    padding: 0.8rem;
+    overflow: hidden;
+  }
+
+  .reception-accept-modal__results-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+    padding-bottom: 0.6rem;
+  }
+
+  .reception-accept-modal__results-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #0f172a;
+  }
+
+  .reception-accept-modal__results-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    min-height: 0;
+    overflow: auto;
+    padding-top: 0.65rem;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .reception-accept-modal__right .reception-patient-search__list {
+    max-height: none;
+  }
+
+  .reception-accept-modal__accept {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    padding-top: 0.45rem;
+  }
+
+  .reception-accept-workflow-modal.is-collapsed .reception-accept-workflow-modal__body {
+    display: none;
   }
 
   .reception-sidepane {
@@ -1225,6 +1381,23 @@ export const receptionStyles = css`
     flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;
+  }
+
+  .reception-accept__acceptbar--modal {
+    margin: 0;
+    border-style: dashed;
+    border-color: rgba(37, 99, 235, 0.3);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
+  }
+
+  .reception-accept__detail-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .reception-accept__detail-panel--modal {
+    gap: 0.65rem;
   }
 
   .reception-accept__details {
@@ -2775,6 +2948,12 @@ export const receptionStyles = css`
     touch-action: none;
   }
 
+  .reception-patient-search-panel__header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
   .reception-patient-search-panel__header.is-dragging {
     cursor: grabbing;
     background: #f1f5f9;
@@ -2804,6 +2983,19 @@ export const receptionStyles = css`
     gap: 0.65rem;
     padding: 0 0.9rem 0.9rem;
     min-height: 0;
+    overflow: auto;
+  }
+
+  .reception-patient-search-panel.is-collapsed {
+    max-height: none;
+  }
+
+  .reception-patient-search-panel__accept {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    padding-top: 0.2rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.22);
   }
 
   .reception-patient-search__list {
@@ -2816,7 +3008,7 @@ export const receptionStyles = css`
   }
 
   .reception-patient-search-panel .reception-patient-search__list {
-    max-height: min(420px, calc(70vh - 170px));
+    max-height: min(420px, calc(70vh - 260px));
   }
 
   .reception-patient-search__item {
@@ -3522,6 +3714,50 @@ export const receptionStyles = css`
       padding-right: 0;
     }
 
+    .reception-accept-workflow-modal {
+      left: 0.4rem;
+      right: 0.4rem;
+      top: 4.9rem;
+      bottom: auto;
+      width: auto;
+      height: min(92vh, 960px);
+      transform: none;
+      border-radius: 14px;
+    }
+
+    .reception-accept-workflow-modal.is-collapsed {
+      height: auto;
+    }
+
+    .reception-accept-workflow-modal__header {
+      padding: 0.7rem;
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .reception-accept-workflow-modal__actions {
+      justify-content: flex-end;
+    }
+
+    .reception-accept-workflow-modal__body {
+      padding: 0.7rem;
+    }
+
+    .reception-accept-modal {
+      grid-template-columns: 1fr;
+      min-height: 0;
+      height: 100%;
+    }
+
+    .reception-accept-modal__left,
+    .reception-accept-modal__right {
+      padding: 0.7rem;
+    }
+
+    .reception-accept-modal__right .reception-patient-search__list {
+      max-height: none;
+    }
+
     .reception-patient-search-panel {
       width: min(420px, calc(100vw - 1rem));
       max-height: 68vh;
@@ -3532,7 +3768,7 @@ export const receptionStyles = css`
     }
 
     .reception-patient-search-panel .reception-patient-search__list {
-      max-height: calc(68vh - 170px);
+      max-height: calc(68vh - 250px);
     }
 
     .reception-table {
