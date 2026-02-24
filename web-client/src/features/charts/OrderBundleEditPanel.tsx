@@ -22,6 +22,19 @@ import {
   type OrderRecommendationCandidate,
   type OrderRecommendationTemplate,
 } from './orderRecommendationApi';
+import {
+  buildRpRequiredEditorMessage,
+  resolveRpRequiredIssue,
+  resolveRpRequiredFieldLabel,
+  RP_REQUIRED_ERROR_LABEL,
+  type RpRequiredField,
+} from './orderRpRequirements';
+import {
+  resolveOrderEntityDefaultClassMeta,
+  resolveOrderEntityEtensuCategory,
+  resolveOrderEntityUiProfile,
+  resolveOrderEntityValidationRule,
+} from './orderCategoryRegistry';
 import type { DataSourceTransition } from './authService';
 import type { DocumentOpenRequest } from './DocumentCreatePanel';
 
@@ -60,7 +73,14 @@ export type OrderBundleEditPanelProps = {
   onHistoryCopyConsumed?: (requestId: string) => void;
   request?: OrderBundleEditPanelRequest | null;
   onRequestConsumed?: (requestId: string) => void;
+  onSubmitResult?: (result: { action: 'save' | 'expand' | 'expand_continue'; ok: boolean }) => void;
+  onEditingContextChange?: (state: OrderBundleEditingContext) => void;
   onClose?: () => void;
+};
+
+export type OrderBundleEditingContext = {
+  hasRpRequiredIssue: boolean;
+  rpRequiredMissing: RpRequiredField[];
 };
 
 type PrescriptionLocation = 'in' | 'out';
@@ -204,20 +224,6 @@ const PRESCRIPTION_CLASS_NAMES: Record<string, string> = {
   '291': '内服薬剤（臨時投薬）（院内）',
   '292': '内服薬剤（臨時投薬）（院外）',
 };
-const NON_PRESCRIPTION_CLASS_META_BY_ENTITY: Record<string, { classCode: string; className: string }> = {
-  injectionOrder: { classCode: '310', className: '注射' },
-  treatmentOrder: { classCode: '400', className: '処置' },
-  generalOrder: { classCode: '400', className: '処置' },
-  surgeryOrder: { classCode: '500', className: '手術' },
-  testOrder: { classCode: '600', className: '検査' },
-  laboTest: { classCode: '600', className: '検査' },
-  physiologyOrder: { classCode: '600', className: '検査' },
-  bacteriaOrder: { classCode: '600', className: '検査' },
-  radiologyOrder: { classCode: '700', className: '画像診断' },
-  otherOrder: { classCode: '800', className: 'その他' },
-  baseChargeOrder: { classCode: '110', className: '基本診療料' },
-  instractionChargeOrder: { classCode: '130', className: '医学管理等' },
-};
 const PRESCRIPTION_LOCATION_OPTIONS: Array<{ value: PrescriptionLocation; label: string }> = [
   { value: 'in', label: '院内' },
   { value: 'out', label: '院外' },
@@ -265,172 +271,6 @@ const USAGE_ROUTE_CLASSIFICATION_TABLE: Record<string, { label: string; injectio
 const UNKNOWN_USAGE_ROUTE_CLASSIFICATION = { label: '未分類', injectionPriority: 999 };
 
 const isDrugMedicationCode = (code: string) => /^6\d{8}$/.test(code.trim());
-
-type OrderEntityUiProfile = {
-  bundleNamePlaceholder: string;
-  instructionLabel: string;
-  instructionPlaceholder: string;
-  memoLabel: string;
-  memoPlaceholder: string;
-  masterSectionTitle: string;
-  mainItemLabel: string;
-  mainItemPlaceholder: string;
-  supportsUsageSearch: boolean;
-  supportsBodyPartSearch: boolean;
-  supportsCommentCodes: boolean;
-  supportsInjectionNoProcedure: boolean;
-  masterSearchPresets: Array<{ type: OrderMasterSearchType; label: string }>;
-  defaultMasterSearchType: OrderMasterSearchType;
-};
-
-const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
-  if (entity === 'medOrder') {
-    return {
-      bundleNamePlaceholder: '例: 降圧薬RP',
-      instructionLabel: '用法',
-      instructionPlaceholder: '例: 1日1回 朝',
-      memoLabel: '処方メモ',
-      memoPlaceholder: '服薬上の補足を入力',
-      masterSectionTitle: '処方薬剤マスタ検索',
-      mainItemLabel: '処方薬剤',
-      mainItemPlaceholder: '薬剤名',
-      supportsUsageSearch: true,
-      supportsBodyPartSearch: false,
-      supportsCommentCodes: true,
-      supportsInjectionNoProcedure: false,
-      masterSearchPresets: [{ type: 'drug', label: '処方薬剤' }],
-      defaultMasterSearchType: 'drug',
-    };
-  }
-  if (entity === 'injectionOrder') {
-    return {
-      bundleNamePlaceholder: '例: 点滴セット',
-      instructionLabel: '投与指示',
-      instructionPlaceholder: '例: 静注 / 点滴 / 1日1回',
-      memoLabel: '注射メモ',
-      memoPlaceholder: '投与速度・ルートなどを入力',
-      masterSectionTitle: '注射マスタ検索',
-      mainItemLabel: '注射薬剤/手技',
-      mainItemPlaceholder: '注射薬剤または手技名',
-      supportsUsageSearch: true,
-      supportsBodyPartSearch: false,
-      supportsCommentCodes: true,
-      supportsInjectionNoProcedure: true,
-      masterSearchPresets: [
-        { type: 'drug', label: '注射薬剤' },
-        { type: 'etensu', label: '注射手技' },
-      ],
-      defaultMasterSearchType: 'drug',
-    };
-  }
-  if (entity === 'radiologyOrder') {
-    return {
-      bundleNamePlaceholder: '例: 胸部CT（造影）',
-      instructionLabel: '検査指示',
-      instructionPlaceholder: '例: 造影あり / 単純',
-      memoLabel: '画像検査メモ',
-      memoPlaceholder: '撮影条件・依頼目的を入力',
-      masterSectionTitle: '画像検査マスタ検索',
-      mainItemLabel: '画像検査項目',
-      mainItemPlaceholder: '画像検査名',
-      supportsUsageSearch: false,
-      supportsBodyPartSearch: true,
-      supportsCommentCodes: true,
-      supportsInjectionNoProcedure: false,
-      masterSearchPresets: [
-        { type: 'etensu', label: '画像検査' },
-        { type: 'material', label: '画像器材' },
-        { type: 'drug', label: '造影薬剤' },
-      ],
-      defaultMasterSearchType: 'etensu',
-    };
-  }
-  if (entity === 'testOrder' || entity === 'physiologyOrder' || entity === 'bacteriaOrder' || entity === 'laboTest') {
-    return {
-      bundleNamePlaceholder: '例: 生化学検査',
-      instructionLabel: '検査指示',
-      instructionPlaceholder: '例: 至急 / 空腹時',
-      memoLabel: '検査メモ',
-      memoPlaceholder: '採取条件・備考を入力',
-      masterSectionTitle: '検査マスタ検索',
-      mainItemLabel: '検査項目',
-      mainItemPlaceholder: '検査項目名',
-      supportsUsageSearch: false,
-      supportsBodyPartSearch: false,
-      supportsCommentCodes: true,
-      supportsInjectionNoProcedure: false,
-      masterSearchPresets: [
-        { type: 'etensu', label: '検査項目' },
-        { type: 'kensa-sort', label: '検査区分' },
-      ],
-      defaultMasterSearchType: 'etensu',
-    };
-  }
-  if (entity === 'baseChargeOrder' || entity === 'instractionChargeOrder') {
-    return {
-      bundleNamePlaceholder: '例: 初診料算定',
-      instructionLabel: '算定指示',
-      instructionPlaceholder: '例: 初再診 / 指導料',
-      memoLabel: '算定メモ',
-      memoPlaceholder: '算定条件・補足を入力',
-      masterSectionTitle: '算定マスタ検索',
-      mainItemLabel: '算定項目',
-      mainItemPlaceholder: '算定項目名',
-      supportsUsageSearch: false,
-      supportsBodyPartSearch: false,
-      supportsCommentCodes: true,
-      supportsInjectionNoProcedure: false,
-      masterSearchPresets: [{ type: 'etensu', label: '算定項目' }],
-      defaultMasterSearchType: 'etensu',
-    };
-  }
-  return {
-    bundleNamePlaceholder: '例: 創傷処置',
-    instructionLabel: '処置指示',
-    instructionPlaceholder: '例: 1日1回 実施',
-    memoLabel: '処置メモ',
-    memoPlaceholder: '実施手順・注意点を入力',
-    masterSectionTitle: '処置マスタ検索',
-    mainItemLabel: '処置項目',
-    mainItemPlaceholder: '処置項目名',
-    supportsUsageSearch: false,
-    supportsBodyPartSearch: entity === 'generalOrder',
-    supportsCommentCodes: true,
-    supportsInjectionNoProcedure: false,
-    masterSearchPresets: [
-      { type: 'etensu', label: '処置項目' },
-      { type: 'drug', label: '使用薬剤' },
-      { type: 'material', label: '処置材料' },
-    ],
-    defaultMasterSearchType: 'etensu',
-  };
-};
-
-const resolveEntityEtensuCategory = (entity: string): string | undefined => {
-  switch (entity) {
-    case 'injectionOrder':
-      return '3';
-    case 'treatmentOrder':
-    case 'generalOrder':
-      return '4';
-    case 'surgeryOrder':
-      return '5';
-    case 'testOrder':
-    case 'physiologyOrder':
-    case 'bacteriaOrder':
-    case 'laboTest':
-      return '6';
-    case 'radiologyOrder':
-      return '7';
-    case 'otherOrder':
-      return '8';
-    case 'baseChargeOrder':
-    case 'instractionChargeOrder':
-      return '1';
-    default:
-      return undefined;
-  }
-};
 
 const parseDocumentIds = (value?: string) => {
   if (!value) return { documentId: undefined, letterId: undefined };
@@ -523,42 +363,6 @@ const DEFAULT_VALIDATION_RULE: BundleValidationRule = {
   requiresItems: true,
   requiresUsage: false,
   requiresBodyPart: false,
-};
-
-const BASE_EDITOR_ENTITIES = [
-  'generalOrder',
-  'treatmentOrder',
-  'testOrder',
-  'laboTest',
-  'physiologyOrder',
-  'bacteriaOrder',
-  'instractionChargeOrder',
-  'surgeryOrder',
-  'otherOrder',
-  'baseChargeOrder',
-];
-
-const BASE_EDITOR_RULE: BundleValidationRule = {
-  itemLabel: '項目',
-  requiresItems: true,
-  requiresUsage: false,
-  requiresBodyPart: false,
-};
-
-const VALIDATION_RULES_BY_ENTITY: Record<string, BundleValidationRule> = {
-  medOrder: {
-    itemLabel: '薬剤/項目',
-    requiresItems: true,
-    requiresUsage: true,
-    requiresBodyPart: false,
-  },
-  radiologyOrder: {
-    itemLabel: '画像検査項目',
-    requiresItems: true,
-    requiresUsage: false,
-    requiresBodyPart: true,
-  },
-  ...Object.fromEntries(BASE_EDITOR_ENTITIES.map((entity) => [entity, BASE_EDITOR_RULE])),
 };
 
 const buildEmptyForm = (today: string): BundleFormState => ({
@@ -810,7 +614,7 @@ export const validateBundleForm = ({
         item.unit?.trim() ||
         item.memo?.trim(),
     );
-  const rule = VALIDATION_RULES_BY_ENTITY[entity] ?? DEFAULT_VALIDATION_RULE;
+  const rule = resolveOrderEntityValidationRule(entity) ?? DEFAULT_VALIDATION_RULE;
   const itemCount = countMainItems(form);
   if (rule.requiresItems && itemCount === 0) {
     issues.push({ key: 'missing_items', message: `${rule.itemLabel}を1件以上入力してください。` });
@@ -866,6 +670,8 @@ export function OrderBundleEditPanel({
   onHistoryCopyConsumed,
   request,
   onRequestConsumed,
+  onSubmitResult,
+  onEditingContextChange,
   onClose,
 }: OrderBundleEditPanelProps) {
   const queryClient = useQueryClient();
@@ -955,6 +761,31 @@ export function OrderBundleEditPanel({
   const isRadiologyOrder = entity === 'radiologyOrder';
   const isRehabOrder = entity === 'generalOrder';
   const isGaiyoPrescription = isMedOrder && form.prescriptionTiming === 'gaiyo';
+  const rpRequiredIssueForForm = useMemo(
+    () =>
+      resolveRpRequiredIssue({
+        entity,
+        bundleName: form.bundleName,
+        classCode: isMedOrder
+          ? resolvePrescriptionClassCode(form.prescriptionTiming, form.prescriptionLocation)
+          : resolveOrderEntityDefaultClassMeta(entity)?.classCode,
+        bundleNumber: form.bundleNumber,
+        items: form.items,
+      }),
+    [entity, form.bundleName, form.bundleNumber, form.items, form.prescriptionLocation, form.prescriptionTiming, isMedOrder],
+  );
+  useEffect(() => {
+    onEditingContextChange?.({
+      hasRpRequiredIssue: Boolean(rpRequiredIssueForForm),
+      rpRequiredMissing: rpRequiredIssueForForm?.missing ?? [],
+    });
+  }, [onEditingContextChange, rpRequiredIssueForForm]);
+  useEffect(
+    () => () => {
+      onEditingContextChange?.({ hasRpRequiredIssue: false, rpRequiredMissing: [] });
+    },
+    [onEditingContextChange],
+  );
   const mixingCommentIndex = useMemo(
     () => (isMedOrder ? form.commentItems.findIndex((item) => item.memo === MIXING_COMMENT_MARKER) : -1),
     [form.commentItems, isMedOrder],
@@ -1209,7 +1040,7 @@ export function OrderBundleEditPanel({
     () => Array.from(new Set(itemMasterTargets.map((target) => target.type))),
     [itemMasterTargets],
   );
-  const etensuCategory = useMemo(() => resolveEntityEtensuCategory(entity), [entity]);
+  const etensuCategory = useMemo(() => resolveOrderEntityEtensuCategory(entity), [entity]);
   const isItemCodeSearch = isLikelyCodeSearch(debouncedItemPredictionKeyword);
   const itemPredictiveQuery = useQuery({
     queryKey: ['charts-order-item-predictive', entity, itemPredictiveSearchTypes.join(','), etensuCategory ?? '', debouncedItemPredictionKeyword],
@@ -1819,7 +1650,7 @@ export function OrderBundleEditPanel({
 
   const resolveBundleClassMeta = (bundleForm: BundleFormState) => {
     if (!isMedOrder) {
-      const mapped = NON_PRESCRIPTION_CLASS_META_BY_ENTITY[entity];
+      const mapped = resolveOrderEntityDefaultClassMeta(entity);
       if (!mapped) return {};
       return {
         classCode: mapped.classCode,
@@ -2184,6 +2015,7 @@ export function OrderBundleEditPanel({
       const operationPhase = payload.action === 'save' ? 'save' : payload.action;
       const failureMessage = result.message ?? resolveActionMessage(payload.action, false);
       setNotice({ tone: result.ok ? 'success' : 'error', message: result.ok ? resolveActionMessage(payload.action, true) : failureMessage });
+      onSubmitResult?.({ action: payload.action, ok: result.ok });
       recordOutpatientFunnel('charts_action', {
         runId: result.runId ?? meta.runId,
         cacheHit: meta.cacheHit ?? false,
@@ -2300,6 +2132,7 @@ export function OrderBundleEditPanel({
       const itemCount = countItems(allItems);
       const operationPhase = payload.action === 'save' ? 'save' : payload.action;
       setNotice({ tone: 'error', message: `${resolveActionMessage(payload.action, false)}: ${message}` });
+      onSubmitResult?.({ action: payload.action, ok: false });
       logAuditEvent({
         runId: meta.runId,
         cacheHit: meta.cacheHit,
@@ -2534,6 +2367,8 @@ export function OrderBundleEditPanel({
         Boolean(item.name?.trim() || item.code?.trim() || item.quantity?.trim() || item.unit?.trim() || item.memo?.trim());
       const resolveTargetId = (key: string) => {
         switch (key) {
+          case 'rp_required':
+            return `${entity}-rp-required-warning`;
           case 'missing_usage':
             return `${entity}-admin`;
           case 'missing_body_part':
@@ -2611,6 +2446,22 @@ export function OrderBundleEditPanel({
     const normalizedForm = applyBundleNameCorrection(form);
     if (normalizedForm !== form) {
       setForm(normalizedForm);
+    }
+    const rpRequiredIssue = resolveRpRequiredIssue({
+      entity,
+      bundleName: normalizedForm.bundleName,
+      classCode: isMedOrder
+        ? resolvePrescriptionClassCode(normalizedForm.prescriptionTiming, normalizedForm.prescriptionLocation)
+        : resolveOrderEntityDefaultClassMeta(entity)?.classCode,
+      bundleNumber: normalizedForm.bundleNumber,
+      items: normalizedForm.items,
+    });
+    if (rpRequiredIssue) {
+      const message = buildRpRequiredEditorMessage(rpRequiredIssue);
+      setNotice({ tone: 'error', message });
+      setValidationIssues([{ key: 'rp_required', message }]);
+      focusFirstValidationIssue([{ key: 'rp_required', message }], normalizedForm);
+      return;
     }
     const validationIssues = validateBundleForm({
       form: normalizedForm,
@@ -2761,7 +2612,13 @@ export function OrderBundleEditPanel({
   }
 
   return (
-    <section className="charts-side-panel__section" data-order-entity={entity} data-test-id={`${entity}-edit-panel`}>
+    <section
+      className="charts-side-panel__section"
+      data-order-entity={entity}
+      data-test-id={`${entity}-edit-panel`}
+      data-rp-required={rpRequiredIssueForForm ? 'true' : 'false'}
+      data-rp-required-missing={rpRequiredIssueForForm ? rpRequiredIssueForForm.missing.join(',') : ''}
+    >
       <FocusTrapDialog
         open={contraConfirmOpen}
         title="禁忌チェックの警告"
@@ -2901,6 +2758,26 @@ export function OrderBundleEditPanel({
           )}
         </div>
       )}
+      {rpRequiredIssueForForm ? (
+        <div
+          id={`${entity}-rp-required-warning`}
+          className="charts-side-panel__notice charts-side-panel__notice--warning"
+          role="status"
+          tabIndex={-1}
+          aria-live={resolveAriaLive('warning')}
+          data-test-id={`${entity}-rp-required-warning`}
+        >
+          <div>
+            <strong>{RP_REQUIRED_ERROR_LABEL}</strong>
+          </div>
+          <p className="charts-side-panel__notice-detail">{buildRpRequiredEditorMessage(rpRequiredIssueForForm)}</p>
+          <ul className="charts-side-panel__notice-list" aria-label="不足しているRP必須項目">
+            {rpRequiredIssueForForm.missing.map((field) => (
+              <li key={`${entity}-${field}`}>{resolveRpRequiredFieldLabel(field)}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div className="charts-side-panel__workspace" data-variant={variant}>
         {showRecommendationSidebar ? (
           <aside className="charts-side-panel__workspace-left" aria-label="頻用オーダー">
@@ -4065,6 +3942,8 @@ export function OrderBundleEditPanel({
             className="charts-side-panel__action charts-side-panel__action--save"
             onClick={() => submitAction('save')}
             disabled={isSaving || isBlocked}
+            aria-keyshortcuts="Control+Enter"
+            aria-label={form.documentId ? '保存して更新する' : '保存して追加する'}
           >
             {form.documentId ? '保存して更新' : '保存して追加'}
           </button>

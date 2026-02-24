@@ -21,7 +21,9 @@ import { ChartsPatientSummaryBar } from '../ChartsPatientSummaryBar';
 	import { PatientSummaryPanel } from '../PatientSummaryPanel';
 	import { StampLibraryPanel } from '../StampLibraryPanel';
 import { normalizeAuditEventLog, normalizeAuditEventPayload, recordChartsAuditEvent } from '../audit';
-import { SoapNotePanel } from '../SoapNotePanel';
+import { SoapNotePanel, type SoapOrderDockState } from '../SoapNotePanel';
+import { resolveOrderDockCategoryLabel } from '../orderCategoryRegistry';
+import { buildOrderHubEventId, recordOrderHubKpi } from '../orderHubKpi';
 import { DoCopyDialog, type DoCopyDialogState } from '../DoCopyDialog';
 import type { SoapDraft, SoapEntry, SoapSectionKey } from '../soapNote';
 import { SOAP_SECTION_LABELS, SOAP_SECTIONS } from '../soapNote';
@@ -290,6 +292,15 @@ type UtilityCloseGuardState = {
   reason: string;
   nextAction?: DockedUtilityAction;
 };
+type OrderDockCoexistGuardState = {
+  eventId: string;
+  nextAction: DockedUtilityAction;
+  currentAction?: DockedUtilityAction | null;
+  editingLabel?: string;
+};
+type UtilityPanelOpenOptions = {
+  bypassOrderDockGuard?: boolean;
+};
 type DocumentUtilityState = {
   dirty: boolean;
   attachmentCount: number;
@@ -301,6 +312,29 @@ type ImageUtilityState = {
   uploadingCount: number;
   hasError: boolean;
 };
+
+const buildInitialOrderDockState = (): SoapOrderDockState => ({
+  hasEditing: false,
+  targetCategory: null,
+  count: 0,
+  editingLabel: undefined,
+  source: null,
+});
+
+const resolveOrderDockTabMeta = (state: SoapOrderDockState): string | null => {
+  if (state.hasEditing) {
+    const sourceLabel = state.source === 'bottom-floating' ? '下欄' : '右欄';
+    const editingLabel = state.editingLabel || resolveOrderDockCategoryLabel(state.targetCategory) || 'オーダー';
+    return `${sourceLabel}編集中:${editingLabel}`;
+  }
+  const count = Number.isFinite(state.count) ? Math.max(0, Math.trunc(state.count)) : 0;
+  if (count <= 0) return null;
+  const categoryLabel = resolveOrderDockCategoryLabel(state.targetCategory);
+  return categoryLabel ? `${categoryLabel}${count}件` : `全${count}件`;
+};
+
+const hasOrderDockRequiredIssue = (state: SoapOrderDockState) =>
+  Boolean(state.hasEditing && state.editingLabel?.includes('必須不足'));
 
 type EncounterExitAction = 'pause' | 'finish';
 type EncounterExitChoice = 'save' | 'discard' | 'cancel';
@@ -540,6 +574,7 @@ function ChartsContent() {
   const isChartsDoCopyEnabled = import.meta.env.VITE_CHARTS_DO_COPY === '1';
   const isChartsUiOptB = import.meta.env.VITE_CHARTS_UI_OPT_B === '1';
   const isPatientImagesMvpEnabled = import.meta.env.VITE_PATIENT_IMAGES_MVP === '1';
+  const isBottomOrderHubIntegrationEnabled = import.meta.env.VITE_CHARTS_BOTTOM_ORDER_HUB_INTEGRATION === '1';
   const stampboxMvpPhaseRaw = Number(import.meta.env.VITE_STAMPBOX_MVP ?? 0);
   const stampboxMvpPhase: 0 | 1 | 2 =
     Number.isFinite(stampboxMvpPhaseRaw) && stampboxMvpPhaseRaw >= 2
@@ -774,6 +809,8 @@ function ChartsContent() {
   const [isUtilityPanelDragging, setIsUtilityPanelDragging] = useState(false);
   const [isUtilityPanelResizing, setIsUtilityPanelResizing] = useState(false);
   const [utilityCloseGuard, setUtilityCloseGuard] = useState<UtilityCloseGuardState | null>(null);
+  const [orderDockCoexistGuard, setOrderDockCoexistGuard] = useState<OrderDockCoexistGuardState | null>(null);
+  const orderDockCoexistFocusRestoreRef = useRef<HTMLElement | null>(null);
   const [orderSetSubtab, setOrderSetSubtab] = useState<UtilityOrderSetSubtab>('set');
   const [documentUtilityState, setDocumentUtilityState] = useState<DocumentUtilityState>({
     dirty: false,
@@ -781,6 +818,7 @@ function ChartsContent() {
     isSaving: false,
     hasError: false,
   });
+  const [orderDockState, setOrderDockState] = useState<SoapOrderDockState>(() => buildInitialOrderDockState());
   const [imageUtilityState, setImageUtilityState] = useState<ImageUtilityState>({
     queueCount: 0,
     uploadingCount: 0,
@@ -1041,6 +1079,7 @@ function ChartsContent() {
       error: undefined,
       savedAt: undefined,
     });
+    setOrderDockState(buildInitialOrderDockState());
   }, [soapEncounterKey]);
   const [soapDraftSnapshot, setSoapDraftSnapshot] = useState<SoapDraft>(() => ({
     free: '',
@@ -3446,8 +3485,34 @@ function ChartsContent() {
     [clearDocumentAttachments],
   );
 
+  const emitOrderDockCoexistKpi = useCallback(
+    (payload: Parameters<typeof recordOrderHubKpi>[1]) => {
+      recordOrderHubKpi(
+        {
+          runId: sidePanelMeta.runId,
+          cacheHit: sidePanelMeta.cacheHit,
+          missingMaster: sidePanelMeta.missingMaster,
+          fallbackUsed: sidePanelMeta.fallbackUsed,
+          dataSourceTransition: sidePanelMeta.dataSourceTransition,
+          patientId: sidePanelMeta.patientId,
+          appointmentId: sidePanelMeta.appointmentId,
+        },
+        payload,
+      );
+    },
+    [
+      sidePanelMeta.appointmentId,
+      sidePanelMeta.cacheHit,
+      sidePanelMeta.dataSourceTransition,
+      sidePanelMeta.fallbackUsed,
+      sidePanelMeta.missingMaster,
+      sidePanelMeta.patientId,
+      sidePanelMeta.runId,
+    ],
+  );
+
   const openUtilityPanel = useCallback(
-    (action: DockedUtilityAction, trigger?: HTMLButtonElement | null) => {
+    (action: DockedUtilityAction, trigger?: HTMLButtonElement | null, options?: UtilityPanelOpenOptions) => {
       if (!canOpenUtilityAction(action)) return;
       const currentAction = utilityPanelActionRef.current;
       if (currentAction && currentAction !== action) {
@@ -3462,11 +3527,51 @@ function ChartsContent() {
           return;
         }
       }
+      if (
+        !options?.bypassOrderDockGuard &&
+        orderDockState.hasEditing &&
+        currentAction !== action
+      ) {
+        const eventId = buildOrderHubEventId();
+        const editingLabel = orderDockState.editingLabel || resolveOrderDockCategoryLabel(orderDockState.targetCategory) || 'オーダー';
+        const focusTarget =
+          trigger ??
+          (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement ? document.activeElement : null);
+        orderDockCoexistFocusRestoreRef.current = focusTarget;
+        setOrderDockCoexistGuard({
+          eventId,
+          nextAction: action,
+          currentAction,
+          editingLabel,
+        });
+        emitOrderDockCoexistKpi({
+          category: 'OUI-04',
+          source: 'bottom-floating',
+          result: 'blocked',
+          eventId,
+          reason: 'order_dock_coexist_guard',
+          details: {
+            nextAction: action,
+            currentAction,
+            targetCategory: orderDockState.targetCategory,
+            editingLabel,
+          },
+        });
+        return;
+      }
       utilityLastActionRef.current = action;
       utilityTriggerRef.current = trigger ?? resolveUtilityTrigger(action) ?? utilityTriggerRef.current;
       setUtilityPanelAction(action);
     },
-    [canOpenUtilityAction, resolveUtilityLeaveReason, resolveUtilityTrigger],
+    [
+      canOpenUtilityAction,
+      emitOrderDockCoexistKpi,
+      orderDockState.editingLabel,
+      orderDockState.hasEditing,
+      orderDockState.targetCategory,
+      resolveUtilityLeaveReason,
+      resolveUtilityTrigger,
+    ],
   );
 
   const createCopyRequestId = useCallback(
@@ -3543,7 +3648,54 @@ function ChartsContent() {
 
   const handleCancelUtilityCloseGuard = useCallback(() => {
     setUtilityCloseGuard(null);
+    const target = utilityTriggerRef.current;
+    if (target && target.isConnected) {
+      requestAnimationFrame(() => target.focus());
+    }
   }, []);
+
+  const handleConfirmOrderDockCoexistGuard = useCallback(() => {
+    const guard = orderDockCoexistGuard;
+    if (!guard) return;
+    emitOrderDockCoexistKpi({
+      category: 'OUI-04',
+      source: 'bottom-floating',
+      result: 'discarded',
+      eventId: guard.eventId,
+      reason: 'order_dock_coexist_guard',
+      details: {
+        nextAction: guard.nextAction,
+        currentAction: guard.currentAction,
+        editingLabel: guard.editingLabel ?? null,
+      },
+    });
+    setOrderDockCoexistGuard(null);
+    orderDockCoexistFocusRestoreRef.current = null;
+    openUtilityPanel(guard.nextAction, utilityTriggerRef.current, { bypassOrderDockGuard: true });
+  }, [emitOrderDockCoexistKpi, openUtilityPanel, orderDockCoexistGuard]);
+
+  const handleCancelOrderDockCoexistGuard = useCallback(() => {
+    const guard = orderDockCoexistGuard;
+    if (!guard) return;
+    emitOrderDockCoexistKpi({
+      category: 'OUI-05',
+      source: 'bottom-floating',
+      result: 'recovered',
+      eventId: guard.eventId,
+      reason: 'order_dock_coexist_guard',
+      details: {
+        nextAction: guard.nextAction,
+        currentAction: guard.currentAction,
+        editingLabel: guard.editingLabel ?? null,
+      },
+    });
+    setOrderDockCoexistGuard(null);
+    const target = orderDockCoexistFocusRestoreRef.current;
+    orderDockCoexistFocusRestoreRef.current = null;
+    if (target && target.isConnected) {
+      requestAnimationFrame(() => target.focus());
+    }
+  }, [emitOrderDockCoexistKpi, orderDockCoexistGuard]);
 
   const handlePastOrderDo = useCallback(
     (payload: { entity: PastOrderEntity; bundle: OrderBundle }) => {
@@ -3708,6 +3860,7 @@ function ChartsContent() {
     prevPatientIdRef.current = encounterContext.patientId;
     setUtilityPanelAction(null);
     setUtilityCloseGuard(null);
+    setOrderDockCoexistGuard(null);
     setOrderSetSubtab('set');
     setOrderHistoryCopyRequest(null);
     setDocumentHistoryCopyRequest(null);
@@ -3723,6 +3876,7 @@ function ChartsContent() {
       hasError: false,
     });
     utilityFocusRestoreRef.current = false;
+    orderDockCoexistFocusRestoreRef.current = null;
     utilityLastActionRef.current = 'order-set';
     requestAnimationFrame(() => {
       resolveUtilityTrigger('order-set')?.focus();
@@ -3887,6 +4041,44 @@ function ChartsContent() {
             </button>
             <button type="button" className="charts-side-panel__ghost" onClick={handleCancelUtilityCloseGuard}>
               キャンセル
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
+      <FocusTrapDialog
+        open={Boolean(orderDockCoexistGuard)}
+        title="右欄で編集中です"
+        description="右欄アコーディオンの編集を維持したまま、下欄フローティングを開くか選択してください。"
+        onClose={handleCancelOrderDockCoexistGuard}
+        testId="charts-order-dock-coexist-guard-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="右欄と下欄の共存確認">
+          <dl className="charts-actions__send-confirm-list">
+            <div>
+              <dt>現在の編集中</dt>
+              <dd>{orderDockCoexistGuard?.editingLabel ?? 'オーダー'}</dd>
+            </div>
+            {orderDockCoexistGuard?.editingLabel?.includes('必須不足') ? (
+              <div>
+                <dt>入力不足</dt>
+                <dd>RP必須項目に不足があります。</dd>
+              </div>
+            ) : null}
+            <div>
+              <dt>開こうとしている下欄</dt>
+              <dd>{orderDockCoexistGuard?.nextAction ? utilityPanelTitles[orderDockCoexistGuard.nextAction] : '—'}</dd>
+            </div>
+            <div>
+              <dt>影響</dt>
+              <dd>入力内容は保持されます。操作対象の切替のみ実行します。</dd>
+            </div>
+          </dl>
+          <div className="charts-tab-guard__actions" role="group" aria-label="右欄と下欄の共存操作">
+            <button type="button" onClick={handleCancelOrderDockCoexistGuard}>
+              キャンセル
+            </button>
+            <button type="button" className="charts-tab-guard__danger" onClick={handleConfirmOrderDockCoexistGuard}>
+              続行して開く
             </button>
           </div>
         </section>
@@ -4556,6 +4748,8 @@ function ChartsContent() {
 			                      onOrderDockOpenConsumed={handleOrderDockOpenConsumed}
 			                      orderHistoryCopyRequest={orderHistoryCopyRequest}
 			                      onOrderHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
+                      bottomOrderHubIntegrationEnabled={isBottomOrderHubIntegrationEnabled}
+                      onOrderDockStateChange={setOrderDockState}
 			                      onDraftSnapshot={setSoapDraftSnapshot}
 			                      replaceDraftRequest={replaceSoapDraftRequest}
                         saveRequest={soapSaveRequest}
@@ -4696,14 +4890,18 @@ function ChartsContent() {
                         const utilityKind = resolveUtilityVisualKind(item.id);
                         const isDisabled = item.requiresEdit && (!patientSelected || sidePanelMeta.readOnly);
                         const tabDirty =
-                          item.id === 'document'
+                          item.id === 'order-set'
+                            ? orderDockState.hasEditing
+                            : item.id === 'document'
                             ? documentUtilityState.dirty
                             : item.id === 'imaging'
                               ? imageUtilityState.queueCount > 0 || imageUtilityState.uploadingCount > 0
                               : false;
                         const tabMeta =
-                          item.id === 'document'
-                            ? documentImageAttachments.length > 0
+                          item.id === 'order-set'
+                            ? resolveOrderDockTabMeta(orderDockState)
+                            : item.id === 'document'
+                              ? documentImageAttachments.length > 0
                               ? `📎${documentImageAttachments.length}`
                               : null
                             : item.id === 'imaging'
@@ -4711,8 +4909,9 @@ function ChartsContent() {
                                 ? `送信${imageUtilityState.uploadingCount}`
                                 : imageUtilityState.queueCount > 0
                                   ? `待機${imageUtilityState.queueCount}`
-                                  : null
+                              : null
                               : null;
+                        const orderDockRequiredIssue = item.id === 'order-set' ? hasOrderDockRequiredIssue(orderDockState) : false;
                         const disabledReason = !patientSelected
                           ? UTILITY_PATIENT_UNSELECTED_MESSAGE
                           : sidePanelMeta.readOnlyReason ?? '読み取り専用のため編集はできません。';
@@ -4727,9 +4926,13 @@ function ChartsContent() {
                             data-utility-kind={utilityKind}
                             data-active={isActive ? 'true' : 'false'}
                             data-utility-order={index === 0 ? 'first' : undefined}
+                            data-order-dock-editing={item.id === 'order-set' ? (orderDockState.hasEditing ? 'true' : 'false') : undefined}
+                            data-order-dock-target-category={item.id === 'order-set' ? (orderDockState.targetCategory ?? '') : undefined}
+                            data-order-dock-rp-required={item.id === 'order-set' ? (orderDockRequiredIssue ? 'true' : 'false') : undefined}
                             aria-controls="charts-docked-panel"
                             aria-selected={isActive}
                             aria-expanded={isActive}
+                            aria-label={tabMeta ? `${item.label}（${tabMeta}）` : item.label}
                             disabled={isDisabled}
                             title={isDisabled ? disabledReason : item.shortcut}
                             onClick={(event) => handleUtilityButtonClick(item.id, event.currentTarget)}

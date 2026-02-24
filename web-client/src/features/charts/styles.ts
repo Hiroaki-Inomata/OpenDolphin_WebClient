@@ -5634,50 +5634,19 @@ export const chartsStyles = css`
   .order-dock {
     display: flex;
     flex-direction: column;
-    gap: var(--charts-space-sm);
+    gap: var(--charts-space-xs);
     min-width: 0;
   }
 
   .order-dock__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: var(--charts-space-sm);
     position: sticky;
     top: 0;
     z-index: 1;
-    padding: var(--charts-space-xs);
-    border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.28);
-    background: rgba(255, 255, 255, 0.94);
-    backdrop-filter: blur(2px);
-  }
-
-  .order-dock__header-main {
-    min-width: 0;
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
     gap: 2px;
-  }
-
-  .order-dock__step-label {
-    font-size: 0.7rem;
-    font-weight: 900;
-    letter-spacing: 0.04em;
-    color: #1d4ed8;
-  }
-
-  .order-dock__stage {
-    display: grid;
-    gap: var(--charts-space-xs);
-  }
-
-  .order-dock__stage-title {
-    margin: 0;
-    font-size: 0.74rem;
-    font-weight: 900;
-    letter-spacing: 0.03em;
-    color: #475569;
+    padding: 0;
   }
 
   .order-dock__header strong {
@@ -5688,18 +5657,40 @@ export const chartsStyles = css`
 
   .order-dock__meta {
     display: block;
-    margin-top: 2px;
     font-size: 0.75rem;
     color: #64748b;
   }
 
+  .order-dock__context {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    background: rgba(239, 246, 255, 0.55);
+    padding: 0.28rem 0.5rem;
+  }
+
+  .order-dock__context-mode {
+    border-radius: 999px;
+    border: 1px solid rgba(59, 130, 246, 0.28);
+    background: rgba(255, 255, 255, 0.9);
+    color: #1d4ed8;
+    font-size: 0.7rem;
+    font-weight: 900;
+    padding: 0.1rem 0.45rem;
+  }
+
+  .order-dock__context-current {
+    font-size: 0.75rem;
+    color: #1e293b;
+    font-weight: 800;
+  }
+
   .order-dock__search {
     display: grid;
-    gap: var(--charts-space-xs);
-    padding: var(--charts-space-xs);
-    border: 1px solid rgba(148, 163, 184, 0.35);
-    border-radius: var(--charts-radius-sm);
-    background: #f8fafc;
+    gap: var(--charts-space-2xs);
   }
 
   .order-dock__search-row {
@@ -5855,36 +5846,6 @@ export const chartsStyles = css`
     white-space: nowrap;
   }
 
-  .order-dock__send-summary {
-    border: 1px solid rgba(148, 163, 184, 0.3);
-    border-radius: var(--charts-radius-sm);
-    background: #f8fafc;
-    padding: var(--charts-space-xs) var(--charts-space-sm);
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--charts-space-sm);
-    align-items: center;
-  }
-
-  .order-dock__send-status,
-  .order-dock__send-last {
-    font-size: 0.75rem;
-    font-weight: 800;
-    color: #334155;
-  }
-
-  .order-dock__send-status--success {
-    color: #166534;
-  }
-
-  .order-dock__send-status--error {
-    color: #991b1b;
-  }
-
-  .order-dock__send-status--idle {
-    color: #1e3a8a;
-  }
-
   .order-dock__notice {
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-xs) var(--charts-space-sm);
@@ -5914,7 +5875,7 @@ export const chartsStyles = css`
   .order-dock__quick-add {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--charts-space-xs);
+    gap: var(--charts-space-2xs);
   }
 
   .order-dock__quick-add-mode {
@@ -5951,26 +5912,31 @@ export const chartsStyles = css`
   .order-dock__groups {
     display: flex;
     flex-direction: column;
-    gap: var(--charts-space-sm);
+    gap: var(--charts-space-xs);
     min-width: 0;
   }
 
   .order-dock__group {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid rgba(148, 163, 184, 0.2);
     background: #ffffff;
-    padding: var(--charts-space-sm);
-    display: flex;
-    flex-direction: column;
-    gap: var(--charts-space-sm);
     min-width: 0;
+    overflow: hidden;
+  }
+
+  .order-dock__group[data-group='prescription'],
+  .order-dock__group[data-group='injection'] {
+    border-color: rgba(59, 130, 246, 0.25);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(248, 250, 252, 0.92) 100%);
   }
 
   .order-dock__group-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--charts-space-sm);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: var(--charts-space-xs);
+    padding: var(--charts-space-xs);
+    min-width: 0;
   }
 
   .order-dock__group-title {
@@ -5998,11 +5964,28 @@ export const chartsStyles = css`
     white-space: nowrap;
   }
 
-  .order-dock__group-actions {
-    display: flex;
-    gap: var(--charts-space-xs);
-    flex-wrap: wrap;
-    justify-content: flex-end;
+  .order-dock__group-toggle {
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    background: #ffffff;
+    color: #334155;
+    cursor: pointer;
+    font-size: 0.72rem;
+    font-weight: 800;
+    padding: 0.18rem 0.55rem;
+    white-space: nowrap;
+  }
+
+  .order-dock__group-toggle--expanded {
+    border-color: rgba(37, 99, 235, 0.4);
+    background: rgba(239, 246, 255, 0.92);
+    color: #1d4ed8;
+  }
+
+  .order-dock__group-body {
+    display: grid;
+    gap: var(--charts-space-sm);
+    padding: 0 var(--charts-space-xs) var(--charts-space-xs);
   }
 
   .order-dock__group-action {
@@ -6150,6 +6133,12 @@ export const chartsStyles = css`
     color: #991b1b;
   }
 
+  .order-dock__badge--required {
+    border-color: rgba(239, 68, 68, 0.4);
+    background: rgba(254, 242, 242, 0.95);
+    color: #b91c1c;
+  }
+
   .order-dock__bundle-name {
     font-size: 0.88rem;
     color: #0f172a;
@@ -6198,6 +6187,15 @@ export const chartsStyles = css`
     color: #475569;
     line-height: 1.35;
     word-break: break-word;
+  }
+
+  .order-dock__bundle-required {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: #b91c1c;
+    font-weight: 800;
   }
 
   .order-dock__bundle-actions {

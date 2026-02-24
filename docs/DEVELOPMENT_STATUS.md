@@ -1,4 +1,4 @@
-# 開発状況（単一参照, 更新日: 2026-02-22）
+# 開発状況（単一参照, 更新日: 2026-02-24）
 
 ## 現行ステータス
 - Phase2 開発ドキュメントは **Legacy/Archive（参照専用）**。Phase2 を現行フェーズとして扱わない。
@@ -30,6 +30,25 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-02-24: Charts オーダーUI再編（OUI-01〜OUI-05）の追跡性を正本へ統合反映（RUN_ID=20260224T213000Z）。
+  - 内容: OUI-01〜OUI-05 を `OUI-ID / file / test / KPIイベント` の 1:1 追跡形式に統一。今回実装の主要結果（RP主軸化・共存ガード・KPI計測・互換維持）を `refactor plan` / `CURRENT` / 本ファイルへ同期反映し、計画→実装詳細への導線を追加。
+  - 成果物: `docs/web-client/order-ui/charts-order-ui-refactor-plan-20260224.md` / `docs/web-client/order-ui/charts-order-ui-implementation-trace-20260224.md` / `docs/web-client/CURRENT.md` / `docs/DEVELOPMENT_STATUS.md`。
+  - 検証: 追跡表（OUI-ID, file, test, KPIイベント）を上記4ドキュメントで同一キー運用に揃えた（文書更新のみ、コード変更なし）。
+- 2026-02-24: Charts オーダーUI再編（OUI-01〜OUI-05）の統合仕上げ（RUN_ID=20260224T113000Z）。
+  - 内容: `OrderDockPanel` の `onStateChange(hasEditing/targetCategory/count)` 互換と quick-add/group-add 導線維持を回帰テスト化し、RP主軸の「複数RP連続編集」「単独RP保存再編集」「単独/複数RP送信」を維持。`ChartsPage` では右欄編集中の下欄操作、未保存離脱ガード、復帰の共存シナリオを統合テストで検証。加えて `laboTest`（legacy 検査）を `testOrder` 互換で表示できるよう `orderCategoryRegistry` / `OrderDockPanel` を補強し、互換回帰を追加。`vitest` 実行時の `localhost` 解決失敗に対し、`vite.config.ts` test mode で `server.host=127.0.0.1` を明示して検証を安定化。
+  - 成果物: `web-client/vite.config.ts` / `web-client/src/features/charts/orderCategoryRegistry.ts` / `web-client/src/features/charts/OrderDockPanel.tsx` / `web-client/src/features/charts/__tests__/orderDockPanel.state-compat-and-rp-regression.test.tsx` / `web-client/src/features/charts/__tests__/orderCategoryRegistry.test.ts` / `docs/web-client/order-ui/charts-order-ui-refactor-plan-20260224.md` / `docs/web-client/order-ui/charts-order-ui-regression-test-notes-20260224.md` / `docs/web-client/CURRENT.md`。
+  - 検証:
+    - `npm -C web-client run typecheck` PASS
+    - `npm -C web-client run test -- --run src/features/charts/__tests__/orderDockPanel.categoryButtons.test.tsx src/features/charts/__tests__/orderBundleItemActions.test.tsx src/features/charts/__tests__/orderBundleValidation.test.ts src/features/charts/__tests__/orderBundleMasterSearch.test.tsx src/features/charts/__tests__/orderBundleUsageSearch.test.tsx src/features/charts/__tests__/orderBundleBundleNumberUi.test.tsx src/features/charts/__tests__/orderBundlePrescription.test.ts src/features/charts/__tests__/orderBundleStampFlow.test.tsx src/features/charts/__tests__/chartsPageDirtyDot.test.tsx src/features/charts/__tests__/soapNoteDirtyState.test.tsx src/features/charts/__tests__/chartsActionBar.orca-send.test.tsx --silent=true` PASS（11 files / 97 tests）
+    - `npm -C web-client run test -- --run src/features/charts/__tests__/chartsOrderDockCoexistence.recovery-order.test.tsx src/features/charts/__tests__/orderDockPanel.state-compat-and-rp-regression.test.tsx src/features/charts/__tests__/orderCategoryRegistry.test.ts --silent=true` PASS（3 files / 7 tests）
+- 2026-02-24: Charts オーダーを ORCA整合前提で再整理（RPモデル運用の明確化・カテゴリ定義単一化・送信必須項目チェック）（RUN_ID=20260224T100000Z）。
+  - 内容: `orderCategoryRegistry` を新設し、処方/注射/処置/検査/算定の表示名・グルーピング・検索プリセット・バリデーション要件・送信クラス既定値を一元管理。`OrderDockPanel`/`OrderBundleEditPanel`/`ChartsActionBar` は同レジストリ参照へ変更。ORCA送信時は薬剤RP/注射RPについて `Medical_Class` / `Medical_Class_Number` / `Medication_info` 欠落を検知した場合に送信を停止し、理由を表示するよう更新。
+  - 成果物: `web-client/src/features/charts/orderCategoryRegistry.ts` / `web-client/src/features/charts/OrderDockPanel.tsx` / `web-client/src/features/charts/OrderBundleEditPanel.tsx` / `web-client/src/features/charts/ChartsActionBar.tsx` / `web-client/src/features/charts/SoapNotePanel.tsx` / `web-client/src/features/charts/pages/ChartsPage.tsx` / `web-client/src/features/charts/__tests__/chartsActionBar.orca-send.test.tsx` / `web-client/src/features/charts/__tests__/orderDockPanel.categoryButtons.test.tsx` / `web-client/src/features/charts/__tests__/orderCategoryRegistry.test.ts` / `docs/web-client/order-ui/charts-order-rp-model-and-category-registry-20260224.md` / `docs/web-client/CURRENT.md`。
+  - 検証: `npm -C web-client run typecheck` PASS、`PATCH_FILE=\"$(pwd)/tmp/node-localhost-patch.cjs\"; [ -f \"$PATCH_FILE\" ] && export NODE_OPTIONS=\"--require=$PATCH_FILE\"; npm -C web-client run test -- --run src/features/charts/__tests__/orderDockPanel.categoryButtons.test.tsx src/features/charts/__tests__/orderBundleItemActions.test.tsx src/features/charts/__tests__/orderBundleValidation.test.ts src/features/charts/__tests__/orderBundleMasterSearch.test.tsx src/features/charts/__tests__/orderBundleUsageSearch.test.tsx src/features/charts/__tests__/orderBundleBundleNumberUi.test.tsx src/features/charts/__tests__/orderBundlePrescription.test.ts src/features/charts/__tests__/orderBundleStampFlow.test.tsx src/features/charts/__tests__/chartsPageDirtyDot.test.tsx src/features/charts/__tests__/soapNoteDirtyState.test.tsx src/features/charts/__tests__/chartsActionBar.orca-send.test.tsx src/features/charts/__tests__/orderCategoryRegistry.test.ts --silent=true` PASS（97 tests）。
+- 2026-02-24: Charts オーダーUI再編の改修計画を整備し、開発ドキュメントから追跡できる導線を追加（RUN_ID=20260224T084533Z）。
+  - 内容: 右欄オーダーUIの改善方針を「短期: 右欄アコーディオン + 下部フローティング両立」「中期: KPI条件付きで下部注文ハブへ統合」に確定。既存オーダー確認/編集の見失い防止を優先し、編集導線の一意化・未保存可視化・自動フォーカス・離脱確認をガードレールとして定義。
+  - 成果物: `docs/web-client/order-ui/charts-order-ui-refactor-plan-20260224.md` / `docs/web-client/CURRENT.md`。
+  - 補足: 右欄の不要UI削減（段階ラベル、重複操作導線）を前提とした計画として整理。
 - 2026-02-22: ORCA `pusheventgetv2` の Webクライアント送信形式を公式仕様（`Content-Type: application/json` / `pusheventgetv2req`）に修正（RUN_ID=20260222T230107Z）。
   - 内容: `fetchOrcaPushEvents` の要求bodyを XML から JSON に変更し、送信ヘッダを `application/json; charset=UTF-8` へ統一。既存のレスポンス正規化（`Api_Result` / `Event_Information`）は維持。
   - 成果物: `web-client/src/features/outpatient/orcaQueueApi.ts` / `web-client/src/features/outpatient/__tests__/orcaQueueApi.test.ts`。

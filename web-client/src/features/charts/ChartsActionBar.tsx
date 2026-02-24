@@ -24,13 +24,16 @@ import { useOptionalSession } from '../../AppRouter';
 import { buildPrintUrl } from '../../routes/appNavigation';
 import { useAppNavigation } from '../../routes/useAppNavigation';
 import { buildMedicalModV23RequestXml, postOrcaMedicalModV23Xml } from './orcaMedicalModApi';
-import { buildMedicalModV2RequestXml, postOrcaMedicalModV2Xml, type MedicalModV2Information } from './orcaClaimApi';
+import { buildMedicalModV2RequestXml, postOrcaMedicalModV2Xml } from './orcaClaimApi';
 import { getOrcaClaimSendEntry, saveOrcaClaimSendCache, type OrcaMedicalWarningUi } from './orcaClaimSendCache';
 import { ReportPrintDialog } from './print/ReportPrintDialog';
 import { useOrcaReportPrint } from './print/useOrcaReportPrint';
 import { MISSING_MASTER_RECOVERY_NEXT_STEPS } from '../shared/missingMasterRecovery';
-import { fetchOrderBundles, type OrderBundle, type OrderBundleItem } from './orderBundleApi';
-import { parseOrcaOrderItemMemo } from './orcaOrderItemMeta';
+import { fetchOrderBundles, type OrderBundle } from './orderBundleApi';
+import { ORCA_SEND_ORDER_ENTITIES, isOrderEntity, type OrderEntity } from './orderCategoryRegistry';
+import { buildRpRequiredBlockedMessage, collectRpRequiredIssues, RP_REQUIRED_NEXT_ACTION } from './orderRpRequirements';
+import { buildOrderHubEventId, recordOrderHubKpi } from './orderHubKpi';
+import { toMedicalModV2InformationWithSource } from './orderRpNormalization';
 
 type ChartAction = 'start' | 'pause' | 'finish' | 'send' | 'draft' | 'cancel' | 'print';
 
@@ -100,24 +103,7 @@ const resolveActionTimeoutMs = (action: ChartAction) => {
   return ORCA_ACTION_TIMEOUT_MS;
 };
 
-const ORCA_SEND_ORDER_ENTITIES = [
-  'generalOrder',
-  'treatmentOrder',
-  'testOrder',
-  'laboTest',
-  'physiologyOrder',
-  'bacteriaOrder',
-  'instractionChargeOrder',
-  'surgeryOrder',
-  'otherOrder',
-  'radiologyOrder',
-  'baseChargeOrder',
-  'injectionOrder',
-  'medOrder',
-] as const;
-
 const COMMENT_CODE_PATTERN = /^(008[1-6]|8[1-6]|098|099|98|99)/;
-const DRUG_CODE_PATTERN = /^6\d{8}$/;
 const NORMALIZED_CODE_PATTERN = /^\d{9}$/;
 
 const isCommentMedicationCode = (code: string) => COMMENT_CODE_PATTERN.test(code.trim());
@@ -128,127 +114,10 @@ const isSendableMedicalModV2Code = (code: string) => {
   return NORMALIZED_CODE_PATTERN.test(normalized) || isCommentMedicationCode(normalized);
 };
 
-const toMedicalModV2Medication = (item: OrderBundleItem) => {
-  const code = item.code?.trim();
-  if (!code) return null;
-  const { meta } = parseOrcaOrderItemMemo(item.memo);
-  const genericFlg = DRUG_CODE_PATTERN.test(code) ? meta.genericFlg : undefined;
-  return {
-    code,
-    name: item.name?.trim() || undefined,
-    number: item.quantity?.trim() || undefined,
-    unit: item.unit?.trim() || undefined,
-    genericFlg,
-  };
-};
-
-const resolveMedicalModV2ClassFallback = (bundle: OrderBundle) => {
-  // `OrderBundleEditPanel` only assigns `classCode` for medOrder today.
-  // For other entities, keep medicalmodv2 export working by applying a sane default.
-  // NOTE: This is a pragmatic fallback for verification; refine mapping once ORCA class rules are fixed.
-  const entity = bundle.entity?.trim();
-  if (!entity) return null;
-  switch (entity) {
-    case 'generalOrder':
-      return '400';
-    case 'treatmentOrder':
-      return '400';
-    case 'surgeryOrder':
-      return '500';
-    case 'radiologyOrder':
-      return '700';
-    case 'testOrder':
-    case 'laboTest':
-    case 'physiologyOrder':
-    case 'bacteriaOrder':
-      return '600';
-    case 'otherOrder':
-      return '800';
-    case 'instractionChargeOrder':
-      return '130';
-    case 'baseChargeOrder':
-      return '110';
-    case 'injectionOrder':
-      return '310';
-    default:
-      return null;
-  }
-};
-
-type MedicalModV2MedicationRow = NonNullable<ReturnType<typeof toMedicalModV2Medication>>;
-
-type MedicalModV2RowSource =
-  | { kind: 'bundle_item'; itemIndex: number }
-  | { kind: 'usage' };
-
-type MedicalModV2InformationSource = {
-  entity?: string;
-  documentId?: number;
-  moduleId?: number;
-  bundleName?: string;
-  medicalClass: string;
-  medicalClassName?: string;
-  medicalClassNumber?: string;
-  rows: Array<{ medication: MedicalModV2MedicationRow; source: MedicalModV2RowSource }>;
-};
-
-const toMedicalModV2InformationWithSource = (
-  bundle: OrderBundle,
-): { info: MedicalModV2Information; source: MedicalModV2InformationSource } | null => {
-  const bundleRows = (bundle.items ?? [])
-    .map((item, itemIndex) => {
-      const medication = toMedicalModV2Medication(item);
-      if (!medication) return null;
-      return {
-        medication,
-        source: { kind: 'bundle_item', itemIndex } as const,
-      };
-    })
-    .filter((row): row is { medication: MedicalModV2MedicationRow; source: { kind: 'bundle_item'; itemIndex: number } } =>
-      Boolean(row),
-    );
-  if (bundleRows.length === 0) return null;
-
-  const medicalClass = bundle.classCode?.trim() || resolveMedicalModV2ClassFallback(bundle);
-  if (!medicalClass) return null;
-
-  // For prescriptions (medOrder), insert usage as its own Medication_info row.
-  const isPrescription = (bundle.entity?.trim() ?? '') === 'medOrder';
-  const usageCodeCandidate =
-    bundle.adminMemo?.trim() || (bundle.admin?.trim() ? bundle.admin.trim().split(/\s+/)[0] : '');
-  const usageCode = isPrescription && /^\d{4,}$/.test(usageCodeCandidate) ? usageCodeCandidate : '';
-  const hasUsageAlready = Boolean(usageCode && bundleRows.some((row) => row.medication.code.trim() === usageCode));
-  const usageName =
-    usageCode && bundle.admin?.trim()
-      ? bundle.admin.trim().startsWith(`${usageCode} `)
-        ? bundle.admin.trim().slice(usageCode.length).trim() || undefined
-        : bundle.admin.trim()
-      : undefined;
-  const usageMedication: MedicalModV2MedicationRow | null =
-    usageCode && !hasUsageAlready ? { code: usageCode, name: usageName, number: '', unit: undefined, genericFlg: undefined } : null;
-  const usageRow = usageMedication ? ({ medication: usageMedication, source: { kind: 'usage' } as const } satisfies { medication: MedicalModV2MedicationRow; source: MedicalModV2RowSource }) : null;
-
-  const head = isPrescription ? bundleRows.filter((row) => !isCommentMedicationCode(row.medication.code)) : bundleRows;
-  const tail = isPrescription ? bundleRows.filter((row) => isCommentMedicationCode(row.medication.code)) : [];
-  const mergedRows = isPrescription ? [...head, ...(usageRow ? [usageRow] : []), ...tail] : bundleRows;
-
-  const info: MedicalModV2Information = {
-    medicalClass,
-    medicalClassName: bundle.className?.trim() || undefined,
-    medicalClassNumber: bundle.bundleNumber?.trim() || undefined,
-    medications: mergedRows.map((row) => row.medication),
-  };
-  const source: MedicalModV2InformationSource = {
-    entity: bundle.entity?.trim() || undefined,
-    documentId: bundle.documentId,
-    moduleId: bundle.moduleId,
-    bundleName: bundle.bundleName?.trim() || undefined,
-    medicalClass,
-    medicalClassName: bundle.className?.trim() || undefined,
-    medicalClassNumber: bundle.bundleNumber?.trim() || undefined,
-    rows: mergedRows,
-  };
-  return { info, source };
+const resolveFetchedBundleEntity = (rawEntity: string | undefined, fallback: OrderEntity): OrderEntity => {
+  const normalized = rawEntity?.trim();
+  if (normalized && isOrderEntity(normalized)) return normalized;
+  return fallback;
 };
 
 const fetchMedicalModV2OrderBundles = async (patientId: string, from: string) => {
@@ -266,7 +135,12 @@ const fetchMedicalModV2OrderBundles = async (patientId: string, from: string) =>
         errors.push(`${entity}: ${reason}`);
         return;
       }
-      bundles.push(...(result.value.bundles ?? []).map((bundle) => ({ ...bundle, entity: bundle.entity ?? entity })));
+      bundles.push(
+        ...(result.value.bundles ?? []).map((bundle) => ({
+          ...bundle,
+          entity: resolveFetchedBundleEntity(bundle.entity, entity),
+        })),
+      );
       return;
     }
     const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
@@ -274,6 +148,11 @@ const fetchMedicalModV2OrderBundles = async (patientId: string, from: string) =>
   });
   return { bundles, errors };
 };
+
+type MedicalModV2RequiredIssue = ReturnType<typeof collectRpRequiredIssues>[number];
+
+const collectMedicalModV2RequiredIssues = (bundles: OrderBundle[]): MedicalModV2RequiredIssue[] =>
+  collectRpRequiredIssues(bundles);
 
 const summarizeGuardReasons = (reasons: GuardReason[]) => {
   if (reasons.length === 0) return null;
@@ -1503,6 +1382,46 @@ export const ChartsActionBar = forwardRef<ChartsActionBarHandle, ChartsActionBar
               tone: 'warning',
               message: `ORCA送信を停止: オーダー取得失敗（${failedEntitiesPreview}${remaining > 0 ? ` / 他${remaining}件` : ''}）`,
               nextAction: '取得失敗したentityの通信状態とORCA連携設定を確認してください。',
+            });
+            setIsRunning(false);
+            setRunningAction(null);
+            return;
+          }
+          const requiredIssues = collectMedicalModV2RequiredIssues(orderBundleResult.bundles);
+          if (requiredIssues.length > 0) {
+            const eventId = buildOrderHubEventId();
+            recordOrderHubKpi(
+              {
+                runId,
+                cacheHit,
+                missingMaster,
+                fallbackUsed,
+                dataSourceTransition,
+                patientId: resolvedPatientId,
+                appointmentId: resolvedAppointmentId,
+              },
+              {
+                category: 'OUI-04',
+                source: 'system',
+                result: 'blocked',
+                eventId,
+                reason: 'rp_required_missing',
+                details: {
+                  issueCount: requiredIssues.length,
+                  issues: requiredIssues.slice(0, 8).map((issue) => ({
+                    entity: issue.entity,
+                    bundleName: issue.bundleName ?? null,
+                    documentId: issue.documentId ?? null,
+                    moduleId: issue.moduleId ?? null,
+                    missing: issue.missing,
+                  })),
+                },
+              },
+            );
+            setBanner({
+              tone: 'warning',
+              message: buildRpRequiredBlockedMessage(requiredIssues),
+              nextAction: RP_REQUIRED_NEXT_ACTION,
             });
             setIsRunning(false);
             setRunningAction(null);

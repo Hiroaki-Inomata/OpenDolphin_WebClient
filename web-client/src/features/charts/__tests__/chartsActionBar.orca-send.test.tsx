@@ -203,6 +203,185 @@ describe('ChartsActionBar ORCA送信 (medicalmodv2)', () => {
     expect(postOrcaMedicalModV2Xml).not.toHaveBeenCalled();
   });
 
+  it('処方RPで Medical_Class_Number が欠落している場合は送信前に停止する', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchOrderBundles).mockImplementation(async ({ entity }) => ({
+      ok: true,
+      bundles:
+        entity === 'medOrder'
+          ? [
+              {
+                entity: 'medOrder',
+                bundleName: '降圧薬RP',
+                bundleNumber: '',
+                classCode: '212',
+                items: [{ code: '620001402', name: 'アムロジピン', quantity: '1' }],
+              },
+            ]
+          : [],
+    }));
+
+    render(
+      <MemoryRouter>
+        <ChartsActionBar
+          {...baseProps}
+          patientId="000001"
+          visitDate="2026-01-20"
+          selectedEntry={{ department: '01 内科', physician: '10001 主治医', patientId: '000001' } as any}
+        />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'ORCA 送信' }));
+    await user.click(screen.getByRole('button', { name: '送信する' }));
+
+    await waitFor(() => expect(screen.getByText(/RP必須項目不足/)).toBeInTheDocument());
+    expect(screen.getByText(/Medical_Class_Number/)).toBeInTheDocument();
+    expect(postOrcaMedicalModV2Xml).not.toHaveBeenCalled();
+  });
+
+  it('注射RPで Medication_info が空の場合は送信前に停止する', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchOrderBundles).mockImplementation(async ({ entity }) => ({
+      ok: true,
+      bundles:
+        entity === 'injectionOrder'
+          ? [
+              {
+                entity: 'injectionOrder',
+                bundleName: '注射RP',
+                bundleNumber: '1',
+                classCode: '310',
+                items: [{ name: 'ビタミン注射', quantity: '1' }],
+              },
+            ]
+          : [],
+    }));
+
+    render(
+      <MemoryRouter>
+        <ChartsActionBar
+          {...baseProps}
+          patientId="000001"
+          visitDate="2026-01-20"
+          selectedEntry={{ department: '01 内科', physician: '10001 主治医', patientId: '000001' } as any}
+        />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'ORCA 送信' }));
+    await user.click(screen.getByRole('button', { name: '送信する' }));
+
+    await waitFor(() => expect(screen.getByText(/RP必須項目不足/)).toBeInTheDocument());
+    expect(screen.getByText(/Medication_info/)).toBeInTheDocument();
+    expect(postOrcaMedicalModV2Xml).not.toHaveBeenCalled();
+  });
+
+  it('単独の処方RPは必須項目がそろっていれば送信できる', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchOrderBundles).mockImplementation(async ({ entity }) => ({
+      ok: true,
+      bundles:
+        entity === 'medOrder'
+          ? [
+              {
+                entity: 'medOrder',
+                bundleName: '降圧薬RP',
+                bundleNumber: '7',
+                classCode: '212',
+                admin: '1日1回 朝食後',
+                items: [{ code: '620001402', name: 'アムロジピン', quantity: '1', unit: '錠' }],
+              },
+            ]
+          : [],
+    }));
+    vi.mocked(postOrcaMedicalModV2Xml).mockResolvedValue({
+      ok: true,
+      status: 200,
+      apiResult: '00',
+      apiResultMessage: 'OK',
+      rawXml: '<xml></xml>',
+      missingTags: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <ChartsActionBar
+          {...baseProps}
+          patientId="000001"
+          visitDate="2026-01-20"
+          selectedEntry={{ department: '01 内科', physician: '10001 主治医', patientId: '000001' } as any}
+        />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'ORCA 送信' }));
+    await user.click(screen.getByRole('button', { name: '送信する' }));
+
+    await waitFor(() => expect(buildMedicalModV2RequestXml).toHaveBeenCalled());
+    await waitFor(() => expect(postOrcaMedicalModV2Xml).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/RP必須項目不足/)).not.toBeInTheDocument();
+  });
+
+  it('複数の処方RPを連続送信対象にした場合も medicalInformation に全件展開する', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetchOrderBundles).mockImplementation(async ({ entity }) => ({
+      ok: true,
+      bundles:
+        entity === 'medOrder'
+          ? [
+              {
+                entity: 'medOrder',
+                bundleName: '降圧薬RP-A',
+                bundleNumber: '7',
+                classCode: '212',
+                admin: '1日1回 朝食後',
+                items: [{ code: '620001402', name: 'アムロジピン', quantity: '1', unit: '錠' }],
+              },
+              {
+                entity: 'medOrder',
+                bundleName: '降圧薬RP-B',
+                bundleNumber: '14',
+                classCode: '212',
+                admin: '1日1回 夕食後',
+                items: [{ code: '620009876', name: 'テルミサルタン', quantity: '1', unit: '錠' }],
+              },
+            ]
+          : [],
+    }));
+    vi.mocked(postOrcaMedicalModV2Xml).mockResolvedValue({
+      ok: true,
+      status: 200,
+      apiResult: '00',
+      apiResultMessage: 'OK',
+      rawXml: '<xml></xml>',
+      missingTags: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <ChartsActionBar
+          {...baseProps}
+          patientId="000001"
+          visitDate="2026-01-20"
+          selectedEntry={{ department: '01 内科', physician: '10001 主治医', patientId: '000001' } as any}
+        />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'ORCA 送信' }));
+    await user.click(screen.getByRole('button', { name: '送信する' }));
+
+    await waitFor(() => expect(buildMedicalModV2RequestXml).toHaveBeenCalled());
+    await waitFor(() => expect(postOrcaMedicalModV2Xml).toHaveBeenCalledTimes(1));
+
+    const lastCall = vi.mocked(buildMedicalModV2RequestXml).mock.calls.at(-1)?.[0] as any;
+    const medInfoRows = Array.isArray(lastCall?.medicalInformation) ? lastCall.medicalInformation : [];
+    const prescriptionRows = medInfoRows.filter((row: any) => row?.medicalClass === '212');
+    expect(prescriptionRows).toHaveLength(2);
+    expect(screen.queryByText(/RP必須項目不足/)).not.toBeInTheDocument();
+  });
+
   it('generalOrder のフォールバック Medical_Class は 400 を使用する', async () => {
     const user = userEvent.setup();
     vi.mocked(fetchOrderBundles).mockImplementation(async ({ entity }) => ({

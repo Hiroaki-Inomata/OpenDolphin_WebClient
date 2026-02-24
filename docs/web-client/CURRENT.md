@@ -1,16 +1,33 @@
 # Webクライアント ドキュメントハブ（現行）
 
-- 更新日: 2026-02-20
-- RUN_ID: 20260219T210316Z
+- 更新日: 2026-02-24
+- RUN_ID: 20260224T213000Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
 
-## 最新変更（2026-02-20）
-- RUN_ID: `20260219T210316Z`
-- Reception 画面に `EventSource` ベースのリアルタイム同期を追加し、他端末の受付登録/取消を即時反映。
-- SSE 受信時に `['outpatient-appointments']` / `['orca-queue']` を invalidate し、`receptionDailyState` のローカル上書きが最新表示を阻害しないよう調整。
-- Reception メタバーへ `RT同期` ステータス（接続中/接続済み/再接続中/停止/未対応）を追加。
+## 最新変更（2026-02-24）
+- RUN_ID: `20260224T213000Z`
+- OUI-01〜OUI-05 を `OUI-ID / file / test / KPIイベント` で 1:1 追跡できる監査形式へ統一し、実装詳細ノートを追加。
+- 今回の実装結果（RP主軸化・共存ガード・KPI計測・互換維持）を `refactor plan` / `DEVELOPMENT_STATUS` / 本ハブの3点へ正本反映。
+- 導線を追加:
+  - 計画: `docs/web-client/order-ui/charts-order-ui-refactor-plan-20260224.md`
+  - 実装詳細: `docs/web-client/order-ui/charts-order-ui-implementation-trace-20260224.md`
+- RUN_ID: `20260224T113000Z`
+- Charts オーダーUI再編（OUI-01〜OUI-05）に対する回帰テストを強化。共存シナリオ（右欄編集中の下欄操作・未保存離脱ガード・復帰）と RP 主軸（複数RP連続編集、単独RP保存再編集、単独/複数RP送信）を追加。
+- `quick-add/group-add` の `data-test-id` と `onStateChange(hasEditing/targetCategory/count)` の互換テストを維持し、追跡マトリクスへ反映。
+- `laboTest`（legacy 検査エンティティ）を `testOrder` 互換で表示できるよう `orderCategoryRegistry` / `OrderDockPanel` を補強し、互換回帰を追加。
+- `vitest` 実行時に `localhost` 名前解決へ依存しないよう `vite.config.ts` の test mode で `server.host=127.0.0.1` を明示。
+- 最終検証: `npm -C web-client run typecheck` PASS、指定11ファイルテスト PASS（11 files / 97 tests）、追加回帰テスト PASS（3 files / 7 tests）。
+- 実装詳細ノートを追加: `docs/web-client/order-ui/charts-order-ui-regression-test-notes-20260224.md`
+- RUN_ID: `20260224T100000Z`
+- Charts オーダーのカテゴリ/エンティティ定義を `orderCategoryRegistry` に単一化し、処方/注射RPの送信必須項目チェック（Medical_Class / Medical_Class_Number / Medication_info）を追加。
+- `OrderDockPanel` / `OrderBundleEditPanel` / `ChartsActionBar` を registry 参照へ統一。quick-add/group-add data-test-id と onStateChange 互換を維持。
+- 実装ノートを追加: `docs/web-client/order-ui/charts-order-rp-model-and-category-registry-20260224.md`
+- RUN_ID: `20260224T084533Z`
+- Charts 右側オーダー欄と下部フローティングの再編方針を、段階導入（短期: 両立 / 中期: 条件付き統合）で計画化。
+- 改修追跡ドキュメントを追加: `docs/web-client/order-ui/charts-order-ui-refactor-plan-20260224.md`
+- 右側オーダー欄の不要UI削減（段階ラベル・重複操作導線の整理）を前提に、次フェーズの仕様/KPIを明文化。
 
 ## 参照優先順位（Webクライアント領域）
 1. `docs/DEVELOPMENT_STATUS.md`
@@ -54,6 +71,13 @@
 - `docs/web-client/ux/charts-semantic-color-system-20260212.md`
 - `docs/web-client/ux/reception-status-tab-daily-state-20260211.md`
 - `docs/web-client/ux/admin-master-update-console-20260212.md`
+
+### Order UI（現行）
+- `docs/web-client/order-ui/charts-order-dock-20260215.md`
+- `docs/web-client/order-ui/charts-order-two-table-layout-20260214.md`
+- `docs/web-client/order-ui/charts-order-ui-refactor-plan-20260224.md`
+- `docs/web-client/order-ui/charts-order-ui-implementation-trace-20260224.md`
+- `docs/web-client/order-ui/charts-order-rp-model-and-category-registry-20260224.md`
 
 ### ORCA 追加API / 接続計画
 - `docs/web-client-orca-additional-api-plan.md`

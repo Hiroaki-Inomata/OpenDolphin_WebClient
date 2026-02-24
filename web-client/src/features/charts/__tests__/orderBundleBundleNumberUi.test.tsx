@@ -21,6 +21,20 @@ vi.mock('../orderMasterSearchApi', async () => ({
   fetchOrderMasterSearch: vi.fn(),
 }));
 
+vi.mock('../contraindicationCheckApi', async () => ({
+  buildContraindicationCheckRequestXml: vi.fn().mockReturnValue('<data />'),
+  fetchContraindicationCheckXml: vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    rawXml: '<data />',
+    apiResult: '00',
+    apiResultMessage: 'OK',
+    results: [],
+    symptomInfo: [],
+    missingTags: [],
+  }),
+}));
+
 vi.mock('../stampApi', async () => ({
   fetchUserProfile: vi.fn().mockResolvedValue({ ok: true, id: 1, userId: 'facility:doctor' }),
   fetchStampTree: vi.fn().mockResolvedValue({ ok: true, trees: [] }),
@@ -61,11 +75,18 @@ afterEach(() => {
 describe('OrderBundleEditPanel bundle number UI', () => {
   const mockUsageMaster = () => {
     const searchMock = vi.mocked(fetchOrderMasterSearch);
-    searchMock.mockImplementation(async ({ type }) => {
+    searchMock.mockImplementation(async ({ type, keyword }) => {
       if (type === 'youhou') {
         return {
           ok: true,
           items: [{ type: 'youhou', name: '1日1回' }],
+          totalCount: 1,
+        };
+      }
+      if (type === 'drug' && keyword.trim().length > 0) {
+        return {
+          ok: true,
+          items: [{ type: 'drug', code: '620001402', name: 'アムロジピン', unit: '錠' }],
           totalCount: 1,
         };
       }
@@ -84,6 +105,19 @@ describe('OrderBundleEditPanel bundle number UI', () => {
     });
     await user.selectOptions(usageSelect, optionValue);
     expect(usageSelect.selectedOptions[0]?.text).toBe('1日1回');
+  };
+
+  const fillPrimaryDrug = async (user: ReturnType<typeof userEvent.setup>) => {
+    const nameInput = screen.getByPlaceholderText('薬剤名') as HTMLInputElement;
+    await user.clear(nameInput);
+    await user.type(nameInput, 'アムロジピン');
+    await waitFor(() => {
+      const options = Array.from(
+        document.querySelectorAll('datalist[id$="-item-predictive-list"] option'),
+      ) as HTMLOptionElement[];
+      expect(options.some((option) => (option.getAttribute('value') ?? '').includes('アムロジピン'))).toBe(true);
+    });
+    await user.tab();
   };
 
   it('用法入力後に日数入力が編集可能になる', async () => {
@@ -120,14 +154,14 @@ describe('OrderBundleEditPanel bundle number UI', () => {
     vi.mocked(mutateOrderBundles).mockResolvedValueOnce({ ok: true, runId: 'RUN-ORDER' });
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    await user.type(screen.getByPlaceholderText('薬剤名'), 'アムロジピン');
+    await fillPrimaryDrug(user);
     await selectUsage(user);
     await user.click(screen.getByRole('button', { name: '院内' }));
     await user.click(screen.getByRole('button', { name: '頓用' }));
     await user.clear(screen.getByLabelText('回数'));
     await user.type(screen.getByLabelText('回数'), '3');
 
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+    await user.click(screen.getByRole('button', { name: '保存して追加する' }));
 
     const mutateMock = vi.mocked(mutateOrderBundles);
     await waitFor(() => expect(mutateMock).toHaveBeenCalled());

@@ -22,6 +22,7 @@ import { RevisionHistoryDrawer } from './revisions/RevisionHistoryDrawer';
 import type { RpHistoryEntry } from './karteExtrasApi';
 import type { OrderBundle } from './orderBundleApi';
 import { OrderDockPanel } from './OrderDockPanel';
+import type { OrderEntity, OrderGroupKey } from './orderCategoryRegistry';
 import { resolveAriaLive } from '../../libs/observability/observability';
 import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 
@@ -43,19 +44,13 @@ export type SoapNoteAuthor = {
   userId: string;
 };
 
-type PastOrderEntity =
-  | 'medOrder'
-  | 'generalOrder'
-  | 'injectionOrder'
-  | 'treatmentOrder'
-  | 'surgeryOrder'
-  | 'otherOrder'
-  | 'testOrder'
-  | 'physiologyOrder'
-  | 'bacteriaOrder'
-  | 'radiologyOrder'
-  | 'instractionChargeOrder'
-  | 'baseChargeOrder';
+export type SoapOrderDockState = {
+  hasEditing: boolean;
+  targetCategory: OrderGroupKey | null;
+  count: number;
+  editingLabel?: string;
+  source?: 'right-panel' | 'bottom-floating' | 'order-dock' | 'system' | null;
+};
 
 type SoapNotePanelProps = {
   history: SoapEntry[];
@@ -69,10 +64,12 @@ type SoapNotePanelProps = {
   orderBundles?: OrderBundle[];
   orderBundlesLoading?: boolean;
   orderBundlesError?: string;
-  orderDockOpenRequest?: { requestId: string; entity: PastOrderEntity } | null;
+  orderDockOpenRequest?: { requestId: string; entity: OrderEntity } | null;
   onOrderDockOpenConsumed?: (requestId: string) => void;
-  orderHistoryCopyRequest?: { requestId: string; entity: PastOrderEntity; bundle: OrderBundle } | null;
+  orderHistoryCopyRequest?: { requestId: string; entity: OrderEntity; bundle: OrderBundle } | null;
   onOrderHistoryCopyConsumed?: (requestId: string) => void;
+  onOrderDockStateChange?: (next: SoapOrderDockState) => void;
+  bottomOrderHubIntegrationEnabled?: boolean;
   onDraftSnapshot?: (draft: SoapDraft) => void;
   replaceDraftRequest?: { token: string; draft: SoapDraft; note?: string } | null;
   applyDraftPatch?: { token: string; section: SoapSectionKey; body: string; note?: string } | null;
@@ -147,6 +144,8 @@ export function SoapNotePanel({
   onOrderDockOpenConsumed,
   orderHistoryCopyRequest,
   onOrderHistoryCopyConsumed,
+  onOrderDockStateChange,
+  bottomOrderHubIntegrationEnabled,
   onDraftSnapshot,
   replaceDraftRequest,
   applyDraftPatch,
@@ -1331,6 +1330,8 @@ export function SoapNotePanel({
             onOpenRequestConsumed={onOrderDockOpenConsumed}
             historyCopyRequest={orderHistoryCopyRequest}
             onHistoryCopyConsumed={onOrderHistoryCopyConsumed}
+            bottomOrderHubIntegrationEnabled={bottomOrderHubIntegrationEnabled}
+            onStateChange={onOrderDockStateChange}
           />
         </aside>
       </div>

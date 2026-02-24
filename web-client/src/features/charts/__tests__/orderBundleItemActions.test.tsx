@@ -92,12 +92,22 @@ afterEach(() => {
 describe('OrderBundleEditPanel item actions', () => {
   const mockUsageMaster = () => {
     const searchMock = vi.mocked(fetchOrderMasterSearch);
-    searchMock.mockImplementation(async ({ type }) => {
+    searchMock.mockImplementation(async ({ type, keyword }) => {
       if (type === 'youhou') {
         return {
           ok: true,
           items: [{ type: 'youhou', name: '1回' }],
           totalCount: 1,
+        };
+      }
+      if (type === 'drug' && keyword.trim().length > 0) {
+        return {
+          ok: true,
+          items: [
+            { type: 'drug', code: '620001402', name: 'アムロジピン', unit: '錠' },
+            { type: 'drug', code: '620009876', name: 'テルミサルタン', unit: '錠' },
+          ],
+          totalCount: 2,
         };
       }
       return { ok: true, items: [], totalCount: 0 };
@@ -115,6 +125,23 @@ describe('OrderBundleEditPanel item actions', () => {
     });
     await user.selectOptions(usageSelect, optionValue);
     expect(usageSelect.selectedOptions[0]?.text).toBe('1回');
+  };
+
+  const fillDrugRow = async (
+    user: ReturnType<typeof userEvent.setup>,
+    rowIndex: number,
+    drugName: string,
+  ) => {
+    const nameInputs = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
+    await user.clear(nameInputs[rowIndex]);
+    await user.type(nameInputs[rowIndex], drugName);
+    await waitFor(() => {
+      const options = Array.from(
+        document.querySelectorAll('datalist[id$="-item-predictive-list"] option'),
+      ) as HTMLOptionElement[];
+      expect(options.some((option) => (option.getAttribute('value') ?? '').includes(drugName))).toBe(true);
+    });
+    await user.tab();
   };
 
   it('末尾行に入力すると空行が自動追加される', async () => {
@@ -167,20 +194,19 @@ describe('OrderBundleEditPanel item actions', () => {
     if (!itemSection) throw new Error('処方薬剤セクションが見つかりません');
     await user.click(within(itemSection).getByRole('button', { name: '追加' }));
 
-    const nameInputs = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
-    await user.type(nameInputs[0], 'A');
-    await user.type(nameInputs[1], 'B');
+    await fillDrugRow(user, 0, 'アムロジピン');
+    await fillDrugRow(user, 1, 'テルミサルタン');
 
     await selectUsage(user);
 
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+    await user.click(screen.getByRole('button', { name: '保存して追加する' }));
 
     const mutateMock = vi.mocked(mutateOrderBundles);
     await waitFor(() => expect(mutateMock).toHaveBeenCalled());
 
     const payload = mutateMock.mock.calls[0]?.[0];
     const items = payload?.operations?.[0]?.items ?? [];
-    expect(items.map((item: { name: string }) => item.name)).toEqual(['A', 'B']);
+    expect(items.map((item: { name: string }) => item.name)).toEqual(['アムロジピン', 'テルミサルタン']);
   });
 
   it('頓用/院内の選択とRP名補正が保存 payload に反映される', async () => {
@@ -188,8 +214,7 @@ describe('OrderBundleEditPanel item actions', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    const nameInputs = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
-    await user.type(nameInputs[0], 'アムロジピン');
+    await fillDrugRow(user, 0, 'アムロジピン');
 
     await user.click(screen.getByRole('button', { name: '院内' }));
     await user.click(screen.getByRole('button', { name: '頓用' }));
@@ -198,7 +223,7 @@ describe('OrderBundleEditPanel item actions', () => {
     await user.clear(screen.getByLabelText('回数'));
     await user.type(screen.getByLabelText('回数'), '3');
 
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+    await user.click(screen.getByRole('button', { name: '保存して追加する' }));
 
     const mutateMock = vi.mocked(mutateOrderBundles);
     await waitFor(() => expect(mutateMock).toHaveBeenCalled());
@@ -219,7 +244,7 @@ describe('OrderBundleEditPanel item actions', () => {
 
     const itemInput = screen.getByPlaceholderText('処置項目名') as HTMLInputElement;
     await user.type(itemInput, '創傷処置');
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+    await user.click(screen.getByRole('button', { name: '保存して追加する' }));
 
     const mutateMock = vi.mocked(mutateOrderBundles);
     await waitFor(() => expect(mutateMock).toHaveBeenCalled());
@@ -236,13 +261,13 @@ describe('OrderBundleEditPanel item actions', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    await user.type(screen.getByPlaceholderText('薬剤名'), 'アムロジピン');
+    await fillDrugRow(user, 0, 'アムロジピン');
     await selectUsage(user);
 
     await user.click(screen.getByRole('button', { name: '外用' }));
     await user.click(screen.getByLabelText('混合'));
 
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+    await user.click(screen.getByRole('button', { name: '保存して追加する' }));
 
     const mutateMock = vi.mocked(mutateOrderBundles);
     await waitFor(() => expect(mutateMock).toHaveBeenCalled());
@@ -306,7 +331,7 @@ describe('OrderBundleEditPanel item actions', () => {
 
     await selectUsage(user);
 
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+    await user.click(screen.getByRole('button', { name: '保存して追加する' }));
 
     const mutateMock = vi.mocked(mutateOrderBundles);
     await waitFor(() => expect(mutateMock).toHaveBeenCalled());
@@ -326,11 +351,11 @@ describe('OrderBundleEditPanel item actions', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    await user.type(screen.getByPlaceholderText('薬剤名'), 'アムロジピン');
+    await fillDrugRow(user, 0, 'アムロジピン');
     await user.type(screen.getByLabelText('薬剤コメント 1'), '   ');
     await selectUsage(user);
 
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+    await user.click(screen.getByRole('button', { name: '保存して追加する' }));
 
     const mutateMock = vi.mocked(mutateOrderBundles);
     await waitFor(() => expect(mutateMock).toHaveBeenCalled());
@@ -360,9 +385,9 @@ describe('OrderBundleEditPanel item actions', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
-    await user.type(screen.getByPlaceholderText('薬剤名'), 'アムロジピン');
+    await fillDrugRow(user, 0, 'アムロジピン');
     await selectUsage(user);
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+    await user.click(screen.getByRole('button', { name: '保存して追加する' }));
 
     await waitFor(() => expect(vi.mocked(mutateOrderBundles)).toHaveBeenCalled());
     const stored = localStorage.getItem(recentUsageStorageKey);

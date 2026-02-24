@@ -56,11 +56,6 @@ describe('OrderDockPanel category quick-add', () => {
     expect(document.querySelector('[data-test-id="order-dock-group-add-treatment"]')).not.toBeNull();
     expect(document.querySelector('[data-test-id="order-dock-group-add-test"]')).not.toBeNull();
     expect(document.querySelector('[data-test-id="order-dock-group-add-charge"]')).not.toBeNull();
-    expect(screen.getByText('1. 受診ヘッダ固定')).toBeInTheDocument();
-    expect(screen.getByText('2. カテゴリ入力')).toBeInTheDocument();
-    expect(screen.getByText('3. 送信/差分')).toBeInTheDocument();
-    expect(screen.getByText(/送信状態: 未送信/)).toBeInTheDocument();
-    expect(screen.getByText(/最終送信: —/)).toBeInTheDocument();
   });
 
   it('カテゴリ候補からインライン編集を開いても検索UIが残り、閉じるで閉じる', async () => {
@@ -90,6 +85,10 @@ describe('OrderDockPanel category quick-add', () => {
       expect(screen.getByRole('searchbox', { name: 'オーダー検索' })).toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: '閉じる' }));
+      const discardButton = screen.queryByRole('button', { name: '破棄して切替' });
+      if (discardButton) {
+        await user.click(discardButton);
+      }
       expect(screen.queryByLabelText(`${scenario.expectedTitle}入力`)).not.toBeInTheDocument();
       expect(screen.getByRole('searchbox', { name: 'オーダー検索' })).toBeInTheDocument();
     }
@@ -113,21 +112,29 @@ describe('OrderDockPanel category quick-add', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: '+処置' }));
+    await user.click(screen.getByRole('button', { name: '処置を追加' }));
     expect(screen.getByLabelText('処置入力')).toBeInTheDocument();
     expect(screen.queryByRole('searchbox', { name: 'オーダー検索' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '通常閲覧へ戻る' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '通常閲覧へ戻る' }));
     await user.click(screen.getByRole('button', { name: '閉じる' }));
+    const firstDiscardButton = screen.queryByRole('button', { name: '破棄して切替' });
+    if (firstDiscardButton) {
+      await user.click(firstDiscardButton);
+    }
 
-    await user.click(screen.getByRole('button', { name: '+検査' }));
+    await user.click(screen.getByRole('button', { name: '検査を追加' }));
     expect(screen.getByLabelText('検査入力')).toBeInTheDocument();
     expect(screen.queryByRole('searchbox', { name: 'オーダー検索' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '通常閲覧へ戻る' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '通常閲覧へ戻る' }));
     await user.click(screen.getByRole('button', { name: '閉じる' }));
+    const secondDiscardButton = screen.queryByRole('button', { name: '破棄して切替' });
+    if (secondDiscardButton) {
+      await user.click(secondDiscardButton);
+    }
 
-    await user.click(screen.getByRole('button', { name: '+算定' }));
+    await user.click(screen.getByRole('button', { name: '算定を追加' }));
     expect(screen.getByLabelText('基本料入力')).toBeInTheDocument();
   });
 
@@ -135,7 +142,7 @@ describe('OrderDockPanel category quick-add', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderDockPanel patientId="P-100" meta={baseMeta} visitDate="2026-02-17" orderBundles={[]} />);
 
-    await user.click(screen.getByRole('button', { name: '+処置' }));
+    await user.click(screen.getByRole('button', { name: '処置を追加' }));
     expect(screen.getByLabelText('処置入力')).toBeInTheDocument();
     expect(document.querySelector('[data-test-id="order-dock-group-add-treatment"]')).not.toBeNull();
     expect(document.querySelector('[data-test-id="order-dock-group-add-prescription"]')).toBeNull();
@@ -148,14 +155,14 @@ describe('OrderDockPanel category quick-add', () => {
     expect(screen.queryByText('まだありません。')).not.toBeInTheDocument();
     expect(screen.queryByText('この種類のオーダーはまだありません。')).not.toBeInTheDocument();
     expect(screen.queryByRole('searchbox', { name: 'オーダー検索' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '+処方' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '+算定' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '処方を追加' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '算定を追加' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '通常閲覧へ戻る' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '通常閲覧へ戻る' }));
     expect(screen.getByRole('searchbox', { name: 'オーダー検索' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '+処方' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '+算定' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '処方を追加' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '算定を追加' })).toBeInTheDocument();
     expect(document.querySelector('[data-test-id="order-dock-group-add-prescription"]')).not.toBeNull();
     expect(document.querySelector('[data-test-id="order-dock-group-add-injection"]')).not.toBeNull();
     expect(document.querySelector('[data-test-id="order-dock-group-add-treatment"]')).not.toBeNull();
@@ -163,7 +170,8 @@ describe('OrderDockPanel category quick-add', () => {
     expect(document.querySelector('[data-test-id="order-dock-group-add-charge"]')).not.toBeNull();
   });
 
-  it('medOrder item memo の userComment を表示し __orca_meta__ は露出しない', () => {
+  it('medOrder item memo の userComment を表示し __orca_meta__ は露出しない', async () => {
+    const user = userEvent.setup();
     const fullComment = '朝夕食後に服用してください。眠気が強い場合は中止してください。';
     renderWithClient(
       <OrderDockPanel
@@ -188,7 +196,13 @@ describe('OrderDockPanel category quick-add', () => {
       />,
     );
 
-    const commentChip = screen.getByTitle(`アムロジピン 1錠 コメント:${fullComment}`);
+    const prescriptionGroup = document.querySelector('section.order-dock__group[data-group="prescription"]') as HTMLElement;
+    const expandButton = prescriptionGroup.querySelector('.order-dock__group-toggle') as HTMLButtonElement;
+    if (expandButton.getAttribute('aria-expanded') !== 'true') {
+      await user.click(expandButton);
+    }
+
+    const commentChip = await screen.findByTitle(`アムロジピン 1錠 コメント:${fullComment}`);
     expect(commentChip).toHaveTextContent(/コメント:/);
     expect(commentChip.textContent).not.toBe(`アムロジピン 1錠 コメント:${fullComment}`);
     expect(screen.queryByText(/__orca_meta__/)).not.toBeInTheDocument();

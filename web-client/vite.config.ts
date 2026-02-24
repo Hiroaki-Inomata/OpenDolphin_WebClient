@@ -56,6 +56,7 @@ export default defineConfig(({ mode }) => {
   // `loadEnv()` keeps dev/proxy settings consistent whether started via scripts or manually.
   const env = loadEnv(mode, process.cwd(), '');
   const getEnv = (key: string) => process.env[key] ?? env[key];
+  const isVitestRun = mode === 'test';
 
   const apiProxyTarget = getEnv('VITE_DEV_PROXY_TARGET') ?? 'http://localhost:8080/openDolphin/resources';
   const disableProxy = getEnv('VITE_DISABLE_PROXY') === '1';
@@ -246,10 +247,8 @@ export default defineConfig(({ mode }) => {
                 const timestamp = new Date().toISOString().replace(/[:]/g, '').replace(/\..+/, 'Z');
                 const filename = path.join(rumOutputDir, `${timestamp}-${process.pid}-${randomUUID()}.json`);
                 fs.writeFileSync(filename, body || '{}', 'utf8');
-                // Keep console noise minimal but traceable when needed.
-                console.info('[perf-log] saved', path.basename(filename));
-              } catch (error) {
-                console.error('[perf-log] failed to persist log', error);
+              } catch {
+                // noop
               }
 
               res.statusCode = 204;
@@ -262,6 +261,8 @@ export default defineConfig(({ mode }) => {
     base: viteBase,
     server: {
       // 開発計測時に自己署名証明書で LHCI が落ちないよう HTTP に切替可能にする
+      // CI/開発環境によっては localhost の名前解決に失敗するため、vitest 実行時のみ固定IPを使用。
+      host: isVitestRun ? '127.0.0.1' : undefined,
       https: httpsOption,
       strictPort: true,
       proxy: disableProxy ? undefined : { ...apiProxy },
