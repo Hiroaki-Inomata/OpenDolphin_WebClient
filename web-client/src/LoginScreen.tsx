@@ -7,6 +7,7 @@ import { httpFetch, isLegacyHeaderAuthEnabled } from './libs/http/httpClient';
 import { generateRunId, updateObservabilityMeta } from './libs/observability/observability';
 import { consumeSessionExpiredNotice } from './libs/session/sessionExpiry';
 import { logAuditEvent } from './libs/audit/auditLogger';
+import { resolveLoginFailureMessage } from './features/login/loginErrorMessage';
 
 const resolveApiBaseUrl = () => {
   const raw = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
@@ -504,7 +505,13 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(body || `ステータスコード ${response.status}`);
+    throw new Error(
+      resolveLoginFailureMessage({
+        status: response.status,
+        bodyText: body,
+        statusText: response.statusText,
+      }),
+    );
   }
 
   const data = (await response.json()) as UserResourceResponse;
