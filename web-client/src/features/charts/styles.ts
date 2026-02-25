@@ -5422,7 +5422,7 @@ export const chartsStyles = css`
 
   .soap-note__body {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(420px, clamp(520px, 43vw, 760px));
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 38vw) 72px;
     gap: var(--charts-space-md);
     align-items: start;
   }
@@ -5432,6 +5432,174 @@ export const chartsStyles = css`
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-md);
+  }
+
+  .soap-note__center-panel-only {
+    grid-column: 2;
+    min-width: 0;
+  }
+
+  .soap-note__right-dock {
+    grid-column: 3;
+    width: 72px;
+    min-width: 72px;
+    align-self: start;
+    position: sticky;
+    top: var(--charts-space-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-xs);
+    z-index: 3;
+  }
+
+  .soap-note__right-dock-scroll {
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-xs);
+    max-height: min(72vh, 680px);
+    overflow-y: auto;
+    padding-right: 2px;
+    scrollbar-width: thin;
+  }
+
+  .soap-note__right-dock-button {
+    min-height: 68px;
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.36);
+    background: #ffffff;
+    color: #334155;
+    font-size: 0.74rem;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 0.04em;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    cursor: pointer;
+    padding: var(--charts-space-xs) var(--charts-space-2xs);
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+  }
+
+  .soap-note__right-dock-button:hover {
+    background: #f8fafc;
+    border-color: rgba(37, 99, 235, 0.28);
+    color: #1d4ed8;
+  }
+
+  .soap-note__right-dock-button[data-active='true'] {
+    background: #dbeafe;
+    border-color: rgba(37, 99, 235, 0.42);
+    color: #1d4ed8;
+    box-shadow: 0 8px 18px rgba(29, 78, 216, 0.2);
+  }
+
+  .soap-note__right-dock-button:focus-visible {
+    outline: 2px solid rgba(37, 99, 235, 0.52);
+    outline-offset: 2px;
+  }
+
+  .soap-note__body > aside[aria-label='右ドック'] {
+    grid-column: 3;
+    align-self: start;
+    position: sticky;
+    top: var(--charts-space-sm);
+    min-width: 72px;
+  }
+
+  .soap-note__body > aside[aria-label='右ユーティリティドロワー'] {
+    position: fixed !important;
+    top: clamp(72px, 8vh, 126px) !important;
+    right: clamp(8px, 1.7vw, 24px) !important;
+    bottom: clamp(10px, 1.8vh, 24px) !important;
+    width: min(640px, 56vw) !important;
+    max-width: min(640px, calc(100vw - 92px)) !important;
+    border-radius: var(--charts-radius-lg) !important;
+    border: 1px solid rgba(148, 163, 184, 0.36) !important;
+    background: #ffffff !important;
+    box-shadow: -18px 0 38px rgba(15, 23, 42, 0.18) !important;
+    z-index: 38 !important;
+    transform: translateY(14px) !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transition: transform 180ms ease, opacity 180ms ease !important;
+  }
+
+  .soap-note__body > aside[aria-label='右ユーティリティドロワー'][aria-hidden='false'] {
+    transform: translateY(0) !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+
+  .soap-note__body > aside[aria-label='右ユーティリティドロワー'] > header {
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), #ffffff 70%) !important;
+  }
+
+  .soap-note__body > aside[aria-label='右ユーティリティドロワー'] > :not(header) {
+    animation: soapRightDrawerRise 180ms ease;
+  }
+
+  .soap-note__right-drawer {
+    position: fixed;
+    top: clamp(72px, 8vh, 126px);
+    right: clamp(8px, 1.7vw, 24px);
+    width: min(560px, calc(100vw - 92px));
+    max-height: min(82vh, calc(100dvh - 120px));
+    border-radius: var(--charts-radius-lg);
+    border: 1px solid rgba(148, 163, 184, 0.36);
+    background: #ffffff;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.2);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    z-index: 38;
+    transform: translateY(14px);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 180ms ease, opacity 180ms ease;
+  }
+
+  .soap-note__right-drawer[data-open='true'] {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .soap-note__right-drawer-content {
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-sm);
+  }
+
+  .soap-note__right-drawer-panel {
+    min-height: 0;
+    opacity: 0;
+    transform: translateY(14px);
+    pointer-events: none;
+  }
+
+  .soap-note__right-drawer-panel[data-active='true'] {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+    animation: soapRightDrawerRise 180ms ease;
+  }
+
+  .soap-note__right-drawer-panel--center {
+    grid-column: 2;
+    min-width: 0;
+  }
+
+  @keyframes soapRightDrawerRise {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .soap-note__history-mode {
@@ -6703,7 +6871,20 @@ export const chartsStyles = css`
 
   @media (max-width: 1280px) {
     .soap-note__body {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr) 72px;
+      align-items: start;
+    }
+
+    .soap-note__editor {
+      grid-column: 1 / -1;
+    }
+
+    .soap-note__center-panel-only {
+      grid-column: 1 / 2;
+    }
+
+    .soap-note__body > aside[aria-label='右ドック'] {
+      grid-column: 2 / 3;
     }
 
     .soap-note__grid {
@@ -6715,15 +6896,69 @@ export const chartsStyles = css`
     }
   }
 
+  @media (max-width: 1023px) {
+    .soap-note__body {
+      grid-template-columns: 1fr;
+      gap: var(--charts-space-sm);
+    }
+
+    .soap-note__editor,
+    .soap-note__center-panel-only,
+    .soap-note__body > aside[aria-label='右ドック'] {
+      grid-column: 1;
+    }
+
+    .soap-note__body > aside[aria-label='右ドック'] {
+      position: static;
+      top: auto;
+      min-width: 0;
+    }
+
+    .soap-note__right-dock {
+      width: 100%;
+      min-width: 0;
+      position: static;
+      top: auto;
+    }
+
+    .soap-note__right-dock-scroll {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      max-height: none;
+      overflow: visible;
+      padding-right: 0;
+    }
+
+    .soap-note__right-dock-button {
+      writing-mode: horizontal-tb;
+      text-orientation: mixed;
+      min-height: 42px;
+      padding: var(--charts-space-xs) var(--charts-space-sm);
+      letter-spacing: 0.02em;
+    }
+
+    .soap-note__body > aside[aria-label='右ユーティリティドロワー'] {
+      top: calc(env(safe-area-inset-top) + 62px) !important;
+      right: 8px !important;
+      left: 8px !important;
+      width: auto !important;
+      max-width: none !important;
+      bottom: max(8px, env(safe-area-inset-bottom)) !important;
+    }
+  }
+
   @media (max-width: 760px) {
     .soap-note__grid {
       grid-template-columns: minmax(0, 1fr);
+    }
+
+    .soap-note__right-dock-scroll {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 
   @media (max-height: 900px) {
     .soap-note__body {
-      grid-template-columns: 1fr;
       gap: var(--charts-space-sm);
     }
 

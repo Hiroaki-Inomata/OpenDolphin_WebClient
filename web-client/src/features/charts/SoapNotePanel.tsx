@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import type { DataSourceTransition } from './authService';
 import { recordChartsAuditEvent } from './audit';
@@ -21,8 +21,18 @@ import { postChartSubjectiveEntry, type ChartSubjectiveEntryRequest } from './so
 import { RevisionHistoryDrawer } from './revisions/RevisionHistoryDrawer';
 import type { RpHistoryEntry } from './karteExtrasApi';
 import type { OrderBundle } from './orderBundleApi';
-import { OrderDockPanel } from './OrderDockPanel';
-import type { OrderEntity, OrderGroupKey } from './orderCategoryRegistry';
+import type { OrderBundleEditPanelRequest, OrderBundleEditingContext } from './OrderBundleEditPanel';
+import { OrderSummaryPane } from './OrderSummaryPane';
+import { RightUtilityDock } from './RightUtilityDock';
+import { RightUtilityDrawer, resolveLatestBundle, type RightUtilityTool } from './RightUtilityDrawer';
+import {
+  ORDER_GROUP_REGISTRY,
+  isOrderEntity,
+  resolveOrderEntityLabel,
+  resolveOrderGroupKeyByEntity,
+  type OrderEntity,
+  type OrderGroupKey,
+} from './orderCategoryRegistry';
 import { resolveAriaLive } from '../../libs/observability/observability';
 import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 
@@ -68,6 +78,11 @@ type SoapNotePanelProps = {
   onOrderDockOpenConsumed?: (requestId: string) => void;
   orderHistoryCopyRequest?: { requestId: string; entity: OrderEntity; bundle: OrderBundle } | null;
   onOrderHistoryCopyConsumed?: (requestId: string) => void;
+  documentDockOpenRequest?: { requestId: string; source?: string } | null;
+  onDocumentDockOpenConsumed?: (requestId: string) => void;
+  documentHistoryCopyRequest?: { requestId: string; letterId: number } | null;
+  onDocumentHistoryCopyConsumed?: (requestId: string) => void;
+  documentPanel?: ReactNode;
   onOrderDockStateChange?: (next: SoapOrderDockState) => void;
   bottomOrderHubIntegrationEnabled?: boolean;
   onDraftSnapshot?: (draft: SoapDraft) => void;
@@ -128,15 +143,35 @@ const resolveSoapCategory = (section: SoapSectionKey): 'S' | 'O' | 'A' | 'P' | n
   }
 };
 
+const EMPTY_ORDER_BUNDLE_EDITING_CONTEXT: OrderBundleEditingContext = {
+  hasRpRequiredIssue: false,
+  rpRequiredMissing: [],
+};
+
+const isOrderTool = (tool: RightUtilityTool): tool is OrderGroupKey => tool !== 'document';
+
+const resolveGroupSpec = (groupKey: OrderGroupKey) => ORDER_GROUP_REGISTRY.find((spec) => spec.key === groupKey) ?? null;
+
+const normalizeBundleEntity = (bundle: OrderBundle, fallback: OrderEntity): OrderEntity => {
+  const raw = bundle.entity?.trim() ?? '';
+  if (isOrderEntity(raw)) return raw;
+  return fallback;
+};
+
+const isBundleMatchedToEntity = (bundle: OrderBundle, targetEntity: OrderEntity, fallback: OrderEntity) => {
+  const entity = normalizeBundleEntity(bundle, fallback);
+  if (targetEntity === 'testOrder') {
+    return entity === 'testOrder' || entity === 'laboTest';
+  }
+  return entity === targetEntity;
+};
+
 export function SoapNotePanel({
   history,
   meta,
   author,
   readOnly,
   readOnlyReason,
-  rpHistory,
-  rpHistoryLoading = false,
-  rpHistoryError,
   orderBundles,
   orderBundlesLoading = false,
   orderBundlesError,
@@ -144,8 +179,12 @@ export function SoapNotePanel({
   onOrderDockOpenConsumed,
   orderHistoryCopyRequest,
   onOrderHistoryCopyConsumed,
+  documentDockOpenRequest,
+  onDocumentDockOpenConsumed,
+  documentHistoryCopyRequest,
+  onDocumentHistoryCopyConsumed,
+  documentPanel,
   onOrderDockStateChange,
-  bottomOrderHubIntegrationEnabled,
   onDraftSnapshot,
   replaceDraftRequest,
   applyDraftPatch,
@@ -285,6 +324,253 @@ export function SoapNotePanel({
     }),
     [author.role, meta, readOnly, readOnlyReason],
   );
+
+  const requestSequenceRef = useRef(0);
+  const buildDrawerRequestId = useCallback(() => {
+    requestSequenceRef.current += 1;
+    const ts = Date.now().toString(36);
+    const perf = typeof performance !== 'undefined' ? Math.floor(performance.now() * 1000).toString(36) : '0';
+    const seq = requestSequenceRef.current.toString(36);
+    const rand = Math.random().toString(36).slice(2, 10);
+    return `soap-order-${ts}-${perf}-${seq}-${rand}`;
+  }, []);
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeTool, setActiveTool] = useState<RightUtilityTool>('prescription');
+  const [activeOrderEntity, setActiveOrderEntity] = useState<OrderEntity | null>(null);
+  const [activeOrderRequest, setActiveOrderRequest] = useState<OrderBundleEditPanelRequest | null>(null);
+  const [activeOrderContext, setActiveOrderContext] = useState<OrderBundleEditingContext>(EMPTY_ORDER_BUNDLE_EDITING_CONTEXT);
+  const [activeOrderSource, setActiveOrderSource] = useState<SoapOrderDockState['source']>(null);
+  const [pendingDocumentHistoryCopyRequest, setPendingDocumentHistoryCopyRequest] = useState<{
+    requestId: string;
+    letterId: number;
+  } | null>(null);
+
+  const lastOrderDockOpenRequestIdRef = useRef<string | null>(null);
+  const lastOrderHistoryCopyRequestIdRef = useRef<string | null>(null);
+  const lastDocumentDockOpenRequestIdRef = useRef<string | null>(null);
+  const lastDocumentHistoryCopyRequestIdRef = useRef<string | null>(null);
+  const pendingExternalHistoryCopyRequestIdRef = useRef<string | null>(null);
+
+  const orderBundlesByGroup = useMemo(() => {
+    const map = new Map<OrderGroupKey, OrderBundle[]>();
+    ORDER_GROUP_REGISTRY.forEach((spec) => map.set(spec.key, []));
+    (orderBundles ?? []).forEach((bundle) => {
+      const raw = bundle.entity?.trim() ?? '';
+      if (!isOrderEntity(raw)) return;
+      const group = resolveOrderGroupKeyByEntity(raw);
+      if (!group) return;
+      const list = map.get(group) ?? [];
+      list.push(bundle);
+      map.set(group, list);
+    });
+    return map;
+  }, [orderBundles]);
+
+  const totalOrderBundleCount = useMemo(() => {
+    return ORDER_GROUP_REGISTRY.reduce((sum, spec) => sum + (orderBundlesByGroup.get(spec.key)?.length ?? 0), 0);
+  }, [orderBundlesByGroup]);
+
+  const openOrderCategoryFromTool = useCallback(
+    (groupKey: OrderGroupKey, source: SoapOrderDockState['source']) => {
+      const groupSpec = resolveGroupSpec(groupKey);
+      if (!groupSpec) return;
+      const categoryBundles = orderBundlesByGroup.get(groupKey) ?? [];
+      const latestBundle = resolveLatestBundle(categoryBundles);
+      const nextEntity = latestBundle
+        ? normalizeBundleEntity(latestBundle, groupSpec.defaultEntity)
+        : groupSpec.defaultEntity;
+      const nextRequest: OrderBundleEditPanelRequest = latestBundle
+        ? { requestId: buildDrawerRequestId(), kind: 'edit', bundle: latestBundle }
+        : { requestId: buildDrawerRequestId(), kind: 'new' };
+      setActiveTool(groupKey);
+      setDrawerOpen(true);
+      setActiveOrderEntity(nextEntity);
+      setActiveOrderRequest(nextRequest);
+      setActiveOrderSource(source);
+      setActiveOrderContext(EMPTY_ORDER_BUNDLE_EDITING_CONTEXT);
+    },
+    [buildDrawerRequestId, orderBundlesByGroup],
+  );
+
+  const openDocumentTool = useCallback(() => {
+    setActiveTool('document');
+    setDrawerOpen(true);
+    setActiveOrderSource(null);
+  }, []);
+
+  const handleDockToolSelect = useCallback(
+    (tool: RightUtilityTool) => {
+      if (tool === 'document') {
+        openDocumentTool();
+        return;
+      }
+      openOrderCategoryFromTool(tool, 'right-panel');
+    },
+    [openDocumentTool, openOrderCategoryFromTool],
+  );
+
+  const handleOrderSummaryBundleSelect = useCallback(
+    (payload: { group: OrderGroupKey; entity: OrderEntity; bundle: OrderBundle }) => {
+      setActiveTool(payload.group);
+      setDrawerOpen(true);
+      setActiveOrderEntity(payload.entity);
+      setActiveOrderRequest({ requestId: buildDrawerRequestId(), kind: 'edit', bundle: payload.bundle });
+      setActiveOrderSource('right-panel');
+      setActiveOrderContext(EMPTY_ORDER_BUNDLE_EDITING_CONTEXT);
+    },
+    [buildDrawerRequestId],
+  );
+
+  const handleDrawerClose = useCallback(() => {
+    setDrawerOpen(false);
+  }, []);
+
+  const handleDrawerOrderEntitySwitch = useCallback(
+    (entity: OrderEntity) => {
+      if (!isOrderTool(activeTool)) return;
+      const groupSpec = resolveGroupSpec(activeTool);
+      if (!groupSpec) return;
+      const matchedBundles = (orderBundlesByGroup.get(activeTool) ?? []).filter((bundle) =>
+        isBundleMatchedToEntity(bundle, entity, groupSpec.defaultEntity),
+      );
+      const latestBundle = resolveLatestBundle(matchedBundles);
+      setActiveOrderEntity(entity);
+      setActiveOrderRequest(
+        latestBundle
+          ? { requestId: buildDrawerRequestId(), kind: 'edit', bundle: latestBundle }
+          : { requestId: buildDrawerRequestId(), kind: 'new' },
+      );
+      setActiveOrderSource((prev) => prev ?? 'right-panel');
+      setActiveOrderContext(EMPTY_ORDER_BUNDLE_EDITING_CONTEXT);
+    },
+    [activeTool, buildDrawerRequestId, orderBundlesByGroup],
+  );
+
+  const handleDrawerOrderBundleSelect = useCallback((entity: OrderEntity, bundle: OrderBundle) => {
+    setActiveOrderEntity(entity);
+    setActiveOrderRequest({ requestId: buildDrawerRequestId(), kind: 'edit', bundle });
+    setActiveOrderSource((prev) => prev ?? 'right-panel');
+    setActiveOrderContext(EMPTY_ORDER_BUNDLE_EDITING_CONTEXT);
+  }, [buildDrawerRequestId]);
+
+  const handleDrawerOrderBundleCreate = useCallback((entity: OrderEntity) => {
+    setActiveOrderEntity(entity);
+    setActiveOrderRequest({ requestId: buildDrawerRequestId(), kind: 'new' });
+    setActiveOrderSource((prev) => prev ?? 'right-panel');
+    setActiveOrderContext(EMPTY_ORDER_BUNDLE_EDITING_CONTEXT);
+  }, [buildDrawerRequestId]);
+
+  const handleDrawerOrderRequestConsumed = useCallback(
+    (requestId: string) => {
+      setActiveOrderRequest((prev) => (prev?.requestId === requestId ? null : prev));
+      if (pendingExternalHistoryCopyRequestIdRef.current === requestId) {
+        pendingExternalHistoryCopyRequestIdRef.current = null;
+        onOrderHistoryCopyConsumed?.(requestId);
+      }
+    },
+    [onOrderHistoryCopyConsumed],
+  );
+
+  const handleDocumentHistoryCopyConsumed = useCallback(
+    (requestId: string) => {
+      setPendingDocumentHistoryCopyRequest((prev) => (prev?.requestId === requestId ? null : prev));
+      onDocumentHistoryCopyConsumed?.(requestId);
+    },
+    [onDocumentHistoryCopyConsumed],
+  );
+
+  useEffect(() => {
+    if (!orderDockOpenRequest) return;
+    if (orderDockOpenRequest.requestId === lastOrderDockOpenRequestIdRef.current) return;
+    lastOrderDockOpenRequestIdRef.current = orderDockOpenRequest.requestId;
+    const groupKey = resolveOrderGroupKeyByEntity(orderDockOpenRequest.entity);
+    if (groupKey) {
+      const groupSpec = resolveGroupSpec(groupKey);
+      if (groupSpec) {
+        const entityBundles = (orderBundlesByGroup.get(groupKey) ?? []).filter((bundle) =>
+          isBundleMatchedToEntity(bundle, orderDockOpenRequest.entity, groupSpec.defaultEntity),
+        );
+        const latestBundle = resolveLatestBundle(entityBundles);
+        setActiveTool(groupKey);
+        setDrawerOpen(true);
+        setActiveOrderEntity(orderDockOpenRequest.entity);
+        setActiveOrderRequest(
+          latestBundle
+            ? { requestId: orderDockOpenRequest.requestId, kind: 'edit', bundle: latestBundle }
+            : { requestId: orderDockOpenRequest.requestId, kind: 'new' },
+        );
+        setActiveOrderSource('bottom-floating');
+        setActiveOrderContext(EMPTY_ORDER_BUNDLE_EDITING_CONTEXT);
+      }
+    }
+    onOrderDockOpenConsumed?.(orderDockOpenRequest.requestId);
+  }, [onOrderDockOpenConsumed, orderBundlesByGroup, orderDockOpenRequest]);
+
+  useEffect(() => {
+    if (!orderHistoryCopyRequest) return;
+    if (orderHistoryCopyRequest.requestId === lastOrderHistoryCopyRequestIdRef.current) return;
+    lastOrderHistoryCopyRequestIdRef.current = orderHistoryCopyRequest.requestId;
+    const groupKey = resolveOrderGroupKeyByEntity(orderHistoryCopyRequest.entity);
+    if (!groupKey) {
+      onOrderHistoryCopyConsumed?.(orderHistoryCopyRequest.requestId);
+      return;
+    }
+    pendingExternalHistoryCopyRequestIdRef.current = orderHistoryCopyRequest.requestId;
+    setActiveTool(groupKey);
+    setDrawerOpen(true);
+    setActiveOrderEntity(orderHistoryCopyRequest.entity);
+    setActiveOrderRequest({
+      requestId: orderHistoryCopyRequest.requestId,
+      kind: 'copy',
+      bundle: orderHistoryCopyRequest.bundle,
+    });
+    setActiveOrderSource('bottom-floating');
+    setActiveOrderContext(EMPTY_ORDER_BUNDLE_EDITING_CONTEXT);
+  }, [onOrderHistoryCopyConsumed, orderHistoryCopyRequest]);
+
+  useEffect(() => {
+    if (!documentDockOpenRequest) return;
+    if (documentDockOpenRequest.requestId === lastDocumentDockOpenRequestIdRef.current) return;
+    lastDocumentDockOpenRequestIdRef.current = documentDockOpenRequest.requestId;
+    openDocumentTool();
+    onDocumentDockOpenConsumed?.(documentDockOpenRequest.requestId);
+  }, [documentDockOpenRequest, onDocumentDockOpenConsumed, openDocumentTool]);
+
+  useEffect(() => {
+    if (!documentHistoryCopyRequest) return;
+    if (documentHistoryCopyRequest.requestId === lastDocumentHistoryCopyRequestIdRef.current) return;
+    lastDocumentHistoryCopyRequestIdRef.current = documentHistoryCopyRequest.requestId;
+    setPendingDocumentHistoryCopyRequest(documentHistoryCopyRequest);
+    openDocumentTool();
+  }, [documentHistoryCopyRequest, openDocumentTool]);
+
+  useEffect(() => {
+    const targetCategory = isOrderTool(activeTool) ? activeTool : null;
+    const hasEditing = Boolean(drawerOpen && targetCategory && activeOrderEntity);
+    const count = targetCategory
+      ? orderBundlesByGroup.get(targetCategory)?.length ?? 0
+      : totalOrderBundleCount;
+    const editingLabel = hasEditing
+      ? `${resolveOrderEntityLabel(activeOrderEntity ?? '')}${activeOrderContext.hasRpRequiredIssue ? '（必須不足）' : ''}`
+      : undefined;
+    onOrderDockStateChange?.({
+      hasEditing,
+      targetCategory,
+      count,
+      editingLabel,
+      source: hasEditing ? activeOrderSource : null,
+    });
+  }, [
+    activeOrderContext.hasRpRequiredIssue,
+    activeOrderEntity,
+    activeOrderSource,
+    activeTool,
+    drawerOpen,
+    onOrderDockStateChange,
+    orderBundlesByGroup,
+    totalOrderBundleCount,
+  ]);
 
   const historySignature = useMemo(
     () => history.map((entry) => entry.id ?? entry.authoredAt ?? '').join('|'),
@@ -1307,33 +1593,42 @@ export function SoapNotePanel({
             </>
           )}
         </div>
+        <OrderSummaryPane
+          orderBundles={orderBundles}
+          orderBundlesLoading={orderBundlesLoading}
+          orderBundlesError={orderBundlesError}
+          activeTool={activeTool}
+          onBundleSelect={handleOrderSummaryBundleSelect}
+        />
         <aside
-          className="soap-note__paper"
+          className="soap-note__right-dock-area"
           id="charts-order-pane"
           tabIndex={-1}
           data-focus-anchor="true"
-          aria-label="オーダー入力"
-          data-loading={orderBundlesLoading || rpHistoryLoading ? '1' : '0'}
-          data-error={orderBundlesError || rpHistoryError ? '1' : '0'}
+          aria-label="右ドック"
         >
-          <OrderDockPanel
-            patientId={meta.patientId}
-            meta={orderEditorMeta}
-            visitDate={meta.visitDate}
-            orderBundles={orderBundles}
-            orderBundlesLoading={orderBundlesLoading}
-            orderBundlesError={orderBundlesError}
-            rpHistory={rpHistory}
-            rpHistoryLoading={rpHistoryLoading}
-            rpHistoryError={rpHistoryError}
-            openRequest={orderDockOpenRequest}
-            onOpenRequestConsumed={onOrderDockOpenConsumed}
-            historyCopyRequest={orderHistoryCopyRequest}
-            onHistoryCopyConsumed={onOrderHistoryCopyConsumed}
-            bottomOrderHubIntegrationEnabled={bottomOrderHubIntegrationEnabled}
-            onStateChange={onOrderDockStateChange}
-          />
+          <RightUtilityDock activeTool={activeTool} onSelectTool={handleDockToolSelect} />
         </aside>
+        <RightUtilityDrawer
+          open={drawerOpen}
+          activeTool={activeTool}
+          patientId={meta.patientId}
+          meta={orderEditorMeta}
+          orderBundles={orderBundles}
+          orderBundlesLoading={orderBundlesLoading}
+          orderBundlesError={orderBundlesError}
+          activeOrderEntity={activeOrderEntity}
+          activeOrderRequest={activeOrderRequest}
+          onOrderRequestConsumed={handleDrawerOrderRequestConsumed}
+          onOrderEditingContextChange={setActiveOrderContext}
+          onOrderEntitySwitch={handleDrawerOrderEntitySwitch}
+          onOrderBundleSelect={handleDrawerOrderBundleSelect}
+          onOrderBundleCreate={handleDrawerOrderBundleCreate}
+          onClose={handleDrawerClose}
+          documentPanel={documentPanel}
+          documentHistoryCopyRequest={pendingDocumentHistoryCopyRequest}
+          onDocumentHistoryCopyConsumed={handleDocumentHistoryCopyConsumed}
+        />
       </div>
     </section>
   );

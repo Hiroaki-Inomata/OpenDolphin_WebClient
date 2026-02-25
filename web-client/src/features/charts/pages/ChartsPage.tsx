@@ -1,5 +1,5 @@
 import { Global } from '@emotion/react';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -616,6 +616,7 @@ function ChartsContent() {
   const isChartsUiOptB = import.meta.env.VITE_CHARTS_UI_OPT_B === '1';
   const isPatientImagesMvpEnabled = import.meta.env.VITE_PATIENT_IMAGES_MVP === '1';
   const isBottomOrderHubIntegrationEnabled = import.meta.env.VITE_CHARTS_BOTTOM_ORDER_HUB_INTEGRATION === '1';
+  const showBottomUtilityDock = false;
   const stampboxMvpPhaseRaw = Number(import.meta.env.VITE_STAMPBOX_MVP ?? 0);
   const stampboxMvpPhase: 0 | 1 | 2 =
     Number.isFinite(stampboxMvpPhaseRaw) && stampboxMvpPhaseRaw >= 2
@@ -871,6 +872,10 @@ function ChartsContent() {
   const [documentHistoryCopyRequest, setDocumentHistoryCopyRequest] = useState<{
     requestId: string;
     letterId: number;
+  } | null>(null);
+  const [documentDockOpenRequest, setDocumentDockOpenRequest] = useState<{
+    requestId: string;
+    source: 'past-hub';
   } | null>(null);
   const [orderSetEntries, setOrderSetEntries] = useState<ChartOrderSetEntry[]>(() =>
     listChartOrderSets(session.facilityId),
@@ -3370,8 +3375,8 @@ function ChartsContent() {
     () => utilityItems.map((item) => ({ keys: item.shortcut, label: item.label })),
     [utilityItems],
   );
-  const shortcutGroups = useMemo(
-    () => [
+  const shortcutGroups = useMemo(() => {
+    const groups = [
       {
         title: '患者検索',
         items: [{ keys: 'Alt+P / Ctrl+F', label: '患者検索フィールドへフォーカス' }],
@@ -3386,14 +3391,6 @@ function ChartsContent() {
         ],
       },
       {
-        title: 'ユーティリティ',
-        items: [
-          { keys: 'Ctrl+Shift+U', label: 'ユーティリティ開閉' },
-          ...utilityShortcutItems,
-          { keys: 'Esc', label: 'ユーティリティを閉じる' },
-        ],
-      },
-      {
         title: 'フォーカス移動',
         items: [
           {
@@ -3403,9 +3400,19 @@ function ChartsContent() {
         ],
         note: '移動順: Topbar → 患者概要 → ActionBar → 病名 → Past Hub → SOAP → オーダー → ORCA Summary → Telemetry',
       },
-    ],
-    [utilityShortcutItems],
-  );
+    ];
+    if (showBottomUtilityDock) {
+      groups.splice(2, 0, {
+        title: 'ユーティリティ',
+        items: [
+          { keys: 'Ctrl+Shift+U', label: 'ユーティリティ開閉' },
+          ...utilityShortcutItems,
+          { keys: 'Esc', label: 'ユーティリティを閉じる' },
+        ],
+      });
+    }
+    return groups;
+  }, [showBottomUtilityDock, utilityShortcutItems]);
   const utilityEditActions = useMemo(() => new Set(utilityItems.filter((item) => item.requiresEdit).map((item) => item.id)), [utilityItems]);
   const patientSelected = Boolean(encounterContext.patientId);
   const persistUtilityPanelLayout = useCallback(
@@ -3628,10 +3635,19 @@ function ChartsContent() {
       const letterId = payload.letter.id;
       if (!letterId) return;
       const requestId = createCopyRequestId();
+      setDocumentDockOpenRequest({ requestId, source: 'past-hub' });
       setDocumentHistoryCopyRequest({ requestId, letterId });
-      openUtilityPanel('document');
+      setUtilityPanelAction(null);
+      if (typeof document !== 'undefined') {
+        requestAnimationFrame(() => {
+          const target = document.getElementById('charts-soap-note');
+          if (target && typeof (target as any).focus === 'function') {
+            (target as HTMLElement).focus();
+          }
+        });
+      }
     },
-    [canDoFromPast.ok, createCopyRequestId, openUtilityPanel],
+    [canDoFromPast.ok, createCopyRequestId],
   );
 
   const handleOrderHistoryCopyConsumed = useCallback((requestId: string) => {
@@ -3642,9 +3658,54 @@ function ChartsContent() {
     setOrderDockOpenRequest((prev) => (prev?.requestId === requestId ? null : prev));
   }, []);
 
+  const handleDocumentDockOpenConsumed = useCallback((requestId: string) => {
+    setDocumentDockOpenRequest((prev) => (prev?.requestId === requestId ? null : prev));
+  }, []);
+
   const handleDocumentHistoryCopyConsumed = useCallback((requestId: string) => {
     setDocumentHistoryCopyRequest((prev) => (prev?.requestId === requestId ? null : prev));
   }, []);
+
+  const resetDocumentPanelState = useCallback(() => {
+    clearDocumentAttachments();
+    setDocumentUtilityState({
+      dirty: false,
+      attachmentCount: 0,
+      isSaving: false,
+      hasError: false,
+    });
+  }, [clearDocumentAttachments]);
+
+  const handleDocumentPanelClose = useCallback(() => {
+    resetDocumentPanelState();
+    setDocumentDockOpenRequest(null);
+    setDocumentHistoryCopyRequest(null);
+  }, [resetDocumentPanelState]);
+
+  const documentPanel = useMemo<ReactNode>(
+    () => (
+      <DocumentCreatePanel
+        patientId={encounterContext.patientId}
+        meta={sidePanelMeta}
+        imageAttachments={documentImageAttachments}
+        onImageAttachmentsChange={setDocumentImageAttachments}
+        onImageAttachmentsClear={clearDocumentAttachments}
+        historyCopyRequest={documentHistoryCopyRequest}
+        onHistoryCopyConsumed={handleDocumentHistoryCopyConsumed}
+        onStateChange={setDocumentUtilityState}
+        onClose={handleDocumentPanelClose}
+      />
+    ),
+    [
+      clearDocumentAttachments,
+      documentHistoryCopyRequest,
+      documentImageAttachments,
+      encounterContext.patientId,
+      handleDocumentHistoryCopyConsumed,
+      handleDocumentPanelClose,
+      sidePanelMeta,
+    ],
+  );
 
   const handleLockChange = useCallback((locked: boolean, reason?: string) => {
     setLockState({ locked, reason });
@@ -3777,6 +3838,7 @@ function ChartsContent() {
     setUtilityCloseGuard(null);
     setOrderSetSubtab('set');
     setOrderHistoryCopyRequest(null);
+    setDocumentDockOpenRequest(null);
     setDocumentHistoryCopyRequest(null);
     setDocumentUtilityState({
       dirty: false,
@@ -3791,10 +3853,12 @@ function ChartsContent() {
     });
     utilityFocusRestoreRef.current = false;
     utilityLastActionRef.current = 'order-set';
-    requestAnimationFrame(() => {
-      resolveUtilityTrigger('order-set')?.focus();
-    });
-  }, [encounterContext.patientId, resolveUtilityTrigger]);
+    if (showBottomUtilityDock) {
+      requestAnimationFrame(() => {
+        resolveUtilityTrigger('order-set')?.focus();
+      });
+    }
+  }, [encounterContext.patientId, resolveUtilityTrigger, showBottomUtilityDock]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -3871,7 +3935,7 @@ function ChartsContent() {
         return;
       }
 
-      if (!shouldIgnore(event.target) && event.ctrlKey && event.shiftKey && key === 'u') {
+      if (showBottomUtilityDock && !shouldIgnore(event.target) && event.ctrlKey && event.shiftKey && key === 'u') {
         event.preventDefault();
         if (utilityPanelActionRef.current) {
           closeUtilityPanel(true);
@@ -3881,7 +3945,7 @@ function ChartsContent() {
         return;
       }
 
-      if (!shouldIgnore(event.target) && event.ctrlKey && event.shiftKey && /^[1-9]$/.test(key)) {
+      if (showBottomUtilityDock && !shouldIgnore(event.target) && event.ctrlKey && event.shiftKey && /^[1-9]$/.test(key)) {
         event.preventDefault();
         const action = dockedShortcutActions[Number(key) - 1];
         if (action) {
@@ -3916,7 +3980,7 @@ function ChartsContent() {
     };
 	    window.addEventListener('keydown', handleKeyDown);
 	    return () => window.removeEventListener('keydown', handleKeyDown);
-	  }, [closeUtilityPanel, openUtilityPanel, utilityItems]);
+	  }, [closeUtilityPanel, openUtilityPanel, showBottomUtilityDock, utilityItems]);
 
 	  const activeUtilityKind = useMemo(() => resolveUtilityVisualKind(utilityPanelAction), [utilityPanelAction]);
 	  const utilityPanelInlineStyle = useMemo(() => {
@@ -3939,25 +4003,27 @@ function ChartsContent() {
         onUndo={handleDoCopyUndo}
         onClose={closeDoCopyDialog}
       />
-      <FocusTrapDialog
-        open={Boolean(utilityCloseGuard?.open)}
-        title="作業中の内容があります"
-        description="未完了の作業を破棄して続行するか、キャンセルするかを選択してください。"
-        onClose={handleCancelUtilityCloseGuard}
-        testId="charts-utility-close-guard-dialog"
-      >
-        <section className="charts-tab-guard" aria-label="ユーティリティ操作確認">
-          <p className="charts-tab-guard__message">{utilityCloseGuard?.reason ?? '未保存の作業があります。'}</p>
-          <div className="charts-tab-guard__actions" role="group" aria-label="ユーティリティ操作選択">
-            <button type="button" onClick={handleConfirmUtilityCloseGuard}>
-              {utilityCloseGuard?.trigger === 'switch' ? '破棄して切替' : '破棄して閉じる'}
-            </button>
-            <button type="button" className="charts-side-panel__ghost" onClick={handleCancelUtilityCloseGuard}>
-              キャンセル
-            </button>
-          </div>
-        </section>
-      </FocusTrapDialog>
+      {showBottomUtilityDock ? (
+        <FocusTrapDialog
+          open={Boolean(utilityCloseGuard?.open)}
+          title="作業中の内容があります"
+          description="未完了の作業を破棄して続行するか、キャンセルするかを選択してください。"
+          onClose={handleCancelUtilityCloseGuard}
+          testId="charts-utility-close-guard-dialog"
+        >
+          <section className="charts-tab-guard" aria-label="ユーティリティ操作確認">
+            <p className="charts-tab-guard__message">{utilityCloseGuard?.reason ?? '未保存の作業があります。'}</p>
+            <div className="charts-tab-guard__actions" role="group" aria-label="ユーティリティ操作選択">
+              <button type="button" onClick={handleConfirmUtilityCloseGuard}>
+                {utilityCloseGuard?.trigger === 'switch' ? '破棄して切替' : '破棄して閉じる'}
+              </button>
+              <button type="button" className="charts-side-panel__ghost" onClick={handleCancelUtilityCloseGuard}>
+                キャンセル
+              </button>
+            </div>
+          </section>
+        </FocusTrapDialog>
+      ) : null}
       <FocusTrapDialog
         open={isPatientPanelOpen}
         title="患者・受付"
@@ -4330,7 +4396,7 @@ function ChartsContent() {
             className="charts-workbench"
             aria-label="外来カルテ作業台"
             data-run-id={resolvedRunId ?? flags.runId}
-            data-utility-state={utilityPanelAction ? 'expanded' : 'compact'}
+            data-utility-state={showBottomUtilityDock && utilityPanelAction ? 'expanded' : 'compact'}
             data-charts-compact-ui={isChartsCompactUi ? '1' : '0'}
             style={utilityPanelInlineStyle}
           >
@@ -4629,6 +4695,11 @@ function ChartsContent() {
 			                      onOrderDockOpenConsumed={handleOrderDockOpenConsumed}
 			                      orderHistoryCopyRequest={orderHistoryCopyRequest}
 			                      onOrderHistoryCopyConsumed={handleOrderHistoryCopyConsumed}
+                      documentDockOpenRequest={documentDockOpenRequest}
+                      onDocumentDockOpenConsumed={handleDocumentDockOpenConsumed}
+                      documentHistoryCopyRequest={documentHistoryCopyRequest}
+                      onDocumentHistoryCopyConsumed={handleDocumentHistoryCopyConsumed}
+                      documentPanel={documentPanel}
                       bottomOrderHubIntegrationEnabled={isBottomOrderHubIntegrationEnabled}
                       onOrderDockStateChange={setOrderDockState}
 			                      onDraftSnapshot={setSoapDraftSnapshot}
@@ -4755,6 +4826,7 @@ function ChartsContent() {
                 </div>
 
               </div>
+              {showBottomUtilityDock ? (
 	              <aside
 	                className="charts-workbench__side"
 	                id="charts-utility-pane"
@@ -5010,13 +5082,7 @@ function ChartsContent() {
                           onHistoryCopyConsumed={handleDocumentHistoryCopyConsumed}
                           onStateChange={setDocumentUtilityState}
                           onClose={() => {
-                            clearDocumentAttachments();
-                            setDocumentUtilityState({
-                              dirty: false,
-                              attachmentCount: 0,
-                              isSaving: false,
-                              hasError: false,
-                            });
+                            handleDocumentPanelClose();
                             utilityFocusRestoreRef.current = true;
                             setUtilityPanelAction(null);
                           }}
@@ -5051,6 +5117,7 @@ function ChartsContent() {
                   ) : null}
                 </div>
               </aside>
+              ) : null}
             </div>
           </section>
         </>
