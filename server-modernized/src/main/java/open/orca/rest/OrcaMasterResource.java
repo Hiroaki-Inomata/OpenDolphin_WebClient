@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.type.TypeFactory;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -72,6 +73,7 @@ public class OrcaMasterResource extends AbstractResource {
     private static final Pattern AS_OF_PATTERN = Pattern.compile("^\\d{8}$");
     private static final java.nio.file.Path SNAPSHOT_ROOT = Paths.get("artifacts", "api-stability", "20251124T000000Z", "master-snapshots");
     private static final java.nio.file.Path MSW_FIXTURE_ROOT = Paths.get("artifacts", "api-stability", "20251124T000000Z", "msw-fixture");
+    private static final String CLASSPATH_FIXTURE_ROOT = "orca/master/msw-fixture/";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
             .findAndRegisterModules()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -1033,8 +1035,13 @@ public class OrcaMasterResource extends AbstractResource {
             return new LoadedFixture<>(safeList(fixture.response.list), fixture.response.snapshotVersion,
                     fixture.response.version, DataOrigin.MSW_FIXTURE, fixture.loadFailed);
         }
+        FixtureLoadResult<T> bundledFixture = tryReadResponseFromClasspath(entryType, CLASSPATH_FIXTURE_ROOT + fixtureFileName);
+        if (bundledFixture.response != null) {
+            return new LoadedFixture<>(safeList(bundledFixture.response.list), bundledFixture.response.snapshotVersion,
+                    bundledFixture.response.version, DataOrigin.MSW_FIXTURE, bundledFixture.loadFailed);
+        }
         return new LoadedFixture<>(Collections.emptyList(), null, null, DataOrigin.FALLBACK,
-                snapshot.loadFailed || fixture.loadFailed);
+                snapshot.loadFailed || fixture.loadFailed || bundledFixture.loadFailed);
     }
 
     private java.nio.file.Path snapshotRoot() {
@@ -1088,6 +1095,25 @@ public class OrcaMasterResource extends AbstractResource {
         try {
             JavaType type = TypeFactory.defaultInstance().constructParametricType(FixtureListResponse.class, entryType);
             FixtureListResponse<T> response = OBJECT_MAPPER.readValue(file.toFile(), type);
+            if (response == null || response.list == null) {
+                return new FixtureLoadResult<>(null, true);
+            }
+            return new FixtureLoadResult<>(response, false);
+        } catch (IOException e) {
+            return new FixtureLoadResult<>(null, true);
+        }
+    }
+
+    private <T> FixtureLoadResult<T> tryReadResponseFromClasspath(Class<T> entryType, String resourcePath) {
+        if (resourcePath == null || resourcePath.isBlank()) {
+            return new FixtureLoadResult<>(null, false);
+        }
+        try (InputStream stream = Thread.currentThread().getContextClassLoader().getResourceAsStream(resourcePath)) {
+            if (stream == null) {
+                return new FixtureLoadResult<>(null, false);
+            }
+            JavaType type = TypeFactory.defaultInstance().constructParametricType(FixtureListResponse.class, entryType);
+            FixtureListResponse<T> response = OBJECT_MAPPER.readValue(stream, type);
             if (response == null || response.list == null) {
                 return new FixtureLoadResult<>(null, true);
             }

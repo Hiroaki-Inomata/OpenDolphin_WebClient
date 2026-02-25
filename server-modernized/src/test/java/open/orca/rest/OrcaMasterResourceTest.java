@@ -34,6 +34,8 @@ class OrcaMasterResourceTest {
     private static final String TEST_PASSWORD = "21232f297a57a5a743894a0e4a801fc3";
     private static final String MASTER_USER_PROPERTY = "ORCA_MASTER_BASIC_USER";
     private static final String MASTER_PASSWORD_PROPERTY = "ORCA_MASTER_BASIC_PASSWORD";
+    private static final String MASTER_SNAPSHOT_ROOT_PROPERTY = "ORCA_MASTER_SNAPSHOT_ROOT";
+    private static final String MASTER_FIXTURE_ROOT_PROPERTY = "ORCA_MASTER_FIXTURE_ROOT";
 
     @BeforeEach
     void setUpMasterAuthProperties() {
@@ -45,6 +47,8 @@ class OrcaMasterResourceTest {
     void clearMasterAuthProperties() {
         System.clearProperty(MASTER_USER_PROPERTY);
         System.clearProperty(MASTER_PASSWORD_PROPERTY);
+        System.clearProperty(MASTER_SNAPSHOT_ROOT_PROPERTY);
+        System.clearProperty(MASTER_FIXTURE_ROOT_PROPERTY);
     }
 
     @Test
@@ -697,6 +701,30 @@ class OrcaMasterResourceTest {
                 (OrcaMasterListResponse<OrcaTensuEntry>) response.getEntity();
         assertNotNull(payload);
         assertFalse(payload.getItems().isEmpty());
+    }
+
+    @Test
+    void getEtensu_dbUnavailable_usesBundledFixtureWhenFilesystemFixtureMissing() {
+        String missingRoot = "target/non-existent-master-fixture-" + System.nanoTime();
+        System.setProperty(MASTER_SNAPSHOT_ROOT_PROPERTY, missingRoot);
+        System.setProperty(MASTER_FIXTURE_ROOT_PROPERTY, missingRoot);
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao() {
+            @Override
+            public EtensuSearchResult search(EtensuSearchCriteria criteria) {
+                return new EtensuSearchResult(Collections.emptyList(), 0, "202404", 0, true);
+            }
+        }, new OrcaMasterDao());
+        UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
+
+        Response response = resource.getEtensu(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+
+        assertEquals(200, response.getStatus());
+        @SuppressWarnings("unchecked")
+        OrcaMasterListResponse<OrcaTensuEntry> payload =
+                (OrcaMasterListResponse<OrcaTensuEntry>) response.getEntity();
+        assertNotNull(payload);
+        assertFalse(payload.getItems().isEmpty());
+        assertEquals("D001", payload.getItems().get(0).getTensuCode());
     }
 
     @Test
