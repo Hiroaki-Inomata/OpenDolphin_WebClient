@@ -221,14 +221,19 @@ const readErrorCode = (json: unknown): string | undefined => {
   return undefined;
 };
 
-const isMasterUnavailableError = (status: number, errorCode: string | undefined, json: unknown) => {
+const isMasterUnavailableError = (
+  status: number,
+  errorCode: string | undefined,
+  json: unknown,
+  statusText?: string,
+) => {
   if (status !== 502 && status !== 503 && status !== 504) return false;
   if (typeof errorCode === 'string' && /(?:^|_)UNAVAILABLE$/i.test(errorCode.trim())) {
     return true;
   }
-  const message = readMessage(json, '').trim();
-  if (!message) return false;
-  return /unavailable|取得できませんでした/.test(message);
+  const summary = `${readMessage(json, '')} ${statusText ?? ''}`.trim();
+  if (!summary) return false;
+  return /unavailable|取得できませんでした/i.test(summary);
 };
 
 const extractCodeToken = (value: string) => value.trim().split(/\s+/)[0] ?? '';
@@ -303,7 +308,7 @@ export async function fetchOrderMasterSearch(params: {
 
   if (!response.ok) {
     const errorCode = readErrorCode(json);
-    const isMasterUnavailable = isMasterUnavailableError(response.status, errorCode, json);
+    const isMasterUnavailable = isMasterUnavailableError(response.status, errorCode, json, response.statusText);
     if (isMasterUnavailable) {
       return {
         ok: true,
@@ -311,8 +316,8 @@ export async function fetchOrderMasterSearch(params: {
         totalCount: 0,
         runId: latestMeta.runId ?? meta.runId,
         cacheHit: latestMeta.cacheHit,
-        missingMaster: latestMeta.missingMaster ?? true,
-        fallbackUsed: latestMeta.fallbackUsed ?? true,
+        missingMaster: true,
+        fallbackUsed: true,
         dataSourceTransition: latestMeta.dataSourceTransition,
         message: readMessage(json, response.statusText || 'マスタ候補の取得に失敗しました。'),
         raw: json,

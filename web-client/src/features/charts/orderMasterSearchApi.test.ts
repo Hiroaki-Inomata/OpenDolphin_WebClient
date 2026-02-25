@@ -216,6 +216,36 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(result.fallbackUsed).toBe(true);
   });
 
+  it('forces missingMaster/fallbackUsed=true on unavailable even when observability meta is stale false', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    const { getObservabilityMeta } = await import('../../libs/observability/observability');
+    vi.mocked(getObservabilityMeta).mockReturnValueOnce({
+      runId: 'RUN-TEST',
+      missingMaster: false,
+      fallbackUsed: false,
+    });
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 'ETENSU_UNAVAILABLE',
+          message: 'etensu master unavailable',
+        }),
+        {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'etensu', keyword: 'zz' });
+
+    expect(result.ok).toBe(true);
+    expect(result.items).toEqual([]);
+    expect(result.totalCount).toBe(0);
+    expect(result.missingMaster).toBe(true);
+    expect(result.fallbackUsed).toBe(true);
+  });
+
   it('treats MASTER_*_UNAVAILABLE as empty result for non-etensu searches', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(
@@ -229,6 +259,25 @@ describe('fetchOrderMasterSearch auth routing', () => {
           headers: { 'Content-Type': 'application/json' },
         },
       ),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'material', keyword: 'カテーテル' });
+
+    expect(result.ok).toBe(true);
+    expect(result.items).toEqual([]);
+    expect(result.totalCount).toBe(0);
+    expect(result.missingMaster).toBe(true);
+    expect(result.fallbackUsed).toBe(true);
+  });
+
+  it('treats uppercase statusText unavailable as unavailable for non-etensu searches', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response('{}', {
+        status: 503,
+        statusText: 'SERVICE UNAVAILABLE',
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
 
     const result = await fetchOrderMasterSearch({ type: 'material', keyword: 'カテーテル' });
