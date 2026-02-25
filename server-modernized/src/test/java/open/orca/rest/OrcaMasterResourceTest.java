@@ -728,6 +728,30 @@ class OrcaMasterResourceTest {
     }
 
     @Test
+    void getEtensu_dbUnavailable_withCategoryFilter_degradesToNotFoundInsteadOf503() {
+        String missingRoot = "target/non-existent-master-fixture-" + System.nanoTime();
+        System.setProperty(MASTER_SNAPSHOT_ROOT_PROPERTY, missingRoot);
+        System.setProperty(MASTER_FIXTURE_ROOT_PROPERTY, missingRoot);
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao() {
+            @Override
+            public EtensuSearchResult search(EtensuSearchCriteria criteria) {
+                return new EtensuSearchResult(Collections.emptyList(), 0, "202404", 0, true);
+            }
+        }, new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("keyword", "腹");
+        params.add("category", "2");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getEtensu(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+
+        assertEquals(404, response.getStatus());
+        OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
+        assertNotNull(payload);
+        assertEquals("TENSU_NOT_FOUND", payload.getCode());
+    }
+
+    @Test
     void getEtensu_invalidCategory_returnsValidationError() {
         OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
         MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
