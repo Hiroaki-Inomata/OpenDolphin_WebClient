@@ -192,6 +192,54 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(result.totalCount).toBe(0);
   });
 
+  it('treats ETENSU_UNAVAILABLE as empty result for etensu search', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 'ETENSU_UNAVAILABLE',
+          message: 'etensu master unavailable',
+        }),
+        {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'etensu', keyword: 'zz' });
+
+    expect(result.ok).toBe(true);
+    expect(result.items).toEqual([]);
+    expect(result.totalCount).toBe(0);
+    expect(result.missingMaster).toBe(true);
+    expect(result.fallbackUsed).toBe(true);
+  });
+
+  it('treats MASTER_*_UNAVAILABLE as empty result for non-etensu searches', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 'MASTER_MATERIAL_UNAVAILABLE',
+          message: '特定器材マスタを取得できませんでした',
+        }),
+        {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'material', keyword: 'カテーテル' });
+
+    expect(result.ok).toBe(true);
+    expect(result.items).toEqual([]);
+    expect(result.totalCount).toBe(0);
+    expect(result.missingMaster).toBe(true);
+    expect(result.fallbackUsed).toBe(true);
+  });
+
   it('youhou 検索で effective を付与し、拡張項目をマッピングする', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(
