@@ -296,7 +296,7 @@ const isOrcaEndpoint = (pathname?: string | null): boolean => {
   //   can also require explicit Basic auth headers when container principal is unavailable.
   // These endpoints must not trigger global session-expired broadcast on 401/403 because
   // they may fail for per-resource auth reasons while the app session is still valid.
-  const pattern = /^\/(orca\d*|api\/orca|api01(rv2)?|api21|blobapi|karte|odletter|touch|user)(\/|$)/;
+  const pattern = /^\/(orca\d*|api\/orca(?:\d+)?|api01(rv2)?|api21|blobapi|karte|odletter|touch|user)(\/|$)/;
   try {
     const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
     const url = new URL(trimmed, base);

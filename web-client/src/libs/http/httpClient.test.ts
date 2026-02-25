@@ -193,6 +193,20 @@ describe('httpFetch session expiry reasons', () => {
     expect(notifySpy).not.toHaveBeenCalled();
   });
 
+  it('does not notify for /api/orcaNN endpoints on 401/403', async () => {
+    setSession();
+    const { sessionExpiry, httpClient } = await importSubjects();
+    const notifySpy = vi.spyOn(sessionExpiry, 'notifySessionExpired');
+
+    mockFetchSequence([401]);
+    await httpClient.httpFetch('/api/orca102/medicatonmodv2', { method: 'POST' });
+    expect(notifySpy).not.toHaveBeenCalled();
+
+    mockFetchSequence([403]);
+    await httpClient.httpFetch('/api/orca51/masterlastupdatev3', { method: 'POST' });
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
   it('does not notify for /karte and /odletter endpoints on 401', async () => {
     setSession();
     const { sessionExpiry, httpClient } = await importSubjects();
@@ -226,6 +240,17 @@ describe('httpFetch session expiry reasons', () => {
     await httpClient.httpFetch('/karte/pid/00001,2000-01-01%2000%3A00%3A00', { method: 'GET' });
     const karteHeaders = new Headers((fetchSpy.mock.calls[2]?.[1] as RequestInit | undefined)?.headers ?? {});
     expect(karteHeaders.has('Authorization') || karteHeaders.has('userName') || karteHeaders.has('password')).toBe(true);
+  });
+
+  it('attaches auth headers for /api/orcaNN endpoints in DEV', async () => {
+    setSession();
+    setDevAuth();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+    const { httpClient } = await importSubjects();
+
+    await httpClient.httpFetch('/api/orca102/medicatonmodv2', { method: 'POST' });
+    const headers = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(headers.has('Authorization') || headers.has('userName') || headers.has('password')).toBe(true);
   });
 
   it('prefers tab-local auth after re-login when localStorage has stale credentials', async () => {
