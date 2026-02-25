@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 
 import { MissingMasterRecoveryGuide } from '../MissingMasterRecoveryGuide';
-import { AppToastProvider } from '../../../libs/ui/appToast';
+import { AppToastProvider, type AppToastController } from '../../../libs/ui/appToast';
 
 const copyTextToClipboard = vi.hoisted(() => vi.fn());
 
@@ -25,14 +25,14 @@ beforeEach(() => {
   copyTextToClipboard.mockReset();
 });
 
-const renderWithToast = (ui: ReactElement, enqueue: ReturnType<typeof vi.fn>) =>
+const renderWithToast = (ui: ReactElement, enqueue: AppToastController['enqueue']) =>
   render(<AppToastProvider value={{ enqueue, dismiss: vi.fn() }}>{ui}</AppToastProvider>);
 
 describe('MissingMasterRecoveryGuide', () => {
   it('復旧導線のボタンを表示し共有成功トーストを出す', async () => {
     const user = userEvent.setup();
     copyTextToClipboard.mockResolvedValueOnce(undefined);
-    const enqueue = vi.fn();
+    const enqueue: AppToastController['enqueue'] = vi.fn();
     const handleRefetch = vi.fn();
     const handleReception = vi.fn();
 
@@ -64,7 +64,7 @@ describe('MissingMasterRecoveryGuide', () => {
   it('共有失敗時はエラートーストを出す', async () => {
     const user = userEvent.setup();
     copyTextToClipboard.mockRejectedValueOnce(new Error('copy_failed'));
-    const enqueue = vi.fn();
+    const enqueue: AppToastController['enqueue'] = vi.fn();
 
     renderWithToast(
       <MissingMasterRecoveryGuide runId="RUN-RECOVERY" traceId="TRACE-RECOVERY" onRefetch={() => {}} onOpenReception={() => {}} />,
@@ -82,7 +82,7 @@ describe('MissingMasterRecoveryGuide', () => {
   });
 
   it('必要な情報がない場合はボタンが無効になる', () => {
-    const enqueue = vi.fn();
+    const enqueue: AppToastController['enqueue'] = vi.fn();
     renderWithToast(<MissingMasterRecoveryGuide />, enqueue);
 
     expect(screen.getByRole('button', { name: '再取得（再取得）' })).toBeDisabled();

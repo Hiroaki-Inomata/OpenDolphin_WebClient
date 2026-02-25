@@ -294,10 +294,10 @@ export function RightUtilityDrawer({
                 ) : (
                   <OrderBundleEditPanel
                     patientId={patientId}
-                    entity={selectedEntity}
-                    title={selectedEntityMeta.title}
-                    bundleLabel={selectedEntityMeta.bundleLabel}
-                    itemQuantityLabel={selectedEntityMeta.itemQuantityLabel}
+                    entity={activeOrderPanelContext.selectedEntity}
+                    title={activeOrderPanelContext.selectedEntityMeta.title}
+                    bundleLabel={activeOrderPanelContext.selectedEntityMeta.bundleLabel}
+                    itemQuantityLabel={activeOrderPanelContext.selectedEntityMeta.itemQuantityLabel}
                     meta={meta}
                     variant="embedded"
                     bundlesOverride={bundlesBySelectedEntity}
