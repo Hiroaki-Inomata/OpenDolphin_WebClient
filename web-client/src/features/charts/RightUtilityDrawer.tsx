@@ -221,6 +221,16 @@ export function RightUtilityDrawer({
     return cloneDocumentPanelNode(documentPanel, documentHistoryCopyRequest, onDocumentHistoryCopyConsumed);
   }, [documentHistoryCopyRequest, documentPanel, onDocumentHistoryCopyConsumed]);
 
+  const isDocumentPanelActive = activeTool === 'document';
+  const activeOrderPanelContext = useMemo(() => {
+    if (!isOrderPanel || !groupSpec || !selectedEntity || !selectedEntityMeta) return null;
+    return {
+      groupSpec,
+      selectedEntity,
+      selectedEntityMeta,
+    };
+  }, [groupSpec, isOrderPanel, selectedEntity, selectedEntityMeta]);
+
   return (
     <aside
       className="soap-note__right-drawer"
@@ -237,25 +247,31 @@ export function RightUtilityDrawer({
       </header>
 
       <div className="soap-note__right-drawer-content">
-        <section
-          className="soap-note__right-drawer-panel soap-note__right-drawer-panel--document"
-          data-active={activeTool === 'document' ? 'true' : 'false'}
-          aria-hidden={activeTool === 'document' ? 'false' : 'true'}
-        >
-          {documentPanelNode}
-        </section>
+        {isDocumentPanelActive ? (
+          <section
+            className="soap-note__right-drawer-panel soap-note__right-drawer-panel--document"
+            data-active="true"
+            aria-hidden="false"
+          >
+            {documentPanelNode}
+          </section>
+        ) : null}
 
-        <section
-          className="soap-note__right-drawer-panel soap-note__right-drawer-panel--order"
-          data-active={isOrderPanel && groupSpec && selectedEntity && selectedEntityMeta ? 'true' : 'false'}
-          aria-hidden={isOrderPanel && groupSpec && selectedEntity && selectedEntityMeta ? 'false' : 'true'}
-        >
-          {isOrderPanel && groupSpec && selectedEntity && selectedEntityMeta ? (
+        {activeOrderPanelContext ? (
+          <section
+            className="soap-note__right-drawer-panel soap-note__right-drawer-panel--order"
+            data-active="true"
+            aria-hidden="false"
+          >
             <div className="soap-note__right-drawer-order-layout">
               <div className="soap-note__right-drawer-order-editor">
-                {groupSpec.entities.length > 1 ? (
-                  <div className="order-dock__subtype-tabs" role="tablist" aria-label={`${groupSpec.label}サブカテゴリ`}>
-                    {groupSpec.entities.map((entity) => {
+                {activeOrderPanelContext.groupSpec.entities.length > 1 ? (
+                  <div
+                    className="order-dock__subtype-tabs"
+                    role="tablist"
+                    aria-label={`${activeOrderPanelContext.groupSpec.label}サブカテゴリ`}
+                  >
+                    {activeOrderPanelContext.groupSpec.entities.map((entity) => {
                       const isActive = selectedEntity === entity;
                       return (
                         <button
@@ -293,13 +309,16 @@ export function RightUtilityDrawer({
                 )}
               </div>
 
-              <aside className="soap-note__right-drawer-order-list" aria-label={`${groupSpec.label}既存一覧`}>
+              <aside
+                className="soap-note__right-drawer-order-list"
+                aria-label={`${activeOrderPanelContext.groupSpec.label}既存一覧`}
+              >
                 <div className="soap-note__right-drawer-order-list-header">
                   <strong>既存オーダー</strong>
                   <button
                     type="button"
                     className="order-dock__bundle-action"
-                    onClick={() => onOrderBundleCreate?.(selectedEntity)}
+                    onClick={() => onOrderBundleCreate?.(activeOrderPanelContext.selectedEntity)}
                   >
                     新規
                   </button>
@@ -313,7 +332,7 @@ export function RightUtilityDrawer({
                 {!orderBundlesLoading && !orderBundlesError ? (
                   <div className="soap-note__right-drawer-order-list-body order-dock__bundle-list" role="list">
                     {sortedGroupBundles.map((bundle, index) => {
-                      const entity = normalizeBundleEntity(bundle, groupSpec.defaultEntity);
+                      const entity = normalizeBundleEntity(bundle, activeOrderPanelContext.groupSpec.defaultEntity);
                       const isActive = Boolean(
                         activeEditBundle &&
                           activeEditBundle.documentId === bundle.documentId &&
@@ -339,8 +358,8 @@ export function RightUtilityDrawer({
                 ) : null}
               </aside>
             </div>
-          ) : null}
-        </section>
+          </section>
+        ) : null}
       </div>
     </aside>
   );

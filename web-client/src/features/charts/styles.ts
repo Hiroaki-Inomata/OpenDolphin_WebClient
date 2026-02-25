@@ -5497,7 +5497,7 @@ export const chartsStyles = css`
     outline-offset: 2px;
   }
 
-  .soap-note__body > aside[aria-label='右ドック'] {
+  .soap-note__right-dock-area {
     grid-column: 3;
     align-self: start;
     position: sticky;
@@ -5505,48 +5505,17 @@ export const chartsStyles = css`
     min-width: 72px;
   }
 
-  .soap-note__body > aside[aria-label='右ユーティリティドロワー'] {
-    position: fixed !important;
-    top: clamp(72px, 8vh, 126px) !important;
-    right: clamp(8px, 1.7vw, 24px) !important;
-    bottom: clamp(10px, 1.8vh, 24px) !important;
-    width: min(640px, 56vw) !important;
-    max-width: min(640px, calc(100vw - 92px)) !important;
-    border-radius: var(--charts-radius-lg) !important;
-    border: 1px solid rgba(148, 163, 184, 0.36) !important;
-    background: #ffffff !important;
-    box-shadow: -18px 0 38px rgba(15, 23, 42, 0.18) !important;
-    z-index: 38 !important;
-    transform: translateY(14px) !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-    transition: transform 180ms ease, opacity 180ms ease !important;
-  }
-
-  .soap-note__body > aside[aria-label='右ユーティリティドロワー'][aria-hidden='false'] {
-    transform: translateY(0) !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
-  }
-
-  .soap-note__body > aside[aria-label='右ユーティリティドロワー'] > header {
-    background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), #ffffff 70%) !important;
-  }
-
-  .soap-note__body > aside[aria-label='右ユーティリティドロワー'] > :not(header) {
-    animation: soapRightDrawerRise 180ms ease;
-  }
-
   .soap-note__right-drawer {
     position: fixed;
     top: clamp(72px, 8vh, 126px);
     right: clamp(8px, 1.7vw, 24px);
-    width: min(560px, calc(100vw - 92px));
-    max-height: min(82vh, calc(100dvh - 120px));
+    bottom: clamp(10px, 1.8vh, 24px);
+    width: min(640px, 56vw);
+    max-width: min(640px, calc(100vw - 92px));
     border-radius: var(--charts-radius-lg);
     border: 1px solid rgba(148, 163, 184, 0.36);
     background: #ffffff;
-    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.2);
+    box-shadow: -18px 0 38px rgba(15, 23, 42, 0.18);
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -5563,15 +5532,32 @@ export const chartsStyles = css`
     pointer-events: auto;
   }
 
+  .soap-note__right-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--charts-space-sm);
+    padding: var(--charts-space-sm) var(--charts-space-md);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), #ffffff 70%);
+  }
+
+  .soap-note__right-drawer-header strong {
+    min-width: 0;
+    color: #0f172a;
+  }
+
   .soap-note__right-drawer-content {
+    flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
     display: flex;
     flex-direction: column;
-    gap: var(--charts-space-sm);
+    padding: var(--charts-space-sm) var(--charts-space-md) var(--charts-space-md);
   }
 
   .soap-note__right-drawer-panel {
+    display: none;
     min-height: 0;
     opacity: 0;
     transform: translateY(14px);
@@ -5579,10 +5565,55 @@ export const chartsStyles = css`
   }
 
   .soap-note__right-drawer-panel[data-active='true'] {
+    display: block;
     opacity: 1;
     transform: translateY(0);
     pointer-events: auto;
     animation: soapRightDrawerRise 180ms ease;
+  }
+
+  .soap-note__right-drawer-order-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.88fr);
+    gap: var(--charts-space-sm);
+    align-items: start;
+    min-height: 0;
+  }
+
+  .soap-note__right-drawer-order-editor {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-sm);
+  }
+
+  .soap-note__right-drawer-order-list {
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-xs);
+    padding-left: var(--charts-space-sm);
+    border-left: 1px solid rgba(148, 163, 184, 0.28);
+  }
+
+  .soap-note__right-drawer-order-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--charts-space-xs);
+  }
+
+  .soap-note__right-drawer-order-list-header strong {
+    color: #0f172a;
+    font-size: 0.82rem;
+  }
+
+  .soap-note__right-drawer-order-list-body {
+    min-height: 0;
+    max-height: min(48vh, 540px);
+    overflow: auto;
+    padding-right: 2px;
   }
 
   .soap-note__right-drawer-panel--center {
@@ -6883,7 +6914,7 @@ export const chartsStyles = css`
       grid-column: 1 / 2;
     }
 
-    .soap-note__body > aside[aria-label='右ドック'] {
+    .soap-note__right-dock-area {
       grid-column: 2 / 3;
     }
 
@@ -6904,11 +6935,11 @@ export const chartsStyles = css`
 
     .soap-note__editor,
     .soap-note__center-panel-only,
-    .soap-note__body > aside[aria-label='右ドック'] {
+    .soap-note__right-dock-area {
       grid-column: 1;
     }
 
-    .soap-note__body > aside[aria-label='右ドック'] {
+    .soap-note__right-dock-area {
       position: static;
       top: auto;
       min-width: 0;
@@ -6937,13 +6968,28 @@ export const chartsStyles = css`
       letter-spacing: 0.02em;
     }
 
-    .soap-note__body > aside[aria-label='右ユーティリティドロワー'] {
-      top: calc(env(safe-area-inset-top) + 62px) !important;
-      right: 8px !important;
-      left: 8px !important;
-      width: auto !important;
-      max-width: none !important;
-      bottom: max(8px, env(safe-area-inset-bottom)) !important;
+    .soap-note__right-drawer {
+      top: calc(env(safe-area-inset-top) + 62px);
+      right: 8px;
+      left: 8px;
+      width: auto;
+      max-width: none;
+      bottom: max(8px, env(safe-area-inset-bottom));
+    }
+
+    .soap-note__right-drawer-order-layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .soap-note__right-drawer-order-list {
+      padding-left: 0;
+      padding-top: var(--charts-space-sm);
+      border-left: none;
+      border-top: 1px solid rgba(148, 163, 184, 0.28);
+    }
+
+    .soap-note__right-drawer-order-list-body {
+      max-height: min(36vh, 360px);
     }
   }
 
