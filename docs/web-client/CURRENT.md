@@ -1,12 +1,20 @@
 # Webクライアント ドキュメントハブ（現行）
 
-- 更新日: 2026-02-24
-- RUN_ID: 20260224T213000Z
+- 更新日: 2026-02-25
+- RUN_ID: 20260225T140546Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
 
-## 最新変更（2026-02-24）
+## 最新変更（2026-02-25）
+- RUN_ID: `20260225T140546Z`
+- `OrderBundleEditPanel.tsx` を処方/注射の行中心コンパクト配置へ再編。処方は薬剤行+コメント補助行+用法行、注射は薬剤行+コメント行+投与条件行に寄せ、開始日/メモは折りたたみ詳細へ集約。
+- 仕様方針を反映: legacy臨時 `291/292` はWeb未実装、注射「手技料なし」は既存どおり `memo` 反映（classCode置換なし）。
+- `web-client/src/features/charts/styles.ts` に `charts-side-panel__meta-section` の表示順制御と行中心レイアウトの余白圧縮（RX区分/用法行2列、狭幅時1列）を追加。
+- 既存テスト期待を最小修正し、頓用文言差分・「保存して追加する」ラベル差分・行構造セレクタ検証を反映。
+- 検証:
+  - `npm -C web-client run typecheck` PASS
+  - `npm -C web-client run test -- --run src/features/charts/__tests__/orderBundleTwoTableLayout.test.tsx src/features/charts/__tests__/orderBundleMasterSearch.test.tsx src/features/charts/__tests__/orderBundleItemActions.test.tsx src/features/charts/__tests__/orderBundleBundleNumberUi.test.tsx src/features/charts/__tests__/orderDockPanel.categoryButtons.test.tsx src/features/charts/__tests__/chartsActionBar.orca-send.test.tsx --silent=true` PASS。
 - RUN_ID: `20260224T213000Z`
 - OUI-01〜OUI-05 を `OUI-ID / file / test / KPIイベント` で 1:1 追跡できる監査形式へ統一し、実装詳細ノートを追加。
 - 今回の実装結果（RP主軸化・共存ガード・KPI計測・互換維持）を `refactor plan` / `DEVELOPMENT_STATUS` / 本ハブの3点へ正本反映。

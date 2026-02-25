@@ -1,4 +1,4 @@
-# 開発状況（単一参照, 更新日: 2026-02-24）
+# 開発状況（単一参照, 更新日: 2026-02-25）
 
 ## 現行ステータス
 - Phase2 開発ドキュメントは **Legacy/Archive（参照専用）**。Phase2 を現行フェーズとして扱わない。
@@ -30,6 +30,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-02-25: Charts オーダー入力の行中心コンパクト配置に追従したスタイル/テスト調整を実施（RUN_ID=20260225T140546Z）。
+  - 内容: `OrderBundleEditPanel.tsx` を処方/注射の行中心コンパクト配置へ再編（処方: 薬剤行+コメント補助行+用法行、注射: 薬剤行+コメント行+投与条件行）。開始日/メモを折りたたみ詳細へ集約。あわせて `charts-side-panel__meta-section` の表示順制御、RX区分/用法行2列、項目セクション余白圧縮を追加。
+  - 仕様方針: legacy臨時 `291/292` はWeb未実装を維持。注射「手技料なし」は既存どおり `memo` 反映（classCode置換なし）。
+  - 成果物: `web-client/src/features/charts/OrderBundleEditPanel.tsx` / `web-client/src/features/charts/styles.ts` / `web-client/src/features/charts/__tests__/orderBundleTwoTableLayout.test.tsx` / `web-client/src/features/charts/__tests__/orderBundleBodyPart.test.tsx` / `web-client/src/features/charts/__tests__/orderBundleBundleNumberUi.test.tsx` / `web-client/src/features/charts/__tests__/orderBundlePrescription.test.ts` / `web-client/src/features/charts/__tests__/orderBundleValidation.test.ts` / `docs/web-client/CURRENT.md` / `docs/DEVELOPMENT_STATUS.md`。
+  - 検証:
+    - `npm -C web-client run typecheck` PASS
+    - `npm -C web-client run test -- --run src/features/charts/__tests__/orderBundleTwoTableLayout.test.tsx src/features/charts/__tests__/orderBundleMasterSearch.test.tsx src/features/charts/__tests__/orderBundleItemActions.test.tsx src/features/charts/__tests__/orderBundleBundleNumberUi.test.tsx src/features/charts/__tests__/orderDockPanel.categoryButtons.test.tsx src/features/charts/__tests__/chartsActionBar.orca-send.test.tsx --silent=true` PASS
 - 2026-02-24: Charts オーダーUI再編（OUI-01〜OUI-05）の追跡性を正本へ統合反映（RUN_ID=20260224T213000Z）。
   - 内容: OUI-01〜OUI-05 を `OUI-ID / file / test / KPIイベント` の 1:1 追跡形式に統一。今回実装の主要結果（RP主軸化・共存ガード・KPI計測・互換維持）を `refactor plan` / `CURRENT` / 本ファイルへ同期反映し、計画→実装詳細への導線を追加。
   - 成果物: `docs/web-client/order-ui/charts-order-ui-refactor-plan-20260224.md` / `docs/web-client/order-ui/charts-order-ui-implementation-trace-20260224.md` / `docs/web-client/CURRENT.md` / `docs/DEVELOPMENT_STATUS.md`。

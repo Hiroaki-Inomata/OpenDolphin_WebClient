@@ -132,20 +132,21 @@ describe('OrderBundleEditPanel bundle number UI', () => {
     expect(bundleNumberInput).toBeEnabled();
   });
 
-  it('頓用/臨時では回数ラベルと説明文になる', async () => {
+  it('頓用では回数ラベルと説明文になる', async () => {
     mockUsageMaster();
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
     await selectUsage(user);
     expect(screen.getByLabelText('日数')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '臨時' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '頓用' }));
 
     const bundleNumberInput = screen.getByLabelText('回数') as HTMLInputElement;
     expect(bundleNumberInput).toBeInTheDocument();
     expect(bundleNumberInput.placeholder).toBe('例: 1');
-    expect(screen.getByText('頓用/臨時は回数として扱われます。')).toBeInTheDocument();
+    expect(screen.getByText('頓用は回数として扱われます。')).toBeInTheDocument();
   });
 
   it('保存時に処方区分メタが送信される', async () => {
@@ -206,6 +207,6 @@ describe('OrderBundleEditPanel bundle number UI', () => {
     expect(bundleNumberInput.value).toBe('2');
     const usageSelect = screen.getByLabelText('用法') as HTMLSelectElement;
     expect(usageSelect.selectedOptions[0]?.text).toBe('1回');
-    expect(screen.getByText('頓用/臨時は回数として扱われます。')).toBeInTheDocument();
+    expect(screen.getByText('頓用は回数として扱われます。')).toBeInTheDocument();
   });
 });

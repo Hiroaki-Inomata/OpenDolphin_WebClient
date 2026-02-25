@@ -84,7 +84,7 @@ export type OrderBundleEditingContext = {
 };
 
 type PrescriptionLocation = 'in' | 'out';
-type PrescriptionTiming = 'regular' | 'tonyo' | 'gaiyo' | 'temporal';
+type PrescriptionTiming = 'regular' | 'tonyo' | 'gaiyo';
 
 type BundleFormState = {
   documentId?: number;
@@ -206,13 +206,11 @@ const PRESCRIPTION_CLASS_CODES: Record<PrescriptionTiming, Record<PrescriptionLo
   regular: { in: '211', out: '212' },
   tonyo: { in: '221', out: '222' },
   gaiyo: { in: '231', out: '232' },
-  temporal: { in: '291', out: '292' },
 };
 const PRESCRIPTION_LABELS: Record<PrescriptionTiming, Record<PrescriptionLocation, string>> = {
   regular: { in: '内用（院内処方）', out: '内用（院外処方）' },
   tonyo: { in: '頓用（院内処方）', out: '頓用（院外処方）' },
   gaiyo: { in: '外用（院内処方）', out: '外用（院外処方）' },
-  temporal: { in: '臨時（院内処方）', out: '臨時（院外処方）' },
 };
 const PRESCRIPTION_CLASS_NAMES: Record<string, string> = {
   '211': '内服薬剤（院内処方）',
@@ -221,8 +219,6 @@ const PRESCRIPTION_CLASS_NAMES: Record<string, string> = {
   '222': '頓服薬剤（院外処方）',
   '231': '外用薬剤（院内処方）',
   '232': '外用薬剤（院外処方）',
-  '291': '内服薬剤（臨時投薬）（院内）',
-  '292': '内服薬剤（臨時投薬）（院外）',
 };
 const PRESCRIPTION_LOCATION_OPTIONS: Array<{ value: PrescriptionLocation; label: string }> = [
   { value: 'in', label: '院内' },
@@ -232,7 +228,6 @@ const PRESCRIPTION_TIMING_OPTIONS: Array<{ value: PrescriptionTiming; label: str
   { value: 'regular', label: '内服' },
   { value: 'tonyo', label: '頓用' },
   { value: 'gaiyo', label: '外用' },
-  { value: 'temporal', label: '臨時' },
 ];
 const USAGE_SELECT_FETCH_SIZE = 300;
 const MAX_USAGE_SELECT_OPTIONS = 300;
@@ -570,8 +565,6 @@ export const parsePrescriptionClassCode = (classCode?: string | null) => {
     timing = 'tonyo';
   } else if (normalized.startsWith('23')) {
     timing = 'gaiyo';
-  } else if (normalized.startsWith('29')) {
-    timing = 'temporal';
   }
   return { location, timing };
 };
@@ -736,8 +729,9 @@ export function OrderBundleEditPanel({
         editorScrollRef.current.scrollTop = 0;
       }
       const el =
-        (document.getElementById(`${entity}-admin`) as HTMLInputElement | null) ??
-        (document.getElementById(`${entity}-item-name-0`) as HTMLInputElement | null);
+        (document.getElementById(`${entity}-item-name-0`) as HTMLInputElement | null) ??
+        (document.getElementById(`${entity}-bundle-name`) as HTMLInputElement | null) ??
+        (document.getElementById(`${entity}-admin`) as HTMLInputElement | null);
       if (!el) return;
       safeScrollIntoView(el, { block: 'nearest' });
       el.focus();
@@ -758,6 +752,7 @@ export function OrderBundleEditPanel({
   }, []);
   const isMedOrder = entity === 'medOrder';
   const isInjectionOrder = entity === 'injectionOrder';
+  const isCompactOrderLayout = isMedOrder || isInjectionOrder;
   const isRadiologyOrder = entity === 'radiologyOrder';
   const isRehabOrder = entity === 'generalOrder';
   const isGaiyoPrescription = isMedOrder && form.prescriptionTiming === 'gaiyo';
@@ -1825,7 +1820,7 @@ export function OrderBundleEditPanel({
         ? form.prescriptionTiming === 'gaiyo'
           ? '外用は日数として扱われます。'
           : '通常処方は日数として扱われます。'
-        : '頓用/臨時は回数として扱われます。'
+        : '頓用は回数として扱われます。'
       : isDaysBasedPrescription
         ? '用法入力後に日数を入力できます。'
         : '用法入力後に回数を入力できます。'
@@ -2836,8 +2831,18 @@ export function OrderBundleEditPanel({
               event.preventDefault();
             }}
           >
+            <div className="charts-side-panel__field charts-side-panel__meta-section charts-side-panel__meta-section--bundle">
+              <label htmlFor={`${entity}-bundle-name`}>{bundleLabel}</label>
+              <input
+                id={`${entity}-bundle-name`}
+                value={form.bundleName}
+                onChange={(event) => setForm((prev) => ({ ...prev, bundleName: event.target.value }))}
+                placeholder={orderUiProfile.bundleNamePlaceholder}
+                disabled={isBlocked}
+              />
+            </div>
         {isMedOrder && (
-          <div className="charts-side-panel__field-row">
+          <div className="charts-side-panel__field-row charts-side-panel__meta-section charts-side-panel__meta-section--rx-class">
             <div className="charts-side-panel__field">
               <label>院内/院外</label>
               <div className="charts-side-panel__switch-group" role="group" aria-label="院内院外">
@@ -2888,7 +2893,7 @@ export function OrderBundleEditPanel({
           </div>
         )}
         {isGaiyoPrescription && (
-          <div className="charts-side-panel__field">
+          <div className="charts-side-panel__field charts-side-panel__meta-section charts-side-panel__meta-section--mixing">
             <label className="charts-side-panel__toggle">
               <input
                 id={`${entity}-mixing`}
@@ -2928,7 +2933,7 @@ export function OrderBundleEditPanel({
             </p>
           </div>
         )}
-        <div className="charts-side-panel__field-row">
+        <div className="charts-side-panel__field-row charts-side-panel__meta-section charts-side-panel__meta-section--usage">
           <div className="charts-side-panel__field" data-invalid={usageError ? 'true' : undefined}>
             <label htmlFor={`${entity}-admin`}>{orderUiProfile.instructionLabel}</label>
             {supportsUsageSearch ? (
@@ -3058,56 +3063,127 @@ export function OrderBundleEditPanel({
             ) : null}
           </div>
         </div>
-        <div className="charts-side-panel__field">
-          <label htmlFor={`${entity}-start`}>開始日</label>
-          <input
-            id={`${entity}-start`}
-            type="date"
-            value={form.startDate}
-            onChange={(event) => setForm((prev) => ({ ...prev, startDate: event.target.value }))}
-            disabled={isBlocked}
-          />
-        </div>
-        {orderUiProfile.supportsInjectionNoProcedure ? (
-          <div className="charts-side-panel__field">
-            <label className="charts-side-panel__toggle">
+        {isCompactOrderLayout ? (
+          <details className="charts-side-panel__fold charts-side-panel__meta-section charts-side-panel__meta-section--start">
+            <summary className="charts-side-panel__fold-summary">
+              <span>詳細入力（開始日・メモ）</span>
+              <span className="charts-side-panel__fold-meta">
+                <span className="charts-side-panel__fold-count">
+                  {[
+                    form.startDate ? '開始日' : null,
+                    form.memo?.trim() ? orderUiProfile.memoLabel : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' / ') || '未入力'}
+                </span>
+              </span>
+            </summary>
+            <div className="charts-side-panel__fold-content">
+              <div className="charts-side-panel__subsection">
+                <div className="charts-side-panel__field charts-side-panel__meta-section--start">
+                  <label htmlFor={`${entity}-start`}>開始日</label>
+                  <input
+                    id={`${entity}-start`}
+                    type="date"
+                    value={form.startDate}
+                    onChange={(event) => setForm((prev) => ({ ...prev, startDate: event.target.value }))}
+                    disabled={isBlocked}
+                  />
+                </div>
+                {orderUiProfile.supportsInjectionNoProcedure ? (
+                  <div className="charts-side-panel__field charts-side-panel__meta-section--memo">
+                    <label className="charts-side-panel__toggle">
+                      <input
+                        id={`${entity}-no-procedure-charge`}
+                        name={`${entity}-no-procedure-charge`}
+                        type="checkbox"
+                        checked={isNoProcedureCharge}
+                        onChange={(event) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            memo: event.target.checked ? NO_PROCEDURE_CHARGE_TEXT : '',
+                          }))
+                        }
+                        disabled={isBlocked}
+                      />
+                      手技料なし
+                    </label>
+                    <p className="charts-side-panel__message">注射オーダーのメモに「手技料なし」を反映します。</p>
+                  </div>
+                ) : (
+                  <div className="charts-side-panel__field charts-side-panel__meta-section--memo">
+                    <label htmlFor={`${entity}-memo`}>{orderUiProfile.memoLabel}</label>
+                    <textarea
+                      id={`${entity}-memo`}
+                      value={form.memo}
+                      onChange={(event) => setForm((prev) => ({ ...prev, memo: event.target.value }))}
+                      placeholder={orderUiProfile.memoPlaceholder}
+                      disabled={isBlocked}
+                    />
+                    {isRehabOrder && (
+                      <p className="charts-side-panel__message">
+                        メモは自由記述の補足欄です。指示・コメントをコードで管理する場合は「コメントコード」に入力してください。
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </details>
+        ) : (
+          <>
+            <div className="charts-side-panel__field charts-side-panel__meta-section charts-side-panel__meta-section--start">
+              <label htmlFor={`${entity}-start`}>開始日</label>
               <input
-                id={`${entity}-no-procedure-charge`}
-                name={`${entity}-no-procedure-charge`}
-                type="checkbox"
-                checked={isNoProcedureCharge}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    memo: event.target.checked ? NO_PROCEDURE_CHARGE_TEXT : '',
-                  }))
-                }
+                id={`${entity}-start`}
+                type="date"
+                value={form.startDate}
+                onChange={(event) => setForm((prev) => ({ ...prev, startDate: event.target.value }))}
                 disabled={isBlocked}
               />
-              手技料なし
-            </label>
-            <p className="charts-side-panel__message">注射オーダーのメモに「手技料なし」を反映します。</p>
-          </div>
-        ) : (
-          <div className="charts-side-panel__field">
-            <label htmlFor={`${entity}-memo`}>{orderUiProfile.memoLabel}</label>
-            <textarea
-              id={`${entity}-memo`}
-              value={form.memo}
-              onChange={(event) => setForm((prev) => ({ ...prev, memo: event.target.value }))}
-              placeholder={orderUiProfile.memoPlaceholder}
-              disabled={isBlocked}
-            />
-            {isRehabOrder && (
-              <p className="charts-side-panel__message">
-                メモは自由記述の補足欄です。指示・コメントをコードで管理する場合は「コメントコード」に入力してください。
-              </p>
+            </div>
+            {orderUiProfile.supportsInjectionNoProcedure ? (
+              <div className="charts-side-panel__field charts-side-panel__meta-section charts-side-panel__meta-section--memo">
+                <label className="charts-side-panel__toggle">
+                  <input
+                    id={`${entity}-no-procedure-charge`}
+                    name={`${entity}-no-procedure-charge`}
+                    type="checkbox"
+                    checked={isNoProcedureCharge}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        memo: event.target.checked ? NO_PROCEDURE_CHARGE_TEXT : '',
+                      }))
+                    }
+                    disabled={isBlocked}
+                  />
+                  手技料なし
+                </label>
+                <p className="charts-side-panel__message">注射オーダーのメモに「手技料なし」を反映します。</p>
+              </div>
+            ) : (
+              <div className="charts-side-panel__field charts-side-panel__meta-section charts-side-panel__meta-section--memo">
+                <label htmlFor={`${entity}-memo`}>{orderUiProfile.memoLabel}</label>
+                <textarea
+                  id={`${entity}-memo`}
+                  value={form.memo}
+                  onChange={(event) => setForm((prev) => ({ ...prev, memo: event.target.value }))}
+                  placeholder={orderUiProfile.memoPlaceholder}
+                  disabled={isBlocked}
+                />
+                {isRehabOrder && (
+                  <p className="charts-side-panel__message">
+                    メモは自由記述の補足欄です。指示・コメントをコードで管理する場合は「コメントコード」に入力してください。
+                  </p>
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
 
         {supportsBodyPartSearch && (
-          <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
+          <div className="charts-side-panel__subsection charts-side-panel__subsection--search charts-side-panel__meta-section charts-side-panel__meta-section--bodypart">
             <div className="charts-side-panel__subheader">
               <strong>{isRadiologyOrder ? '部位' : '部位（リハビリ）'}</strong>
               {isRadiologyOrder && (
@@ -3228,7 +3304,7 @@ export function OrderBundleEditPanel({
           </div>
         )}
 
-        <div className="charts-side-panel__subsection">
+        <div className="charts-side-panel__subsection charts-side-panel__meta-section charts-side-panel__meta-section--items">
           <div className="charts-side-panel__two-table-layout">
             <div className="charts-side-panel__two-table-fixed" data-testid="order-bundle-confirmed-table">
               <div className="charts-side-panel__subheader">
@@ -3318,6 +3394,43 @@ export function OrderBundleEditPanel({
             const rowId = (item as OrderBundleItemWithRowId).rowId;
             const hasRowValue = hasOrderBundleItemValue(item);
             const isInactiveRow = !hasRowValue;
+            const supportsItemCommentRow = isMedOrder || isInjectionOrder;
+            const parsedItemMemo = supportsItemCommentRow ? parseOrcaOrderItemMemo(item.memo) : null;
+            const genericValue = isMedOrder ? parsedItemMemo?.meta.genericFlg ?? '' : '';
+            const userCommentValue = isMedOrder
+              ? parsedItemMemo?.meta.userComment ?? ''
+              : parsedItemMemo?.memoText ?? (item.memo ?? '');
+            const genericDisabled = isBlocked || !isDrugMedicationCode(item.code?.trim() ?? '');
+            const updateItemMeta = (patch: Partial<OrcaOrderItemMeta>) => {
+              setForm((prev) => {
+                const next = [...prev.items];
+                const current = next[index];
+                if (!current) return prev;
+                next[index] = {
+                  ...current,
+                  memo: updateOrcaOrderItemMeta(current.memo ?? '', patch),
+                };
+                return { ...prev, items: next };
+              });
+            };
+            const updateGenericFlag = (nextValue: '' | 'yes' | 'no') => {
+              updateItemMeta({
+                genericFlg: nextValue === 'yes' || nextValue === 'no' ? nextValue : undefined,
+              });
+            };
+            const updateUserComment = (nextValue: string) => {
+              if (isMedOrder) {
+                updateItemMeta({ userComment: nextValue });
+                return;
+              }
+              setForm((prev) => {
+                const next = [...prev.items];
+                const current = next[index];
+                if (!current) return prev;
+                next[index] = { ...current, memo: nextValue };
+                return { ...prev, items: next };
+              });
+            };
             const rowSummary = [
               `コード: ${item.code?.trim() || '未設定'}`,
               formatItemQuantitySummary(item, itemQuantityLabel),
@@ -3333,8 +3446,6 @@ export function OrderBundleEditPanel({
               <div key={rowId ?? `${entity}-item-${index}`}>
                 <div
                   className={`charts-side-panel__item-row${
-                    isMedOrder ? ' charts-side-panel__item-row--med' : ''
-                  }${
                     isInactiveRow ? ' charts-side-panel__item-row--inactive' : ''
                   }${
                     orcaWarningTargets.items.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
@@ -3448,71 +3559,6 @@ export function OrderBundleEditPanel({
                     placeholder="単位"
                     disabled={isBlocked}
                   />
-                  {isMedOrder && (() => {
-                    const code = item.code?.trim() ?? '';
-                    const { meta } = parseOrcaOrderItemMemo(item.memo);
-                    const genericValue = meta.genericFlg ?? '';
-                    const userCommentValue = meta.userComment ?? '';
-                    const genericDisabled = isBlocked || !isDrugMedicationCode(code);
-                    const updateItemMeta = (patch: Partial<OrcaOrderItemMeta>) => {
-                      setForm((prev) => {
-                        const next = [...prev.items];
-                        const current = next[index];
-                        if (!current) return prev;
-                        next[index] = {
-                          ...current,
-                          memo: updateOrcaOrderItemMeta(current.memo ?? '', patch),
-                        };
-                        return { ...prev, items: next };
-                      });
-                    };
-                    const updateGenericFlag = (nextValue: '' | 'yes' | 'no') => {
-                      updateItemMeta({
-                        genericFlg: nextValue === 'yes' || nextValue === 'no' ? nextValue : undefined,
-                      });
-                    };
-                    const updateUserComment = (nextValue: string) => {
-                      updateItemMeta({ userComment: nextValue });
-                    };
-                    return (
-                      <div className="charts-side-panel__med-item-meta" onFocus={() => setSelectedItemRowId(rowId ?? null)}>
-                        <div
-                          className="charts-side-panel__switch-group charts-side-panel__switch-group--compact"
-                          role="group"
-                          aria-label="一般名"
-                          title={genericDisabled ? '薬剤コード確定後に選択できます。' : undefined}
-                        >
-                          {[
-                            { value: '', label: '既定' },
-                            { value: 'yes', label: '一般名' },
-                            { value: 'no', label: '一般名なし' },
-                          ].map((option) => (
-                            <button
-                              key={`${entity}-item-generic-${index}-${option.value || 'default'}`}
-                              type="button"
-                              className="charts-side-panel__switch-button charts-side-panel__switch-button--compact"
-                              data-active={genericValue === option.value ? 'true' : 'false'}
-                              aria-pressed={genericValue === option.value}
-                              onClick={() => updateGenericFlag(option.value as '' | 'yes' | 'no')}
-                              disabled={genericDisabled}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                        </div>
-                        <input
-                          id={`${entity}-item-user-comment-${index}`}
-                          name={`${entity}-item-user-comment-${index}`}
-                          value={userCommentValue}
-                          onChange={(event) => updateUserComment(event.target.value)}
-                          onFocus={() => setSelectedItemRowId(rowId ?? null)}
-                          placeholder="薬剤ごとのコメント入力"
-                          aria-label={`薬剤コメント ${index + 1}`}
-                          disabled={isBlocked}
-                        />
-                      </div>
-                    );
-                  })()}
                   {hasRowValue ? (
                     <button
                       type="button"
@@ -3525,6 +3571,53 @@ export function OrderBundleEditPanel({
                     </button>
                   ) : null}
                 </div>
+                {supportsItemCommentRow ? (
+                  <div
+                    className={`charts-side-panel__item-row charts-side-panel__item-row--comment${
+                      isInactiveRow ? ' charts-side-panel__item-row--inactive' : ''
+                    }${selectedItemRowId === rowId ? ' charts-side-panel__item-row--selected' : ''}`}
+                    onClick={() => setSelectedItemRowId(rowId ?? null)}
+                  >
+                    {isMedOrder ? (
+                      <div
+                        className="charts-side-panel__switch-group charts-side-panel__switch-group--compact"
+                        role="group"
+                        aria-label="一般名"
+                        title={genericDisabled ? '薬剤コード確定後に選択できます。' : undefined}
+                        style={{ gridColumn: '1 / span 2' }}
+                      >
+                        {[
+                          { value: '', label: '既定' },
+                          { value: 'yes', label: '一般名' },
+                          { value: 'no', label: '一般名なし' },
+                        ].map((option) => (
+                          <button
+                            key={`${entity}-item-generic-${index}-${option.value || 'default'}`}
+                            type="button"
+                            className="charts-side-panel__switch-button charts-side-panel__switch-button--compact"
+                            data-active={genericValue === option.value ? 'true' : 'false'}
+                            aria-pressed={genericValue === option.value}
+                            onClick={() => updateGenericFlag(option.value as '' | 'yes' | 'no')}
+                            disabled={genericDisabled}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    <input
+                      id={`${entity}-item-user-comment-${index}`}
+                      name={`${entity}-item-user-comment-${index}`}
+                      value={userCommentValue}
+                      onChange={(event) => updateUserComment(event.target.value)}
+                      onFocus={() => setSelectedItemRowId(rowId ?? null)}
+                      placeholder={isMedOrder ? '薬剤ごとのコメント入力' : '注射ごとのコメント入力'}
+                      aria-label={`${isMedOrder ? '薬剤' : '注射'}コメント ${index + 1}`}
+                      disabled={isBlocked}
+                      style={isMedOrder ? { gridColumn: '3 / span 2' } : { gridColumn: '1 / span 4' }}
+                    />
+                  </div>
+                ) : null}
                 {shouldShowRowSummary ? (
                   <p className="charts-side-panel__help" data-testid={`order-bundle-item-summary-${index}`}>
                     {rowSummary}
@@ -3578,7 +3671,7 @@ export function OrderBundleEditPanel({
 
         {supportsCommentCodes && (
           <details
-            className="charts-side-panel__fold"
+            className="charts-side-panel__fold charts-side-panel__meta-section charts-side-panel__meta-section--comments"
             open={commentsFoldOpen}
             onToggle={(event) => setCommentsFoldOpen(event.currentTarget.open)}
             data-invalid={commentError ? 'true' : undefined}

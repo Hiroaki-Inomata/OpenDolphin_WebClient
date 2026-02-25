@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 ARG WAR_BASENAME=opendolphin-server
 ARG MVN_PROFILES=dev
 
@@ -22,38 +20,7 @@ RUN mvn -N -f pom.server-modernized.xml -s /tmp/maven-settings.xml -B dependency
 RUN mvn -N -f pom.server-modernized.xml -s /tmp/maven-settings.xml -B dependency:get -Dartifact=org.hibernate:hibernate-core:5.0.10.Final
 
 RUN mkdir -p /tmp/hbcompat/src/org/hibernate/type /tmp/hbcompat/classes
-RUN cat <<'JAVA' > /tmp/hbcompat/src/org/hibernate/type/StringClobType.java
-package org.hibernate.type;
-
-import org.hibernate.dialect.Dialect;
-import org.hibernate.type.descriptor.java.StringTypeDescriptor;
-import org.hibernate.type.descriptor.sql.ClobTypeDescriptor;
-
-public class StringClobType extends AbstractSingleColumnStandardBasicType<String>
-        implements DiscriminatorType<String> {
-
-    private static final long serialVersionUID = 1L;
-
-    public StringClobType() {
-        super(ClobTypeDescriptor.DEFAULT, StringTypeDescriptor.INSTANCE);
-    }
-
-    @Override
-    public String getName() {
-        return "string_clob";
-    }
-
-    @Override
-    public String objectToSQLString(String value, Dialect dialect) {
-        return StringTypeDescriptor.INSTANCE.toString(value);
-    }
-
-    @Override
-    public String stringToObject(String xml) {
-        return StringTypeDescriptor.INSTANCE.fromString(xml);
-    }
-}
-JAVA
+COPY ops/modernized-server/docker/hbcompat/StringClobType.java /tmp/hbcompat/src/org/hibernate/type/StringClobType.java
 
 RUN javac -cp /root/.m2/repository/org/hibernate/hibernate-core/5.0.10.Final/hibernate-core-5.0.10.Final.jar -d /tmp/hbcompat/classes /tmp/hbcompat/src/org/hibernate/type/StringClobType.java
 RUN jar cf /tmp/hbcompat/string-clob-type-compat.jar -C /tmp/hbcompat/classes .
@@ -81,19 +48,8 @@ COPY --from=build /workspace/server-modernized/target/${WAR_BASENAME}.war ${WILD
 COPY --from=build /root/.m2/repository/org/postgresql/postgresql/*/postgresql-*.jar /opt/jboss/postgresql-driver.jar
 COPY --from=build /tmp/hbcompat/string-clob-type-compat.jar /opt/jboss/string-clob-type-compat.jar
 RUN mkdir -p ${WILDFLY_HOME}/modules/system/layers/base/org/postgresql/main && \
-    cp /opt/jboss/postgresql-driver.jar ${WILDFLY_HOME}/modules/system/layers/base/org/postgresql/main/postgresql-driver.jar && \
-    cat <<'EOF' > ${WILDFLY_HOME}/modules/system/layers/base/org/postgresql/main/module.xml
-<?xml version="1.0" encoding="UTF-8"?>
-<module xmlns="urn:jboss:module:1.9" name="org.postgresql">
-    <resources>
-        <resource-root path="postgresql-driver.jar"/>
-    </resources>
-    <dependencies>
-        <module name="javax.api"/>
-        <module name="javax.transaction.api"/>
-    </dependencies>
-</module>
-EOF
+    cp /opt/jboss/postgresql-driver.jar ${WILDFLY_HOME}/modules/system/layers/base/org/postgresql/main/postgresql-driver.jar
+COPY ops/modernized-server/docker/modules/postgresql/module.xml ${WILDFLY_HOME}/modules/system/layers/base/org/postgresql/main/module.xml
 RUN mkdir -p /opt/jboss/config
 COPY server-modernized/config/attachment-storage.sample.yaml /opt/jboss/config/attachment-storage.yaml
 COPY ops/shared/docker/custom.properties ${WILDFLY_HOME}/custom.properties
@@ -101,15 +57,8 @@ COPY ops/modernized-server/docker/configure-wildfly.cli /opt/jboss/configure-wil
 COPY ops/shared/docker/bootstrap.sh /opt/jboss/bootstrap.sh
 RUN chmod +x /opt/jboss/bootstrap.sh
 
-RUN mkdir -p ${WILDFLY_HOME}/modules/system/layers/base/io/agroal/api/main && \
-    cat <<'EOF' > ${WILDFLY_HOME}/modules/system/layers/base/io/agroal/api/main/module.xml
-<?xml version="1.0" encoding="UTF-8"?>
-<module xmlns="urn:jboss:module:1.9" name="io.agroal.api">
-    <dependencies>
-        <module name="io.agroal"/>
-    </dependencies>
-</module>
-EOF
+RUN mkdir -p ${WILDFLY_HOME}/modules/system/layers/base/io/agroal/api/main
+COPY ops/modernized-server/docker/modules/io/agroal/api/module.xml ${WILDFLY_HOME}/modules/system/layers/base/io/agroal/api/main/module.xml
 
 RUN mkdir -p /opt/jboss/tmp/WEB-INF/lib && \
     mv /opt/jboss/string-clob-type-compat.jar /opt/jboss/tmp/WEB-INF/lib/ && \

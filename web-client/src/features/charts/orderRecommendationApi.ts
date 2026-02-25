@@ -11,7 +11,7 @@ export type OrderRecommendationTemplate = {
   adminMemo: string;
   memo: string;
   prescriptionLocation?: 'in' | 'out';
-  prescriptionTiming?: 'regular' | 'tonyo' | 'gaiyo' | 'temporal';
+  prescriptionTiming?: 'regular' | 'tonyo' | 'gaiyo';
   items: OrderBundleItem[];
   materialItems: OrderBundleItem[];
   commentItems: OrderBundleItem[];

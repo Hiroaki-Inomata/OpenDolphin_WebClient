@@ -83,7 +83,7 @@ describe('validateBundleForm', () => {
     expect(issues.map((issue) => issue.key)).toEqual(['usage_days_limit_exceeded']);
   });
 
-  it('medOrder: 頓用/臨時は用法上限日数の判定対象外', () => {
+  it('medOrder: 頓用は用法上限日数の判定対象外', () => {
     const issues = validateBundleForm({
       form: {
         ...baseForm,

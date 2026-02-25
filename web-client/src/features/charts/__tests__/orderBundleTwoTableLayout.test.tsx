@@ -80,7 +80,11 @@ describe('OrderBundleEditPanel predictive options', () => {
     const user = userEvent.setup();
     renderWithClient(<OrderBundleEditPanel {...baseProps} />);
 
+    expect(screen.getByLabelText('RP名')).toBeInTheDocument();
+
     const confirmed = screen.getByTestId('order-bundle-confirmed-table');
+    expect(confirmed.closest('.charts-side-panel__meta-section--items')).not.toBeNull();
+    expect(screen.getByLabelText('用法').closest('.charts-side-panel__meta-section--usage')).not.toBeNull();
 
     const itemNameInput = within(confirmed).getByPlaceholderText('薬剤名');
     await user.type(itemNameInput, 'アム');

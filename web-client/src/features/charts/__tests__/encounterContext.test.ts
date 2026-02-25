@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   buildChartsEncounterSearch,
+  hasEncounterContext,
   loadChartsEncounterContext,
+  normalizeEncounterContext,
   parseChartsEncounterContext,
   parseChartsNavigationMeta,
   parseReceptionCarryoverParams,
@@ -47,6 +49,46 @@ describe('charts encounterContext', () => {
     expect(rebuilt).toContain('date=2025-12-27');
 
     expect(parseChartsEncounterContext('?visitDate=20251218').visitDate).toBeUndefined();
+  });
+
+  it('normalizeEncounterContext: ID の前後空白を除去し、不正 visitDate を破棄する', () => {
+    expect(
+      normalizeEncounterContext({
+        patientId: ' 0001 ',
+        appointmentId: ' A-1 ',
+        receptionId: ' R-1 ',
+        visitDate: '20260225',
+      }),
+    ).toEqual({
+      patientId: '0001',
+      appointmentId: 'A-1',
+      receptionId: 'R-1',
+      visitDate: undefined,
+    });
+  });
+
+  it('hasEncounterContext: 空白のみのIDは未指定として扱う', () => {
+    expect(
+      hasEncounterContext({
+        patientId: '   ',
+        appointmentId: undefined,
+        receptionId: undefined,
+        visitDate: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it('buildChartsEncounterSearch: ID をトリムしてクエリ生成する', () => {
+    const search = buildChartsEncounterSearch({
+      patientId: ' 0001 ',
+      appointmentId: ' A-1 ',
+      receptionId: ' R-1 ',
+      visitDate: '2026-02-25',
+    });
+    expect(search).toContain('patientId=0001');
+    expect(search).toContain('appointmentId=A-1');
+    expect(search).toContain('receptionId=R-1');
+    expect(search).not.toContain('%20');
   });
 
   it('store/load: sessionStorage round-trip', () => {

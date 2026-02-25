@@ -192,7 +192,7 @@ describe('OrderBundleEditPanel body part search', () => {
 
     await user.click(screen.getByText('膝関節').closest('button')!);
 
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+    await user.click(screen.getByRole('button', { name: /保存して追加/ }));
 
     await waitFor(() => expect(mutateOrderBundles).toHaveBeenCalled());
 
@@ -251,7 +251,7 @@ describe('OrderBundleEditPanel body part search', () => {
       selector: 'input[id$="-bodypart-keyword"]',
     });
     expect(keywordInput).toBeNull();
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+    await user.click(screen.getByRole('button', { name: /保存して追加/ }));
     expect(searchMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bodypart' }));
     expect(fetchOrderBundles).toHaveBeenCalled();
   });

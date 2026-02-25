@@ -3010,6 +3010,80 @@ export const chartsStyles = css`
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.72);
   }
 
+  /*
+   * Legacy-like edit flow:
+   * 1) bundle name / class switches
+   * 2) main item rows
+   * 3) usage and supplemental fields
+   */
+  .charts-side-panel__meta-section {
+    order: 50;
+  }
+
+  .charts-side-panel__meta-section--bundle {
+    order: 10;
+  }
+
+  .charts-side-panel__meta-section--rx-class {
+    order: 20;
+  }
+
+  .charts-side-panel__meta-section--mixing {
+    order: 25;
+  }
+
+  .charts-side-panel__meta-section--items {
+    order: 30;
+  }
+
+  .charts-side-panel__meta-section--usage {
+    order: 40;
+  }
+
+  .charts-side-panel__meta-section--start {
+    order: 50;
+  }
+
+  .charts-side-panel__meta-section--memo {
+    order: 60;
+  }
+
+  .charts-side-panel__meta-section--bodypart {
+    order: 70;
+  }
+
+  .charts-side-panel__meta-section--comments {
+    order: 80;
+  }
+
+  .charts-side-panel__field-row.charts-side-panel__meta-section--rx-class,
+  .charts-side-panel__field-row.charts-side-panel__meta-section--usage {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .charts-side-panel__meta-section--items .charts-side-panel__two-table-layout,
+  .charts-side-panel__meta-section--items .charts-side-panel__two-table-fixed {
+    gap: var(--charts-space-xs);
+  }
+
+  .charts-side-panel__meta-section--items .charts-side-panel__subheader-actions {
+    gap: var(--charts-space-2xs);
+  }
+
+  .charts-side-panel__meta-section--items .charts-side-panel__help,
+  .charts-side-panel__meta-section--usage .charts-side-panel__help,
+  .charts-side-panel__meta-section--usage .charts-side-panel__field-error {
+    margin-top: 0;
+  }
+
+  @media (max-width: 840px) {
+    .charts-side-panel__field-row.charts-side-panel__meta-section--rx-class,
+    .charts-side-panel__field-row.charts-side-panel__meta-section--usage {
+      grid-template-columns: 1fr;
+    }
+  }
+
   .charts-side-panel__form input,
   .charts-side-panel__form textarea,
   .charts-side-panel__form select {

@@ -19,11 +19,10 @@ import { ChartsPatientSummaryBar } from '../ChartsPatientSummaryBar';
 	import { DocumentCreatePanel } from '../DocumentCreatePanel';
 	import { PastHubPanel } from '../PastHubPanel';
 	import { PatientSummaryPanel } from '../PatientSummaryPanel';
-	import { StampLibraryPanel } from '../StampLibraryPanel';
+import { StampLibraryPanel } from '../StampLibraryPanel';
 import { normalizeAuditEventLog, normalizeAuditEventPayload, recordChartsAuditEvent } from '../audit';
 import { SoapNotePanel, type SoapOrderDockState } from '../SoapNotePanel';
 import { resolveOrderDockCategoryLabel } from '../orderCategoryRegistry';
-import { buildOrderHubEventId, recordOrderHubKpi } from '../orderHubKpi';
 import { DoCopyDialog, type DoCopyDialogState } from '../DoCopyDialog';
 import type { SoapDraft, SoapEntry, SoapSectionKey } from '../soapNote';
 import { SOAP_SECTION_LABELS, SOAP_SECTIONS } from '../soapNote';
@@ -62,6 +61,8 @@ import {
   buildChartsEncounterSearch,
   hasEncounterContext,
   loadChartsEncounterContext,
+  normalizeEncounterContext,
+  normalizeEncounterId,
   normalizeVisitDate,
   normalizeRunId,
   parseChartsEncounterContext,
@@ -292,15 +293,6 @@ type UtilityCloseGuardState = {
   reason: string;
   nextAction?: DockedUtilityAction;
 };
-type OrderDockCoexistGuardState = {
-  eventId: string;
-  nextAction: DockedUtilityAction;
-  currentAction?: DockedUtilityAction | null;
-  editingLabel?: string;
-};
-type UtilityPanelOpenOptions = {
-  bypassOrderDockGuard?: boolean;
-};
 type DocumentUtilityState = {
   dirty: boolean;
   attachmentCount: number;
@@ -391,6 +383,55 @@ const PATIENT_TABS_STORAGE_BASE = 'opendolphin:web-client:charts:patient-tabs';
 const PATIENT_TABS_STORAGE_VERSION = 'v1';
 
 const buildPatientTabKey = (patientId: string, visitDate: string) => `${patientId}::${visitDate}`;
+
+const applyEncounterTabState = (
+  prev: ChartsPatientTabsStorage,
+  params: {
+    patientId: string;
+    visitDate: string;
+    appointmentId?: string;
+    receptionId?: string;
+    name?: string;
+  },
+): ChartsPatientTabsStorage => {
+  const patientId = normalizeEncounterId(params.patientId);
+  const visitDate = normalizeVisitDate(params.visitDate);
+  if (!patientId || !visitDate) return prev;
+  const key = buildPatientTabKey(patientId, visitDate);
+  const existing = prev.tabs.find((tab) => tab.key === key);
+  const appointmentId = normalizeEncounterId(params.appointmentId) ?? existing?.appointmentId;
+  const receptionId = normalizeEncounterId(params.receptionId) ?? existing?.receptionId;
+  const name = typeof params.name === 'string' && params.name.trim() ? params.name.trim() : existing?.name;
+  const nextTab: ChartsPatientTab = {
+    key,
+    patientId,
+    visitDate,
+    appointmentId,
+    receptionId,
+    name,
+    openedAt: existing?.openedAt ?? new Date().toISOString(),
+  };
+  const tabUnchanged =
+    existing !== undefined &&
+    existing.patientId === nextTab.patientId &&
+    existing.visitDate === nextTab.visitDate &&
+    (existing.appointmentId ?? undefined) === (nextTab.appointmentId ?? undefined) &&
+    (existing.receptionId ?? undefined) === (nextTab.receptionId ?? undefined) &&
+    (existing.name ?? undefined) === (nextTab.name ?? undefined);
+  const activeUnchanged = prev.activeKey === key;
+  if (tabUnchanged && activeUnchanged) return prev;
+
+  const nextTabs = existing
+    ? tabUnchanged
+      ? prev.tabs
+      : prev.tabs.map((tab) => (tab.key === key ? nextTab : tab))
+    : [...prev.tabs, nextTab];
+  return {
+    ...prev,
+    activeKey: key,
+    tabs: nextTabs,
+  };
+};
 
 const readChartsPatientTabsStorage = (
   scope?: { facilityId?: string; userId?: string },
@@ -613,28 +654,28 @@ function ChartsContent() {
 	  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [encounterContext, setEncounterContext] = useState<OutpatientEncounterContext>(() => {
     const urlContext = parseChartsEncounterContext(location.search);
-    if (hasEncounterContext(urlContext)) return urlContext;
+    if (hasEncounterContext(urlContext)) return normalizeEncounterContext(urlContext);
     const storedTabs = readChartsPatientTabsStorage(storageScope);
     const activeTab =
       (storedTabs?.activeKey
         ? storedTabs.tabs.find((tab) => tab.key === storedTabs.activeKey)
         : undefined) ?? storedTabs?.tabs?.[0];
     if (activeTab) {
-      return {
+      return normalizeEncounterContext({
         patientId: activeTab.patientId,
         appointmentId: activeTab.appointmentId,
         receptionId: activeTab.receptionId,
         visitDate: normalizeVisitDate(activeTab.visitDate) ?? undefined,
-      };
+      });
     }
     const stored = loadChartsEncounterContext(storageScope);
-    if (hasEncounterContext(stored)) return stored ?? {};
-    return {
+    if (hasEncounterContext(stored)) return normalizeEncounterContext(stored);
+    return normalizeEncounterContext({
       patientId: typeof navigationState.patientId === 'string' ? navigationState.patientId : undefined,
       appointmentId: typeof navigationState.appointmentId === 'string' ? navigationState.appointmentId : undefined,
       receptionId: typeof navigationState.receptionId === 'string' ? navigationState.receptionId : undefined,
       visitDate: normalizeVisitDate(typeof navigationState.visitDate === 'string' ? navigationState.visitDate : undefined),
-    };
+    });
   });
   const [patientTabsState, setPatientTabsState] = useState<ChartsPatientTabsStorage>(() => {
     return (
@@ -660,27 +701,17 @@ function ChartsContent() {
   }, [patientTabsState, storageScope]);
 
   useEffect(() => {
-    const patientId = (encounterContext.patientId ?? '').trim();
+    const patientId = normalizeEncounterId(encounterContext.patientId);
     if (!patientId) return;
     const visitDate = normalizeVisitDate(encounterContext.visitDate) ?? today;
-    const key = buildPatientTabKey(patientId, visitDate);
-
-    setPatientTabsState((prev) => {
-      const existing = prev.tabs.find((tab) => tab.key === key);
-      const nextTab: ChartsPatientTab = {
-        key,
+    setPatientTabsState((prev) =>
+      applyEncounterTabState(prev, {
         patientId,
         visitDate,
-        appointmentId: encounterContext.appointmentId ?? existing?.appointmentId,
-        receptionId: encounterContext.receptionId ?? existing?.receptionId,
-        name: existing?.name,
-        openedAt: existing?.openedAt ?? new Date().toISOString(),
-      };
-      const nextTabs = existing
-        ? prev.tabs.map((tab) => (tab.key === key ? nextTab : tab))
-        : [...prev.tabs, nextTab];
-      return { ...prev, activeKey: key, tabs: nextTabs };
-    });
+        appointmentId: encounterContext.appointmentId,
+        receptionId: encounterContext.receptionId,
+      }),
+    );
   }, [encounterContext.appointmentId, encounterContext.patientId, encounterContext.receptionId, encounterContext.visitDate, today]);
   const [draftState, setDraftState] = useState<{
     dirty: boolean;
@@ -809,8 +840,6 @@ function ChartsContent() {
   const [isUtilityPanelDragging, setIsUtilityPanelDragging] = useState(false);
   const [isUtilityPanelResizing, setIsUtilityPanelResizing] = useState(false);
   const [utilityCloseGuard, setUtilityCloseGuard] = useState<UtilityCloseGuardState | null>(null);
-  const [orderDockCoexistGuard, setOrderDockCoexistGuard] = useState<OrderDockCoexistGuardState | null>(null);
-  const orderDockCoexistFocusRestoreRef = useRef<HTMLElement | null>(null);
   const [orderSetSubtab, setOrderSetSubtab] = useState<UtilityOrderSetSubtab>('set');
   const [documentUtilityState, setDocumentUtilityState] = useState<DocumentUtilityState>({
     dirty: false,
@@ -881,35 +910,28 @@ function ChartsContent() {
 
   const openEncounterInTabs = useCallback(
     (next: OutpatientEncounterContext, options?: { name?: string }) => {
-      const patientId = (next.patientId ?? '').trim();
+      const normalizedNext = normalizeEncounterContext(next);
+      const patientId = normalizedNext.patientId;
       if (!patientId) return;
-      const visitDate = normalizeVisitDate(next.visitDate) ?? today;
-      const key = buildPatientTabKey(patientId, visitDate);
+      const visitDate = normalizedNext.visitDate ?? today;
       const name = options?.name?.trim() || undefined;
 
-      setPatientTabsState((prev) => {
-        const existing = prev.tabs.find((tab) => tab.key === key);
-        const nextTab: ChartsPatientTab = {
-          key,
+      setPatientTabsState((prev) =>
+        applyEncounterTabState(prev, {
           patientId,
           visitDate,
-          appointmentId: next.appointmentId ?? existing?.appointmentId,
-          receptionId: next.receptionId ?? existing?.receptionId,
-          name: name ?? existing?.name,
-          openedAt: existing?.openedAt ?? new Date().toISOString(),
-        };
-        const nextTabs = existing
-          ? prev.tabs.map((tab) => (tab.key === key ? nextTab : tab))
-          : [...prev.tabs, nextTab];
-        return { ...prev, activeKey: key, tabs: nextTabs };
-      });
+          appointmentId: normalizedNext.appointmentId,
+          receptionId: normalizedNext.receptionId,
+          name,
+        }),
+      );
 
-      setEncounterContext({
+      setEncounterContext(normalizeEncounterContext({
         patientId,
-        appointmentId: next.appointmentId,
-        receptionId: next.receptionId,
+        appointmentId: normalizedNext.appointmentId,
+        receptionId: normalizedNext.receptionId,
         visitDate,
-      });
+      }));
       setContextAlert(null);
     },
     [today],
@@ -949,12 +971,12 @@ function ChartsContent() {
 
       if (!wasActive) return;
       if (nextActive) {
-        setEncounterContext({
+        setEncounterContext(normalizeEncounterContext({
           patientId: nextActive.patientId,
           appointmentId: nextActive.appointmentId,
           receptionId: nextActive.receptionId,
           visitDate: nextActive.visitDate,
-        });
+        }));
         setContextAlert(null);
         return;
       }
@@ -1376,11 +1398,13 @@ function ChartsContent() {
   }, [soapHistoryByEncounter, setContextAlert, storageScope]);
 
   const sameEncounterContext = useCallback((left: OutpatientEncounterContext, right: OutpatientEncounterContext) => {
+    const leftNormalized = normalizeEncounterContext(left);
+    const rightNormalized = normalizeEncounterContext(right);
     return (
-      (left.patientId ?? '') === (right.patientId ?? '') &&
-      (left.appointmentId ?? '') === (right.appointmentId ?? '') &&
-      (left.receptionId ?? '') === (right.receptionId ?? '') &&
-      (normalizeVisitDate(left.visitDate) ?? '') === (normalizeVisitDate(right.visitDate) ?? '')
+      (leftNormalized.patientId ?? '') === (rightNormalized.patientId ?? '') &&
+      (leftNormalized.appointmentId ?? '') === (rightNormalized.appointmentId ?? '') &&
+      (leftNormalized.receptionId ?? '') === (rightNormalized.receptionId ?? '') &&
+      (normalizeVisitDate(leftNormalized.visitDate) ?? '') === (normalizeVisitDate(rightNormalized.visitDate) ?? '')
     );
   }, []);
 
@@ -1454,7 +1478,7 @@ function ChartsContent() {
       }
       return;
     }
-    setEncounterContext(urlContext);
+    setEncounterContext(normalizeEncounterContext(urlContext));
     setContextAlert({
       tone: 'info',
       message: 'URL の外来コンテキストに合わせて表示を更新しました（戻る/進む操作）。',
@@ -2852,22 +2876,22 @@ function ChartsContent() {
           previousContext: encounterContext,
         },
       });
-      setEncounterContext({
+      setEncounterContext(normalizeEncounterContext({
         patientId: headPatientId,
         appointmentId: head.appointmentId,
         receptionId: head.receptionId,
         visitDate: normalizeVisitDate(head.visitDate) ?? today,
-      });
+      }));
       return;
     }
 
     const chosen = resolved ?? head;
-    const nextContext: OutpatientEncounterContext = {
+    const nextContext = normalizeEncounterContext({
       patientId: resolveEncounterPatientIdFromEntry(chosen) ?? encounterContext.patientId,
       appointmentId: chosen.appointmentId,
       receptionId: chosen.receptionId,
       visitDate: normalizeVisitDate(chosen.visitDate) ?? encounterContext.visitDate ?? today,
-    };
+    });
     if (!sameEncounterContext(nextContext, encounterContext)) {
       setEncounterContext(nextContext);
       setContextAlert(null);
@@ -3485,34 +3509,8 @@ function ChartsContent() {
     [clearDocumentAttachments],
   );
 
-  const emitOrderDockCoexistKpi = useCallback(
-    (payload: Parameters<typeof recordOrderHubKpi>[1]) => {
-      recordOrderHubKpi(
-        {
-          runId: sidePanelMeta.runId,
-          cacheHit: sidePanelMeta.cacheHit,
-          missingMaster: sidePanelMeta.missingMaster,
-          fallbackUsed: sidePanelMeta.fallbackUsed,
-          dataSourceTransition: sidePanelMeta.dataSourceTransition,
-          patientId: sidePanelMeta.patientId,
-          appointmentId: sidePanelMeta.appointmentId,
-        },
-        payload,
-      );
-    },
-    [
-      sidePanelMeta.appointmentId,
-      sidePanelMeta.cacheHit,
-      sidePanelMeta.dataSourceTransition,
-      sidePanelMeta.fallbackUsed,
-      sidePanelMeta.missingMaster,
-      sidePanelMeta.patientId,
-      sidePanelMeta.runId,
-    ],
-  );
-
   const openUtilityPanel = useCallback(
-    (action: DockedUtilityAction, trigger?: HTMLButtonElement | null, options?: UtilityPanelOpenOptions) => {
+    (action: DockedUtilityAction, trigger?: HTMLButtonElement | null) => {
       if (!canOpenUtilityAction(action)) return;
       const currentAction = utilityPanelActionRef.current;
       if (currentAction && currentAction !== action) {
@@ -3527,51 +3525,11 @@ function ChartsContent() {
           return;
         }
       }
-      if (
-        !options?.bypassOrderDockGuard &&
-        orderDockState.hasEditing &&
-        currentAction !== action
-      ) {
-        const eventId = buildOrderHubEventId();
-        const editingLabel = orderDockState.editingLabel || resolveOrderDockCategoryLabel(orderDockState.targetCategory) || 'オーダー';
-        const focusTarget =
-          trigger ??
-          (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement ? document.activeElement : null);
-        orderDockCoexistFocusRestoreRef.current = focusTarget;
-        setOrderDockCoexistGuard({
-          eventId,
-          nextAction: action,
-          currentAction,
-          editingLabel,
-        });
-        emitOrderDockCoexistKpi({
-          category: 'OUI-04',
-          source: 'bottom-floating',
-          result: 'blocked',
-          eventId,
-          reason: 'order_dock_coexist_guard',
-          details: {
-            nextAction: action,
-            currentAction,
-            targetCategory: orderDockState.targetCategory,
-            editingLabel,
-          },
-        });
-        return;
-      }
       utilityLastActionRef.current = action;
       utilityTriggerRef.current = trigger ?? resolveUtilityTrigger(action) ?? utilityTriggerRef.current;
       setUtilityPanelAction(action);
     },
-    [
-      canOpenUtilityAction,
-      emitOrderDockCoexistKpi,
-      orderDockState.editingLabel,
-      orderDockState.hasEditing,
-      orderDockState.targetCategory,
-      resolveUtilityLeaveReason,
-      resolveUtilityTrigger,
-    ],
+    [canOpenUtilityAction, resolveUtilityLeaveReason, resolveUtilityTrigger],
   );
 
   const createCopyRequestId = useCallback(
@@ -3653,49 +3611,6 @@ function ChartsContent() {
       requestAnimationFrame(() => target.focus());
     }
   }, []);
-
-  const handleConfirmOrderDockCoexistGuard = useCallback(() => {
-    const guard = orderDockCoexistGuard;
-    if (!guard) return;
-    emitOrderDockCoexistKpi({
-      category: 'OUI-04',
-      source: 'bottom-floating',
-      result: 'discarded',
-      eventId: guard.eventId,
-      reason: 'order_dock_coexist_guard',
-      details: {
-        nextAction: guard.nextAction,
-        currentAction: guard.currentAction,
-        editingLabel: guard.editingLabel ?? null,
-      },
-    });
-    setOrderDockCoexistGuard(null);
-    orderDockCoexistFocusRestoreRef.current = null;
-    openUtilityPanel(guard.nextAction, utilityTriggerRef.current, { bypassOrderDockGuard: true });
-  }, [emitOrderDockCoexistKpi, openUtilityPanel, orderDockCoexistGuard]);
-
-  const handleCancelOrderDockCoexistGuard = useCallback(() => {
-    const guard = orderDockCoexistGuard;
-    if (!guard) return;
-    emitOrderDockCoexistKpi({
-      category: 'OUI-05',
-      source: 'bottom-floating',
-      result: 'recovered',
-      eventId: guard.eventId,
-      reason: 'order_dock_coexist_guard',
-      details: {
-        nextAction: guard.nextAction,
-        currentAction: guard.currentAction,
-        editingLabel: guard.editingLabel ?? null,
-      },
-    });
-    setOrderDockCoexistGuard(null);
-    const target = orderDockCoexistFocusRestoreRef.current;
-    orderDockCoexistFocusRestoreRef.current = null;
-    if (target && target.isConnected) {
-      requestAnimationFrame(() => target.focus());
-    }
-  }, [emitOrderDockCoexistKpi, orderDockCoexistGuard]);
 
   const handlePastOrderDo = useCallback(
     (payload: { entity: PastOrderEntity; bundle: OrderBundle }) => {
@@ -3860,7 +3775,6 @@ function ChartsContent() {
     prevPatientIdRef.current = encounterContext.patientId;
     setUtilityPanelAction(null);
     setUtilityCloseGuard(null);
-    setOrderDockCoexistGuard(null);
     setOrderSetSubtab('set');
     setOrderHistoryCopyRequest(null);
     setDocumentHistoryCopyRequest(null);
@@ -3876,7 +3790,6 @@ function ChartsContent() {
       hasError: false,
     });
     utilityFocusRestoreRef.current = false;
-    orderDockCoexistFocusRestoreRef.current = null;
     utilityLastActionRef.current = 'order-set';
     requestAnimationFrame(() => {
       resolveUtilityTrigger('order-set')?.focus();
@@ -4046,44 +3959,6 @@ function ChartsContent() {
         </section>
       </FocusTrapDialog>
       <FocusTrapDialog
-        open={Boolean(orderDockCoexistGuard)}
-        title="右欄で編集中です"
-        description="右欄アコーディオンの編集を維持したまま、下欄フローティングを開くか選択してください。"
-        onClose={handleCancelOrderDockCoexistGuard}
-        testId="charts-order-dock-coexist-guard-dialog"
-      >
-        <section className="charts-tab-guard" aria-label="右欄と下欄の共存確認">
-          <dl className="charts-actions__send-confirm-list">
-            <div>
-              <dt>現在の編集中</dt>
-              <dd>{orderDockCoexistGuard?.editingLabel ?? 'オーダー'}</dd>
-            </div>
-            {orderDockCoexistGuard?.editingLabel?.includes('必須不足') ? (
-              <div>
-                <dt>入力不足</dt>
-                <dd>RP必須項目に不足があります。</dd>
-              </div>
-            ) : null}
-            <div>
-              <dt>開こうとしている下欄</dt>
-              <dd>{orderDockCoexistGuard?.nextAction ? utilityPanelTitles[orderDockCoexistGuard.nextAction] : '—'}</dd>
-            </div>
-            <div>
-              <dt>影響</dt>
-              <dd>入力内容は保持されます。操作対象の切替のみ実行します。</dd>
-            </div>
-          </dl>
-          <div className="charts-tab-guard__actions" role="group" aria-label="右欄と下欄の共存操作">
-            <button type="button" onClick={handleCancelOrderDockCoexistGuard}>
-              キャンセル
-            </button>
-            <button type="button" className="charts-tab-guard__danger" onClick={handleConfirmOrderDockCoexistGuard}>
-              続行して開く
-            </button>
-          </div>
-        </section>
-      </FocusTrapDialog>
-      <FocusTrapDialog
         open={isPatientPanelOpen}
         title="患者・受付"
         description="患者選択/受付履歴/監査/Patients連携をまとめて確認します。"
@@ -4122,11 +3997,14 @@ function ChartsContent() {
             onDraftDirtyChange={(next) => setDraftState(next)}
             onSelectEncounter={(next) => {
               if (!next) return;
-              setEncounterContext((prev) => ({
-                ...prev,
-                ...next,
-                visitDate: normalizeVisitDate(next.visitDate) ?? prev.visitDate ?? today,
-              }));
+              setEncounterContext((prev) => {
+                const merged = normalizeEncounterContext({
+                  ...prev,
+                  ...next,
+                  visitDate: normalizeVisitDate(next.visitDate) ?? normalizeVisitDate(prev.visitDate) ?? today,
+                });
+                return sameEncounterContext(prev, merged) ? prev : merged;
+              });
               setContextAlert(null);
             }}
           />
@@ -4711,11 +4589,14 @@ function ChartsContent() {
                       todayIso={today}
                       onSelectEncounter={(next) => {
                         if (!next) return;
-                        setEncounterContext((prev) => ({
-                          ...prev,
-                          ...next,
-                          visitDate: normalizeVisitDate(next.visitDate) ?? prev.visitDate ?? today,
-                        }));
+                        setEncounterContext((prev) => {
+                          const merged = normalizeEncounterContext({
+                            ...prev,
+                            ...next,
+                            visitDate: normalizeVisitDate(next.visitDate) ?? normalizeVisitDate(prev.visitDate) ?? today,
+                          });
+                          return sameEncounterContext(prev, merged) ? prev : merged;
+                        });
                         setContextAlert(null);
                       }}
                     />

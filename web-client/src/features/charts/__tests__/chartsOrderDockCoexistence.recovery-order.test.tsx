@@ -309,7 +309,7 @@ const buildQueryClient = () =>
   });
 
 describe('ChartsPage order dock coexistence recovery', () => {
-  it('右欄編集中に下欄を操作しても未保存離脱ガード後に復帰できる', async () => {
+  it('右欄編集中でも下欄切替を直接実行でき、未保存離脱ガード後に復帰できる', async () => {
     const user = userEvent.setup();
     const patientTabKey = 'P-001::2026-02-16';
     const storageKey = 'opendolphin:web-client:charts:patient-tabs:v1:facility:doctor';
@@ -358,22 +358,9 @@ describe('ChartsPage order dock coexistence recovery', () => {
 
     await user.click(documentTab);
     await waitFor(() =>
-      expect(document.querySelector('[data-test-id="charts-order-dock-coexist-guard-dialog"]')).not.toBeNull(),
-    );
-
-    const coexistGuardDialog = document.querySelector(
-      '[data-test-id="charts-order-dock-coexist-guard-dialog"]',
-    ) as HTMLElement;
-    expect(within(coexistGuardDialog).getByText('処方')).toBeInTheDocument();
-    expect(within(coexistGuardDialog).getByText('文書')).toBeInTheDocument();
-    expect(within(coexistGuardDialog).getByText('入力内容は保持されます。操作対象の切替のみ実行します。')).toBeInTheDocument();
-    await user.click(within(coexistGuardDialog).getByRole('button', { name: '続行して開く' }));
-    await waitFor(() =>
-      expect(document.querySelector('[data-test-id="charts-order-dock-coexist-guard-dialog"]')).toBeNull(),
-    );
-    await waitFor(() =>
       expect(document.querySelector('[data-utility-action="document"]')?.getAttribute('data-active')).toBe('true'),
     );
+    expect(document.querySelector('[data-test-id="charts-order-dock-coexist-guard-dialog"]')).toBeNull();
 
     await user.click(screen.getByRole('button', { name: '診察終了（上部モック）' }));
     await waitFor(() =>
@@ -389,19 +376,9 @@ describe('ChartsPage order dock coexistence recovery', () => {
 
     await user.click(orderSetTab);
     await waitFor(() =>
-      expect(document.querySelector('[data-test-id="charts-order-dock-coexist-guard-dialog"]')).not.toBeNull(),
-    );
-    const coexistGuardDialogOnReturn = document.querySelector(
-      '[data-test-id="charts-order-dock-coexist-guard-dialog"]',
-    ) as HTMLElement;
-    expect(within(coexistGuardDialogOnReturn).getByText(/セット\s*\/\s*スタンプ/)).toBeInTheDocument();
-    await user.click(within(coexistGuardDialogOnReturn).getByRole('button', { name: '続行して開く' }));
-    await waitFor(() =>
-      expect(document.querySelector('[data-test-id="charts-order-dock-coexist-guard-dialog"]')).toBeNull(),
-    );
-    await waitFor(() =>
       expect(document.querySelector('[data-utility-action="order-set"]')?.getAttribute('data-active')).toBe('true'),
     );
+    expect(document.querySelector('[data-test-id="charts-order-dock-coexist-guard-dialog"]')).toBeNull();
     expect(orderSetTab.querySelector('.charts-docked-panel__tab-dirty')).not.toBeNull();
   });
 });

@@ -28,10 +28,27 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const RUN_ID_RE = /^\d{8}T\d{6}Z$/;
 const NUMERIC_ID_RE = /^\d+$/;
 
-const normalizeOptionalId = (value?: string | null): string | undefined => {
+export const normalizeEncounterId = (value?: string | null): string | undefined => {
   if (!value) return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+};
+
+export const normalizeEncounterContext = (context?: OutpatientEncounterContext | null): OutpatientEncounterContext => {
+  if (!context) {
+    return {
+      patientId: undefined,
+      appointmentId: undefined,
+      receptionId: undefined,
+      visitDate: undefined,
+    };
+  }
+  return {
+    patientId: normalizeEncounterId(context.patientId),
+    appointmentId: normalizeEncounterId(context.appointmentId),
+    receptionId: normalizeEncounterId(context.receptionId),
+    visitDate: normalizeVisitDate(context.visitDate),
+  };
 };
 
 type EncounterEntryLike = {
@@ -42,16 +59,16 @@ type EncounterEntryLike = {
 };
 
 export const resolveEncounterPatientIdFromEntry = (entry?: EncounterEntryLike): string | undefined => {
-  const directPatientId = normalizeOptionalId(entry?.patientId);
+  const directPatientId = normalizeEncounterId(entry?.patientId);
   if (directPatientId) return directPatientId;
 
-  const fallbackId = normalizeOptionalId(entry?.id);
+  const fallbackId = normalizeEncounterId(entry?.id);
   if (!fallbackId || !NUMERIC_ID_RE.test(fallbackId)) return undefined;
 
   // 受付/予約IDが数値の場合は row id と同値になり得るため、患者ID代替としては扱わない。
-  const receptionId = normalizeOptionalId(entry?.receptionId);
+  const receptionId = normalizeEncounterId(entry?.receptionId);
   if (receptionId && receptionId === fallbackId) return undefined;
-  const appointmentId = normalizeOptionalId(entry?.appointmentId);
+  const appointmentId = normalizeEncounterId(entry?.appointmentId);
   if (appointmentId && appointmentId === fallbackId) return undefined;
 
   return fallbackId;
@@ -92,15 +109,17 @@ export const normalizeRunId = (value?: string): string | undefined => {
 };
 
 export const hasEncounterContext = (context?: OutpatientEncounterContext | null): boolean => {
-  if (!context) return false;
-  return Boolean(context.receptionId || context.appointmentId || context.patientId || context.visitDate);
+  const normalized = normalizeEncounterContext(context);
+  return Boolean(
+    normalized.receptionId || normalized.appointmentId || normalized.patientId || normalized.visitDate,
+  );
 };
 
 export const parseChartsEncounterContext = (search: string): OutpatientEncounterContext => {
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
-  const patientId = normalizeOptionalId(params.get(CHARTS_CONTEXT_QUERY_KEYS.patientId));
-  const appointmentId = normalizeOptionalId(params.get(CHARTS_CONTEXT_QUERY_KEYS.appointmentId));
-  const receptionId = normalizeOptionalId(params.get(CHARTS_CONTEXT_QUERY_KEYS.receptionId));
+  const patientId = normalizeEncounterId(params.get(CHARTS_CONTEXT_QUERY_KEYS.patientId));
+  const appointmentId = normalizeEncounterId(params.get(CHARTS_CONTEXT_QUERY_KEYS.appointmentId));
+  const receptionId = normalizeEncounterId(params.get(CHARTS_CONTEXT_QUERY_KEYS.receptionId));
   const visitDate = normalizeVisitDate(params.get(CHARTS_CONTEXT_QUERY_KEYS.visitDate) ?? undefined);
   return { patientId, appointmentId, receptionId, visitDate };
 };
@@ -127,11 +146,12 @@ export const buildChartsEncounterSearch = (
   carryover: ReceptionCarryoverParams = {},
   meta: ChartsNavigationMeta = {},
 ): string => {
+  const normalizedContext = normalizeEncounterContext(context);
   const params = new URLSearchParams();
-  if (context.patientId) params.set(CHARTS_CONTEXT_QUERY_KEYS.patientId, context.patientId);
-  if (context.appointmentId) params.set(CHARTS_CONTEXT_QUERY_KEYS.appointmentId, context.appointmentId);
-  if (context.receptionId) params.set(CHARTS_CONTEXT_QUERY_KEYS.receptionId, context.receptionId);
-  const normalizedDate = normalizeVisitDate(context.visitDate);
+  if (normalizedContext.patientId) params.set(CHARTS_CONTEXT_QUERY_KEYS.patientId, normalizedContext.patientId);
+  if (normalizedContext.appointmentId) params.set(CHARTS_CONTEXT_QUERY_KEYS.appointmentId, normalizedContext.appointmentId);
+  if (normalizedContext.receptionId) params.set(CHARTS_CONTEXT_QUERY_KEYS.receptionId, normalizedContext.receptionId);
+  const normalizedDate = normalizeVisitDate(normalizedContext.visitDate);
   if (normalizedDate) params.set(CHARTS_CONTEXT_QUERY_KEYS.visitDate, normalizedDate);
   const normalizedRunId = normalizeRunId(meta.runId);
   if (normalizedRunId) params.set(CHARTS_META_QUERY_KEYS.runId, normalizedRunId);
@@ -155,19 +175,20 @@ export const buildChartsUrl = (
 const loadFromRaw = (raw: string | null): OutpatientEncounterContext | null => {
   if (!raw) return null;
   const parsed = JSON.parse(raw) as Partial<OutpatientEncounterContext>;
-  return {
-    patientId: typeof parsed.patientId === 'string' ? normalizeOptionalId(parsed.patientId) : undefined,
-    appointmentId: typeof parsed.appointmentId === 'string' ? normalizeOptionalId(parsed.appointmentId) : undefined,
-    receptionId: typeof parsed.receptionId === 'string' ? normalizeOptionalId(parsed.receptionId) : undefined,
-    visitDate: normalizeVisitDate(typeof parsed.visitDate === 'string' ? parsed.visitDate : undefined),
-  };
+  return normalizeEncounterContext({
+    patientId: typeof parsed.patientId === 'string' ? parsed.patientId : undefined,
+    appointmentId: typeof parsed.appointmentId === 'string' ? parsed.appointmentId : undefined,
+    receptionId: typeof parsed.receptionId === 'string' ? parsed.receptionId : undefined,
+    visitDate: typeof parsed.visitDate === 'string' ? parsed.visitDate : undefined,
+  });
 };
 
 export const storeChartsEncounterContext = (context: OutpatientEncounterContext, scope?: StorageScope) => {
   if (typeof sessionStorage === 'undefined') return;
+  const normalized = normalizeEncounterContext(context);
   const scopedKey = buildScopedStorageKey(STORAGE_BASE_KEY, STORAGE_VERSION, scope) ?? LEGACY_STORAGE_KEY;
   try {
-    sessionStorage.setItem(scopedKey, JSON.stringify(context));
+    sessionStorage.setItem(scopedKey, JSON.stringify(normalized));
   } catch {
     // storage が使えない環境ではスキップ
   }
