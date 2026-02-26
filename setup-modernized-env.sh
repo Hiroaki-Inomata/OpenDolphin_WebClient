@@ -544,7 +544,7 @@ EOF
 
 start_modernized_server() {
   log "Starting Modernized Server..."
-  docker compose -f docker-compose.modernized.dev.yml -f "$COMPOSE_OVERRIDE_FILE" up -d
+  docker compose -f docker-compose.modernized.dev.yml -f "$COMPOSE_OVERRIDE_FILE" up -d --build --force-recreate
 }
 
 ensure_orca_db_bridge() {
@@ -1050,7 +1050,7 @@ start_web_client_docker() {
     VITE_BASE_PATH="$base_path" \
     ORCA_BASIC_USER="$dev_orca_basic_user" \
     ORCA_BASIC_PASSWORD="$dev_orca_basic_password" \
-    docker compose -f docker-compose.web-client.yml up -d
+    docker compose -f docker-compose.web-client.yml up -d --build --force-recreate
 }
 
 start_web_client_npm() {

@@ -379,7 +379,7 @@ services:
 
 function Start-ModernizedServer {
     Log "Starting Modernized Server..." -Color Cyan
-    docker compose -f docker-compose.modernized.dev.yml -f $ComposeOverrideFile up -d
+    docker compose -f docker-compose.modernized.dev.yml -f $ComposeOverrideFile up -d --build --force-recreate
 }
 
 function Is-OrcaConfigOnly {
@@ -644,7 +644,7 @@ function Start-WebClient-Docker {
     $env:VITE_API_BASE_URL = $WebClientDevApiBase
     $env:VITE_ORCA_MODE = if ($env:ORCA_MODE) { $env:ORCA_MODE } elseif ($global:ORN_ORCA_MODE) { $global:ORN_ORCA_MODE } else { "" }
     $env:VITE_ORCA_API_PATH_PREFIX = if ($env:ORCA_API_PATH_PREFIX) { $env:ORCA_API_PATH_PREFIX } else { "" }
-    docker compose -f docker-compose.web-client.yml up -d
+    docker compose -f docker-compose.web-client.yml up -d --build --force-recreate
 }
 
 function Start-WebClient {
