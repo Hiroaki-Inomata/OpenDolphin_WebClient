@@ -309,6 +309,9 @@ export function PrescriptionOrderEditorPanel({
           if (request.bundle.documentId && rp.documentId) {
             return rp.documentId === request.bundle.documentId;
           }
+          if (imported.rpId && rp.rpId) {
+            return rp.rpId === imported.rpId;
+          }
           return false;
         });
         if (targetIndex >= 0) {
@@ -628,6 +631,7 @@ export function PrescriptionOrderEditorPanel({
       onSubmitResult?.({ action, ok });
       if (ok) {
         queryClient.invalidateQueries({ queryKey: ['charts-order-bundles'] });
+        queryClient.invalidateQueries({ queryKey: ['charts-prescription-bundles'] });
         queryClient.invalidateQueries({ queryKey: ['charts-prescription-order-editor-source', patientId] });
         setOrder((prev) => ({ ...prev, deletedDocumentIds: [] }));
         if (action === 'expand') onClose?.();

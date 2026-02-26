@@ -1,6 +1,9 @@
+import { httpFetch } from '../../libs/http/httpClient';
+import { generateRunId, getObservabilityMeta, updateObservabilityMeta } from '../../libs/observability/observability';
+import { importPatientsFromOrca } from '../outpatient/orcaPatientImportApi';
+import { buildPatientImportFailureMessage, isRecoverableOrcaNotFound } from '../shared/orcaPatientImportRecovery';
+import { parseOrcaApiResponse } from '../shared/orcaApiResponse';
 import {
-  fetchOrderBundlesWithPatientImportRecovery,
-  mutateOrderBundles,
   type OrderBundle,
   type OrderBundleFetchResult,
   type OrderBundleItem,
@@ -61,6 +64,8 @@ export type PrescriptionRp = PrescriptionLowerFields & {
 
 export type PrescriptionOrder = {
   patientId: string;
+  encounterDate?: string;
+  performDate?: string;
   doctorComment: string;
   rps: PrescriptionRp[];
   deletedDocumentIds: number[];
@@ -79,6 +84,7 @@ export type PrescriptionDoImportSource =
   | { type: 'order'; order: PrescriptionOrder };
 
 type StoredRpMeta = {
+  rpId?: string;
   refillCount?: 1 | 2 | 3;
   refillPattern?: PrescriptionRefillPattern;
   doctorComment?: string;
@@ -92,10 +98,75 @@ type StoredDrugMeta = {
   lowerFields?: PrescriptionLowerFields;
 };
 
+type ServerRpMeta = {
+  documentId?: number;
+  moduleId?: number;
+  entity?: string;
+  bundleName?: string;
+  bundleNumber?: string;
+  classCode?: string;
+  classCodeSystem?: string;
+  className?: string;
+  admin?: string;
+  adminMemo?: string;
+  started?: string;
+};
+
+type ServerPrescriptionClaimComment = {
+  code?: string;
+  text?: string;
+  category?: string;
+};
+
+type ServerPrescriptionDrug = {
+  code?: string;
+  name?: string;
+  quantity?: string;
+  unit?: string;
+  memo?: string;
+};
+
+type ServerPrescriptionRp = {
+  rpNumber?: string;
+  medicalClass?: string;
+  medicalClassNumber?: string;
+  usageCode?: string;
+  usageName?: string;
+  memo?: string;
+  drugs?: ServerPrescriptionDrug[];
+  claimComments?: ServerPrescriptionClaimComment[];
+};
+
+type ServerPrescriptionDoctorComment = {
+  text?: string;
+};
+
+type ServerPrescriptionSetting = {
+  code?: string;
+  name?: string;
+  value?: string;
+};
+
+type ServerPrescriptionRemark = {
+  code?: string;
+  text?: string;
+};
+
+type ServerPrescriptionOrder = {
+  patientId: string;
+  encounterDate?: string;
+  performDate?: string;
+  rps?: ServerPrescriptionRp[];
+  doctorComments?: ServerPrescriptionDoctorComment[];
+  prescriptionSettings?: ServerPrescriptionSetting[];
+  remarks?: ServerPrescriptionRemark[];
+};
+
 const COMMENT_CODE_PATTERN = /^(008[1-6]|8[1-6]|098|099|98|99)/;
 const RX_RP_META_PREFIX = '__rx_rp_meta__:';
 const RX_DRUG_META_PREFIX = '__rx_drug_meta__:';
 const RX_CLAIM_LINK_PREFIX = '__rx_claim_target__:';
+const RX_SERVER_RP_META_PREFIX = '__rx_server_rp_meta__:';
 const PRESCRIPTION_CLASS_CODES: Record<PrescriptionCategory, Record<PrescriptionLocation, string>> = {
   regular: { in: '211', out: '212' },
   tonyo: { in: '221', out: '222' },
@@ -275,7 +346,7 @@ const toRpFromBundle = (bundle: OrderBundle): PrescriptionRp => {
   const refillCount = rpMeta?.refillCount;
 
   return {
-    rpId: createStableId('rp'),
+    rpId: rpMeta?.rpId?.trim() || createStableId('rp'),
     documentId: bundle.documentId,
     moduleId: bundle.moduleId,
     name: bundle.bundleName?.trim() || '',
@@ -312,6 +383,8 @@ export const buildEmptyPrescriptionRp = (started?: string): PrescriptionRp => ({
 
 export const buildEmptyPrescriptionOrder = (patientId: string, started?: string): PrescriptionOrder => ({
   patientId,
+  encounterDate: started?.slice(0, 10),
+  performDate: started?.slice(0, 10),
   doctorComment: '',
   rps: [buildEmptyPrescriptionRp(started)],
   deletedDocumentIds: [],
@@ -323,8 +396,14 @@ export const toPrescriptionOrder = (sourceBundles: OrderBundle[], patientId: str
     return buildEmptyPrescriptionOrder(patientId);
   }
   const rps = medBundles.map(toRpFromBundle);
+  const startedDates = rps
+    .map((rp) => rp.started?.slice(0, 10))
+    .filter((value): value is string => Boolean(value));
+  const baseDate = startedDates[0];
   return {
     patientId,
+    encounterDate: baseDate,
+    performDate: baseDate,
     doctorComment: rps.find((rp) => rp.doctorComment.trim())?.doctorComment ?? '',
     rps,
     deletedDocumentIds: [],
@@ -351,6 +430,7 @@ const normalizeRpMeta = (rp: PrescriptionRp, doctorComment: string): StoredRpMet
     : undefined;
   const trimmedDoctorComment = doctorComment.trim() || rp.doctorComment.trim();
   return {
+    rpId: rp.rpId?.trim() || undefined,
     refillCount: rp.refillCount,
     refillPattern: rp.refillPattern,
     doctorComment: trimmedDoctorComment || undefined,
@@ -500,22 +580,254 @@ export const buildPrescriptionMutationOperations = (order: PrescriptionOrder): O
   return operations;
 };
 
+const buildPrescriptionOrderQuery = (params: { patientId: string; from?: string }) => {
+  const query = new URLSearchParams();
+  query.set('patientId', params.patientId);
+  const encounterDate = params.from?.slice(0, 10);
+  if (encounterDate) {
+    query.set('encounterDate', encounterDate);
+  }
+  return query.toString();
+};
+
+const toBundleFromOperation = (operation: OrderBundleOperation): OrderBundle => ({
+  documentId: operation.documentId,
+  moduleId: operation.moduleId,
+  entity: 'medOrder',
+  bundleName: operation.bundleName,
+  bundleNumber: operation.bundleNumber,
+  classCode: operation.classCode,
+  classCodeSystem: operation.classCodeSystem,
+  className: operation.className,
+  admin: operation.admin,
+  adminMemo: operation.adminMemo,
+  memo: operation.memo,
+  started: operation.startDate,
+  items: (operation.items ?? []).map((item) => ({
+    code: item.code,
+    name: item.name,
+    quantity: item.quantity,
+    unit: item.unit,
+    memo: item.memo,
+  })),
+});
+
+const toServerPrescriptionOrder = (order: PrescriptionOrder): ServerPrescriptionOrder => {
+  const operations = buildPrescriptionMutationOperations({ ...order, deletedDocumentIds: [] }).filter(
+    (operation) => operation.operation !== 'delete',
+  );
+  const rps: ServerPrescriptionRp[] = operations.map((operation) => {
+    const rpMeta: ServerRpMeta = {
+      documentId: operation.documentId,
+      moduleId: operation.moduleId,
+      entity: operation.entity,
+      bundleName: operation.bundleName,
+      bundleNumber: operation.bundleNumber,
+      classCode: operation.classCode,
+      classCodeSystem: operation.classCodeSystem,
+      className: operation.className,
+      admin: operation.admin,
+      adminMemo: operation.adminMemo,
+      started: operation.startDate,
+    };
+    const rpMemo = withJsonMetaLine(operation.memo?.trim() ?? '', RX_SERVER_RP_META_PREFIX, rpMeta, true);
+    return {
+      rpNumber: operation.bundleNumber?.trim() || undefined,
+      medicalClass: operation.classCode?.trim() || undefined,
+      medicalClassNumber: operation.bundleNumber?.trim() || undefined,
+      usageCode: operation.adminMemo?.trim() || undefined,
+      usageName: operation.admin?.trim() || undefined,
+      memo: rpMemo,
+      drugs: (operation.items ?? []).map((item) => ({
+        code: item.code?.trim() || undefined,
+        name: item.name?.trim() || undefined,
+        quantity: item.quantity?.trim() || undefined,
+        unit: item.unit?.trim() || undefined,
+        memo: item.memo?.trim() || '',
+      })),
+      claimComments: [],
+    };
+  });
+
+  const doctorComment = order.doctorComment.trim();
+  const startedDates = order.rps
+    .map((rp) => rp.started?.slice(0, 10))
+    .filter((value): value is string => Boolean(value));
+
+  return {
+    patientId: order.patientId,
+    encounterDate: order.encounterDate ?? startedDates[0],
+    performDate: order.performDate ?? startedDates[0],
+    rps,
+    doctorComments: doctorComment ? [{ text: doctorComment }] : [],
+    prescriptionSettings: [],
+    remarks: [],
+  };
+};
+
+const toSourceBundlesFromServerOrder = (order: ServerPrescriptionOrder): OrderBundle[] => {
+  const rps = order.rps ?? [];
+  return rps.map((rp, index) => {
+    const parsedMemo = splitMetaText<ServerRpMeta>(rp.memo, RX_SERVER_RP_META_PREFIX);
+    const meta = parsedMemo.meta;
+    return {
+      documentId: typeof meta?.documentId === 'number' ? meta.documentId : undefined,
+      moduleId: typeof meta?.moduleId === 'number' ? meta.moduleId : undefined,
+      entity: meta?.entity?.trim() || 'medOrder',
+      bundleName: meta?.bundleName?.trim() || `処方RP${index + 1}`,
+      bundleNumber: meta?.bundleNumber?.trim() || rp.medicalClassNumber?.trim() || rp.rpNumber?.trim() || '1',
+      classCode: meta?.classCode?.trim() || rp.medicalClass?.trim() || undefined,
+      classCodeSystem: meta?.classCodeSystem?.trim() || 'Claim007',
+      className: meta?.className?.trim() || undefined,
+      admin: meta?.admin?.trim() || rp.usageName?.trim() || '',
+      adminMemo: meta?.adminMemo?.trim() || rp.usageCode?.trim() || '',
+      memo: parsedMemo.text,
+      started: meta?.started?.trim() || undefined,
+      items: (rp.drugs ?? []).map((drug) => ({
+        code: drug.code?.trim() || undefined,
+        name: drug.name?.trim() || '',
+        quantity: drug.quantity?.trim() || '',
+        unit: drug.unit?.trim() || '',
+        memo: drug.memo?.trim() || '',
+      })),
+    };
+  });
+};
+
+const parsePrescriptionOrderFetchResponse = (
+  json: Record<string, unknown> | null,
+): {
+  found: boolean;
+  runId?: string;
+  order?: ServerPrescriptionOrder;
+} => {
+  if (!json) return { found: false };
+  const found = Boolean(json.found);
+  const runId = typeof json.runId === 'string' ? json.runId : undefined;
+  const orderCandidate = json.order;
+  const order =
+    orderCandidate && typeof orderCandidate === 'object' && !Array.isArray(orderCandidate)
+      ? (orderCandidate as ServerPrescriptionOrder)
+      : undefined;
+  return { found, runId, order };
+};
+
+const fetchPrescriptionOrderBase = async (params: {
+  patientId: string;
+  from?: string;
+}): Promise<PrescriptionOrderFetchResult> => {
+  const runId = getObservabilityMeta().runId ?? generateRunId();
+  updateObservabilityMeta({ runId });
+  const response = await httpFetch(`/orca/prescription-orders?${buildPrescriptionOrderQuery(params)}`);
+  const parsed = await parseOrcaApiResponse(response, {
+    fallbackMessage: '処方オーダー情報の取得に失敗しました。',
+  });
+  if (parsed.ok && !parsed.json) {
+    return {
+      ok: false,
+      runId,
+      patientId: params.patientId,
+      sourceBundles: [],
+      order: buildEmptyPrescriptionOrder(params.patientId, params.from),
+      message: '処方オーダーAPIがJSON以外を返しました。ルーティング設定を確認してください。',
+      status: parsed.status,
+      errorKind: 'route_not_found',
+      routeMismatch: true,
+    };
+  }
+
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      runId: parsed.runId ?? runId,
+      patientId: params.patientId,
+      sourceBundles: [],
+      order: buildEmptyPrescriptionOrder(params.patientId, params.from),
+      message: parsed.message,
+      status: parsed.status,
+      errorCode: parsed.errorCode,
+      errorKind: parsed.errorKind,
+      routeMismatch: parsed.routeMismatch,
+    };
+  }
+
+  const fetchResponse = parsePrescriptionOrderFetchResponse(parsed.json);
+  const sourceBundles = fetchResponse.order ? toSourceBundlesFromServerOrder(fetchResponse.order) : [];
+  const order =
+    fetchResponse.found && sourceBundles.length > 0
+      ? toPrescriptionOrder(sourceBundles, params.patientId)
+      : buildEmptyPrescriptionOrder(params.patientId, params.from);
+  if (fetchResponse.order?.encounterDate) {
+    order.encounterDate = fetchResponse.order.encounterDate;
+  }
+  if (fetchResponse.order?.performDate) {
+    order.performDate = fetchResponse.order.performDate;
+  }
+  if (fetchResponse.order?.doctorComments && fetchResponse.order.doctorComments.length > 0) {
+    const latestComment = fetchResponse.order.doctorComments[fetchResponse.order.doctorComments.length - 1];
+    const text = latestComment?.text?.trim();
+    if (text) {
+      order.doctorComment = text;
+    }
+  }
+
+  return {
+    ok: true,
+    runId: fetchResponse.runId ?? parsed.runId ?? runId,
+    patientId: params.patientId,
+    recordsReturned: sourceBundles.length,
+    sourceBundles,
+    order,
+    message: parsed.message,
+    status: parsed.status,
+    routeMismatch: false,
+  };
+};
+
 export async function fetchPrescriptionOrder(params: {
   patientId: string;
   from?: string;
 }): Promise<PrescriptionOrderFetchResult> {
-  const fetched = await fetchOrderBundlesWithPatientImportRecovery({
-    patientId: params.patientId,
-    entity: 'medOrder',
-    from: params.from,
-  });
-  const sourceBundles = fetched.bundles.filter((bundle) => (bundle.entity?.trim() ?? '') === 'medOrder');
-  const order = fetched.ok ? toPrescriptionOrder(sourceBundles, params.patientId) : buildEmptyPrescriptionOrder(params.patientId);
+  const primary = await fetchPrescriptionOrderBase(params);
+  if (primary.ok) return primary;
+  if (
+    !isRecoverableOrcaNotFound({
+      patientId: params.patientId,
+      status: primary.status,
+      errorCode: primary.errorCode,
+      errorKind: primary.errorKind,
+    })
+  ) {
+    return primary;
+  }
 
+  const importResult = await importPatientsFromOrca({
+    patientIds: [params.patientId],
+    runId: primary.runId,
+  });
+  if (!importResult.ok) {
+    return {
+      ...primary,
+      ok: false,
+      sourceBundles: [],
+      order: buildEmptyPrescriptionOrder(params.patientId, params.from),
+      runId: importResult.runId ?? primary.runId,
+      status: importResult.status || primary.status,
+      message: buildPatientImportFailureMessage('処方オーダー情報', importResult),
+      errorCode: importResult.errorCode ?? primary.errorCode,
+      errorKind: importResult.errorKind ?? primary.errorKind,
+      routeMismatch: importResult.routeMismatch ?? primary.routeMismatch,
+      patientImportAttempted: true,
+      patientImportStatus: importResult.status,
+    };
+  }
+
+  const retried = await fetchPrescriptionOrderBase(params);
   return {
-    ...fetched,
-    sourceBundles,
-    order,
+    ...retried,
+    runId: retried.runId ?? importResult.runId ?? primary.runId,
+    patientImportAttempted: true,
+    patientImportStatus: importResult.status,
   };
 }
 
@@ -523,17 +835,26 @@ export async function savePrescriptionOrder(params: {
   patientId: string;
   order: PrescriptionOrder;
 }): Promise<PrescriptionOrderSaveResult> {
-  const operations = buildPrescriptionMutationOperations(params.order);
-  if (operations.length === 0) {
-    return {
-      ok: true,
-      message: '保存対象がありません。',
-    };
-  }
-  return mutateOrderBundles({
+  const runId = getObservabilityMeta().runId ?? generateRunId();
+  updateObservabilityMeta({ runId });
+  const payload = toServerPrescriptionOrder({
+    ...params.order,
     patientId: params.patientId,
-    operations,
   });
+  const response = await httpFetch('/orca/prescription-orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const parsed = await parseOrcaApiResponse(response, {
+    fallbackMessage: '処方オーダーの保存に失敗しました。',
+  });
+  return {
+    ok: parsed.ok,
+    runId: parsed.runId ?? runId,
+    message: parsed.message,
+    raw: parsed.json ?? parsed.text,
+  };
 }
 
 export const fetchPrescriptionOrderBundlesWithPatientImportRecovery = async (params: {
@@ -551,14 +872,74 @@ export const mutatePrescriptionOrderBundles = async (params: {
   patientId: string;
   operations: OrderBundleOperation[];
 }): Promise<OrderBundleMutationResult> => {
-  const operations = params.operations.map((operation) => ({
-    ...operation,
-    entity: 'medOrder',
-  }));
-  return mutateOrderBundles({
+  const current = await fetchPrescriptionOrder({ patientId: params.patientId });
+  if (!current.ok) {
+    return {
+      ok: false,
+      runId: current.runId,
+      message: current.message ?? '処方オーダーの取得に失敗したため更新できません。',
+      raw: {
+        status: current.status,
+        errorCode: current.errorCode,
+        errorKind: current.errorKind,
+      },
+    };
+  }
+
+  const nextBundles = [...current.sourceBundles];
+  params.operations
+    .filter((operation) => (operation.entity?.trim() ?? 'medOrder') === 'medOrder')
+    .forEach((operation) => {
+      if (operation.operation === 'delete') {
+        const documentId = typeof operation.documentId === 'number' ? operation.documentId : null;
+        const moduleId = typeof operation.moduleId === 'number' ? operation.moduleId : null;
+        for (let i = nextBundles.length - 1; i >= 0; i -= 1) {
+          const bundle = nextBundles[i];
+          const docMatched = documentId !== null && bundle.documentId === documentId;
+          const moduleMatched = moduleId !== null && bundle.moduleId === moduleId;
+          if (docMatched || moduleMatched) {
+            nextBundles.splice(i, 1);
+          }
+        }
+        return;
+      }
+
+      const nextBundle = toBundleFromOperation({
+        ...operation,
+        entity: 'medOrder',
+      });
+      if (operation.operation === 'update') {
+        const targetIndex = nextBundles.findIndex((bundle) => {
+          if (typeof operation.documentId === 'number' && typeof bundle.documentId === 'number') {
+            return bundle.documentId === operation.documentId;
+          }
+          if (typeof operation.moduleId === 'number' && typeof bundle.moduleId === 'number') {
+            return bundle.moduleId === operation.moduleId;
+          }
+          return false;
+        });
+        if (targetIndex >= 0) {
+          nextBundles[targetIndex] = {
+            ...nextBundles[targetIndex],
+            ...nextBundle,
+          };
+          return;
+        }
+      }
+      nextBundles.push(nextBundle);
+    });
+
+  const nextOrder = toPrescriptionOrder(nextBundles, params.patientId);
+  const saveResult = await savePrescriptionOrder({
     patientId: params.patientId,
-    operations,
+    order: nextOrder,
   });
+  return {
+    ...saveResult,
+    createdDocumentIds: undefined,
+    updatedDocumentIds: undefined,
+    deletedDocumentIds: undefined,
+  };
 };
 
 const cloneClaimComment = (comment: PrescriptionClaimComment): PrescriptionClaimComment => ({

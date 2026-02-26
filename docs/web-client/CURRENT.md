@@ -9,12 +9,13 @@
 ## 最新変更（2026-02-26）
 - RUN_ID: `20260226T024837Z`
 - 処方オーダーを `OrderBundleEditPanel` 依存から分離し、`PrescriptionOrderEditorPanel` に置換。右ドック「処方」および中列サマリの処方行クリックで、右ドロワー内の RP集合編集UI が開く構成へ移行。
-- `SoapNotePanel` / `RightUtilityDrawer` / `OrderSummaryPane` / `ChartsPage` を更新し、処方のデータ経路を専用化（`prescriptionBundles`）しつつ、注射/処置/検査/算定は既存経路を維持。
+- `SoapNotePanel` / `RightUtilityDrawer` / `OrderSummaryPane` / `ChartsPage` を更新し、処方のデータ経路を専用化（`prescriptionBundles`）しつつ、注射/処置/検査/算定は既存経路を維持。`prescriptionOrderApi` は `GET/POST /orca/prescription-orders` を直接利用するよう変更。
 - 右ドロワー内コンテンツ切替へ `translateY + opacity` の下から生えるアニメーションを追加し、非モーダル要件（背景クリック可能・オーバーレイなし）を維持。
 - `orderCategoryRegistry` に `resolveOrderEntity` と alias 解決を追加（`prescriptionOrder -> medOrder` 等）し、クライアント/サーバー解釈差の吸収を強化。
 - 受け入れ検証（関連）:
   - `npm --prefix web-client run typecheck` PASS
-  - `npm --prefix web-client run test -- --run src/features/charts/__tests__/soapNoteRightDockDrawer.test.tsx src/features/charts/__tests__/orderDockPanel.categoryButtons.test.tsx src/features/charts/__tests__/orderBundleBundleNumberUi.test.tsx src/features/charts/__tests__/orderBundleItemActions.test.tsx src/features/charts/__tests__/orderCategoryRegistry.test.ts src/features/charts/__tests__/chartsPageDirtyDot.test.tsx src/features/charts/__tests__/DoCopyDialog.test.tsx src/features/charts/__tests__/chartsOrderDockCoexistence.recovery-order.test.tsx src/features/charts/__tests__/chartsOrcaRecoveryAlert.test.tsx --silent=true` PASS（9 files / 41 passed, 1 skipped）。
+  - `npm --prefix web-client run test -- --run src/features/charts/__tests__/soapNoteRightDockDrawer.test.tsx src/features/charts/__tests__/orderDockPanel.categoryButtons.test.tsx src/features/charts/__tests__/orderBundleBundleNumberUi.test.tsx src/features/charts/__tests__/orderBundleItemActions.test.tsx src/features/charts/__tests__/orderCategoryRegistry.test.ts src/features/charts/__tests__/chartsPageDirtyDot.test.tsx src/features/charts/__tests__/DoCopyDialog.test.tsx src/features/charts/__tests__/chartsOrderDockCoexistence.recovery-order.test.tsx src/features/charts/__tests__/chartsOrcaRecoveryAlert.test.tsx src/features/charts/__tests__/prescriptionOrderEditorPanel.test.tsx --silent=true` PASS（10 files / 45 passed, 1 skipped）。
+  - `mvn -pl server-modernized test -DskipITs` PASS（347 tests / 0 failures）。
 
 ## 最新変更（2026-02-25）
 - RUN_ID: `20260225T140546Z`
