@@ -51,7 +51,7 @@ class PrescriptionOrderRepository {
         }
 
         StringBuilder sql = new StringBuilder(
-                "select id, payload_json::text, encounter_id, encounter_date, perform_date, created_at "
+                "select id, cast(payload_json as text), encounter_id, encounter_date, perform_date, created_at "
                         + "from orca_prescription_orders where facility_id = ? and patient_id = ?");
         List<Object> params = new ArrayList<>();
         params.add(facilityId);
