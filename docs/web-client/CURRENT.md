@@ -1,10 +1,27 @@
 # Webクライアント ドキュメントハブ（現行）
 
 - 更新日: 2026-02-26
-- RUN_ID: 20260226T024837Z
+- RUN_ID: 20260226T103048Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
+
+## 最新変更（2026-02-26 / UIガイドライン適用 第1弾）
+- RUN_ID: `20260226T103048Z`
+- `docs/web-client/ux/web-client-ui-guideline.md` に沿って、共通基盤と主要画面（ログイン/シェル/受付/患者/管理/カルテ主要導線）のスタイルを先行改修。
+- 共通: `global.css` / `app-shell.css` のトークンをガイドライン基準へ更新し、ナビ・主要操作のグラデーション依存を解消。選択状態に下線+太字を併用。
+- 画面別: `reception/styles.ts` / `patients/patients.css` / `administration/administration.css` / `charts/styles.ts` を中心に、タブ非ピル化（8px）、カード角丸12px、入力・主要ボタン最小高36px以上へ整理。
+- 成果物: `web-client/src/styles/global.css` / `web-client/src/styles/app-shell.css` / `web-client/src/features/reception/styles.ts` / `web-client/src/features/patients/patients.css` / `web-client/src/features/administration/administration.css` / `web-client/src/features/charts/styles.ts`。
+- 検証:
+  - `npm -C web-client run typecheck` PASS
+  - `npm -C web-client run test -- --run src/AppRouter.navigation.test.tsx src/features/reception/__tests__/ReceptionPage.test.tsx src/features/patients/__tests__/PatientsPage.test.tsx src/features/administration/__tests__/AdministrationPage.searchParams.test.tsx src/features/charts/__tests__/patientsTabFilterAndConfirm.test.tsx --silent=true` PASS（5 files / 51 tests）
+
+## 最新変更（2026-02-26 / UIガイドライン整備）
+- RUN_ID: `20260226T102426Z`
+- Webクライアント全体で参照する UI ガイドライン v0.1 を新規作成し、色/余白/角丸/状態/コンポーネント規約/運用ルールを固定化。
+- WCAG に基づく最低基準（文字 4.5:1、非テキスト 3:1、クリック対象 24x24 CSS px）を明記し、改修時のチェック項目として運用開始。
+- 成果物: `docs/web-client/ux/web-client-ui-guideline.md` / `docs/web-client/CURRENT.md` / `docs/DEVELOPMENT_STATUS.md`。
+- 検証: 文書更新のみ（コード変更なし）。
 
 ## 最新変更（2026-02-26）
 - RUN_ID: `20260226T024837Z`
@@ -74,6 +91,7 @@
 
 ### UX / 運用
 - `docs/web-client/ux/ux-documentation-plan.md`
+- `docs/web-client/ux/web-client-ui-guideline.md`
 - `docs/web-client/ux/charts-claim-ui-policy.md`
 - `docs/web-client/ux/reception-schedule-ui-policy.md`
 - `docs/web-client/ux/patients-admin-ui-policy.md`

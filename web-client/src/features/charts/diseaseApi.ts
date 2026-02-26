@@ -75,6 +75,13 @@ type DiseaseMasterEntry = {
   disUseDate?: string;
 };
 
+export type DiseaseMasterCandidate = {
+  name: string;
+  code?: string;
+  icdTen?: string;
+  disUseDate?: string;
+};
+
 type ResolveDiseaseCodeParams = {
   diagnosisName: string;
   prefix?: string;
@@ -86,6 +93,7 @@ type ResolveDiseaseCodeParams = {
 const ORCA_DISEASE_CODE_REGEX = /^[0-9]{7}$/;
 
 const normalizeTerm = (value?: string | null) => (value ?? '').trim();
+const normalizeNameKey = (value?: string | null) => normalizeTerm(value).replaceAll(' ', '').replaceAll('　', '');
 
 const normalizeMasterReferenceDate = (referenceDate?: string) => {
   const normalized = (referenceDate ?? '').replaceAll('-', '').trim();
@@ -174,8 +182,67 @@ async function fetchDiseaseMasterByName(params: {
   return extractDiseaseMasterEntries(json);
 }
 
+export async function searchDiseaseMasterCandidates(params: {
+  keyword: string;
+  referenceDate?: string;
+  limit?: number;
+}): Promise<DiseaseMasterCandidate[]> {
+  const keyword = normalizeTerm(params.keyword);
+  if (!keyword) {
+    return [];
+  }
+  const referenceDate = normalizeMasterReferenceDate(params.referenceDate);
+  const limit = Number.isFinite(params.limit) ? Math.max(1, Math.trunc(params.limit ?? 20)) : 20;
+  try {
+    const entries = await fetchDiseaseMasterByName({ term: keyword, referenceDate, partialMatch: true });
+    const deduped = new Map<string, DiseaseMasterCandidate>();
+    for (const entry of entries) {
+      const name = normalizeTerm(entry.name);
+      if (!name) {
+        continue;
+      }
+      const code = normalizeTerm(entry.code) || undefined;
+      const icdTen = normalizeTerm(entry.icdTen) || undefined;
+      const key = `${name}\u0000${code ?? ''}\u0000${icdTen ?? ''}`;
+      if (!deduped.has(key)) {
+        deduped.set(key, {
+          name,
+          code,
+          icdTen,
+          disUseDate: normalizeTerm(entry.disUseDate) || undefined,
+        });
+      }
+    }
+
+    const keywordKey = normalizeNameKey(keyword);
+    return [...deduped.values()]
+      .sort((left, right) => {
+        const leftNameKey = normalizeNameKey(left.name);
+        const rightNameKey = normalizeNameKey(right.name);
+        const leftExact = leftNameKey === keywordKey ? 0 : leftNameKey.startsWith(keywordKey) ? 1 : 2;
+        const rightExact = rightNameKey === keywordKey ? 0 : rightNameKey.startsWith(keywordKey) ? 1 : 2;
+        if (leftExact !== rightExact) {
+          return leftExact - rightExact;
+        }
+        return leftNameKey.localeCompare(rightNameKey, 'ja');
+      })
+      .slice(0, limit);
+  } catch {
+    return [];
+  }
+}
+
 const toUniqueCodes = (entries: DiseaseMasterEntry[], matcher: (code: string) => boolean) =>
   [...new Set(entries.map((entry) => (entry.code ?? '').trim()).filter((code) => code && matcher(code)))];
+
+const toUniqueIcdTenCodes = (entries: DiseaseMasterEntry[]) =>
+  [
+    ...new Set(
+      entries
+        .map((entry) => normalizeTerm(entry.icdTen))
+        .filter((code): code is string => Boolean(code)),
+    ),
+  ];
 
 const pickCode = (codes: string[]) => (codes.length === 1 ? codes[0] : undefined);
 
@@ -258,12 +325,23 @@ export async function resolveDiseaseCodeFromOrcaMaster(params: ResolveDiseaseCod
     if (!normalized) {
       return [] as string[];
     }
-    const entries = await fetchExactEntries(normalized);
-    const exactByName = entries.filter((entry) => normalizeTerm(entry.name) === normalized);
+    const exactByName = await lookupExactEntriesByName(normalized);
+    if (exactByName.length === 0) {
+      return [] as string[];
+    }
     if (codeType === 'base') {
       return toUniqueCodes(exactByName, (code) => ORCA_DISEASE_CODE_REGEX.test(code));
     }
     return toUniqueCodes(exactByName, (code) => !ORCA_DISEASE_CODE_REGEX.test(code));
+  };
+
+  const lookupExactEntriesByName = async (term: string) => {
+    const normalized = normalizeTerm(term);
+    if (!normalized) {
+      return [] as DiseaseMasterEntry[];
+    }
+    const entries = await fetchExactEntries(normalized);
+    return entries.filter((entry) => normalizeTerm(entry.name) === normalized);
   };
 
   const lookupExactCodesAny = async (term: string) => {
@@ -271,9 +349,13 @@ export async function resolveDiseaseCodeFromOrcaMaster(params: ResolveDiseaseCod
     if (!normalized) {
       return [] as string[];
     }
-    const entries = await fetchExactEntries(normalized);
-    const exactByName = entries.filter((entry) => normalizeTerm(entry.name) === normalized);
+    const exactByName = await lookupExactEntriesByName(normalized);
     return [...new Set(exactByName.map((entry) => (entry.code ?? '').trim()).filter((code) => code.length > 0))];
+  };
+
+  const lookupExactIcdTenCodes = async (term: string) => {
+    const exactByName = await lookupExactEntriesByName(term);
+    return toUniqueIcdTenCodes(exactByName);
   };
 
   try {
@@ -284,6 +366,10 @@ export async function resolveDiseaseCodeFromOrcaMaster(params: ResolveDiseaseCod
     const exactAnyCode = pickCode(await lookupExactCodesAny(diagnosisName));
     if (exactAnyCode) {
       return exactAnyCode;
+    }
+    const exactIcdTenCode = pickCode(await lookupExactIcdTenCodes(diagnosisName));
+    if (exactIcdTenCode) {
+      return exactIcdTenCode;
     }
 
     if (hintedMainName && (hintedPrefix || hintedSuffix)) {

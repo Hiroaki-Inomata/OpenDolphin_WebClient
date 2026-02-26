@@ -4,7 +4,7 @@ export const chartsStyles = css`
   .charts-page {
     min-height: 100vh;
     padding: 2.25rem clamp(1rem, 4vw, 2.75rem);
-    background: linear-gradient(180deg, #edf4ff 0%, #f6faff 62%, #f8fafc 100%);
+    background: var(--ui-surface-muted);
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-xl);
@@ -41,7 +41,7 @@ export const chartsStyles = css`
 
   .charts-page__header {
     background: #ffffff;
-    border-radius: var(--charts-radius-lg);
+    border-radius: 12px;
     padding: var(--charts-space-md) var(--charts-space-lg);
     border: 1px solid var(--ui-border);
     box-shadow: var(--charts-shadow-1);
@@ -69,8 +69,9 @@ export const chartsStyles = css`
   .charts-topbar__toggle {
     border: 1px solid rgba(148, 163, 184, 0.4);
     background: #ffffff;
-    border-radius: 999px;
+    border-radius: 12px;
     padding: 0.5rem 0.9rem;
+    min-height: 2.25rem;
     font-size: 0.85rem;
     font-weight: 700;
     color: #0f172a;
@@ -85,6 +86,13 @@ export const chartsStyles = css`
   .charts-topbar__toggle:focus-visible {
     outline: 2px solid rgba(59, 130, 246, 0.6);
     outline-offset: 2px;
+  }
+
+  .charts-topbar__toggle[aria-expanded='true'] {
+    font-weight: 800;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 2px;
   }
 
   .charts-page[data-charts-compact-header='1'] {
@@ -398,7 +406,7 @@ export const chartsStyles = css`
     align-items: center;
     gap: var(--charts-space-sm);
     padding: 0.35rem 0.55rem;
-    border-radius: var(--charts-radius-md);
+    border-radius: 12px;
     border: 1px solid rgba(148, 163, 184, 0.32);
     background: rgba(255, 255, 255, 0.94);
     box-shadow: var(--charts-shadow-1);
@@ -430,7 +438,8 @@ export const chartsStyles = css`
     gap: 0.45rem;
     max-width: 220px;
     padding: 0.32rem 0.7rem;
-    border-radius: 999px;
+    min-height: 2.25rem;
+    border-radius: 8px;
     border: 1px solid rgba(148, 163, 184, 0.5);
     background: #ffffff;
     cursor: pointer;
@@ -456,6 +465,10 @@ export const chartsStyles = css`
     border-color: rgba(37, 99, 235, 0.75);
     box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
     background: rgba(239, 246, 255, 0.85);
+    font-weight: 900;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 2px;
   }
 
   .charts-patient-tabs__select[data-dirty='true'] {
@@ -547,16 +560,18 @@ export const chartsStyles = css`
 
   .charts-patient-tabs__quick-field input {
     width: 7.5rem;
-    border-radius: 12px;
+    border-radius: 8px;
     border: 1px solid rgba(148, 163, 184, 0.55);
     padding: 0.45rem 0.6rem;
+    min-height: 2.25rem;
     background: #ffffff;
     font-size: 0.9rem;
   }
 
   .charts-patient-tabs__quick-button {
     padding: 0.55rem 0.9rem;
-    border-radius: 999px;
+    border-radius: 12px;
+    min-height: 2.25rem;
     border: 1px solid rgba(37, 99, 235, 0.72);
     background: rgba(37, 99, 235, 0.98);
     color: #ffffff;
@@ -1516,7 +1531,8 @@ export const chartsStyles = css`
   .charts-docked-panel__tab {
     flex: 0 0 auto;
     min-width: 112px;
-    border-radius: 11px;
+    min-height: 2.25rem;
+    border-radius: 8px;
     border: 1px solid rgba(148, 163, 184, 0.35);
     background: #f8fafc;
     padding: 0.4rem 0.52rem;
@@ -1539,6 +1555,13 @@ export const chartsStyles = css`
     color: #ffffff;
     border-color: transparent;
     box-shadow: 0 10px 20px rgba(29, 78, 216, 0.24);
+  }
+
+  .charts-docked-panel__tab[data-active='true'] .charts-docked-panel__tab-label {
+    font-weight: 900;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 2px;
   }
 
   .charts-docked-panel__tab[data-utility-kind='order']:not([data-active='true']) {
@@ -2009,7 +2032,7 @@ export const chartsStyles = css`
     align-items: center;
     gap: var(--charts-space-2xs);
     border: 1px solid rgba(148, 163, 184, 0.38);
-    border-radius: 999px;
+    border-radius: 8px;
     padding: 0.2rem;
     background: rgba(255, 255, 255, 0.8);
     width: fit-content;
@@ -2017,18 +2040,23 @@ export const chartsStyles = css`
 
   .charts-docked-panel__subtab {
     border: none;
-    border-radius: 999px;
+    border-radius: 8px;
     background: transparent;
     color: #334155;
     font-size: 0.8rem;
     font-weight: 700;
     padding: 0.3rem 0.6rem;
+    min-height: 2.25rem;
     cursor: pointer;
   }
 
   .charts-docked-panel__subtab[data-active='true'] {
     background: #1d4ed8;
     color: #ffffff;
+    font-weight: 800;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 2px;
   }
 
   .charts-document-editor {
@@ -4012,6 +4040,20 @@ export const chartsStyles = css`
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: var(--charts-space-sm);
     align-items: end;
+  }
+
+  .charts-diagnosis__quick-candidates {
+    display: grid;
+    gap: 4px;
+  }
+
+  .charts-diagnosis__quick-candidate-help {
+    margin: 0;
+    font-size: 0.74rem;
+  }
+
+  .charts-diagnosis__quick-candidate-help--warn {
+    color: #b45309;
   }
 
   .charts-diagnosis__quick-actions {

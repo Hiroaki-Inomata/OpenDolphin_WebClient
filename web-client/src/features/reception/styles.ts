@@ -197,7 +197,7 @@ export const receptionStyles = css`
   .reception-page {
     min-height: 100vh;
     padding: 3rem clamp(1rem, 4vw, 2.75rem);
-    background: linear-gradient(180deg, #eef2fb 0%, #f8fafc 60%);
+    background: var(--ui-surface-muted);
     display: flex;
     flex-direction: column;
     gap: 2rem;
@@ -282,7 +282,7 @@ export const receptionStyles = css`
 
   .reception-page__header {
     background: #ffffff;
-    border-radius: 24px;
+    border-radius: 12px;
     padding: 1.5rem;
     box-shadow: var(--ui-shadow);
     border: 1px solid var(--ui-border);
@@ -1706,9 +1706,10 @@ export const receptionStyles = css`
   .reception-search__field input,
   .reception-search__field select {
     width: 100%;
-    border-radius: 12px;
+    border-radius: 8px;
     border: 1px solid #cbd5e1;
     padding: 0.55rem 0.75rem;
+    min-height: 2.25rem;
     background: #ffffff;
     font-size: 0.95rem;
   }
@@ -1810,7 +1811,8 @@ export const receptionStyles = css`
 
   .reception-search__button {
     padding: 0.65rem 1rem;
-    border-radius: 999px;
+    border-radius: 12px;
+    min-height: 2.25rem;
     border: 1px solid #1d4ed8;
     background: #ffffff;
     color: #1d4ed8;
@@ -1835,6 +1837,17 @@ export const receptionStyles = css`
   .reception-search__button[data-disabled='true'] {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  .reception-search__actions [role='group'] .reception-search__button {
+    border-radius: 8px;
+  }
+
+  .reception-search__actions [role='group'] .reception-search__button[aria-pressed='true'] {
+    font-weight: 800;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 2px;
   }
 
   .reception-exceptions {
@@ -2305,7 +2318,7 @@ export const receptionStyles = css`
 
   .reception-status-tabs {
     background: #ffffff;
-    border-radius: 18px;
+    border-radius: 12px;
     border: 1px solid rgba(148, 163, 184, 0.28);
     padding: 0.65rem 0.75rem;
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
@@ -2321,8 +2334,9 @@ export const receptionStyles = css`
     border: 1px solid rgba(148, 163, 184, 0.48);
     background: #ffffff;
     color: #1f2937;
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 0.42rem 0.68rem;
+    min-height: 2.25rem;
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
@@ -2340,6 +2354,10 @@ export const receptionStyles = css`
     border-color: rgba(30, 64, 175, 0.62);
     background: #dbeafe;
     color: #1e3a8a;
+    font-weight: 800;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 2px;
   }
 
   .reception-status-tabs__tab.is-active strong {
@@ -2442,10 +2460,18 @@ export const receptionStyles = css`
     border: 1px solid rgba(148, 163, 184, 0.55);
     background: #ffffff;
     color: #0f172a;
-    border-radius: 999px;
+    border-radius: 8px;
+    min-height: 2.25rem;
     padding: 0.35rem 0.75rem;
     cursor: pointer;
     font-weight: 700;
+  }
+
+  .reception-board__toggle[aria-expanded='true'] {
+    font-weight: 800;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+    text-decoration-thickness: 2px;
   }
 
   .reception-board__body {

@@ -437,7 +437,7 @@
 }
 
 .admin-button {
-  border: none;
+  border: 1px solid var(--ui-border-strong);
   border-radius: 10px;
   padding: 0.55rem 0.9rem;
   font-weight: 700;
@@ -462,9 +462,10 @@
 }
 
 .admin-button--primary {
-  background: linear-gradient(90deg, #2563eb, #4f46e5);
+  background: #1d4ed8;
+  border-color: #1d4ed8;
   color: #ffffff;
-  box-shadow: 0 12px 30px rgba(59, 130, 246, 0.3);
+  box-shadow: none;
 }
 
 .admin-button--secondary {
@@ -473,9 +474,10 @@
 }
 
 .admin-button--danger {
-  background: linear-gradient(90deg, #ef4444, #f97316);
+  background: #dc2626;
+  border-color: #dc2626;
   color: #ffffff;
-  box-shadow: 0 12px 30px rgba(239, 68, 68, 0.25);
+  box-shadow: none;
 }
 
 .admin-queue {
@@ -1209,4 +1211,143 @@
   .admin-card-shell__header {
     flex-direction: column;
   }
+}
+
+/* Administration UI guideline normalization */
+.administration-page {
+  --admin-radius-tab: 8px;
+  --admin-radius-input: 8px;
+  --admin-radius-card: 12px;
+  --admin-radius-modal: 16px;
+}
+
+.administration-page,
+.administration-card,
+.admin-toggle,
+.admin-result,
+.admin-callout,
+.admin-warning-box,
+.admin-note,
+.admin-delivery-flags__row,
+.admin-alert,
+.admin-guard,
+.admin-header-block,
+.admin-subnav__item,
+.admin-scroll,
+.admin-legacy-rest__row,
+.admin-touch-panel__row,
+.admin-kpi-grid__item,
+.admin-dirty-state,
+.admin-dev-flags {
+  border-radius: var(--admin-radius-card);
+}
+
+.admin-dialog {
+  border-radius: var(--admin-radius-modal);
+}
+
+.administration-tabs {
+  border-bottom: 1px solid var(--ui-border);
+  padding-bottom: 0.35rem;
+}
+
+.administration-tab {
+  border-radius: var(--admin-radius-tab);
+  border: 1px solid var(--ui-border-strong);
+  border-bottom: 2px solid transparent;
+  background: var(--ui-surface);
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.administration-tab:hover,
+.administration-tab:focus-visible {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--ui-border-strong);
+}
+
+.administration-tab.is-active {
+  border-color: var(--ui-info-border);
+  border-bottom-color: var(--ui-info-text);
+  background: var(--ui-info-bg);
+  color: var(--ui-info-text);
+  font-weight: 800;
+  box-shadow: none;
+}
+
+.admin-button,
+.admin-link--button {
+  border-radius: var(--admin-radius-input);
+}
+
+.admin-button {
+  background: var(--ui-surface);
+  color: #0f172a;
+}
+
+.admin-button--primary {
+  background: var(--ui-info-text);
+  border-color: var(--ui-info-text);
+  color: #ffffff;
+}
+
+.admin-button--secondary {
+  border-color: var(--ui-border-strong);
+  background: var(--ui-surface-muted);
+  color: #0f172a;
+}
+
+.admin-button--danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
+.admin-link--button {
+  border: 1px solid var(--ui-border-strong);
+  background: var(--ui-surface-muted);
+  color: var(--ui-info-text);
+}
+
+.admin-form__field input[type='text'],
+.admin-form__field input[type='password'],
+.admin-form__field input[type='number'],
+.admin-form__field input[type='time'],
+.admin-form__field input[type='file'],
+.admin-form__field select,
+.admin-textarea,
+.admin-request-template textarea,
+.admin-queue-tools select {
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--admin-radius-input);
+}
+
+.administration-page,
+.administration-card,
+.admin-toggle,
+.admin-result,
+.admin-callout,
+.admin-scroll,
+.admin-subnav__item,
+.admin-header-block,
+.admin-delivery-flags__row,
+.admin-legacy-rest__row,
+.admin-touch-panel__row,
+.admin-kpi-grid__item,
+.admin-dirty-state,
+.admin-dev-flags,
+.admin-master__minor {
+  border-color: var(--ui-border);
+}
+
+.admin-divider {
+  background: var(--ui-border-strong);
+}
+
+.admin-table th,
+.admin-table td,
+.admin-queue th,
+.admin-queue td {
+  border-bottom-color: var(--ui-border);
 }

@@ -175,6 +175,7 @@ const UTILITY_PANEL_MIN_WIDTH = 640;
 const UTILITY_PANEL_MAX_WIDTH = 1360;
 const UTILITY_PANEL_MIN_HEIGHT = 420;
 const UTILITY_PANEL_MAX_HEIGHT = 920;
+const EMPTY_ORDER_BUNDLES: OrderBundle[] = [];
 
 type UtilityPanelLayout = {
   width: number;
@@ -313,6 +314,13 @@ const buildInitialOrderDockState = (): SoapOrderDockState => ({
   editingLabel: undefined,
   source: null,
 });
+
+const isSameOrderDockState = (left: SoapOrderDockState, right: SoapOrderDockState) =>
+  left.hasEditing === right.hasEditing &&
+  left.targetCategory === right.targetCategory &&
+  left.count === right.count &&
+  left.editingLabel === right.editingLabel &&
+  left.source === right.source;
 
 const resolveOrderDockTabMeta = (state: SoapOrderDockState): string | null => {
   if (state.hasEditing) {
@@ -851,6 +859,9 @@ function ChartsContent() {
     hasError: false,
   });
   const [orderDockState, setOrderDockState] = useState<SoapOrderDockState>(() => buildInitialOrderDockState());
+  const handleOrderDockStateChange = useCallback((next: SoapOrderDockState) => {
+    setOrderDockState((prev) => (isSameOrderDockState(prev, next) ? prev : next));
+  }, []);
   const [imageUtilityState, setImageUtilityState] = useState<ImageUtilityState>({
     queueCount: 0,
     uploadingCount: 0,
@@ -2254,7 +2265,7 @@ function ChartsContent() {
   });
   const rpEntries = rpHistoryQuery.data?.ok ? rpHistoryQuery.data.entries : [];
   const rpError = rpHistoryQuery.data && !rpHistoryQuery.data.ok ? rpHistoryQuery.data.error : undefined;
-  const baseOrderBundles = orderBundleSummaryQuery.data?.ok ? orderBundleSummaryQuery.data.bundles : [];
+  const baseOrderBundles = orderBundleSummaryQuery.data?.ok ? orderBundleSummaryQuery.data.bundles : EMPTY_ORDER_BUNDLES;
   const prescriptionBundles = useMemo(() => {
     if (prescriptionBundleSummaryQuery.data?.ok) return prescriptionBundleSummaryQuery.data.bundles;
     return baseOrderBundles.filter((bundle) => resolveOrderGroupKeyByEntity(bundle.entity?.trim() ?? '') === 'prescription');
@@ -4761,7 +4772,7 @@ function ChartsContent() {
                       onDocumentHistoryCopyConsumed={handleDocumentHistoryCopyConsumed}
                       documentPanel={documentPanel}
                       bottomOrderHubIntegrationEnabled={isBottomOrderHubIntegrationEnabled}
-                      onOrderDockStateChange={setOrderDockState}
+                      onOrderDockStateChange={handleOrderDockStateChange}
 			                      onDraftSnapshot={setSoapDraftSnapshot}
 			                      replaceDraftRequest={replaceSoapDraftRequest}
                         saveRequest={soapSaveRequest}

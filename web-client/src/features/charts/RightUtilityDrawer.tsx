@@ -242,6 +242,8 @@ export function RightUtilityDrawer({
       selectedEntityMeta,
     };
   }, [groupSpec, isOrderPanel, selectedEntity, selectedEntityMeta]);
+  const isDocumentPanelVisible = open && isDocumentPanelActive;
+  const isOrderPanelVisible = open && Boolean(activeOrderPanelContext);
   const isPrescriptionPanel =
     Boolean(activeOrderPanelContext) && activeOrderPanelContext?.groupSpec.key === 'prescription';
   const resolvedPanelBundles =
@@ -269,8 +271,8 @@ export function RightUtilityDrawer({
           <section
             key="drawer-document-panel"
             className="soap-note__right-drawer-panel soap-note__right-drawer-panel--document"
-            data-active="true"
-            aria-hidden="false"
+            data-active={isDocumentPanelVisible ? 'true' : 'false'}
+            aria-hidden={isDocumentPanelVisible ? 'false' : 'true'}
           >
             <div className="soap-note__right-drawer-switch">{documentPanelNode}</div>
           </section>
@@ -280,8 +282,8 @@ export function RightUtilityDrawer({
           <section
             key={`drawer-order-panel-${activeTool}-${activeOrderPanelContext.selectedEntity}`}
             className="soap-note__right-drawer-panel soap-note__right-drawer-panel--order"
-            data-active="true"
-            aria-hidden="false"
+            data-active={isOrderPanelVisible ? 'true' : 'false'}
+            aria-hidden={isOrderPanelVisible ? 'false' : 'true'}
           >
             <div className="soap-note__right-drawer-switch soap-note__right-drawer-order-layout">
               <div className="soap-note__right-drawer-order-editor">

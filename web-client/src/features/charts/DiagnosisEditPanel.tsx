@@ -5,7 +5,14 @@ import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { recordOutpatientFunnel } from '../../libs/telemetry/telemetryClient';
 import { resolveAriaLive } from '../../libs/observability/observability';
 import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
-import { fetchDiseases, mutateDiseases, resolveDiseaseCodeFromOrcaMaster, type DiseaseEntry } from './diseaseApi';
+import {
+  fetchDiseases,
+  mutateDiseases,
+  resolveDiseaseCodeFromOrcaMaster,
+  searchDiseaseMasterCandidates,
+  type DiseaseEntry,
+  type DiseaseMasterCandidate,
+} from './diseaseApi';
 import type { DataSourceTransition } from './authService';
 
 export type DiagnosisEditPanelMeta = {
@@ -41,7 +48,26 @@ type DiagnosisFormState = {
   isSuspected: boolean;
 };
 
+type QuickCandidateOption = {
+  key: string;
+  label: string;
+  candidate: DiseaseMasterCandidate;
+};
+
 const OUTCOME_PRESETS = ['継続', '治癒', '中止', '再発', '死亡', '転院', '不明'];
+const QUICK_CANDIDATE_MIN_KEYWORD = 2;
+const QUICK_CANDIDATE_MAX_ITEMS = 20;
+
+const formatQuickCandidateLabel = (candidate: DiseaseMasterCandidate) => {
+  const codeParts: string[] = [];
+  if (candidate.icdTen?.trim()) {
+    codeParts.push(`ICD:${candidate.icdTen.trim()}`);
+  }
+  if (candidate.code?.trim()) {
+    codeParts.push(`病名:${candidate.code.trim()}`);
+  }
+  return codeParts.length > 0 ? `${candidate.name}（${codeParts.join(' / ')}）` : candidate.name;
+};
 
 const buildEmptyForm = (today: string): DiagnosisFormState => ({
   prefix: '',
@@ -85,6 +111,8 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
     isMain: false,
     isSuspected: false,
   });
+  const [quickCandidateSelection, setQuickCandidateSelection] = useState('');
+  const [quickCandidateKeyword, setQuickCandidateKeyword] = useState('');
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
@@ -136,6 +164,52 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
     },
     enabled: !!patientId,
   });
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setQuickCandidateKeyword(quickAdd.name.trim());
+    }, 220);
+    return () => window.clearTimeout(handle);
+  }, [quickAdd.name]);
+
+  const quickCandidateQuery = useQuery({
+    queryKey: ['charts-diagnosis-master-candidates', quickCandidateKeyword, quickAdd.startDate],
+    queryFn: () =>
+      searchDiseaseMasterCandidates({
+        keyword: quickCandidateKeyword,
+        referenceDate: quickAdd.startDate || today,
+        limit: QUICK_CANDIDATE_MAX_ITEMS,
+      }),
+    enabled: !isBlocked && quickCandidateKeyword.length >= QUICK_CANDIDATE_MIN_KEYWORD,
+    staleTime: 30_000,
+  });
+
+  const quickCandidateOptions = useMemo<QuickCandidateOption[]>(
+    () =>
+      (quickCandidateQuery.data ?? []).map((candidate, index) => ({
+        key: `${candidate.name}\u0000${candidate.code ?? ''}\u0000${candidate.icdTen ?? ''}\u0000${index}`,
+        label: formatQuickCandidateLabel(candidate),
+        candidate,
+      })),
+    [quickCandidateQuery.data],
+  );
+
+  const quickCandidateMap = useMemo(() => {
+    const map = new Map<string, QuickCandidateOption>();
+    for (const option of quickCandidateOptions) {
+      map.set(option.key, option);
+    }
+    return map;
+  }, [quickCandidateOptions]);
+
+  useEffect(() => {
+    if (!quickCandidateSelection) {
+      return;
+    }
+    if (!quickCandidateMap.has(quickCandidateSelection)) {
+      setQuickCandidateSelection('');
+    }
+  }, [quickCandidateMap, quickCandidateSelection]);
 
   useEffect(() => {
     logUiState({
@@ -256,6 +330,7 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
             isMain: false,
             isSuspected: false,
           });
+          setQuickCandidateSelection('');
         }
         if (payload.diagnosisId) {
           setIsEditorOpen(false);
@@ -396,6 +471,27 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
     setForm(toFormState(entry, today));
     setNotice(null);
     setIsEditorOpen(true);
+  };
+
+  const applyQuickCandidate = (optionKey: string) => {
+    setQuickCandidateSelection(optionKey);
+    if (!optionKey) {
+      return;
+    }
+    const option = quickCandidateMap.get(optionKey);
+    if (!option) {
+      return;
+    }
+    const selectedCode = option.candidate.icdTen?.trim() || option.candidate.code?.trim() || '';
+    setQuickAdd((prev) => ({
+      ...prev,
+      name: option.candidate.name,
+      code: selectedCode || prev.code,
+    }));
+    setNotice({
+      tone: 'info',
+      message: `候補「${option.candidate.name}」を反映しました。`,
+    });
   };
 
   return (
@@ -559,10 +655,48 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
             <input
               id="diagnosis-quick-name"
               value={quickAdd.name}
-              onChange={(event) => setQuickAdd((prev) => ({ ...prev, name: event.target.value }))}
+              onChange={(event) => {
+                setQuickCandidateSelection('');
+                setQuickAdd((prev) => ({ ...prev, name: event.target.value }));
+              }}
               placeholder="例: 高血圧症"
               disabled={isBlocked || mutation.isPending}
             />
+          </div>
+          <div className="charts-side-panel__field charts-diagnosis__quick-candidates">
+            <label htmlFor="diagnosis-quick-candidate">病名候補</label>
+            <select
+              id="diagnosis-quick-candidate"
+              value={quickCandidateSelection}
+              onChange={(event) => applyQuickCandidate(event.target.value)}
+              disabled={isBlocked || mutation.isPending || quickCandidateOptions.length === 0}
+            >
+              <option value="">{quickCandidateOptions.length > 0 ? '候補を選択して反映' : '候補なし'}</option>
+              {quickCandidateOptions.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {quickCandidateQuery.isFetching ? (
+              <p className="charts-side-panel__help charts-diagnosis__quick-candidate-help">候補を検索中...</p>
+            ) : null}
+            {!quickCandidateQuery.isFetching && quickCandidateQuery.isError ? (
+              <p className="charts-side-panel__help charts-diagnosis__quick-candidate-help charts-diagnosis__quick-candidate-help--warn">
+                候補の取得に失敗しました。
+              </p>
+            ) : null}
+            {!quickCandidateQuery.isFetching &&
+            !quickCandidateQuery.isError &&
+            quickAdd.name.trim().length >= QUICK_CANDIDATE_MIN_KEYWORD &&
+            quickCandidateOptions.length === 0 ? (
+              <p className="charts-side-panel__help charts-diagnosis__quick-candidate-help">一致する候補はありません。</p>
+            ) : null}
+            {quickAdd.name.trim().length > 0 && quickAdd.name.trim().length < QUICK_CANDIDATE_MIN_KEYWORD ? (
+              <p className="charts-side-panel__help charts-diagnosis__quick-candidate-help">
+                {QUICK_CANDIDATE_MIN_KEYWORD}文字以上で候補を表示します。
+              </p>
+            ) : null}
           </div>
           <div className="charts-side-panel__field">
             <label htmlFor="diagnosis-quick-code">コード</label>
@@ -580,7 +714,10 @@ export function DiagnosisEditPanel({ patientId, meta }: DiagnosisEditPanelProps)
               id="diagnosis-quick-start"
               type="date"
               value={quickAdd.startDate}
-              onChange={(event) => setQuickAdd((prev) => ({ ...prev, startDate: event.target.value }))}
+              onChange={(event) => {
+                setQuickCandidateSelection('');
+                setQuickAdd((prev) => ({ ...prev, startDate: event.target.value }));
+              }}
               disabled={isBlocked || mutation.isPending}
             />
           </div>

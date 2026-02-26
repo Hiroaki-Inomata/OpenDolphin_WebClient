@@ -30,6 +30,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-02-26: UIガイドライン v0.1 の適用を開始し、共通基盤と主要画面（ログイン/シェル/受付/患者/管理/カルテ主要導線）のUIを先行改修（RUN_ID=20260226T103048Z）。
+  - 内容: `web-client/src/styles/global.css` / `web-client/src/styles/app-shell.css` のトークン・共通操作見た目をガイドライン準拠へ更新。`reception/styles.ts` / `patients/patients.css` / `administration/administration.css` / `charts/styles.ts` では、タブ非ピル化（8px）、カード角丸12px、選択状態の下線+太字併用、主要入力/ボタンの36px以上確保を反映。
+  - 成果物: `web-client/src/styles/global.css` / `web-client/src/styles/app-shell.css` / `web-client/src/features/reception/styles.ts` / `web-client/src/features/patients/patients.css` / `web-client/src/features/administration/administration.css` / `web-client/src/features/charts/styles.ts` / `docs/web-client/CURRENT.md` / `docs/DEVELOPMENT_STATUS.md`。
+  - 検証: `npm -C web-client run typecheck` PASS。`npm -C web-client run test -- --run src/AppRouter.navigation.test.tsx src/features/reception/__tests__/ReceptionPage.test.tsx src/features/patients/__tests__/PatientsPage.test.tsx src/features/administration/__tests__/AdministrationPage.searchParams.test.tsx src/features/charts/__tests__/patientsTabFilterAndConfirm.test.tsx --silent=true` PASS（5 files / 51 tests）。
+- 2026-02-26: Webクライアント全体で参照する UI ガイドライン v0.1 を新規整備し、今後のデザイン/改修の基準を文書化（RUN_ID=20260226T102426Z）。
+  - 内容: `docs/web-client/ux/web-client-ui-guideline.md` を追加。全体設計方針、WCAG基準（文字4.5:1、非テキスト3:1、操作対象24x24 CSS px）、トークン運用、色/文字/余白/角丸/影/状態の基礎ルール、ボタン/入力/ナビ/一覧/モーダル等のコンポーネント規約、変更時チェック項目を定義。
+  - 成果物: `docs/web-client/ux/web-client-ui-guideline.md` / `docs/web-client/CURRENT.md` / `docs/DEVELOPMENT_STATUS.md`。
+  - 検証: 文書更新のみ（コード変更なし）。
 - 2026-02-26: 処方オーダーをRP集合モデルへ刷新し、SOAP右ドック/右ドロワーと統合（RUN_ID=20260226T024837Z）。
   - 内容（server-modernized）: `GET/POST /orca/prescription-orders` と `POST /orca/prescription-orders/do-import` を新設。`PrescriptionOrder` 系DTOと `orca_prescription_orders` 永続化（JSONB）を追加し、Do反映時の「備考上書き・処方箋設定同一コード上書き/異コード追加・医師コメント追記」、未登録用法エラー、有効期限切れ薬剤除外を実装。薬剤マスタ検索に `method(prefix/partial)` と `scope(outer/in-hospital/adopted)` の受理を追加。
   - 内容（web-client）: `PrescriptionOrderEditorPanel` / `prescriptionOrderApi` を追加し、処方を右ドロワー内で RP集合編集へ置換。`prescriptionOrderApi` は `GET/POST /orca/prescription-orders` を直接利用する経路へ切替し、`SoapNotePanel` / `RightUtilityDrawer` / `OrderSummaryPane` / `ChartsPage` は処方専用データ経路で表示・編集、他カテゴリは既存経路を維持。右ドロワー内コンテンツ切替に下から生えるアニメーションを統一し、非モーダル要件（背景操作可）を維持。

@@ -49,12 +49,14 @@ describe('SoapNotePanel right dock drawer', () => {
     const drawer = document.body.querySelector('.soap-note__right-drawer');
     expect(drawer).not.toBeNull();
     expect(drawer?.getAttribute('data-open')).toBe('false');
+    expect(drawer?.querySelector('.soap-note__right-drawer-panel[data-active="true"]')).toBeNull();
 
     await user.click(document.body.querySelector('button[aria-label="注射を開く"]') as HTMLButtonElement);
 
     await waitFor(() => {
       expect(drawer?.getAttribute('data-open')).toBe('true');
     });
+    expect(drawer?.querySelector('.soap-note__right-drawer-panel[data-active="true"]')).not.toBeNull();
     expect(drawer).toHaveTextContent('注射');
     expect(drawer).toHaveTextContent('注射セットA');
   });

@@ -1,26 +1,31 @@
 :root {
   font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
   --ui-base-font-size: 16px;
-  color: #1e293b;
-  background-color: #ffffff;
+  color: var(--ui-text);
+  background-color: var(--ui-bg);
+  --ui-bg: #f6f7f9;
   --ui-surface: #ffffff;
-  --ui-surface-muted: #f8fafc;
-  --ui-border: rgba(148, 163, 184, 0.35);
-  --ui-border-strong: rgba(148, 163, 184, 0.45);
+  --ui-surface-muted: #f1f5f9;
+  --ui-text: #0f172a;
+  --ui-text-muted: #475569;
+  --ui-border: #838da0;
+  --ui-border-strong: #64748b;
+  --ui-primary: #1d4ed8;
+  --ui-primary-contrast: #ffffff;
   --ui-shadow: 0 10px 32px rgba(15, 23, 42, 0.08);
   --ui-shadow-soft: 0 8px 24px rgba(15, 23, 42, 0.06);
-  --ui-info-bg: #eef2ff;
-  --ui-info-border: rgba(37, 99, 235, 0.35);
-  --ui-info-text: #1e3a8a;
+  --ui-info-bg: #eff6ff;
+  --ui-info-border: #93c5fd;
+  --ui-info-text: #1e40af;
   --ui-success-bg: #ecfdf5;
-  --ui-success-border: rgba(16, 185, 129, 0.35);
+  --ui-success-border: #86efac;
   --ui-success-text: #047857;
   --ui-warning-bg: #fff7ed;
-  --ui-warning-border: rgba(245, 158, 11, 0.45);
+  --ui-warning-border: #fcd34d;
   --ui-warning-text: #92400e;
   --ui-warning-strong: #7c2d12;
   --ui-error-bg: #fef2f2;
-  --ui-error-border: rgba(239, 68, 68, 0.4);
+  --ui-error-border: #fca5a5;
   --ui-error-text: #991b1b;
   --ui-focus-ring: rgba(37, 99, 235, 0.55);
   --ui-focus-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35);
@@ -51,6 +56,8 @@ body {
   margin: 0;
   min-height: 100vh;
   overflow-x: hidden;
+  background: var(--ui-bg);
+  color: var(--ui-text);
 }
 
 :where(a, button, input, select, textarea, summary, [role='button'], [tabindex]):focus-visible {
@@ -301,10 +308,10 @@ body {
   justify-content: center;
   padding: 4rem 6rem;
   gap: 1.75rem;
-  background: #f8fafc;
+  background: var(--ui-bg);
   /* Subtle cool gray to distinguish from the white left panel */
   position: relative;
-  border-left: 1px solid #e2e8f0;
+  border-left: 1px solid var(--ui-border);
 }
 
 /* Ensure the form content is centered vertically but not too spread out */
@@ -323,7 +330,7 @@ body {
 .field span {
   font-size: 0.85rem;
   font-weight: 600;
-  color: #64748b;
+  color: var(--ui-text-muted);
   /* Lighter, more elegant text color */
   margin-left: 2px;
   letter-spacing: 0.02em;
@@ -332,31 +339,26 @@ body {
 .field input {
   font-family: 'Inter', sans-serif;
   width: 100%;
-  padding: 1.1rem 1.25rem;
+  min-height: 40px;
+  padding: 0.65rem 0.9rem;
   font-size: 1rem;
-  border-radius: 16px;
-  /* softer rounded corners */
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface);
   /* pure white inputs on the gray bg */
-  color: #1e293b;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  /* subtle depth */
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  color: var(--ui-text);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
 }
 
 .field input:focus {
   outline: none;
-  background: #ffffff;
-  border-color: #0ea5e9;
-  /* Sky blue focus */
-  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.15);
-  /* Soft sky glow */
-  transform: translateY(-1px);
+  background: var(--ui-surface);
+  border-color: var(--ui-primary);
+  box-shadow: var(--ui-focus-shadow);
 }
 
 .field input::placeholder {
-  color: #cbd5e1;
+  color: #94a3b8;
 }
 
 .field-error {
@@ -372,28 +374,31 @@ body {
 
 .login-form__actions button {
   width: 100%;
-  padding: 1.1rem;
-  font-size: 1.05rem;
+  min-height: 40px;
+  padding: 0.65rem 1rem;
+  font-size: 1rem;
   font-weight: 700;
-  border-radius: 16px;
-  border: none;
-  /* Stylish Ocean Gradient */
-  background: linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%);
-  color: white;
+  border-radius: 8px;
+  border: 1px solid var(--ui-primary);
+  background: var(--ui-primary);
+  color: var(--ui-primary-contrast);
   cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 10px 20px -10px rgba(2, 132, 199, 0.5);
-  /* Colored shadow */
+  transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
+  box-shadow: 0 8px 18px -10px rgba(29, 78, 216, 0.45);
   letter-spacing: 0.02em;
 }
 
 .login-form__actions button:hover:not(:disabled) {
-  transform: translateY(-2px) scale(1.01);
-  box-shadow: 0 20px 30px -10px rgba(2, 132, 199, 0.6);
+  transform: translateY(-1px);
+  background: #1e40af;
+  border-color: #1e40af;
+  box-shadow: 0 14px 24px -12px rgba(29, 78, 216, 0.55);
 }
 
 .login-form__actions button:disabled {
   background: #cbd5e1;
+  border-color: #94a3b8;
+  color: #64748b;
   cursor: default;
   transform: none;
   box-shadow: none;

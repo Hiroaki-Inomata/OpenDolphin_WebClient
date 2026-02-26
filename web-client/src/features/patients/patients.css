@@ -503,12 +503,12 @@
 }
 
 .patients-page__form-actions button {
-  border: none;
+  border: 1px solid #1d4ed8;
   border-radius: 10px;
   padding: 0.6rem 0.95rem;
   font-weight: 700;
   cursor: pointer;
-  background: linear-gradient(90deg, #2563eb, #4338ca);
+  background: #1d4ed8;
   color: #ffffff;
 }
 
@@ -1795,4 +1795,110 @@
   .patients-page__form {
     min-height: 480px;
   }
+}
+
+/* Patients UI guideline normalization */
+.patients-page {
+  --patients-radius-tab: 8px;
+  --patients-radius-input: 8px;
+  --patients-radius-card: 12px;
+  --patients-radius-modal: 16px;
+}
+
+.patients-page,
+.patients-page__header,
+.patients-page__return,
+.patients-search,
+.patients-search__saved,
+.patients-search__summary,
+.patients-page__list,
+.patients-page__form,
+.patients-page__change-summary,
+.patients-page__orca-memo,
+.patients-page__insurance-summary,
+.patients-page__insurance-group,
+.patients-page__orca-status-card,
+.patients-page__orca-original-response {
+  border-radius: var(--patients-radius-card);
+}
+
+.patients-page__switch-dialog {
+  border-radius: var(--patients-radius-modal);
+}
+
+.patients-page__detail-tabs {
+  border-bottom-color: var(--ui-border-strong);
+}
+
+.patients-page__detail-tab {
+  border-radius: var(--patients-radius-tab);
+  border-color: var(--ui-border-strong);
+  border-bottom: 2px solid transparent;
+  background: var(--patients-surface);
+}
+
+.patients-page__detail-tab.is-active {
+  border-color: var(--patients-accent-border);
+  border-bottom-color: var(--patients-accent-strong);
+  font-weight: 800;
+}
+
+.patients-search__button,
+.patients-page__form-actions button,
+.patients-page__empty-actions button,
+.patients-page__retry-save-actions button,
+.patients-page__orca-original-actions button,
+.patients-page__insurance-actions button,
+.patients-page__insurance-group button,
+.patients-page__orca-memo-actions button {
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--patients-radius-input);
+  background: var(--patients-surface);
+  color: var(--patients-text-strong);
+}
+
+.patients-search__button.primary,
+.patients-page__form-actions button:not(.ghost) {
+  border-color: var(--patients-accent-strong);
+  background: var(--patients-accent-strong);
+  color: #ffffff;
+}
+
+.patients-search__button.ghost,
+.patients-page__form-actions button.ghost,
+.patients-page__orca-original-actions button.ghost,
+.patients-page__insurance-actions button.ghost,
+.patients-page__orca-memo-actions button.ghost {
+  border-color: var(--patients-accent-border);
+  background: var(--patients-accent-bg);
+  color: var(--patients-accent-strong);
+}
+
+.patients-page__form-actions button.ghost.danger {
+  border-color: var(--ui-error-border);
+  background: var(--ui-error-bg);
+  color: var(--ui-error-text);
+}
+
+.patients-search__field input,
+.patients-search__field select,
+.patients-page__grid input,
+.patients-page__grid select,
+.patients-page__grid textarea,
+.patients-page__audit-filters input,
+.patients-page__audit-filters select,
+.patients-page__orca-original-grid input,
+.patients-page__insurance-grid input,
+.patients-page__orca-memo-grid input,
+.patients-page__orca-memo-textarea textarea {
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--patients-radius-input);
+}
+
+.patients-page__orca-original-response,
+.patients-page__insurance-summary,
+.patients-page__insurance-group,
+.patients-page__orca-memo,
+.patients-page__orca-status-card {
+  border-color: var(--ui-border);
 }
