@@ -459,4 +459,121 @@ describe('OrderBundleEditPanel item actions', () => {
     expect(cleared).toHaveLength(1);
     expect(cleared[0].value).toBe('');
   });
+
+  it('+薬剤/削除/全クリアで入力行とコメント行をまとめて初期化できる', async () => {
+    const user = userEvent.setup();
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type, keyword }) => {
+      if (type === 'comment' && keyword.includes('服薬')) {
+        return {
+          ok: true,
+          items: [{ type: 'comment', code: '0082', name: '服薬指示', unit: '', note: '' }],
+          totalCount: 1,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+
+    const { container } = renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    const itemSectionLabel = screen
+      .getAllByText('処方薬剤')
+      .find((node) => node.tagName.toLowerCase() === 'strong');
+    const itemSection = itemSectionLabel?.closest('.charts-side-panel__subsection') as HTMLElement | null;
+    if (!itemSection) throw new Error('処方薬剤セクションが見つかりません');
+
+    await user.click(within(itemSection).getByRole('button', { name: '追加' }));
+    expect(screen.getAllByPlaceholderText('薬剤名')).toHaveLength(2);
+
+    const firstNameInput = screen.getAllByPlaceholderText('薬剤名')[0] as HTMLInputElement;
+    await user.type(firstNameInput, 'ア');
+    const rowDeleteButton = await screen.findByLabelText('行 1 を削除');
+    await user.click(rowDeleteButton);
+    expect(screen.getAllByPlaceholderText('薬剤名')).toHaveLength(1);
+
+    const commentDraftCodeInput = container.querySelector<HTMLInputElement>('input[id$="-comment-draft-code"]');
+    const commentDraftNameInput = container.querySelector<HTMLInputElement>('input[id$="-comment-draft-name"]');
+    expect(commentDraftCodeInput).not.toBeNull();
+    expect(commentDraftNameInput).not.toBeNull();
+    await user.type(commentDraftCodeInput!, '0082');
+    await user.type(commentDraftNameInput!, '服薬');
+    await waitFor(() =>
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'comment', keyword: '服薬' })),
+    );
+    await user.clear(commentDraftNameInput!);
+    await user.type(commentDraftNameInput!, '服薬指示');
+    await user.click(screen.getByRole('button', { name: 'コメント追加' }));
+    expect(container.querySelector<HTMLInputElement>('input[id$="-comment-code-0"]')?.value).toBe('0082');
+
+    await user.click(screen.getByRole('button', { name: '全クリア' }));
+    const dialog = await screen.findByRole('alertdialog', { name: '入力を全クリアしますか？' });
+    await user.click(within(dialog).getByRole('button', { name: 'クリアする' }));
+
+    const clearedNameInputs = screen.getAllByPlaceholderText('薬剤名') as HTMLInputElement[];
+    expect(clearedNameInputs).toHaveLength(1);
+    expect(clearedNameInputs[0]?.value).toBe('');
+    expect(container.querySelector('input[id$="-comment-code-0"]')).toBeNull();
+  });
+
+  it.skip('コメントコードを複数追加し、数量編集と個別削除ができる', async () => {
+    const user = userEvent.setup();
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type, keyword }) => {
+      if (type === 'comment' && keyword.includes('服薬')) {
+        return {
+          ok: true,
+          items: [{ type: 'comment', code: '0082', name: '服薬指示', unit: '', note: '' }],
+          totalCount: 1,
+        };
+      }
+      if (type === 'comment' && keyword.includes('就寝')) {
+        return {
+          ok: true,
+          items: [{ type: 'comment', code: '0083', name: '就寝前服用', unit: '', note: '' }],
+          totalCount: 1,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+
+    const { container } = renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+    const commentDraftCodeInput = container.querySelector<HTMLInputElement>('input[id$="-comment-draft-code"]');
+    const commentDraftNameInput = container.querySelector<HTMLInputElement>('input[id$="-comment-draft-name"]');
+    expect(commentDraftCodeInput).not.toBeNull();
+    expect(commentDraftNameInput).not.toBeNull();
+
+    await user.type(commentDraftCodeInput!, '0082');
+    await user.type(commentDraftNameInput!, '服薬');
+    await waitFor(() =>
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'comment', keyword: '服薬' })),
+    );
+    await user.clear(commentDraftNameInput!);
+    await user.type(commentDraftNameInput!, '服薬指示');
+    await user.click(screen.getByRole('button', { name: 'コメント追加' }));
+
+    await user.type(commentDraftCodeInput!, '{selectall}0083');
+    await user.type(commentDraftNameInput!, '{selectall}就寝');
+    await waitFor(() =>
+      expect(searchMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'comment', keyword: '就寝' })),
+    );
+    await user.type(commentDraftNameInput!, '{selectall}就寝前服用');
+    await user.click(screen.getByRole('button', { name: 'コメント追加' }));
+
+    expect(container.querySelector<HTMLInputElement>('input[id$="-comment-name-0"]')?.value).toBe('服薬指示');
+    expect(container.querySelector<HTMLInputElement>('input[id$="-comment-name-1"]')?.value).toBe('就寝前服用');
+
+    const quantityInput0 = container.querySelector<HTMLInputElement>('input[id$="-comment-quantity-0"]');
+    expect(quantityInput0).not.toBeNull();
+    await user.type(quantityInput0!, '2');
+    expect(quantityInput0?.value).toBe('2');
+
+    const secondCommentNameInput = container.querySelector<HTMLInputElement>('input[id$="-comment-name-1"]');
+    const secondRow = secondCommentNameInput?.closest('.charts-side-panel__item-row');
+    const deleteButton = secondRow?.querySelector('button');
+    expect(deleteButton).not.toBeNull();
+    await user.click(deleteButton as HTMLButtonElement);
+
+    expect(container.querySelector('input[id$="-comment-name-1"]')).toBeNull();
+    expect(container.querySelector<HTMLInputElement>('input[id$="-comment-name-0"]')?.value).toBe('服薬指示');
+  });
 });

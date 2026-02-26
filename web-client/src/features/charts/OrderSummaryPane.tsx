@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import type { OrderBundle } from './orderBundleApi';
 import {
   ORDER_GROUP_REGISTRY,
-  isOrderEntity,
+  resolveOrderEntity,
   resolveOrderEntityLabel,
   resolveOrderGroupKeyByEntity,
   type OrderEntity,
@@ -13,6 +13,7 @@ import { sortBundlesByLatestRule, type RightUtilityTool } from './RightUtilityDr
 
 type OrderSummaryPaneProps = {
   orderBundles?: OrderBundle[];
+  prescriptionBundles?: OrderBundle[];
   orderBundlesLoading?: boolean;
   orderBundlesError?: string;
   activeTool?: RightUtilityTool;
@@ -26,7 +27,8 @@ const normalizeBundleName = (bundle: OrderBundle) => {
 
 const normalizeBundleEntity = (bundle: OrderBundle, fallback: OrderEntity): OrderEntity => {
   const raw = bundle.entity?.trim() ?? '';
-  if (isOrderEntity(raw)) return raw;
+  const resolved = resolveOrderEntity(raw);
+  if (resolved) return resolved;
   return fallback;
 };
 
@@ -42,6 +44,7 @@ const buildBundleSummary = (bundle: OrderBundle) => {
 
 export function OrderSummaryPane({
   orderBundles,
+  prescriptionBundles,
   orderBundlesLoading = false,
   orderBundlesError,
   activeTool,
@@ -49,16 +52,17 @@ export function OrderSummaryPane({
 }: OrderSummaryPaneProps) {
   const groupedBundles = useMemo(() => {
     return ORDER_GROUP_REGISTRY.map((group) => {
-      const bundles = sortBundlesByLatestRule(
-        (orderBundles ?? []).filter((bundle) => {
+      const sourceBundles =
+        group.key === 'prescription' && prescriptionBundles
+          ? prescriptionBundles
+          : (orderBundles ?? []).filter((bundle) => {
           const raw = bundle.entity?.trim() ?? '';
-          if (!isOrderEntity(raw)) return false;
           return resolveOrderGroupKeyByEntity(raw) === group.key;
-        }),
-      );
+          });
+      const bundles = sortBundlesByLatestRule(sourceBundles);
       return { ...group, bundles };
     });
-  }, [orderBundles]);
+  }, [orderBundles, prescriptionBundles]);
 
   const hasAnyBundle = groupedBundles.some((group) => group.bundles.length > 0);
 

@@ -5446,6 +5446,8 @@ export const chartsStyles = css`
     align-self: start;
     position: sticky;
     top: var(--charts-space-sm);
+    max-height: calc(100vh - (var(--charts-space-sm) * 2));
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-xs);
@@ -5456,8 +5458,11 @@ export const chartsStyles = css`
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-xs);
+    min-height: 0;
     max-height: min(72vh, 680px);
     overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
     padding-right: 2px;
     scrollbar-width: thin;
   }
@@ -5503,6 +5508,9 @@ export const chartsStyles = css`
     position: sticky;
     top: var(--charts-space-sm);
     min-width: 72px;
+    min-height: 0;
+    max-height: calc(100vh - (var(--charts-space-sm) * 2));
+    overflow: hidden;
   }
 
   .soap-note__right-drawer {
@@ -5553,6 +5561,7 @@ export const chartsStyles = css`
     overflow: auto;
     display: flex;
     flex-direction: column;
+    position: relative;
     padding: var(--charts-space-sm) var(--charts-space-md) var(--charts-space-md);
   }
 
@@ -5569,7 +5578,11 @@ export const chartsStyles = css`
     opacity: 1;
     transform: translateY(0);
     pointer-events: auto;
-    animation: soapRightDrawerRise 180ms ease;
+  }
+
+  .soap-note__right-drawer-switch {
+    min-height: 0;
+    animation: soapRightDrawerContentSwitch 180ms ease;
   }
 
   .soap-note__right-drawer-order-layout {
@@ -5621,7 +5634,7 @@ export const chartsStyles = css`
     min-width: 0;
   }
 
-  @keyframes soapRightDrawerRise {
+  @keyframes soapRightDrawerContentSwitch {
     from {
       opacity: 0;
       transform: translateY(14px);
@@ -6943,6 +6956,8 @@ export const chartsStyles = css`
       position: static;
       top: auto;
       min-width: 0;
+      max-height: none;
+      overflow: visible;
     }
 
     .soap-note__right-dock {
@@ -6950,6 +6965,8 @@ export const chartsStyles = css`
       min-width: 0;
       position: static;
       top: auto;
+      max-height: none;
+      overflow: visible;
     }
 
     .soap-note__right-dock-scroll {

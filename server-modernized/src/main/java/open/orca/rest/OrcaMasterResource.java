@@ -17,6 +17,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
@@ -227,9 +228,13 @@ public class OrcaMasterResource extends AbstractResource {
         final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
         final String keyword = getFirstValue(params, "keyword");
         final String effective = normalizeEffectiveDate(getFirstValue(params, "effective"));
+        final String searchMethod = normalizeDrugSearchMethod(getFirstValue(params, "method"));
+        final String scope = normalizeDrugScope(getFirstValue(params, "scope"));
         OrcaMasterDao.DrugCriteria criteria = new OrcaMasterDao.DrugCriteria();
         criteria.setKeyword(keyword);
         criteria.setEffective(effective);
+        criteria.setSearchMethod(searchMethod);
+        criteria.setScope(scope);
         criteria.setPage(parsePositiveInt(params, "page", 1));
         criteria.setSize(parsePageSize(params, "size", 100));
         OrcaMasterDao.ListSearchResult<OrcaMasterDao.DrugRecord> dbResult = masterDao.searchDrug(criteria);
@@ -1164,6 +1169,28 @@ public class OrcaMasterResource extends AbstractResource {
         return Math.min(parsed, MAX_PAGE_SIZE);
     }
 
+    private String normalizeDrugSearchMethod(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "prefix", "partial" -> normalized;
+            default -> null;
+        };
+    }
+
+    private String normalizeDrugScope(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "outer", "in-hospital", "adopted" -> normalized;
+            default -> null;
+        };
+    }
+
     private OrcaDrugMasterEntry toGenericClassEntry(OrcaMasterDao.GenericClassRecord entry, LoadedFixture<?> fixture) {
         String validFrom = firstNonBlank(entry.startDate, DEFAULT_VALID_FROM);
         String validTo = firstNonBlank(entry.endDate, DEFAULT_VALID_TO);
@@ -1898,6 +1925,16 @@ public class OrcaMasterResource extends AbstractResource {
         }
         if (effective != null) {
             details.put("effective", effective);
+        }
+        if (params != null) {
+            String method = normalizeDrugSearchMethod(getFirstValue(params, "method"));
+            if (method != null) {
+                details.put("method", method);
+            }
+            String scope = normalizeDrugScope(getFirstValue(params, "scope"));
+            if (scope != null) {
+                details.put("scope", scope);
+            }
         }
         if (params != null) {
             details.put("page", parsePositiveInt(params, "page", 1));

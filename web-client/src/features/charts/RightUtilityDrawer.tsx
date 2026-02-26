@@ -7,10 +7,11 @@ import {
   type OrderBundleEditPanelRequest,
   type OrderBundleEditingContext,
 } from './OrderBundleEditPanel';
+import { PrescriptionOrderEditorPanel } from './PrescriptionOrderEditorPanel';
 import type { OrderBundle } from './orderBundleApi';
 import {
   ORDER_GROUP_REGISTRY,
-  isOrderEntity,
+  resolveOrderEntity,
   resolveOrderEntityEditorMeta,
   resolveOrderEntityLabel,
   resolveOrderGroupKeyByEntity,
@@ -28,6 +29,9 @@ type RightUtilityDrawerProps = {
   orderBundles?: OrderBundle[];
   orderBundlesLoading?: boolean;
   orderBundlesError?: string;
+  prescriptionBundles?: OrderBundle[];
+  prescriptionBundlesLoading?: boolean;
+  prescriptionBundlesError?: string;
   activeOrderEntity?: OrderEntity | null;
   activeOrderRequest?: OrderBundleEditPanelRequest | null;
   onOrderRequestConsumed?: (requestId: string) => void;
@@ -107,7 +111,8 @@ const normalizeBundleName = (bundle: OrderBundle) => {
 
 const normalizeBundleEntity = (bundle: OrderBundle, fallback: OrderEntity): OrderEntity => {
   const raw = bundle.entity?.trim() ?? '';
-  if (isOrderEntity(raw)) return raw;
+  const resolved = resolveOrderEntity(raw);
+  if (resolved) return resolved;
   return fallback;
 };
 
@@ -151,6 +156,9 @@ export function RightUtilityDrawer({
   orderBundles,
   orderBundlesLoading = false,
   orderBundlesError,
+  prescriptionBundles,
+  prescriptionBundlesLoading = false,
+  prescriptionBundlesError,
   activeOrderEntity,
   activeOrderRequest,
   onOrderRequestConsumed,
@@ -179,12 +187,15 @@ export function RightUtilityDrawer({
 
   const groupBundles = useMemo(() => {
     if (!groupSpec) return [];
+    if (groupSpec.key === 'prescription' && prescriptionBundles) {
+      return prescriptionBundles;
+    }
     return (orderBundles ?? []).filter((bundle) => {
       const raw = bundle.entity?.trim() ?? '';
-      if (!isOrderEntity(raw)) return false;
-      return resolveOrderGroupKeyByEntity(raw) === groupSpec.key;
+      const groupKey = resolveOrderGroupKeyByEntity(raw);
+      return groupKey === groupSpec.key;
     });
-  }, [groupSpec, orderBundles]);
+  }, [groupSpec, orderBundles, prescriptionBundles]);
 
   const sortedGroupBundles = useMemo(() => sortBundlesByLatestRule(groupBundles), [groupBundles]);
 
@@ -231,6 +242,12 @@ export function RightUtilityDrawer({
       selectedEntityMeta,
     };
   }, [groupSpec, isOrderPanel, selectedEntity, selectedEntityMeta]);
+  const isPrescriptionPanel =
+    Boolean(activeOrderPanelContext) && activeOrderPanelContext?.groupSpec.key === 'prescription';
+  const resolvedPanelBundles =
+    isPrescriptionPanel && prescriptionBundles ? prescriptionBundles : bundlesBySelectedEntity;
+  const resolvedPanelLoading = isPrescriptionPanel ? prescriptionBundlesLoading : orderBundlesLoading;
+  const resolvedPanelError = isPrescriptionPanel ? prescriptionBundlesError ?? orderBundlesError : orderBundlesError;
 
   const drawerNode = (
     <aside
@@ -250,21 +267,23 @@ export function RightUtilityDrawer({
       <div className="soap-note__right-drawer-content">
         {isDocumentPanelActive ? (
           <section
+            key="drawer-document-panel"
             className="soap-note__right-drawer-panel soap-note__right-drawer-panel--document"
             data-active="true"
             aria-hidden="false"
           >
-            {documentPanelNode}
+            <div className="soap-note__right-drawer-switch">{documentPanelNode}</div>
           </section>
         ) : null}
 
         {activeOrderPanelContext ? (
           <section
+            key={`drawer-order-panel-${activeTool}-${activeOrderPanelContext.selectedEntity}`}
             className="soap-note__right-drawer-panel soap-note__right-drawer-panel--order"
             data-active="true"
             aria-hidden="false"
           >
-            <div className="soap-note__right-drawer-order-layout">
+            <div className="soap-note__right-drawer-switch soap-note__right-drawer-order-layout">
               <div className="soap-note__right-drawer-order-editor">
                 {activeOrderPanelContext.groupSpec.entities.length > 1 ? (
                   <div
@@ -292,6 +311,22 @@ export function RightUtilityDrawer({
 
                 {!patientId ? (
                   <p className="order-dock__empty">患者IDが未選択のためオーダー編集を開始できません。</p>
+                ) : isPrescriptionPanel ? (
+                  <>
+                    {resolvedPanelLoading ? <p className="order-dock__empty">処方情報を取得しています...</p> : null}
+                    {resolvedPanelError ? <p className="order-dock__empty">処方情報の取得に失敗しました: {resolvedPanelError}</p> : null}
+                    <PrescriptionOrderEditorPanel
+                      patientId={patientId}
+                      meta={meta}
+                      variant="embedded"
+                      bundlesOverride={resolvedPanelBundles}
+                      request={activeOrderRequest}
+                      onRequestConsumed={onOrderRequestConsumed}
+                      onEditingContextChange={onOrderEditingContextChange}
+                      onClose={onClose}
+                      active={open && activeTool === 'prescription'}
+                    />
+                  </>
                 ) : (
                   <OrderBundleEditPanel
                     patientId={patientId}
@@ -301,7 +336,7 @@ export function RightUtilityDrawer({
                     itemQuantityLabel={activeOrderPanelContext.selectedEntityMeta.itemQuantityLabel}
                     meta={meta}
                     variant="embedded"
-                    bundlesOverride={bundlesBySelectedEntity}
+                    bundlesOverride={resolvedPanelBundles}
                     request={activeOrderRequest}
                     onRequestConsumed={onOrderRequestConsumed}
                     onEditingContextChange={onOrderEditingContextChange}
@@ -325,12 +360,12 @@ export function RightUtilityDrawer({
                   </button>
                 </div>
 
-                {orderBundlesLoading ? <p className="order-dock__empty">読み込み中...</p> : null}
-                {orderBundlesError ? <p className="order-dock__empty">取得失敗: {orderBundlesError}</p> : null}
-                {!orderBundlesLoading && !orderBundlesError && sortedGroupBundles.length === 0 ? (
+                {resolvedPanelLoading ? <p className="order-dock__empty">読み込み中...</p> : null}
+                {resolvedPanelError ? <p className="order-dock__empty">取得失敗: {resolvedPanelError}</p> : null}
+                {!resolvedPanelLoading && !resolvedPanelError && sortedGroupBundles.length === 0 ? (
                   <p className="order-dock__empty">このカテゴリの既存オーダーはありません。</p>
                 ) : null}
-                {!orderBundlesLoading && !orderBundlesError ? (
+                {!resolvedPanelLoading && !resolvedPanelError ? (
                   <div className="soap-note__right-drawer-order-list-body order-dock__bundle-list" role="list">
                     {sortedGroupBundles.map((bundle, index) => {
                       const entity = normalizeBundleEntity(bundle, activeOrderPanelContext.groupSpec.defaultEntity);
