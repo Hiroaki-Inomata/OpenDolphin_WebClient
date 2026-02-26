@@ -5519,7 +5519,7 @@ export const chartsStyles = css`
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    z-index: 38;
+    z-index: 52;
     transform: translateY(14px);
     opacity: 0;
     pointer-events: none;

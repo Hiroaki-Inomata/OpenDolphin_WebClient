@@ -1,4 +1,5 @@
 import { cloneElement, isValidElement, useEffect, useMemo, type ReactElement, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 import {
   OrderBundleEditPanel,
@@ -231,7 +232,7 @@ export function RightUtilityDrawer({
     };
   }, [groupSpec, isOrderPanel, selectedEntity, selectedEntityMeta]);
 
-  return (
+  const drawerNode = (
     <aside
       className="soap-note__right-drawer"
       data-open={open ? 'true' : 'false'}
@@ -363,4 +364,7 @@ export function RightUtilityDrawer({
       </div>
     </aside>
   );
+
+  if (typeof document === 'undefined') return drawerNode;
+  return createPortal(drawerNode, document.body);
 }
