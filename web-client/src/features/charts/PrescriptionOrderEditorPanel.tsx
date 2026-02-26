@@ -1,0 +1,1299 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
+import { resolveAriaLive } from '../../libs/observability/observability';
+import type { OrderBundleEditPanelMeta, OrderBundleEditPanelRequest, OrderBundleEditingContext } from './OrderBundleEditPanel';
+import type { OrderBundle } from './orderBundleApi';
+import { fetchOrderMasterSearch, type OrderMasterSearchItem } from './orderMasterSearchApi';
+import {
+  buildRpRequiredEditorMessage,
+  resolveRpRequiredFieldLabel,
+  resolveRpRequiredIssue,
+  RP_REQUIRED_ERROR_LABEL,
+  type RpRequiredField,
+} from './orderRpRequirements';
+import {
+  buildEmptyPrescriptionOrder,
+  buildEmptyPrescriptionRp,
+  fetchPrescriptionOrder,
+  importPrescriptionDoInput,
+  savePrescriptionOrder,
+  toPrescriptionOrder,
+  type PrescriptionCategory,
+  type PrescriptionClaimComment,
+  type PrescriptionDrug,
+  type PrescriptionLocation,
+  type PrescriptionOrder,
+  type PrescriptionRefillPattern,
+  type PrescriptionRp,
+} from './prescriptionOrderApi';
+
+export type PrescriptionSearchMethod = 'prefix' | 'partial';
+export type PrescriptionSearchScope = 'outside_adopted' | 'in_hospital_adopted' | 'inside_adopted';
+
+type SaveAction = 'save' | 'expand' | 'expand_continue';
+
+type ClaimDraft = {
+  code: string;
+  name: string;
+};
+
+type ValidationIssue = {
+  key: string;
+  message: string;
+  rpIndex?: number;
+  drugIndex?: number;
+};
+
+export type PrescriptionOrderEditorPanelProps = {
+  patientId?: string;
+  meta: OrderBundleEditPanelMeta;
+  variant?: 'utility' | 'embedded';
+  bundlesOverride?: OrderBundle[];
+  request?: OrderBundleEditPanelRequest | null;
+  onRequestConsumed?: (requestId: string) => void;
+  onEditingContextChange?: (state: OrderBundleEditingContext) => void;
+  onSubmitResult?: (result: { action: SaveAction; ok: boolean }) => void;
+  onDrugCandidateCommit?: (payload: {
+    rpIndex: number;
+    drugIndex: number;
+    candidate: OrderMasterSearchItem;
+  }) => void;
+  onClose?: () => void;
+  active?: boolean;
+};
+
+const SEARCH_SCOPE_CATEGORY: Record<PrescriptionSearchScope, string> = {
+  outside_adopted: 'outside',
+  in_hospital_adopted: 'facility',
+  inside_adopted: 'adopted',
+};
+
+const SEARCH_SCOPE_LABEL: Record<PrescriptionSearchScope, string> = {
+  outside_adopted: '採用薬外',
+  in_hospital_adopted: '院内採用',
+  inside_adopted: '採用薬内',
+};
+
+const CATEGORY_LABEL: Record<PrescriptionCategory, string> = {
+  regular: '内服',
+  tonyo: '頓服',
+  gaiyo: '外用',
+};
+
+const LOCATION_LABEL: Record<PrescriptionLocation, string> = {
+  in: '院内',
+  out: '院外',
+};
+
+const REFILL_PATTERN_LABEL: Record<PrescriptionRefillPattern, string> = {
+  none: 'なし',
+  standard: '通常',
+  alternate: '隔日',
+};
+
+const CLAIM_COMMENT_TEMPLATES: Array<{ code?: string; name: string }> = [
+  { code: '810000001', name: '患者希望' },
+  { code: '820100001', name: '後発品不可' },
+  { code: '820100002', name: '残薬調整' },
+];
+
+const DRUG_COMMENT_TEMPLATES = ['食後服用を指導', '眠気に注意', '残薬確認済み'];
+
+const createClaimComment = (name: string, code?: string): PrescriptionClaimComment => ({
+  id: `claim-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+  code: code?.trim() || undefined,
+  name: name.trim(),
+});
+
+const normalizeSearchText = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+const isDrugMatched = (item: OrderMasterSearchItem, keyword: string, method: PrescriptionSearchMethod) => {
+  const normalizedKeyword = keyword.toLowerCase();
+  const code = item.code?.toLowerCase() ?? '';
+  const name = item.name.toLowerCase();
+  if (method === 'prefix') {
+    return code.startsWith(normalizedKeyword) || name.startsWith(normalizedKeyword);
+  }
+  return code.includes(normalizedKeyword) || name.includes(normalizedKeyword);
+};
+
+const toFullWidthUnits = (char: string) => {
+  if (!char) return 0;
+  return char.charCodeAt(0) <= 0xff ? 1 : 2;
+};
+
+const clampByFullWidth = (value: string, fullWidthLimit: number) => {
+  const sanitized = value.replace(/[\r\n]+/g, ' ');
+  const maxUnits = fullWidthLimit * 2;
+  let used = 0;
+  let result = '';
+  for (const char of sanitized) {
+    const units = toFullWidthUnits(char);
+    if (used + units > maxUnits) break;
+    result += char;
+    used += units;
+  }
+  return result;
+};
+
+const resolveClassCode = (category: PrescriptionCategory, location: PrescriptionLocation) => {
+  if (category === 'regular') return location === 'out' ? '212' : '211';
+  if (category === 'tonyo') return location === 'out' ? '222' : '221';
+  return location === 'out' ? '232' : '231';
+};
+
+const toRpFromRecommendation = (
+  candidate: NonNullable<Extract<OrderBundleEditPanelRequest, { kind: 'recommendation' }>['candidate']>,
+): PrescriptionRp => {
+  const template = candidate.template;
+  const rp = buildEmptyPrescriptionRp();
+  const mainDrugs: PrescriptionDrug[] = template.items.map((item) => ({
+    rowId: `drug-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    code: item.code?.trim() || undefined,
+    name: item.name,
+    quantity: item.quantity?.trim() || '',
+    unit: item.unit?.trim() || '',
+    genericChangeAllowed: true,
+    drugComment: '',
+    claimComments: [],
+    patientRequest: true,
+  }));
+  if (mainDrugs.length === 0) {
+    mainDrugs.push({
+      rowId: `drug-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      code: undefined,
+      name: '',
+      quantity: '',
+      unit: '',
+      genericChangeAllowed: true,
+      drugComment: '',
+      claimComments: [],
+      patientRequest: true,
+    });
+  }
+  template.commentItems.forEach((comment) => {
+    if (!comment.name.trim()) return;
+    mainDrugs[0].claimComments.push(createClaimComment(comment.name, comment.code));
+  });
+
+  return {
+    ...rp,
+    name: template.bundleName,
+    usage: template.admin,
+    daysOrTimes: template.bundleNumber || '1',
+    location: template.prescriptionLocation ?? 'out',
+    category: template.prescriptionTiming ?? 'regular',
+    drugs: mainDrugs,
+  };
+};
+
+const mergeRpRequired = (order: PrescriptionOrder): { issue: ReturnType<typeof resolveRpRequiredIssue>; missing: RpRequiredField[] } => {
+  for (const rp of order.rps) {
+    const issue = resolveRpRequiredIssue({
+      entity: 'medOrder',
+      bundleName: rp.name,
+      classCode: resolveClassCode(rp.category, rp.location),
+      bundleNumber: rp.daysOrTimes,
+      items: rp.drugs.map((drug) => ({
+        code: drug.code,
+        name: drug.name,
+        quantity: drug.quantity,
+        unit: drug.unit,
+        memo: '',
+      })),
+    });
+    if (issue) {
+      return {
+        issue,
+        missing: issue.missing,
+      };
+    }
+  }
+  return { issue: null, missing: [] };
+};
+
+export function PrescriptionOrderEditorPanel({
+  patientId,
+  meta,
+  variant = 'embedded',
+  bundlesOverride,
+  request,
+  onRequestConsumed,
+  onEditingContextChange,
+  onSubmitResult,
+  onDrugCandidateCommit,
+  onClose,
+  active = true,
+}: PrescriptionOrderEditorPanelProps) {
+  const queryClient = useQueryClient();
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [order, setOrder] = useState<PrescriptionOrder>(() => buildEmptyPrescriptionOrder(patientId ?? '', today));
+  const [selectedRpIndex, setSelectedRpIndex] = useState(0);
+  const [selectedDrugIndex, setSelectedDrugIndex] = useState(0);
+  const [bulkDaysValue, setBulkDaysValue] = useState('');
+  const [claimDraft, setClaimDraft] = useState<ClaimDraft>({ code: '', name: '' });
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [searchMethod, setSearchMethod] = useState<PrescriptionSearchMethod>('prefix');
+  const [searchScope, setSearchScope] = useState<PrescriptionSearchScope>('outside_adopted');
+  const [manualSearchNonce, setManualSearchNonce] = useState(0);
+  const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
+  const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([]);
+
+  const canFetchFromServer = Boolean(patientId) && !bundlesOverride && active;
+  const sourceBundleQuery = useQuery({
+    queryKey: ['charts-prescription-order-editor-source', patientId, meta.visitDate ?? today],
+    queryFn: () => {
+      if (!patientId) throw new Error('patientId is required');
+      return fetchPrescriptionOrder({
+        patientId,
+        from: (meta.visitDate ?? today).slice(0, 10),
+      });
+    },
+    enabled: canFetchFromServer,
+    staleTime: 30_000,
+  });
+
+  const sourceBundles = useMemo(() => {
+    if (bundlesOverride) {
+      return bundlesOverride.filter((bundle) => (bundle.entity?.trim() ?? '') === 'medOrder');
+    }
+    return sourceBundleQuery.data?.sourceBundles ?? [];
+  }, [bundlesOverride, sourceBundleQuery.data?.sourceBundles]);
+
+  const sourceSignature = useMemo(() => {
+    if (sourceBundles.length === 0) return 'empty';
+    return sourceBundles
+      .map((bundle) => `${bundle.documentId ?? 'none'}:${bundle.moduleId ?? 'none'}:${bundle.started ?? 'none'}`)
+      .join('|');
+  }, [sourceBundles]);
+
+  const lastSourceSignatureRef = useRef<string>('');
+  useEffect(() => {
+    if (!patientId) return;
+    if (sourceSignature === lastSourceSignatureRef.current) return;
+    lastSourceSignatureRef.current = sourceSignature;
+    if (sourceBundles.length === 0) {
+      setOrder(buildEmptyPrescriptionOrder(patientId, today));
+      setSelectedRpIndex(0);
+      setSelectedDrugIndex(0);
+      return;
+    }
+    const restored = toPrescriptionOrder(sourceBundles, patientId);
+    setOrder(restored);
+    setSelectedRpIndex(0);
+    setSelectedDrugIndex(0);
+  }, [patientId, sourceBundles, sourceSignature, today]);
+
+  const lastRequestIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!request || !patientId) return;
+    if (request.requestId === lastRequestIdRef.current) return;
+    lastRequestIdRef.current = request.requestId;
+
+    if (request.kind === 'new') {
+      setOrder(buildEmptyPrescriptionOrder(patientId, today));
+      setSelectedRpIndex(0);
+      setSelectedDrugIndex(0);
+      setNotice(null);
+      setValidationIssues([]);
+      onRequestConsumed?.(request.requestId);
+      return;
+    }
+
+    if (request.kind === 'edit') {
+      const imported = toPrescriptionOrder([request.bundle], patientId).rps[0] ?? buildEmptyPrescriptionRp(today);
+      setOrder((prev) => {
+        const next = { ...prev, rps: [...prev.rps] };
+        const targetIndex = next.rps.findIndex((rp) => {
+          if (request.bundle.documentId && rp.documentId) {
+            return rp.documentId === request.bundle.documentId;
+          }
+          return false;
+        });
+        if (targetIndex >= 0) {
+          next.rps[targetIndex] = imported;
+          setSelectedRpIndex(targetIndex);
+          setSelectedDrugIndex(0);
+          return next;
+        }
+        next.rps = [...next.rps, imported];
+        setSelectedRpIndex(next.rps.length - 1);
+        setSelectedDrugIndex(0);
+        return next;
+      });
+      setNotice(null);
+      setValidationIssues([]);
+      onRequestConsumed?.(request.requestId);
+      return;
+    }
+
+    if (request.kind === 'copy') {
+      setOrder((prev) => importPrescriptionDoInput(prev, { type: 'bundle', bundle: request.bundle }));
+      setSelectedRpIndex((prev) => prev + 1);
+      setSelectedDrugIndex(0);
+      setNotice({ tone: 'info', message: 'Do入力をマージしました。' });
+      setValidationIssues([]);
+      onRequestConsumed?.(request.requestId);
+      return;
+    }
+
+    if (request.kind === 'recommendation') {
+      setOrder((prev) => ({
+        ...prev,
+        rps: [...prev.rps, toRpFromRecommendation(request.candidate)],
+      }));
+      setSelectedRpIndex((prev) => prev + 1);
+      setSelectedDrugIndex(0);
+      setNotice({ tone: 'info', message: '推薦候補を追加しました。' });
+      setValidationIssues([]);
+      onRequestConsumed?.(request.requestId);
+    }
+  }, [onRequestConsumed, patientId, request, today]);
+
+  const selectedRp = order.rps[selectedRpIndex] ?? null;
+  const selectedDrug = selectedRp?.drugs[selectedDrugIndex] ?? null;
+
+  const rpRequired = useMemo(() => mergeRpRequired(order), [order]);
+  useEffect(() => {
+    const hasExtraValidationIssue = validationIssues.some((issue) => issue.key.startsWith('drug_rule_'));
+    onEditingContextChange?.({
+      hasRpRequiredIssue: Boolean(rpRequired.issue) || hasExtraValidationIssue,
+      rpRequiredMissing: rpRequired.missing,
+    });
+  }, [onEditingContextChange, rpRequired.issue, rpRequired.missing, validationIssues]);
+
+  useEffect(
+    () => () => {
+      onEditingContextChange?.({ hasRpRequiredIssue: false, rpRequiredMissing: [] });
+    },
+    [onEditingContextChange],
+  );
+
+  const updateRp = useCallback((rpIndex: number, updater: (rp: PrescriptionRp) => PrescriptionRp) => {
+    setOrder((prev) => {
+      if (!prev.rps[rpIndex]) return prev;
+      const nextRps = [...prev.rps];
+      nextRps[rpIndex] = updater(nextRps[rpIndex]);
+      return {
+        ...prev,
+        rps: nextRps,
+      };
+    });
+  }, []);
+
+  const updateDrug = useCallback(
+    (rpIndex: number, drugIndex: number, updater: (drug: PrescriptionDrug) => PrescriptionDrug) => {
+      updateRp(rpIndex, (rp) => {
+        if (!rp.drugs[drugIndex]) return rp;
+        const nextDrugs = [...rp.drugs];
+        nextDrugs[drugIndex] = updater(nextDrugs[drugIndex]);
+        return {
+          ...rp,
+          drugs: nextDrugs,
+        };
+      });
+    },
+    [updateRp],
+  );
+
+  const addRp = () => {
+    setOrder((prev) => ({
+      ...prev,
+      rps: [...prev.rps, buildEmptyPrescriptionRp(today)],
+    }));
+    setSelectedRpIndex(order.rps.length);
+    setSelectedDrugIndex(0);
+  };
+
+  const removeRp = (rpIndex: number) => {
+    setOrder((prev) => {
+      const target = prev.rps[rpIndex];
+      if (!target) return prev;
+      const nextRps = prev.rps.filter((_, index) => index !== rpIndex);
+      const deletedDocumentIds =
+        typeof target.documentId === 'number' && target.documentId > 0
+          ? Array.from(new Set([...prev.deletedDocumentIds, target.documentId]))
+          : prev.deletedDocumentIds;
+      return {
+        ...prev,
+        rps: nextRps.length > 0 ? nextRps : [buildEmptyPrescriptionRp(today)],
+        deletedDocumentIds,
+      };
+    });
+    setSelectedRpIndex((prev) => Math.max(0, Math.min(prev, order.rps.length - 2)));
+    setSelectedDrugIndex(0);
+  };
+
+  const clearAll = () => {
+    setOrder((prev) => {
+      const deletions = prev.rps
+        .map((rp) => rp.documentId)
+        .filter((id): id is number => typeof id === 'number' && id > 0);
+      return {
+        ...buildEmptyPrescriptionOrder(prev.patientId || patientId || '', today),
+        deletedDocumentIds: Array.from(new Set([...prev.deletedDocumentIds, ...deletions])),
+      };
+    });
+    setSelectedRpIndex(0);
+    setSelectedDrugIndex(0);
+  };
+
+  const addDrug = () => {
+    if (!selectedRp) return;
+    updateRp(selectedRpIndex, (rp) => ({
+      ...rp,
+      drugs: [
+        ...rp.drugs,
+        {
+          rowId: `drug-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          code: undefined,
+          name: '',
+          quantity: '',
+          unit: '',
+          genericChangeAllowed: true,
+          drugComment: '',
+          claimComments: [],
+          patientRequest: true,
+        },
+      ],
+    }));
+    setSelectedDrugIndex(selectedRp.drugs.length);
+  };
+
+  const removeDrug = (rpIndex: number, drugIndex: number) => {
+    updateRp(rpIndex, (rp) => {
+      if (rp.drugs.length <= 1) {
+        return {
+          ...rp,
+          drugs: [
+            {
+              rowId: `drug-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+              code: undefined,
+              name: '',
+              quantity: '',
+              unit: '',
+              genericChangeAllowed: true,
+              drugComment: '',
+              claimComments: [],
+              patientRequest: true,
+            },
+          ],
+        };
+      }
+      return {
+        ...rp,
+        drugs: rp.drugs.filter((_, index) => index !== drugIndex),
+      };
+    });
+    setSelectedDrugIndex((prev) => Math.max(0, prev - 1));
+  };
+
+  const applyClaimDraft = useCallback(() => {
+    if (!selectedRp || !selectedDrug) return;
+    const name = claimDraft.name.trim();
+    if (!name) return;
+    const comment = createClaimComment(name, claimDraft.code);
+    updateDrug(selectedRpIndex, selectedDrugIndex, (drug) => ({
+      ...drug,
+      claimComments: [...drug.claimComments, comment],
+    }));
+    setClaimDraft({ code: '', name: '' });
+  }, [claimDraft.code, claimDraft.name, selectedDrug, selectedDrugIndex, selectedRp, selectedRpIndex, updateDrug]);
+
+  const trimmedSearchKeyword = normalizeSearchText(searchKeyword);
+  const shouldAutoSearch = trimmedSearchKeyword.length >= 3;
+  const shouldManualSearch = trimmedSearchKeyword.length > 0 && trimmedSearchKeyword.length <= 2;
+  const shouldRunSearch = active && Boolean(patientId) && (shouldAutoSearch || manualSearchNonce > 0);
+
+  const drugSearchQuery = useQuery({
+    queryKey: [
+      'charts-prescription-drug-search-v2',
+      trimmedSearchKeyword,
+      searchScope,
+      searchMethod,
+      manualSearchNonce,
+    ],
+    queryFn: () =>
+      fetchOrderMasterSearch({
+        type: 'drug',
+        keyword: trimmedSearchKeyword,
+        category: SEARCH_SCOPE_CATEGORY[searchScope],
+      }),
+    enabled: shouldRunSearch,
+    staleTime: 15_000,
+  });
+
+  const filteredCandidates = useMemo(() => {
+    const items = drugSearchQuery.data?.items ?? [];
+    if (!trimmedSearchKeyword) return [];
+    return items
+      .filter((item) => isDrugMatched(item, trimmedSearchKeyword, searchMethod))
+      .slice(0, 40);
+  }, [drugSearchQuery.data?.items, searchMethod, trimmedSearchKeyword]);
+
+  const usageMasterQuery = useQuery({
+    queryKey: ['charts-prescription-usage-master-v2', meta.visitDate ?? today],
+    queryFn: () =>
+      fetchOrderMasterSearch({
+        type: 'youhou',
+        keyword: '',
+        allowEmpty: true,
+        effective: (meta.visitDate ?? today).slice(0, 10),
+      }),
+    enabled: active && Boolean(patientId),
+    staleTime: 60_000,
+  });
+
+  const usageOptions = usageMasterQuery.data?.items ?? [];
+
+  const applyDrugCandidate = (candidate: OrderMasterSearchItem) => {
+    if (!selectedRp || !selectedDrug) return;
+    updateDrug(selectedRpIndex, selectedDrugIndex, (drug) => ({
+      ...drug,
+      code: candidate.code?.trim() || undefined,
+      name: candidate.name,
+      unit: candidate.unit?.trim() || drug.unit,
+    }));
+    onDrugCandidateCommit?.({
+      rpIndex: selectedRpIndex,
+      drugIndex: selectedDrugIndex,
+      candidate,
+    });
+  };
+
+  const validate = (): ValidationIssue[] => {
+    const issues: ValidationIssue[] = [];
+    order.rps.forEach((rp, rpIndex) => {
+      if (!rp.drugs.some((drug) => drug.name.trim() || drug.code?.trim())) {
+        issues.push({
+          key: `rp_items_${rpIndex}`,
+          message: `RP${rpIndex + 1} に薬剤を1件以上入力してください。`,
+          rpIndex,
+        });
+      }
+      rp.drugs.forEach((drug, drugIndex) => {
+        if (drug.patientRequest) return;
+        if (drug.genericChangeAllowed) {
+          issues.push({
+            key: `drug_rule_generic_${rpIndex}_${drugIndex}`,
+            message: `RP${rpIndex + 1} 薬剤${drugIndex + 1}: 患者希望以外は「変更不可」が必須です。`,
+            rpIndex,
+            drugIndex,
+          });
+        }
+        if (drug.claimComments.length === 0) {
+          issues.push({
+            key: `drug_rule_claim_${rpIndex}_${drugIndex}`,
+            message: `RP${rpIndex + 1} 薬剤${drugIndex + 1}: 患者希望以外は請求用コメントが必須です。`,
+            rpIndex,
+            drugIndex,
+          });
+        }
+      });
+      if (rp.refillCount && ![1, 2, 3].includes(rp.refillCount)) {
+        issues.push({
+          key: `rp_refill_${rpIndex}`,
+          message: `RP${rpIndex + 1}: リフィル回数は1〜3回で指定してください。`,
+          rpIndex,
+        });
+      }
+    });
+
+    if (rpRequired.issue) {
+      issues.push({
+        key: 'rp_required',
+        message: buildRpRequiredEditorMessage(rpRequired.issue),
+      });
+    }
+
+    return issues;
+  };
+
+  const mutation = useMutation({
+    mutationFn: async (action: SaveAction) => {
+      if (!patientId) throw new Error('patientId is required');
+      const result = await savePrescriptionOrder({
+        patientId,
+        order,
+      });
+      return { result, action };
+    },
+    onSuccess: ({ result, action }) => {
+      const ok = Boolean(result.ok);
+      setNotice({
+        tone: ok ? 'success' : 'error',
+        message: ok ? '処方オーダーを保存しました。' : result.message ?? '処方オーダーの保存に失敗しました。',
+      });
+      onSubmitResult?.({ action, ok });
+      if (ok) {
+        queryClient.invalidateQueries({ queryKey: ['charts-order-bundles'] });
+        queryClient.invalidateQueries({ queryKey: ['charts-prescription-order-editor-source', patientId] });
+        setOrder((prev) => ({ ...prev, deletedDocumentIds: [] }));
+        if (action === 'expand') onClose?.();
+      }
+    },
+    onError: (error, action) => {
+      const message = error instanceof Error ? error.message : '処方オーダーの保存に失敗しました。';
+      setNotice({ tone: 'error', message });
+      onSubmitResult?.({ action, ok: false });
+    },
+  });
+
+  const submit = (action: SaveAction) => {
+    const issues = validate();
+    setValidationIssues(issues);
+    if (issues.length > 0) {
+      setNotice({ tone: 'error', message: issues[0].message });
+      if (typeof issues[0].rpIndex === 'number') {
+        setSelectedRpIndex(issues[0].rpIndex);
+      }
+      if (typeof issues[0].drugIndex === 'number') {
+        setSelectedDrugIndex(issues[0].drugIndex);
+      }
+      return;
+    }
+    mutation.mutate(action);
+  };
+
+  const applyBulkDays = () => {
+    const value = bulkDaysValue.trim();
+    if (!value) return;
+    setOrder((prev) => ({
+      ...prev,
+      rps: prev.rps.map((rp) =>
+        rp.category === 'regular' || rp.category === 'tonyo'
+          ? {
+              ...rp,
+              daysOrTimes: value,
+            }
+          : rp,
+      ),
+    }));
+    setBulkDaysValue('');
+  };
+
+  const issueByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    validationIssues.forEach((issue) => {
+      if (!map.has(issue.key)) map.set(issue.key, issue.message);
+    });
+    return map;
+  }, [validationIssues]);
+
+  if (!patientId) {
+    return <p className="order-dock__empty">患者IDが未選択のため処方オーダー編集を開始できません。</p>;
+  }
+
+  return (
+    <section className="charts-side-panel__section" data-order-entity="medOrder" data-test-id="medOrder-prescription-editor-v2">
+      <header className="charts-side-panel__section-header">
+        <div className="charts-side-panel__section-header-main">
+          <strong>処方（RP集合）</strong>
+        </div>
+        <div className="charts-side-panel__subheader-actions">
+          <button type="button" className="charts-side-panel__ghost charts-side-panel__ghost--add" onClick={addRp}>
+            +RP
+          </button>
+          <button type="button" className="charts-side-panel__ghost charts-side-panel__ghost--add" onClick={addDrug}>
+            +薬剤
+          </button>
+          <button
+            type="button"
+            className="charts-side-panel__row-delete"
+            onClick={() => {
+              if (!selectedRp) return;
+              removeDrug(selectedRpIndex, selectedDrugIndex);
+            }}
+            disabled={!selectedRp}
+          >
+            薬剤削除
+          </button>
+          <button type="button" className="charts-side-panel__ghost charts-side-panel__ghost--danger" onClick={clearAll}>
+            全クリア
+          </button>
+        </div>
+      </header>
+
+      <div className="charts-side-panel__dock-body">
+        {notice ? (
+          <div className={`charts-side-panel__notice charts-side-panel__notice--${notice.tone}`} aria-live={resolveAriaLive(notice.tone)}>
+            {notice.message}
+          </div>
+        ) : null}
+        {rpRequired.issue ? (
+          <div className="charts-side-panel__notice charts-side-panel__notice--warning" data-test-id="medorder-rp-required-warning">
+            <strong>{RP_REQUIRED_ERROR_LABEL}</strong>
+            <p className="charts-side-panel__notice-detail">{buildRpRequiredEditorMessage(rpRequired.issue)}</p>
+            <ul className="charts-side-panel__notice-list" aria-label="不足しているRP必須項目">
+              {rpRequired.missing.map((field) => (
+                <li key={field}>{resolveRpRequiredFieldLabel(field)}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <div className="charts-side-panel__workspace" data-variant={variant}>
+          <aside className="charts-side-panel__workspace-left" aria-label="RP一覧">
+            <div className="charts-side-panel__subsection">
+              <div className="charts-side-panel__subheader">
+                <strong>RP一覧</strong>
+                <span className="charts-side-panel__search-count">{order.rps.length}件</span>
+              </div>
+              <div className="charts-side-panel__template-actions" role="list" aria-label="RP選択">
+                {order.rps.map((rp, index) => {
+                  const label = rp.name.trim() || `${CATEGORY_LABEL[rp.category]} (${LOCATION_LABEL[rp.location]})`;
+                  return (
+                    <div key={rp.rpId} role="listitem">
+                      <button
+                        type="button"
+                        className="charts-side-panel__chip-button"
+                        data-active={selectedRpIndex === index ? 'true' : 'false'}
+                        onClick={() => {
+                          setSelectedRpIndex(index);
+                          setSelectedDrugIndex(0);
+                        }}
+                      >
+                        RP{index + 1}: {label}
+                      </button>
+                      {order.rps.length > 1 ? (
+                        <button
+                          type="button"
+                          className="charts-side-panel__history-action charts-side-panel__history-action--delete"
+                          onClick={() => removeRp(index)}
+                          aria-label={`RP${index + 1}を削除`}
+                        >
+                          削除
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
+              <div className="charts-side-panel__subheader">
+                <strong>薬剤検索</strong>
+                <span className="charts-side-panel__search-count">
+                  {drugSearchQuery.isFetching ? '検索中...' : `${filteredCandidates.length}件`}
+                </span>
+              </div>
+              <div className="charts-side-panel__field-row">
+                <div className="charts-side-panel__field">
+                  <label htmlFor="rx-search-method">検索方法</label>
+                  <select
+                    id="rx-search-method"
+                    value={searchMethod}
+                    onChange={(event) => setSearchMethod(event.target.value as PrescriptionSearchMethod)}
+                  >
+                    <option value="prefix">前方一致</option>
+                    <option value="partial">部分一致</option>
+                  </select>
+                </div>
+                <div className="charts-side-panel__field">
+                  <label htmlFor="rx-search-scope">検索範囲</label>
+                  <select
+                    id="rx-search-scope"
+                    value={searchScope}
+                    onChange={(event) => setSearchScope(event.target.value as PrescriptionSearchScope)}
+                  >
+                    {(Object.keys(SEARCH_SCOPE_LABEL) as PrescriptionSearchScope[]).map((scope) => (
+                      <option key={scope} value={scope}>
+                        {SEARCH_SCOPE_LABEL[scope]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="charts-side-panel__field">
+                <label htmlFor="rx-search-keyword">キーワード</label>
+                <input
+                  id="rx-search-keyword"
+                  value={searchKeyword}
+                  onChange={(event) => {
+                    setSearchKeyword(event.target.value);
+                    if (event.target.value.trim().length >= 3) setManualSearchNonce(0);
+                  }}
+                  placeholder="薬剤名またはコード"
+                />
+              </div>
+              {shouldManualSearch ? (
+                <button
+                  type="button"
+                  className="charts-side-panel__action charts-side-panel__action--search"
+                  onClick={() => setManualSearchNonce((prev) => prev + 1)}
+                >
+                  検索（2文字以下は明示実行）
+                </button>
+              ) : null}
+              {!shouldAutoSearch && !shouldManualSearch ? (
+                <p className="charts-side-panel__help">3文字以上で候補を自動表示します。</p>
+              ) : null}
+              {drugSearchQuery.data && !drugSearchQuery.data.ok ? (
+                <div className="charts-side-panel__notice charts-side-panel__notice--error">
+                  {drugSearchQuery.data.message ?? '薬剤検索に失敗しました。'}
+                </div>
+              ) : null}
+              {filteredCandidates.length > 0 ? (
+                <div className="charts-side-panel__search-table">
+                  <div className="charts-side-panel__search-header">
+                    <span>コード</span>
+                    <span>名称</span>
+                    <span>単位</span>
+                    <span>分類</span>
+                    <span>反映</span>
+                  </div>
+                  {filteredCandidates.map((item) => (
+                    <button
+                      key={`rx-candidate-${item.code ?? item.name}`}
+                      type="button"
+                      className="charts-side-panel__search-row"
+                      onClick={() => applyDrugCandidate(item)}
+                    >
+                      <span>{item.code ?? '-'}</span>
+                      <span>{item.name}</span>
+                      <span>{item.unit ?? '-'}</span>
+                      <span>{item.category ?? '-'}</span>
+                      <span>右へ反映</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </aside>
+
+          <div className="charts-side-panel__workspace-right">
+            {selectedRp ? (
+              <form
+                className="charts-side-panel__form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  submit('save');
+                }}
+              >
+                <div className="charts-side-panel__field charts-side-panel__meta-section charts-side-panel__meta-section--bundle">
+                  <label htmlFor="rx-rp-name">RP名</label>
+                  <input
+                    id="rx-rp-name"
+                    value={selectedRp.name}
+                    onChange={(event) =>
+                      updateRp(selectedRpIndex, (rp) => ({
+                        ...rp,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="例: 降圧薬RP"
+                  />
+                </div>
+
+                <div className="charts-side-panel__field-row charts-side-panel__meta-section charts-side-panel__meta-section--rx-class">
+                  <div className="charts-side-panel__field">
+                    <label>院内/院外</label>
+                    <div className="charts-side-panel__switch-group" role="group" aria-label="院内院外選択">
+                      {(['in', 'out'] as PrescriptionLocation[]).map((location) => (
+                        <button
+                          key={`rx-location-${location}`}
+                          type="button"
+                          className="charts-side-panel__switch-button"
+                          data-active={selectedRp.location === location ? 'true' : 'false'}
+                          onClick={() =>
+                            updateRp(selectedRpIndex, (rp) => ({
+                              ...rp,
+                              location,
+                            }))
+                          }
+                        >
+                          {LOCATION_LABEL[location]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="charts-side-panel__field">
+                    <label>処方区分</label>
+                    <div className="charts-side-panel__switch-group" role="group" aria-label="処方区分選択">
+                      {(['regular', 'tonyo', 'gaiyo'] as PrescriptionCategory[]).map((category) => (
+                        <button
+                          key={`rx-category-${category}`}
+                          type="button"
+                          className="charts-side-panel__switch-button"
+                          data-active={selectedRp.category === category ? 'true' : 'false'}
+                          onClick={() =>
+                            updateRp(selectedRpIndex, (rp) => ({
+                              ...rp,
+                              category,
+                            }))
+                          }
+                        >
+                          {CATEGORY_LABEL[category]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="charts-side-panel__field-row charts-side-panel__meta-section charts-side-panel__meta-section--usage">
+                  <div className="charts-side-panel__field">
+                    <label htmlFor="rx-usage">用法マスタ</label>
+                    <select
+                      id="rx-usage"
+                      value={selectedRp.usageCode ?? ''}
+                      onChange={(event) => {
+                        const code = event.target.value;
+                        const selected = usageOptions.find((option) => (option.code?.trim() ?? '') === code);
+                        updateRp(selectedRpIndex, (rp) => ({
+                          ...rp,
+                          usageCode: code || undefined,
+                          usage: selected?.name ?? rp.usage,
+                        }));
+                      }}
+                    >
+                      <option value="">候補を選択</option>
+                      {usageOptions.map((item) => (
+                        <option key={`usage-${item.code ?? item.name}`} value={item.code?.trim() ?? ''}>
+                          {item.code ? `${item.code} ${item.name}` : item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="charts-side-panel__field">
+                    <label htmlFor="rx-usage-free">用法（自由入力）</label>
+                    <input
+                      id="rx-usage-free"
+                      value={selectedRp.usage}
+                      onChange={(event) =>
+                        updateRp(selectedRpIndex, (rp) => ({
+                          ...rp,
+                          usage: event.target.value,
+                        }))
+                      }
+                      placeholder="例: 1日1回 朝食後"
+                    />
+                  </div>
+                  <div className="charts-side-panel__field">
+                    <label htmlFor="rx-days">{selectedRp.category === 'tonyo' ? '回数' : '日数'}</label>
+                    <input
+                      id="rx-days"
+                      value={selectedRp.daysOrTimes}
+                      onChange={(event) =>
+                        updateRp(selectedRpIndex, (rp) => ({
+                          ...rp,
+                          daysOrTimes: event.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="charts-side-panel__field-row charts-side-panel__meta-section charts-side-panel__meta-section--memo">
+                  <div className="charts-side-panel__field">
+                    <label htmlFor="rx-bulk-days">日数一括変更（内服/頓服のみ）</label>
+                    <div className="charts-side-panel__item-actions">
+                      <input
+                        id="rx-bulk-days"
+                        value={bulkDaysValue}
+                        onChange={(event) => setBulkDaysValue(event.target.value)}
+                        placeholder="例: 7"
+                      />
+                      <button type="button" className="charts-side-panel__action" onClick={applyBulkDays}>
+                        一括反映
+                      </button>
+                    </div>
+                  </div>
+                  <div className="charts-side-panel__field">
+                    <label htmlFor="rx-remark">備考（改行不可・全角40文字）</label>
+                    <input
+                      id="rx-remark"
+                      value={selectedRp.remark}
+                      onChange={(event) => {
+                        const clamped = clampByFullWidth(event.target.value, 40);
+                        updateRp(selectedRpIndex, (rp) => ({
+                          ...rp,
+                          remark: clamped,
+                        }));
+                      }}
+                      placeholder="備考"
+                    />
+                  </div>
+                </div>
+
+                <div className="charts-side-panel__field-row charts-side-panel__meta-section charts-side-panel__meta-section--start">
+                  <div className="charts-side-panel__field">
+                    <label htmlFor="rx-refill-count">処方箋設定（リフィル回数）</label>
+                    <select
+                      id="rx-refill-count"
+                      value={selectedRp.refillCount ?? ''}
+                      onChange={(event) => {
+                        const parsed = Number(event.target.value);
+                        updateRp(selectedRpIndex, (rp) => ({
+                          ...rp,
+                          refillCount: parsed === 1 || parsed === 2 || parsed === 3 ? parsed : undefined,
+                        }));
+                      }}
+                    >
+                      <option value="">なし</option>
+                      <option value="1">1回</option>
+                      <option value="2">2回</option>
+                      <option value="3">3回</option>
+                    </select>
+                  </div>
+                  <div className="charts-side-panel__field">
+                    <label htmlFor="rx-refill-pattern">処方箋設定（パターン併用禁止）</label>
+                    <select
+                      id="rx-refill-pattern"
+                      value={selectedRp.refillPattern}
+                      onChange={(event) =>
+                        updateRp(selectedRpIndex, (rp) => ({
+                          ...rp,
+                          refillPattern: event.target.value as PrescriptionRefillPattern,
+                        }))
+                      }
+                    >
+                      {(['none', 'standard', 'alternate'] as PrescriptionRefillPattern[]).map((pattern) => (
+                        <option key={pattern} value={pattern}>
+                          {REFILL_PATTERN_LABEL[pattern]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="charts-side-panel__field">
+                    <label htmlFor="rx-doctor-comment">医師コメント</label>
+                    <input
+                      id="rx-doctor-comment"
+                      value={order.doctorComment}
+                      onChange={(event) =>
+                        setOrder((prev) => ({
+                          ...prev,
+                          doctorComment: event.target.value,
+                        }))
+                      }
+                      placeholder="医師コメント"
+                    />
+                  </div>
+                </div>
+
+                <div className="charts-side-panel__subsection charts-side-panel__meta-section charts-side-panel__meta-section--items">
+                  <div className="charts-side-panel__subheader">
+                    <strong>薬剤行</strong>
+                    <span className="charts-side-panel__search-count">{selectedRp.drugs.length}件</span>
+                  </div>
+                  {selectedRp.drugs.map((drug, drugIndex) => {
+                    const enforceRule = !drug.patientRequest;
+                    const rowIssueGeneric = issueByKey.get(`drug_rule_generic_${selectedRpIndex}_${drugIndex}`);
+                    const rowIssueClaim = issueByKey.get(`drug_rule_claim_${selectedRpIndex}_${drugIndex}`);
+                    return (
+                      <div
+                        key={drug.rowId}
+                        className="charts-side-panel__item-row"
+                        data-invalid={rowIssueGeneric || rowIssueClaim ? 'true' : undefined}
+                        onClick={() => {
+                          setSelectedDrugIndex(drugIndex);
+                        }}
+                      >
+                        <input
+                          id={`rx-drug-name-${drugIndex}`}
+                          value={drug.name}
+                          onChange={(event) =>
+                            updateDrug(selectedRpIndex, drugIndex, (current) => ({
+                              ...current,
+                              name: event.target.value,
+                            }))
+                          }
+                          placeholder="薬剤名"
+                        />
+                        <input
+                          id={`rx-drug-quantity-${drugIndex}`}
+                          value={drug.quantity}
+                          onChange={(event) =>
+                            updateDrug(selectedRpIndex, drugIndex, (current) => ({
+                              ...current,
+                              quantity: event.target.value,
+                            }))
+                          }
+                          placeholder="数量"
+                        />
+                        <input
+                          id={`rx-drug-unit-${drugIndex}`}
+                          value={drug.unit}
+                          onChange={(event) =>
+                            updateDrug(selectedRpIndex, drugIndex, (current) => ({
+                              ...current,
+                              unit: event.target.value,
+                            }))
+                          }
+                          placeholder="単位"
+                        />
+                        <button
+                          type="button"
+                          className="charts-side-panel__switch-button"
+                          data-active={drug.genericChangeAllowed ? 'true' : 'false'}
+                          onClick={() =>
+                            updateDrug(selectedRpIndex, drugIndex, (current) => ({
+                              ...current,
+                              genericChangeAllowed: !current.genericChangeAllowed,
+                            }))
+                          }
+                        >
+                          {drug.genericChangeAllowed ? '後発変更 可' : '後発変更 不可'}
+                        </button>
+                        <button
+                          type="button"
+                          className="charts-side-panel__switch-button"
+                          data-active={drug.patientRequest ? 'true' : 'false'}
+                          onClick={() =>
+                            updateDrug(selectedRpIndex, drugIndex, (current) => ({
+                              ...current,
+                              patientRequest: !current.patientRequest,
+                            }))
+                          }
+                        >
+                          {drug.patientRequest ? '患者希望' : '患者希望以外'}
+                        </button>
+                        <input
+                          id={`rx-drug-comment-${drugIndex}`}
+                          value={drug.drugComment}
+                          onChange={(event) =>
+                            updateDrug(selectedRpIndex, drugIndex, (current) => ({
+                              ...current,
+                              drugComment: event.target.value,
+                            }))
+                          }
+                          placeholder="薬剤コメント"
+                        />
+                        <div className="charts-side-panel__template-actions" aria-label={`薬剤${drugIndex + 1}定型文`}>
+                          {DRUG_COMMENT_TEMPLATES.map((templateText) => (
+                            <button
+                              key={`rx-drug-template-${templateText}`}
+                              type="button"
+                              className="charts-side-panel__chip-button"
+                              onClick={() =>
+                                updateDrug(selectedRpIndex, drugIndex, (current) => ({
+                                  ...current,
+                                  drugComment: current.drugComment
+                                    ? `${current.drugComment} / ${templateText}`
+                                    : templateText,
+                                }))
+                              }
+                            >
+                              {templateText}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="charts-side-panel__template-actions" aria-label={`薬剤${drugIndex + 1}請求用コメント一覧`}>
+                          {drug.claimComments.map((comment, commentIndex) => (
+                            <button
+                              key={comment.id}
+                              type="button"
+                              className="charts-side-panel__chip-button charts-side-panel__chip-button--recommend"
+                              onClick={() =>
+                                updateDrug(selectedRpIndex, drugIndex, (current) => ({
+                                  ...current,
+                                  claimComments: current.claimComments.filter((_, idx) => idx !== commentIndex),
+                                }))
+                              }
+                              title="クリックで削除"
+                            >
+                              {comment.code ? `${comment.code} ` : ''}
+                              {comment.name}
+                            </button>
+                          ))}
+                        </div>
+                        {selectedDrugIndex === drugIndex ? (
+                          <div className="charts-side-panel__item-actions" aria-label="請求用コメント入力">
+                            <input
+                              value={claimDraft.code}
+                              onChange={(event) => setClaimDraft((prev) => ({ ...prev, code: event.target.value }))}
+                              placeholder="請求コメントコード"
+                            />
+                            <input
+                              value={claimDraft.name}
+                              onChange={(event) => setClaimDraft((prev) => ({ ...prev, name: event.target.value }))}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' && event.shiftKey) {
+                                  event.preventDefault();
+                                  applyClaimDraft();
+                                }
+                              }}
+                              placeholder="請求用コメント（Shift+Enterで確定）"
+                            />
+                            <button type="button" className="charts-side-panel__action" onClick={applyClaimDraft}>
+                              コメント追加
+                            </button>
+                            {CLAIM_COMMENT_TEMPLATES.map((template) => (
+                              <button
+                                key={`rx-claim-template-${template.name}`}
+                                type="button"
+                                className="charts-side-panel__chip-button"
+                                onClick={() => {
+                                  updateDrug(selectedRpIndex, drugIndex, (current) => ({
+                                    ...current,
+                                    claimComments: [...current.claimComments, createClaimComment(template.name, template.code)],
+                                  }));
+                                }}
+                              >
+                                {template.name}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                        {enforceRule ? (
+                          <p className="charts-side-panel__help">
+                            患者希望以外の場合は「後発変更 不可」+「請求用コメント」が必須です。
+                          </p>
+                        ) : null}
+                        {rowIssueGeneric || rowIssueClaim ? (
+                          <p className="charts-side-panel__field-error" role="alert">
+                            {[rowIssueGeneric, rowIssueClaim].filter(Boolean).join(' / ')}
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </form>
+            ) : (
+              <p className="order-dock__empty">RPを選択してください。</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <footer className="charts-side-panel__dock-footer" aria-label="保存操作">
+        <p className="charts-side-panel__message">
+          Shift+Enter: 請求用コメント確定 / 保存して閉じる: 保存後にドロワーを閉じます
+        </p>
+        <div className="charts-side-panel__actions charts-side-panel__actions--footer" role="group" aria-label="保存操作">
+          <button
+            type="button"
+            className="charts-side-panel__action charts-side-panel__action--expand"
+            onClick={() => submit('expand')}
+            disabled={mutation.isPending}
+          >
+            保存して閉じる
+          </button>
+          <button
+            type="button"
+            className="charts-side-panel__action charts-side-panel__action--expand-continue"
+            onClick={() => submit('expand_continue')}
+            disabled={mutation.isPending}
+          >
+            保存して続ける
+          </button>
+          <button
+            type="button"
+            className="charts-side-panel__action charts-side-panel__action--save"
+            onClick={() => submit('save')}
+            disabled={mutation.isPending}
+          >
+            保存
+          </button>
+          {onClose ? (
+            <button type="button" className="charts-side-panel__action charts-side-panel__action--close" onClick={onClose}>
+              閉じる
+            </button>
+          ) : null}
+        </div>
+      </footer>
+    </section>
+  );
+}

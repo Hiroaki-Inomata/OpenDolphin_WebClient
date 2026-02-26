@@ -145,10 +145,14 @@ vi.mock('../OrcaOriginalPanel', () => ({ OrcaOriginalPanel: () => null }));
 vi.mock('../PatientsTab', () => ({ PatientsTab: () => null }));
 vi.mock('../TelemetryFunnelPanel', () => ({ TelemetryFunnelPanel: () => null }));
 vi.mock('../ChartsActionBar', () => ({
-  ChartsActionBar: forwardRef(({ onBeforeAction, onAfterFinish }: any, ref) => {
+  ChartsActionBar: forwardRef(({ onBeforeAction, onAfterFinish, onDraftSaved }: any, ref) => {
     const runFinish = async () => {
       const allow = (await onBeforeAction?.('finish')) ?? true;
       if (allow) await onAfterFinish?.();
+    };
+    const runDraftSave = async () => {
+      const allow = (await onBeforeAction?.('draft')) ?? true;
+      if (allow) onDraftSaved?.();
     };
     useImperativeHandle(
       ref,
@@ -166,12 +170,25 @@ vi.mock('../ChartsActionBar', () => ({
       [onAfterFinish, onBeforeAction],
     );
     return React.createElement(
-      'button',
-      {
-        type: 'button',
-        onClick: runFinish,
-      },
-      '診察終了（モック）',
+      'div',
+      null,
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          id: 'charts-action-draft',
+          onClick: runDraftSave,
+        },
+        'ドラフト保存（モック）',
+      ),
+      React.createElement(
+        'button',
+        {
+          type: 'button',
+          onClick: runFinish,
+        },
+        '診察終了（モック）',
+      ),
     );
   }),
 }));
@@ -356,6 +373,57 @@ describe('ChartsPage patient tab dirty indicator', () => {
     await user.click(screen.getByRole('button', { name: '保存して終了' }));
     await waitFor(() => {
       expect(screen.queryByRole('alertdialog', { name: '診察終了の確認' })).toBeNull();
+    });
+  });
+
+  it('Shift+Enter でドラフト保存ショートカットを実行できる', async () => {
+    const patientTabKey = 'P-001::2026-02-16';
+    const storageKey = 'opendolphin:web-client:charts:patient-tabs:v1:facility:doctor';
+    sessionStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        version: 1,
+        updatedAt: '2026-02-16T10:00:00.000Z',
+        activeKey: patientTabKey,
+        tabs: [
+          {
+            key: patientTabKey,
+            patientId: 'P-001',
+            visitDate: '2026-02-16',
+            appointmentId: 'A-001',
+            receptionId: 'R-001',
+            name: '患者A',
+            openedAt: '2026-02-16T10:00:00.000Z',
+          },
+        ],
+      }),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthServiceProvider initialFlags={{ runId: 'RUN-AUTH', cacheHit: true, missingMaster: false, dataSourceTransition: 'server' }}>
+          <MemoryRouter initialEntries={['/f/facility/charts']}>
+            <NavigationGuardProvider>
+              <ChartsPage />
+            </NavigationGuardProvider>
+          </MemoryRouter>
+        </AuthServiceProvider>
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await waitFor(() => expect(document.querySelector('.charts-patient-tabs__dirty-dot')).not.toBeNull());
+
+    await user.keyboard('{Shift>}{Enter}{/Shift}');
+
+    await waitFor(() => {
+      expect(document.querySelector('.charts-patient-tabs__dirty-dot')).toBeNull();
     });
   });
 });

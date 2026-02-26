@@ -65,6 +65,13 @@ const baseProps = {
     dataSourceTransition: 'server' as const,
   },
 };
+const injectionProps = {
+  ...baseProps,
+  entity: 'injectionOrder',
+  title: '注射編集',
+  bundleLabel: '注射オーダー名',
+  itemQuantityLabel: '回数',
+};
 
 afterEach(() => {
   cleanup();
@@ -147,6 +154,18 @@ describe('OrderBundleEditPanel bundle number UI', () => {
     expect(bundleNumberInput).toBeInTheDocument();
     expect(bundleNumberInput.placeholder).toBe('例: 1');
     expect(screen.getByText('頓用は回数として扱われます。')).toBeInTheDocument();
+  });
+
+  it('日数/回数の切替は処方（内服/頓用）のみで、注射は回数入力のみを表示する', async () => {
+    const medRender = renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+    expect(screen.getByRole('button', { name: '内服' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '頓用' })).toBeInTheDocument();
+    expect(screen.getByLabelText('日数')).toBeInTheDocument();
+    medRender.unmount();
+
+    renderWithClient(<OrderBundleEditPanel {...injectionProps} />);
+    expect(screen.queryByRole('button', { name: '頓用' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('回数')).toBeInTheDocument();
   });
 
   it('保存時に処方区分メタが送信される', async () => {

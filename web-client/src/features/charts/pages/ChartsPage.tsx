@@ -22,7 +22,7 @@ import { ChartsPatientSummaryBar } from '../ChartsPatientSummaryBar';
 import { StampLibraryPanel } from '../StampLibraryPanel';
 import { normalizeAuditEventLog, normalizeAuditEventPayload, recordChartsAuditEvent } from '../audit';
 import { SoapNotePanel, type SoapOrderDockState } from '../SoapNotePanel';
-import { resolveOrderDockCategoryLabel } from '../orderCategoryRegistry';
+import { resolveOrderDockCategoryLabel, resolveOrderGroupKeyByEntity } from '../orderCategoryRegistry';
 import { DoCopyDialog, type DoCopyDialogState } from '../DoCopyDialog';
 import type { SoapDraft, SoapEntry, SoapSectionKey } from '../soapNote';
 import { SOAP_SECTION_LABELS, SOAP_SECTIONS } from '../soapNote';
@@ -38,6 +38,7 @@ import { getAuditEventLog, logAuditEvent, logUiState, type AuditEventRecord } fr
 import { fetchOrcaOutpatientSummary } from '../api';
 import { fetchKarteIdByPatientId, type LetterModulePayload } from '../letterApi';
 import { fetchOrderBundlesWithPatientImportRecovery, mutateOrderBundles, type OrderBundle } from '../orderBundleApi';
+import { fetchPrescriptionOrderBundlesWithPatientImportRecovery, mutatePrescriptionOrderBundles } from '../prescriptionOrderApi';
 import { fetchDiseases, fetchDiseasesWithPatientImportRecovery, mutateDiseases, type DiseaseImportResponse } from '../diseaseApi';
 import { useAdminBroadcast } from '../../../libs/admin/useAdminBroadcast';
 import { AdminBroadcastBanner } from '../../shared/AdminBroadcastBanner';
@@ -647,6 +648,7 @@ function ChartsContent() {
 	    | 'surgeryOrder'
 	    | 'otherOrder'
 	    | 'testOrder'
+	    | 'laboTest'
 	    | 'physiologyOrder'
 	    | 'bacteriaOrder'
 	    | 'radiologyOrder'
@@ -2200,6 +2202,21 @@ function ChartsContent() {
     staleTime: 30_000,
     retry: false,
   });
+  const prescriptionBundleSummaryQuery = useQuery({
+    queryKey: ['charts-prescription-bundles', patientId, actionVisitDate],
+    queryFn: async () => {
+      if (!patientId) return { ok: false as const, bundles: [] as OrderBundle[], message: 'patientId is missing' };
+      try {
+        return await fetchPrescriptionOrderBundlesWithPatientImportRecovery({ patientId, from: actionVisitDate });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { ok: false as const, bundles: [] as OrderBundle[], message };
+      }
+    },
+    enabled: Boolean(patientId) && orderBundleSummaryQuery.isSuccess && orderBundleSummaryQuery.data?.ok === true,
+    staleTime: 30_000,
+    retry: false,
+  });
   const diagnosisSummaryQuery = useQuery({
     queryKey: ['charts-diagnosis-summary', patientId, actionVisitDate],
     queryFn: async () => {
@@ -2237,7 +2254,21 @@ function ChartsContent() {
   });
   const rpEntries = rpHistoryQuery.data?.ok ? rpHistoryQuery.data.entries : [];
   const rpError = rpHistoryQuery.data && !rpHistoryQuery.data.ok ? rpHistoryQuery.data.error : undefined;
-  const orderBundles = orderBundleSummaryQuery.data?.ok ? orderBundleSummaryQuery.data.bundles : [];
+  const baseOrderBundles = orderBundleSummaryQuery.data?.ok ? orderBundleSummaryQuery.data.bundles : [];
+  const prescriptionBundles = useMemo(() => {
+    if (prescriptionBundleSummaryQuery.data?.ok) return prescriptionBundleSummaryQuery.data.bundles;
+    return baseOrderBundles.filter((bundle) => resolveOrderGroupKeyByEntity(bundle.entity?.trim() ?? '') === 'prescription');
+  }, [baseOrderBundles, prescriptionBundleSummaryQuery.data]);
+  const orderBundles = useMemo(() => {
+    const nonPrescriptionBundles = baseOrderBundles.filter(
+      (bundle) => resolveOrderGroupKeyByEntity(bundle.entity?.trim() ?? '') !== 'prescription',
+    );
+    return [...prescriptionBundles, ...nonPrescriptionBundles];
+  }, [baseOrderBundles, prescriptionBundles]);
+  const prescriptionBundlesError =
+    prescriptionBundleSummaryQuery.data && !prescriptionBundleSummaryQuery.data.ok
+      ? prescriptionBundleSummaryQuery.data.message ?? '処方情報の取得に失敗しました。'
+      : undefined;
   const orderBundlesError =
     orderBundleSummaryQuery.data && !orderBundleSummaryQuery.data.ok
       ? orderBundleSummaryQuery.data.message ?? 'オーダー情報の取得に失敗しました。'
@@ -2251,6 +2282,14 @@ function ChartsContent() {
             errorKind: orderBundleSummaryQuery.data.errorKind,
             routeMismatch: orderBundleSummaryQuery.data.routeMismatch,
             patientImportAttempted: orderBundleSummaryQuery.data.patientImportAttempted,
+          }
+        : null,
+      prescriptionBundleSummaryQuery.data && !prescriptionBundleSummaryQuery.data.ok
+        ? {
+            message: prescriptionBundleSummaryQuery.data.message,
+            errorKind: prescriptionBundleSummaryQuery.data.errorKind,
+            routeMismatch: prescriptionBundleSummaryQuery.data.routeMismatch,
+            patientImportAttempted: prescriptionBundleSummaryQuery.data.patientImportAttempted,
           }
         : null,
       diagnosisSummaryQuery.data && diagnosisSummaryQuery.data.ok === false
@@ -2275,7 +2314,7 @@ function ChartsContent() {
       };
     }
     return null;
-  }, [diagnosisSummaryQuery.data, orderBundleSummaryQuery.data, patientId]);
+  }, [diagnosisSummaryQuery.data, orderBundleSummaryQuery.data, patientId, prescriptionBundleSummaryQuery.data]);
   const diagnosisCountForSend =
     diagnosisSummaryQuery.data && diagnosisSummaryQuery.data.ok
       ? (diagnosisSummaryQuery.data.diseases ?? []).length
@@ -3289,10 +3328,27 @@ function ChartsContent() {
           items: (bundle.items ?? []).filter((item) => item.name?.trim()),
         }));
 
-      if (orderOperations.length > 0) {
+      const prescriptionOrderOperations = orderOperations.filter(
+        (operation) => resolveOrderGroupKeyByEntity(operation.entity?.trim() ?? '') === 'prescription',
+      );
+      const nonPrescriptionOrderOperations = orderOperations.filter(
+        (operation) => resolveOrderGroupKeyByEntity(operation.entity?.trim() ?? '') !== 'prescription',
+      );
+
+      if (prescriptionOrderOperations.length > 0) {
+        const prescriptionResult = await mutatePrescriptionOrderBundles({
+          patientId,
+          operations: prescriptionOrderOperations,
+        });
+        if (!prescriptionResult.ok) {
+          throw new Error(prescriptionResult.message ?? '処方登録に失敗しました。');
+        }
+      }
+
+      if (nonPrescriptionOrderOperations.length > 0) {
         const orderResult = await mutateOrderBundles({
           patientId,
-          operations: orderOperations,
+          operations: nonPrescriptionOrderOperations,
         });
         if (!orderResult.ok) {
           throw new Error(orderResult.message ?? 'オーダー登録に失敗しました。');
@@ -3336,6 +3392,7 @@ function ChartsContent() {
       });
       setDocumentImageAttachments(entry.snapshot.imageAttachments);
       queryClient.invalidateQueries({ queryKey: ['charts-order-bundles'] });
+      queryClient.invalidateQueries({ queryKey: ['charts-prescription-bundles'] });
       queryClient.invalidateQueries({ queryKey: ['charts-diagnosis'] });
       setOrderSetNotice({
         tone: 'success',
@@ -4689,8 +4746,11 @@ function ChartsContent() {
 			                      rpHistoryLoading={rpHistoryQuery.isFetching}
 			                      rpHistoryError={rpError}
 			                      orderBundles={orderBundles}
-			                      orderBundlesLoading={orderBundleSummaryQuery.isFetching}
+			                      orderBundlesLoading={orderBundleSummaryQuery.isFetching || prescriptionBundleSummaryQuery.isFetching}
 			                      orderBundlesError={orderBundlesError}
+			                      prescriptionBundles={prescriptionBundles}
+			                      prescriptionBundlesLoading={prescriptionBundleSummaryQuery.isFetching}
+			                      prescriptionBundlesError={prescriptionBundlesError}
 			                      orderDockOpenRequest={orderDockOpenRequest}
 			                      onOrderDockOpenConsumed={handleOrderDockOpenConsumed}
 			                      orderHistoryCopyRequest={orderHistoryCopyRequest}

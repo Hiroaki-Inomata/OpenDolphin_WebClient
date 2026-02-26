@@ -76,6 +76,7 @@ export type OrderBundleEditPanelProps = {
   onSubmitResult?: (result: { action: 'save' | 'expand' | 'expand_continue'; ok: boolean }) => void;
   onEditingContextChange?: (state: OrderBundleEditingContext) => void;
   onClose?: () => void;
+  mutateBundles?: typeof mutateOrderBundles;
 };
 
 export type OrderBundleEditingContext = {
@@ -666,8 +667,10 @@ export function OrderBundleEditPanel({
   onSubmitResult,
   onEditingContextChange,
   onClose,
+  mutateBundles,
 }: OrderBundleEditPanelProps) {
   const queryClient = useQueryClient();
+  const executeMutateOrderBundles = mutateBundles ?? mutateOrderBundles;
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const isTestMode = import.meta.env.MODE === 'test';
   const [form, setForm] = useState<BundleFormState>(() => buildEmptyForm(today));
@@ -1983,7 +1986,7 @@ export function OrderBundleEditPanel({
         .map(stripRowMeta);
 
       const classMeta = resolveBundleClassMeta(payload.form);
-      return mutateOrderBundles({
+      return executeMutateOrderBundles({
         patientId,
         operations: [
           {
@@ -2111,6 +2114,9 @@ export function OrderBundleEditPanel({
         if (patientId) {
           // Also refresh same-day summary queries (they use visitDate as key part, not entity).
           queryClient.invalidateQueries({ queryKey: ['charts-order-bundles', patientId] });
+          if (entity === 'medOrder') {
+            queryClient.invalidateQueries({ queryKey: ['charts-prescription-bundles', patientId] });
+          }
         }
         if (payload.action !== 'expand_continue') {
           setForm(buildEmptyForm(today));
@@ -2164,7 +2170,7 @@ export function OrderBundleEditPanel({
   const deleteMutation = useMutation({
     mutationFn: async (bundle: OrderBundle) => {
       if (!patientId) throw new Error('patientId is required');
-      return mutateOrderBundles({
+      return executeMutateOrderBundles({
         patientId,
         operations: [
           {
@@ -2212,6 +2218,9 @@ export function OrderBundleEditPanel({
         queryClient.invalidateQueries({ queryKey });
         if (patientId) {
           queryClient.invalidateQueries({ queryKey: ['charts-order-bundles', patientId] });
+          if (entity === 'medOrder') {
+            queryClient.invalidateQueries({ queryKey: ['charts-prescription-bundles', patientId] });
+          }
         }
       }
     },

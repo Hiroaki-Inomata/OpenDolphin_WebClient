@@ -262,7 +262,9 @@ public class OrcaMasterDao {
         List<Object> params = new ArrayList<>();
         where.append(" AND CAST(").append(meta.codeColumn).append(" AS VARCHAR) LIKE ?");
         params.add(DRUG_CODE_PREFIX + "%");
-        appendKeywordFilter(where, params, criteria.keyword, meta.codeColumn, meta.nameColumn, meta.kanaColumn);
+        appendKeywordFilter(where, params, criteria.keyword, meta.codeColumn, meta.nameColumn, meta.kanaColumn,
+                criteria.searchMethod);
+        appendDrugScopeFilter(where, params, criteria.scope);
         appendEffectiveFilter(where, params, criteria.effective, meta.startDateColumn, meta.endDateColumn);
         return new Query(where.toString(), params);
     }
@@ -383,10 +385,18 @@ public class OrcaMasterDao {
 
     private void appendKeywordFilter(StringBuilder where, List<Object> params, String keyword,
             String codeColumn, String nameColumn, String kanaColumn) {
+        appendKeywordFilter(where, params, keyword, codeColumn, nameColumn, kanaColumn, null);
+    }
+
+    private void appendKeywordFilter(StringBuilder where, List<Object> params, String keyword,
+            String codeColumn, String nameColumn, String kanaColumn, String searchMethod) {
         if (keyword == null || keyword.isBlank()) {
             return;
         }
-        String like = "%" + keyword.toUpperCase(Locale.ROOT) + "%";
+        String normalizedMethod = searchMethod != null ? searchMethod.trim().toLowerCase(Locale.ROOT) : "partial";
+        String like = "prefix".equals(normalizedMethod)
+                ? keyword.toUpperCase(Locale.ROOT) + "%"
+                : "%" + keyword.toUpperCase(Locale.ROOT) + "%";
         List<String> clauses = new ArrayList<>();
         if (codeColumn != null) {
             // ORCA master tables sometimes store codes as SMALLINT/INT. Cast to VARCHAR to support LIKE/UPPER.
@@ -404,6 +414,19 @@ public class OrcaMasterDao {
         if (!clauses.isEmpty()) {
             where.append(" AND (").append(String.join(" OR ", clauses)).append(")");
         }
+    }
+
+    private void appendDrugScopeFilter(StringBuilder where, List<Object> params, String scope) {
+        if (scope == null || scope.isBlank()) {
+            return;
+        }
+        String normalizedScope = scope.trim().toLowerCase(Locale.ROOT);
+        if (!"outer".equals(normalizedScope)
+                && !"in-hospital".equals(normalizedScope)
+                && !"adopted".equals(normalizedScope)) {
+            return;
+        }
+        // TODO(orca-master): map scope(outer/in-hospital/adopted) to concrete ORCA columns and filters.
     }
 
     private void appendEffectiveFilter(StringBuilder where, List<Object> params, String effective,
@@ -1075,6 +1098,8 @@ public class OrcaMasterDao {
     public static final class DrugCriteria {
         private String keyword;
         private String effective;
+        private String searchMethod;
+        private String scope;
         private int page = 1;
         private int size = 100;
 
@@ -1092,6 +1117,22 @@ public class OrcaMasterDao {
 
         public void setEffective(String effective) {
             this.effective = effective;
+        }
+
+        public String getSearchMethod() {
+            return searchMethod;
+        }
+
+        public void setSearchMethod(String searchMethod) {
+            this.searchMethod = searchMethod;
+        }
+
+        public String getScope() {
+            return scope;
+        }
+
+        public void setScope(String scope) {
+            this.scope = scope;
         }
 
         public int getPage() {

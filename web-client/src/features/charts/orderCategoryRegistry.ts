@@ -17,6 +17,11 @@ export type OrderEntity =
   | 'baseChargeOrder'
   | 'instractionChargeOrder';
 
+const ORDER_ENTITY_ALIASES: Record<string, OrderEntity> = {
+  prescriptionOrder: 'medOrder',
+  instructionChargeOrder: 'instractionChargeOrder',
+};
+
 export type OrderEntityValidationRule = {
   itemLabel: string;
   requiresItems: boolean;
@@ -422,16 +427,24 @@ export const ORCA_SEND_ORDER_ENTITIES: readonly OrderEntity[] = [
   'medOrder',
 ] as const;
 
+export const resolveOrderEntity = (value: string): OrderEntity | null => {
+  if (value in ORDER_ENTITY_REGISTRY) return value as OrderEntity;
+  const alias = ORDER_ENTITY_ALIASES[value];
+  return alias ?? null;
+};
+
 export const isOrderEntity = (value: string): value is OrderEntity => value in ORDER_ENTITY_REGISTRY;
 
 export const resolveOrderEntityLabel = (entity: string): string => {
-  if (isOrderEntity(entity)) return ORDER_ENTITY_REGISTRY[entity].label;
+  const resolved = resolveOrderEntity(entity);
+  if (resolved) return ORDER_ENTITY_REGISTRY[resolved].label;
   return entity;
 };
 
 export const resolveOrderGroupKeyByEntity = (entity: string): OrderGroupKey | null => {
-  if (!isOrderEntity(entity)) return null;
-  return ORDER_ENTITY_REGISTRY[entity].group;
+  const resolved = resolveOrderEntity(entity);
+  if (!resolved) return null;
+  return ORDER_ENTITY_REGISTRY[resolved].group;
 };
 
 export const resolveOrderDockCategoryLabel = (group: OrderGroupKey | null): string | null => {
@@ -441,18 +454,20 @@ export const resolveOrderDockCategoryLabel = (group: OrderGroupKey | null): stri
 };
 
 export const resolveOrderEntityUiProfile = (entity: string): OrderEntityUiProfile => {
-  if (isOrderEntity(entity)) return ORDER_ENTITY_REGISTRY[entity].ui;
+  const resolved = resolveOrderEntity(entity);
+  if (resolved) return ORDER_ENTITY_REGISTRY[resolved].ui;
   return BASE_EDITOR_UI;
 };
 
 export const resolveOrderEntityMasterSearchPolicy = (entity: string): OrderEntityMasterSearchPolicy => {
-  if (!isOrderEntity(entity)) {
+  const resolved = resolveOrderEntity(entity);
+  if (!resolved) {
     return {
       masterSearchPresets: cloneMasterSearchPresets(BASE_EDITOR_UI.masterSearchPresets),
       defaultMasterSearchType: BASE_EDITOR_UI.defaultMasterSearchType,
     };
   }
-  const entry = ORDER_ENTITY_REGISTRY[entity];
+  const entry = ORDER_ENTITY_REGISTRY[resolved];
   return {
     masterSearchPresets: cloneMasterSearchPresets(entry.ui.masterSearchPresets),
     defaultMasterSearchType: entry.ui.defaultMasterSearchType,
@@ -462,21 +477,26 @@ export const resolveOrderEntityMasterSearchPolicy = (entity: string): OrderEntit
 };
 
 export const resolveOrderEntityValidationRule = (entity: string): OrderEntityValidationRule => {
-  if (isOrderEntity(entity)) return ORDER_ENTITY_REGISTRY[entity].validation;
+  const resolved = resolveOrderEntity(entity);
+  if (resolved) return ORDER_ENTITY_REGISTRY[resolved].validation;
   return BASE_EDITOR_VALIDATION;
 };
 
 export const resolveOrderEntityEtensuCategory = (entity: string): string | undefined => {
-  if (!isOrderEntity(entity)) return undefined;
-  return ORDER_ENTITY_REGISTRY[entity].etensuCategory;
+  const resolved = resolveOrderEntity(entity);
+  if (!resolved) return undefined;
+  return ORDER_ENTITY_REGISTRY[resolved].etensuCategory;
 };
 
 export const resolveOrderEntityDefaultClassMeta = (entity?: string): OrderEntityClassMeta | undefined => {
-  if (!entity || !isOrderEntity(entity)) return undefined;
-  return ORDER_ENTITY_REGISTRY[entity].classMeta;
+  if (!entity) return undefined;
+  const resolved = resolveOrderEntity(entity);
+  if (!resolved) return undefined;
+  return ORDER_ENTITY_REGISTRY[resolved].classMeta;
 };
 
 export const resolveOrderEntityEditorMeta = (entity: string): OrderEntityEditorMeta | null => {
-  if (!isOrderEntity(entity)) return null;
-  return ORDER_ENTITY_REGISTRY[entity].editor;
+  const resolved = resolveOrderEntity(entity);
+  if (!resolved) return null;
+  return ORDER_ENTITY_REGISTRY[resolved].editor;
 };

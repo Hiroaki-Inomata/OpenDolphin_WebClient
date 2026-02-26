@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ORCA_SEND_ORDER_ENTITIES,
   resolveOrderDockCategoryLabel,
+  resolveOrderEntity,
   resolveOrderEntityDefaultClassMeta,
   resolveOrderEntityEtensuCategory,
   resolveOrderEntityLabel,
@@ -17,6 +18,8 @@ describe('orderCategoryRegistry', () => {
     expect(resolveOrderEntityLabel('medOrder')).toBe('処方');
     expect(resolveOrderGroupKeyByEntity('medOrder')).toBe('prescription');
     expect(resolveOrderGroupKeyByEntity('laboTest')).toBe('test');
+    expect(resolveOrderEntity('prescriptionOrder')).toBe('medOrder');
+    expect(resolveOrderGroupKeyByEntity('prescriptionOrder')).toBe('prescription');
     expect(resolveOrderDockCategoryLabel('charge')).toBe('算定');
   });
 

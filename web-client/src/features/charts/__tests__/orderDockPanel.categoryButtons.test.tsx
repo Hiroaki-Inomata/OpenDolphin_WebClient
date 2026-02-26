@@ -94,6 +94,76 @@ describe('OrderDockPanel category quick-add', () => {
     }
   });
 
+  it('検索仕様: 3文字候補表示・2文字入力は候補クリックで確定・前方/部分検索を切り替えられる', async () => {
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderDockPanel
+        patientId="P-100"
+        meta={baseMeta}
+        visitDate="2026-02-17"
+        orderBundles={[
+          {
+            entity: 'medOrder',
+            bundleName: '降圧薬RP',
+            started: '2026-02-17',
+            items: [{ name: 'A100 アムロジピン', quantity: '1', unit: '錠', memo: '' }],
+          } as any,
+          {
+            entity: 'medOrder',
+            bundleName: 'ARBセット',
+            started: '2026-02-17',
+            items: [{ name: 'A200 ロサルタン', quantity: '1', unit: '錠', memo: '' }],
+          } as any,
+          {
+            entity: 'injectionOrder',
+            bundleName: '注射セット',
+            started: '2026-02-17',
+            items: [{ name: '生食', quantity: '100', unit: 'mL', memo: '' }],
+          } as any,
+        ]}
+      />,
+    );
+
+    const searchInput = screen.getByRole('searchbox', { name: 'オーダー検索' });
+    const categorySelect = screen.getByRole('combobox', { name: 'カテゴリ選択' });
+
+    await user.type(searchInput, '降圧薬');
+    let listbox = await screen.findByRole('listbox', { name: '検索候補' });
+    expect(within(listbox).getByRole('button', { name: /降圧薬RP/ })).toBeInTheDocument();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, 'サル');
+    listbox = await screen.findByRole('listbox', { name: '検索候補' });
+    expect(within(listbox).getByRole('button', { name: /ARBセット/ })).toBeInTheDocument();
+
+    await user.clear(searchInput);
+    await user.type(searchInput, '降圧');
+    expect(screen.queryByLabelText('処方入力')).not.toBeInTheDocument();
+    listbox = await screen.findByRole('listbox', { name: '検索候補' });
+    await user.click(within(listbox).getByRole('button', { name: /降圧薬RP/ }));
+    expect(screen.getByLabelText('処方入力')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '閉じる' }));
+    const discardButton = screen.queryByRole('button', { name: '破棄して切替' });
+    if (discardButton) {
+      await user.click(discardButton);
+    }
+
+    await user.selectOptions(categorySelect, 'injection');
+    await user.clear(searchInput);
+    await user.type(searchInput, '降圧薬');
+    expect(screen.queryByRole('listbox', { name: '検索候補' })).not.toBeInTheDocument();
+    expect(screen.getByText('候補が見つかりません。カテゴリを変えて検索してください。')).toBeInTheDocument();
+  });
+
+  it('+RP導線（処方追加）で処方入力を開ける', async () => {
+    const user = userEvent.setup();
+    renderWithClient(<OrderDockPanel patientId="P-100" meta={baseMeta} visitDate="2026-02-17" orderBundles={[]} />);
+
+    await user.click(screen.getByRole('button', { name: '処方を追加' }));
+    expect(screen.getByLabelText('処方入力')).toBeInTheDocument();
+  });
+
   it('quick-add は主要カテゴリの新規入力を開く', async () => {
     const user = userEvent.setup();
     renderWithClient(

@@ -27,7 +27,7 @@ import { RightUtilityDock } from './RightUtilityDock';
 import { RightUtilityDrawer, resolveLatestBundle, type RightUtilityTool } from './RightUtilityDrawer';
 import {
   ORDER_GROUP_REGISTRY,
-  isOrderEntity,
+  resolveOrderEntity,
   resolveOrderEntityLabel,
   resolveOrderGroupKeyByEntity,
   type OrderEntity,
@@ -74,6 +74,9 @@ type SoapNotePanelProps = {
   orderBundles?: OrderBundle[];
   orderBundlesLoading?: boolean;
   orderBundlesError?: string;
+  prescriptionBundles?: OrderBundle[];
+  prescriptionBundlesLoading?: boolean;
+  prescriptionBundlesError?: string;
   orderDockOpenRequest?: { requestId: string; entity: OrderEntity } | null;
   onOrderDockOpenConsumed?: (requestId: string) => void;
   orderHistoryCopyRequest?: { requestId: string; entity: OrderEntity; bundle: OrderBundle } | null;
@@ -154,7 +157,8 @@ const resolveGroupSpec = (groupKey: OrderGroupKey) => ORDER_GROUP_REGISTRY.find(
 
 const normalizeBundleEntity = (bundle: OrderBundle, fallback: OrderEntity): OrderEntity => {
   const raw = bundle.entity?.trim() ?? '';
-  if (isOrderEntity(raw)) return raw;
+  const resolved = resolveOrderEntity(raw);
+  if (resolved) return resolved;
   return fallback;
 };
 
@@ -175,6 +179,9 @@ export function SoapNotePanel({
   orderBundles,
   orderBundlesLoading = false,
   orderBundlesError,
+  prescriptionBundles,
+  prescriptionBundlesLoading = false,
+  prescriptionBundlesError,
   orderDockOpenRequest,
   onOrderDockOpenConsumed,
   orderHistoryCopyRequest,
@@ -325,6 +332,19 @@ export function SoapNotePanel({
     [author.role, meta, readOnly, readOnlyReason],
   );
 
+  const effectiveOrderBundles = useMemo(() => {
+    const baseBundles = orderBundles ?? [];
+    if (!prescriptionBundles) return baseBundles;
+    const nonPrescriptionBundles = baseBundles.filter((bundle) => {
+      const group = resolveOrderGroupKeyByEntity(bundle.entity?.trim() ?? '');
+      return group !== 'prescription';
+    });
+    return [...prescriptionBundles, ...nonPrescriptionBundles];
+  }, [orderBundles, prescriptionBundles]);
+
+  const resolvedOrderBundlesLoading = orderBundlesLoading || prescriptionBundlesLoading;
+  const resolvedOrderBundlesError = orderBundlesError ?? prescriptionBundlesError;
+
   const requestSequenceRef = useRef(0);
   const buildDrawerRequestId = useCallback(() => {
     requestSequenceRef.current += 1;
@@ -355,17 +375,15 @@ export function SoapNotePanel({
   const orderBundlesByGroup = useMemo(() => {
     const map = new Map<OrderGroupKey, OrderBundle[]>();
     ORDER_GROUP_REGISTRY.forEach((spec) => map.set(spec.key, []));
-    (orderBundles ?? []).forEach((bundle) => {
-      const raw = bundle.entity?.trim() ?? '';
-      if (!isOrderEntity(raw)) return;
-      const group = resolveOrderGroupKeyByEntity(raw);
+    effectiveOrderBundles.forEach((bundle) => {
+      const group = resolveOrderGroupKeyByEntity(bundle.entity?.trim() ?? '');
       if (!group) return;
       const list = map.get(group) ?? [];
       list.push(bundle);
       map.set(group, list);
     });
     return map;
-  }, [orderBundles]);
+  }, [effectiveOrderBundles]);
 
   const totalOrderBundleCount = useMemo(() => {
     return ORDER_GROUP_REGISTRY.reduce((sum, spec) => sum + (orderBundlesByGroup.get(spec.key)?.length ?? 0), 0);
@@ -1594,9 +1612,10 @@ export function SoapNotePanel({
           )}
         </div>
         <OrderSummaryPane
-          orderBundles={orderBundles}
-          orderBundlesLoading={orderBundlesLoading}
-          orderBundlesError={orderBundlesError}
+          orderBundles={effectiveOrderBundles}
+          orderBundlesLoading={resolvedOrderBundlesLoading}
+          orderBundlesError={resolvedOrderBundlesError}
+          prescriptionBundles={prescriptionBundles}
           activeTool={activeTool}
           onBundleSelect={handleOrderSummaryBundleSelect}
         />
@@ -1614,9 +1633,12 @@ export function SoapNotePanel({
           activeTool={activeTool}
           patientId={meta.patientId}
           meta={orderEditorMeta}
-          orderBundles={orderBundles}
-          orderBundlesLoading={orderBundlesLoading}
-          orderBundlesError={orderBundlesError}
+          orderBundles={effectiveOrderBundles}
+          orderBundlesLoading={resolvedOrderBundlesLoading}
+          orderBundlesError={resolvedOrderBundlesError}
+          prescriptionBundles={prescriptionBundles}
+          prescriptionBundlesLoading={prescriptionBundlesLoading}
+          prescriptionBundlesError={prescriptionBundlesError}
           activeOrderEntity={activeOrderEntity}
           activeOrderRequest={activeOrderRequest}
           onOrderRequestConsumed={handleDrawerOrderRequestConsumed}
