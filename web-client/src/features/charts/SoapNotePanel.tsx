@@ -1618,6 +1618,7 @@ export function SoapNotePanel({
           prescriptionBundles={prescriptionBundles}
           activeTool={activeTool}
           onBundleSelect={handleOrderSummaryBundleSelect}
+          onDocumentSelect={openDocumentTool}
         />
         <aside
           className="soap-note__right-dock-area"

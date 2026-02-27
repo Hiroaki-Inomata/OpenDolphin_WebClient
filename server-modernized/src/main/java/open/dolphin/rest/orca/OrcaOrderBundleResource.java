@@ -192,6 +192,9 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
                 entry.setAdminMemo(bundle.getAdminMemo());
                 entry.setMemo(bundle.getMemo());
                 entry.setStarted(formatDate(module.getStarted()));
+                UserModel enteredBy = resolveEnteredByUser(module, document);
+                entry.setEnteredByName(resolveEnteredByName(enteredBy));
+                entry.setEnteredByRole(resolveEnteredByRole(enteredBy));
                 entry.setItems(toItems(bundle.getClaimItem()));
                 bundles.add(entry);
             }
@@ -1240,6 +1243,41 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
             return info.getStampName();
         }
         return "—";
+    }
+
+    private UserModel resolveEnteredByUser(ModuleModel module, DocumentModel document) {
+        if (module != null && module.getUserModel() != null) {
+            return module.getUserModel();
+        }
+        if (document != null) {
+            return document.getUserModel();
+        }
+        return null;
+    }
+
+    private String resolveEnteredByName(UserModel user) {
+        if (user == null) {
+            return null;
+        }
+        if (hasText(user.getCommonName())) {
+            return user.getCommonName().trim();
+        }
+        if (hasText(user.getUserId())) {
+            return user.getUserId().trim();
+        }
+        return null;
+    }
+
+    private String resolveEnteredByRole(UserModel user) {
+        if (user != null && user.getLicenseModel() != null) {
+            if (hasText(user.getLicenseModel().getLicenseDesc())) {
+                return user.getLicenseModel().getLicenseDesc().trim();
+            }
+            if (hasText(user.getLicenseModel().getLicense())) {
+                return user.getLicenseModel().getLicense().trim();
+            }
+        }
+        return "医師";
     }
 
     private record RecommendationAggregate(

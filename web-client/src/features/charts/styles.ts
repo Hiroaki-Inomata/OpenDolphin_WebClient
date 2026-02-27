@@ -6878,13 +6878,24 @@ export const chartsStyles = css`
   .soap-note__order-groups {
     display: flex;
     flex-direction: column;
-    gap: var(--charts-space-sm);
+    gap: var(--charts-space-md);
     min-width: 0;
+  }
+
+  .soap-note__order-group {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-xs);
   }
 
   .soap-note__order-group + .soap-note__order-group {
     border-top: 1px solid rgba(148, 163, 184, 0.22);
-    padding-top: var(--charts-space-xs);
+    padding-top: var(--charts-space-sm);
+  }
+
+  .soap-note__order-group[data-active='true'] .soap-note__order-group-header strong {
+    color: #1d4ed8;
   }
 
   .soap-note__order-group-header {
@@ -6899,13 +6910,14 @@ export const chartsStyles = css`
     color: #64748b;
     font-size: 0.75rem;
     font-weight: 800;
+    white-space: nowrap;
   }
 
   .soap-note__order-group-submeta {
     margin: 0;
     color: #64748b;
-    font-size: 0.75rem;
-    line-height: 1.3;
+    font-size: 0.78rem;
+    line-height: 1.4;
   }
 
   .soap-note__order-list {
@@ -6914,17 +6926,119 @@ export const chartsStyles = css`
     list-style: none;
     display: flex;
     flex-direction: column;
-    gap: var(--charts-space-2xs);
+    gap: var(--charts-space-xs);
   }
 
   .soap-note__order-item {
-    padding-bottom: var(--charts-space-2xs);
-    border-bottom: 1px dashed rgba(148, 163, 184, 0.35);
+    padding: 0;
+    border: none;
   }
 
   .soap-note__order-item:last-child {
-    border-bottom: none;
-    padding-bottom: 0;
+    padding: 0;
+  }
+
+  .soap-note__summary-card {
+    width: 100%;
+    text-align: left;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.34);
+    background: #ffffff;
+    padding: var(--charts-space-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-2xs);
+    min-width: 0;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  }
+
+  button.soap-note__summary-card {
+    cursor: pointer;
+    transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  }
+
+  button.soap-note__summary-card:hover {
+    border-color: rgba(37, 99, 235, 0.42);
+    box-shadow: 0 8px 20px rgba(37, 99, 235, 0.14);
+    transform: translateY(-1px);
+  }
+
+  button.soap-note__summary-card:focus-visible {
+    outline: 2px solid rgba(37, 99, 235, 0.42);
+    outline-offset: 2px;
+  }
+
+  .soap-note__summary-card--empty {
+    background: #f8fafc;
+    border-style: dashed;
+    box-shadow: none;
+  }
+
+  .soap-note__order-group[data-active='true'] .soap-note__summary-card {
+    border-color: rgba(37, 99, 235, 0.4);
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.1);
+  }
+
+  .soap-note__summary-meta {
+    margin: 0;
+    font-size: 0.72rem;
+    color: #475569;
+    line-height: 1.45;
+    word-break: break-word;
+  }
+
+  .soap-note__summary-body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .soap-note__summary-detail {
+    margin: 0;
+    font-size: 0.75rem;
+    color: #334155;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+
+  .soap-note__summary-detail--heading {
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .soap-note__summary-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .soap-note__summary-list-item {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .soap-note__summary-card .soap-note__summary-item-name {
+    display: block;
+    font-size: 0.8rem;
+    color: #0f172a;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .soap-note__summary-card .soap-note__summary-item-sub {
+    display: block;
+    font-size: 0.72rem;
+    color: #475569;
+    line-height: 1.35;
+    word-break: break-word;
+    padding-left: 0.2rem;
   }
 
   .soap-note__order-bundle {
@@ -7059,6 +7173,19 @@ export const chartsStyles = css`
 
     .soap-note__right-dock-scroll {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .soap-note__summary-card {
+      padding: var(--charts-space-xs);
+      border-radius: 10px;
+    }
+
+    .soap-note__summary-meta {
+      font-size: 0.7rem;
+    }
+
+    .soap-note__summary-card .soap-note__summary-item-name {
+      font-size: 0.77rem;
     }
   }
 

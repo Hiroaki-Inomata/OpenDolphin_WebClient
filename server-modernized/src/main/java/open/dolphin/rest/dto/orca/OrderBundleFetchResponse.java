@@ -75,6 +75,8 @@ public class OrderBundleFetchResponse {
         private String adminMemo;
         private String memo;
         private String started;
+        private String enteredByName;
+        private String enteredByRole;
         private List<OrderBundleItem> items;
 
         public Long getDocumentId() {
@@ -171,6 +173,22 @@ public class OrderBundleFetchResponse {
 
         public void setStarted(String started) {
             this.started = started;
+        }
+
+        public String getEnteredByName() {
+            return enteredByName;
+        }
+
+        public void setEnteredByName(String enteredByName) {
+            this.enteredByName = enteredByName;
+        }
+
+        public String getEnteredByRole() {
+            return enteredByRole;
+        }
+
+        public void setEnteredByRole(String enteredByRole) {
+            this.enteredByRole = enteredByRole;
         }
 
         public List<OrderBundleItem> getItems() {

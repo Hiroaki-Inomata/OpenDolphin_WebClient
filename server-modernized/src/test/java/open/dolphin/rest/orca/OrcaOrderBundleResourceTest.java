@@ -18,10 +18,12 @@ import open.dolphin.infomodel.DocInfoModel;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.KarteBean;
+import open.dolphin.infomodel.LicenseModel;
 import open.dolphin.infomodel.ModuleInfoBean;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.UserModel;
+import open.dolphin.rest.dto.orca.OrderBundleFetchResponse;
 import open.dolphin.rest.dto.orca.OrderBundleMutationRequest;
 import open.dolphin.rest.dto.orca.OrderBundleRecommendationResponse;
 import open.dolphin.security.audit.AuditEventPayload;
@@ -115,6 +117,27 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         assertNotNull(auditDispatcher.payload);
         assertEquals("ORCA_ORDER_RECOMMENDATION_FETCH", auditDispatcher.payload.getAction());
         assertEquals(AuditEventEnvelope.Outcome.SUCCESS, auditDispatcher.outcome);
+    }
+
+    @Test
+    void getBundlesReturnsEnteredByNameAndRole() {
+        OrderBundleFetchResponse response = resource.getBundles(
+                servletRequest,
+                "00001",
+                "medOrder",
+                "2025-01-01");
+
+        assertNotNull(response);
+        assertEquals(2, response.getRecordsReturned());
+        assertEquals(2, response.getBundles().size());
+
+        var first = response.getBundles().get(0);
+        assertEquals("モジュール担当医", first.getEnteredByName());
+        assertEquals("薬剤師", first.getEnteredByRole());
+
+        var second = response.getBundles().get(1);
+        assertEquals("document-user-1002", second.getEnteredByName());
+        assertEquals("doctor", second.getEnteredByRole());
     }
 
     @Test
@@ -222,6 +245,19 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
             DocumentModel document = new DocumentModel();
             document.setId(documentId != null ? documentId : 0L);
             document.setStarted(new Date(1735603200000L)); // 2024-12-31
+
+            UserModel documentUser = new UserModel();
+            documentUser.setUserId("document-user-" + document.getId());
+            if (document.getId() == 1001L) {
+                documentUser.setCommonName("文書担当医");
+            } else {
+                documentUser.setCommonName(" ");
+            }
+            LicenseModel documentLicense = new LicenseModel();
+            documentLicense.setLicense("doctor");
+            documentUser.setLicenseModel(documentLicense);
+            document.setUserModel(documentUser);
+
             ModuleModel module = new ModuleModel();
             module.setStarted(new Date(1735603200000L + ((documentId != null ? documentId : 0L) * 1000L)));
 
@@ -244,6 +280,17 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
             item.setUnit("錠");
             bundle.setClaimItem(new ClaimItem[]{item});
             module.setModel(bundle);
+
+            if (document.getId() == 1001L) {
+                UserModel moduleUser = new UserModel();
+                moduleUser.setUserId("module-user-1001");
+                moduleUser.setCommonName("モジュール担当医");
+                LicenseModel moduleLicense = new LicenseModel();
+                moduleLicense.setLicense("doctor");
+                moduleLicense.setLicenseDesc("薬剤師");
+                moduleUser.setLicenseModel(moduleLicense);
+                module.setUserModel(moduleUser);
+            }
 
             document.setModules(List.of(module));
             return document;

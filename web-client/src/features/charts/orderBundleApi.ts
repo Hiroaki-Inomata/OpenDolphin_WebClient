@@ -26,6 +26,12 @@ export type OrderBundle = {
   adminMemo?: string;
   memo?: string;
   started?: string;
+  enteredByName?: string;
+  enteredByRole?: string;
+  enteredAt?: string;
+  authorName?: string;
+  authorRole?: string;
+  authoredAt?: string;
   items: OrderBundleItem[];
 };
 

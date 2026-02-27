@@ -30,6 +30,16 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-02-27: SOAP右側オーダー概要を現行6カテゴリ詳細カード表示へ改修し、入力者表示を server-modernized から供給（RUN_ID=20260227T215027Z）。
+  - 内容（web-client）: `OrderSummaryPane` をカテゴリ固定（処方/点滴・注射/処置/検査/算定/文書）に再構成し、カード1行目をカテゴリ状態、2行目を「入力者名+職種+日時」（欠損時 `入力者不明/医師/日時不明`）で表示。本文はカテゴリ別に詳細化（処方: RP単位+薬剤量/後発可否/コメント、注射: 薬剤行+投与情報、処置/検査/算定: 項目列挙）。`bundleName` はセット名見出しとして表示しない仕様へ変更。文書はデータ供給不足時でも「文書名: 文書情報なし / 本文情報なし」でUI破綻を防止し、クリック時の文書ドロワー導線を維持。
+  - 内容（server-modernized）: `/orca/order/bundles` の `OrderBundleEntry` に `enteredByName` / `enteredByRole` を追加。`module.getUserModel()` 優先、fallbackで `document.getUserModel()` を参照し、`enteredByName` は `commonName -> userId`、`enteredByRole` は `licenseDesc -> license -> 医師` で解決。
+  - テスト: `soapNoteRightDockDrawer.test.tsx` を新表示に追従、`OrderSummaryPane.categoryDisplay.test.tsx` を新規追加、`OrcaOrderBundleResourceTest` に入力者返却検証を追加。
+  - 既知制約: 文書本文データは現行オーダーバンドル経路に含まれないため、右側サマリはフォールバック表示（本文情報なし）を採用。
+  - 検証:
+    - `npm -C web-client run typecheck` PASS
+    - `npm -C web-client run test -- --run src/features/charts/__tests__/soapNoteRightDockDrawer.test.tsx src/features/charts/__tests__/OrderSummaryPane.categoryDisplay.test.tsx` PASS（2 files / 6 tests）
+    - `mvn -f pom.server-modernized.xml -Dtest=OrcaOrderBundleResourceTest test` はマルチモジュール先頭で `No tests matching pattern` により失敗（既知挙動）
+    - `mvn -f pom.server-modernized.xml -Dtest=OrcaOrderBundleResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（Tests run: 4, Failures: 0, Errors: 0）
 - 2026-02-26: UIガイドライン v0.1 の適用を開始し、共通基盤と主要画面（ログイン/シェル/受付/患者/管理/カルテ主要導線）のUIを先行改修（RUN_ID=20260226T103048Z）。
   - 内容: `web-client/src/styles/global.css` / `web-client/src/styles/app-shell.css` のトークン・共通操作見た目をガイドライン準拠へ更新。`reception/styles.ts` / `patients/patients.css` / `administration/administration.css` / `charts/styles.ts` では、タブ非ピル化（8px）、カード角丸12px、選択状態の下線+太字併用、主要入力/ボタンの36px以上確保を反映。
   - 成果物: `web-client/src/styles/global.css` / `web-client/src/styles/app-shell.css` / `web-client/src/features/reception/styles.ts` / `web-client/src/features/patients/patients.css` / `web-client/src/features/administration/administration.css` / `web-client/src/features/charts/styles.ts` / `docs/web-client/CURRENT.md` / `docs/DEVELOPMENT_STATUS.md`。
