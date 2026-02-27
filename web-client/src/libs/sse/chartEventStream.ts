@@ -188,12 +188,13 @@ export function startChartEventStream(options: ChartEventStreamOptions) {
           throw new Error('clientUUID is missing');
         }
         const lastEventId = readStoredLastEventId(facilityId);
+        const streamUrl = `${apiBaseUrl}${CHART_EVENT_STREAM_PATH}`;
         const headers = new Headers(
           buildHttpHeaders({
             headers: {
               Accept: 'text/event-stream',
             },
-          }),
+          }, streamUrl),
         );
         headers.set('X-Facility-Id', facilityId);
         if (!headers.has('clientUUID')) {
@@ -203,7 +204,7 @@ export function startChartEventStream(options: ChartEventStreamOptions) {
           headers.set('Last-Event-ID', lastEventId);
         }
 
-        const response = await fetch(`${apiBaseUrl}${CHART_EVENT_STREAM_PATH}`, {
+        const response = await fetch(streamUrl, {
           method: 'GET',
           headers,
           credentials: 'include',

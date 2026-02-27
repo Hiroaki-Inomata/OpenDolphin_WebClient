@@ -1,3 +1,5 @@
+import { httpFetch } from '../../libs/http/httpClient';
+
 const DEFAULT_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
 const RECEPTION_STREAM_PATH = '/realtime/reception';
 const DEFAULT_RETRY_DELAY_MS = 1500;
@@ -33,6 +35,98 @@ export type ReceptionRealtimeStreamOptions = {
 };
 
 const toError = (error: unknown) => (error instanceof Error ? error : new Error(String(error)));
+
+type SseEventBlock = {
+  id?: string;
+  event?: string;
+  data?: string;
+};
+
+const FETCH_STREAM_UNSUPPORTED_ERROR_CODE = 'RECEPTION_FETCH_STREAM_UNSUPPORTED';
+
+const parseField = (line: string, field: string) => {
+  if (!line.startsWith(field)) return null;
+  if (line.length === field.length) return '';
+  if (line[field.length] !== ':') return null;
+  let value = line.slice(field.length + 1);
+  if (value.startsWith(' ')) value = value.slice(1);
+  return value;
+};
+
+const parseSseEventBlock = (block: string): SseEventBlock | null => {
+  const lines = block.split('\n');
+  let id: string | undefined;
+  let event: string | undefined;
+  const dataLines: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\r$/, '');
+    if (!line) continue;
+    if (line.startsWith(':')) continue;
+
+    const idValue = parseField(line, 'id');
+    if (idValue !== null) {
+      id = idValue;
+      continue;
+    }
+
+    const eventValue = parseField(line, 'event');
+    if (eventValue !== null) {
+      event = eventValue;
+      continue;
+    }
+
+    const dataValue = parseField(line, 'data');
+    if (dataValue !== null) {
+      dataLines.push(dataValue);
+    }
+  }
+
+  if (id === undefined && event === undefined && dataLines.length === 0) return null;
+  return {
+    id,
+    event,
+    data: dataLines.length > 0 ? dataLines.join('\n') : undefined,
+  };
+};
+
+const streamSseEvents = async (
+  response: Response,
+  signal: AbortSignal,
+  onEvent: (event: SseEventBlock) => void,
+) => {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error(FETCH_STREAM_UNSUPPORTED_ERROR_CODE);
+  }
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (!signal.aborted) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    buffer += decoder.decode(value, { stream: true });
+    buffer = buffer.replace(/\r\n/g, '\n');
+
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const parsedEvent = parseSseEventBlock(block);
+      if (parsedEvent) {
+        onEvent(parsedEvent);
+      }
+      boundary = buffer.indexOf('\n\n');
+    }
+  }
+};
+
+const isFetchStreamSupported = () =>
+  typeof window !== 'undefined' &&
+  typeof window.fetch === 'function' &&
+  typeof window.AbortController === 'function' &&
+  typeof TextDecoder === 'function';
 
 const parseEvent = (payload: string, eventType?: string, lastEventId?: string): ReceptionRealtimeEvent | null => {
   if (!payload || !payload.trim()) {
@@ -78,15 +172,24 @@ export function startReceptionRealtimeStream(options: ReceptionRealtimeStreamOpt
     onStatusChange?.('unavailable');
     return () => {};
   }
-  if (typeof window === 'undefined' || typeof window.EventSource !== 'function') {
+  if (typeof window === 'undefined') {
+    onStatusChange?.('unavailable');
+    return () => {};
+  }
+  const eventSourceSupported = typeof window.EventSource === 'function';
+  const fetchStreamSupported = isFetchStreamSupported();
+  if (!fetchStreamSupported && !eventSourceSupported) {
     onStatusChange?.('unavailable');
     return () => {};
   }
 
   const streamUrl = `${apiBaseUrl}${RECEPTION_STREAM_PATH}`;
   let currentSource: EventSource | null = null;
+  let currentController: AbortController | null = null;
   let reconnectTimer: number | null = null;
   let reconnectDelay = Math.max(250, retryDelayMs);
+  let lastEventId: string | undefined;
+  let useEventSourceFallback = !fetchStreamSupported && eventSourceSupported;
   let stopped = false;
   let connectedAtLeastOnce = false;
 
@@ -102,12 +205,26 @@ export function startReceptionRealtimeStream(options: ReceptionRealtimeStreamOpt
     currentSource = null;
   };
 
+  const closeCurrentFetchStream = () => {
+    if (!currentController) return;
+    currentController.abort();
+    currentController = null;
+  };
+
+  const closeCurrentConnection = () => {
+    closeCurrentSource();
+    closeCurrentFetchStream();
+  };
+
   const emitStatus = (status: ReceptionRealtimeConnectionStatus) => {
     onStatusChange?.(status);
   };
 
-  const handleMessageEvent = (eventType: string, event: MessageEvent<string>) => {
-    const parsed = parseEvent(event.data, eventType, event.lastEventId);
+  const handleParsedEvent = (eventType: string, payload: string, eventLastEventId?: string) => {
+    if (eventType === 'reception.keepalive') {
+      return;
+    }
+    const parsed = parseEvent(payload, eventType, eventLastEventId);
     if (parsed) {
       onMessage?.(parsed);
     }
@@ -117,7 +234,7 @@ export function startReceptionRealtimeStream(options: ReceptionRealtimeStreamOpt
     if (stopped) return;
     emitStatus('reconnecting');
     clearReconnectTimer();
-    closeCurrentSource();
+    closeCurrentConnection();
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null;
       connect();
@@ -125,9 +242,7 @@ export function startReceptionRealtimeStream(options: ReceptionRealtimeStreamOpt
     reconnectDelay = Math.min(reconnectDelay * 2, maxRetryDelayMs);
   };
 
-  const connect = () => {
-    if (stopped) return;
-    emitStatus(connectedAtLeastOnce ? 'reconnecting' : 'connecting');
+  const connectWithEventSource = () => {
     try {
       const source = new window.EventSource(streamUrl, { withCredentials: true });
       currentSource = source;
@@ -138,13 +253,15 @@ export function startReceptionRealtimeStream(options: ReceptionRealtimeStreamOpt
         emitStatus('open');
       };
 
-      source.onmessage = (event) => handleMessageEvent('message', event);
-      source.addEventListener('reception.updated', (event) =>
-        handleMessageEvent('reception.updated', event as MessageEvent<string>),
-      );
-      source.addEventListener('reception.replay-gap', (event) =>
-        handleMessageEvent('reception.replay-gap', event as MessageEvent<string>),
-      );
+      source.onmessage = (event) => handleParsedEvent('message', event.data, event.lastEventId);
+      source.addEventListener('reception.updated', (event) => {
+        const messageEvent = event as MessageEvent<string>;
+        handleParsedEvent('reception.updated', messageEvent.data, messageEvent.lastEventId);
+      });
+      source.addEventListener('reception.replay-gap', (event) => {
+        const messageEvent = event as MessageEvent<string>;
+        handleParsedEvent('reception.replay-gap', messageEvent.data, messageEvent.lastEventId);
+      });
       source.addEventListener('reception.keepalive', () => {
         // no-op
       });
@@ -160,12 +277,77 @@ export function startReceptionRealtimeStream(options: ReceptionRealtimeStreamOpt
     }
   };
 
+  const connectWithFetchStream = async () => {
+    const controller = new window.AbortController();
+    currentController = controller;
+    try {
+      const headers = new Headers({
+        Accept: 'text/event-stream',
+      });
+      if (lastEventId) {
+        headers.set('Last-Event-ID', lastEventId);
+      }
+      const response = await httpFetch(streamUrl, {
+        method: 'GET',
+        headers,
+        credentials: 'include',
+        signal: controller.signal,
+        notifySessionExpired: false,
+      });
+
+      if (stopped || controller.signal.aborted) return;
+      if (!response.ok) {
+        throw new Error(`reception realtime stream failed: ${response.status}`);
+      }
+
+      connectedAtLeastOnce = true;
+      reconnectDelay = Math.max(250, retryDelayMs);
+      emitStatus('open');
+
+      await streamSseEvents(response, controller.signal, (event) => {
+        const eventType = event.event?.trim() || 'message';
+        const receivedEventId = event.id?.trim();
+        const effectiveLastEventId = receivedEventId || lastEventId;
+        if (receivedEventId) {
+          lastEventId = receivedEventId;
+        }
+        handleParsedEvent(eventType, event.data ?? '', effectiveLastEventId);
+      });
+
+      if (stopped || controller.signal.aborted) return;
+      onError?.(new Error('reception realtime stream closed'));
+      scheduleReconnect();
+    } catch (error) {
+      if (stopped || controller.signal.aborted) return;
+
+      if (toError(error).message === FETCH_STREAM_UNSUPPORTED_ERROR_CODE && eventSourceSupported && !useEventSourceFallback) {
+        useEventSourceFallback = true;
+        connect();
+        return;
+      }
+
+      onError?.(toError(error));
+      scheduleReconnect();
+    }
+  };
+
+  const connect = () => {
+    if (stopped) return;
+    emitStatus(connectedAtLeastOnce ? 'reconnecting' : 'connecting');
+    closeCurrentConnection();
+    if (useEventSourceFallback) {
+      connectWithEventSource();
+      return;
+    }
+    void connectWithFetchStream();
+  };
+
   connect();
 
   return () => {
     stopped = true;
     clearReconnectTimer();
-    closeCurrentSource();
+    closeCurrentConnection();
     emitStatus('closed');
   };
 }

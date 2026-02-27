@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile.dev
     container_name: opendolphin-web-client
     environment:
-      VITE_DEV_PROXY_TARGET: ${VITE_DEV_PROXY_TARGET:-http://host.docker.internal:8080/openDolphin/resources}
+      VITE_DEV_PROXY_TARGET: ${VITE_DEV_PROXY_TARGET:-http://host.docker.internal:9080/openDolphin/resources}
       VITE_DEV_USE_HTTPS: ${VITE_DEV_USE_HTTPS:-0}
       VITE_DISABLE_MSW: ${VITE_DISABLE_MSW:-0}
       VITE_ENABLE_TELEMETRY: ${VITE_ENABLE_TELEMETRY:-0}

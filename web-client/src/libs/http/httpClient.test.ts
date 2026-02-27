@@ -221,25 +221,37 @@ describe('httpFetch session expiry reasons', () => {
     expect(notifySpy).not.toHaveBeenCalled();
   });
 
-  it('attaches auth headers for ORCA and KARTE-family endpoints in DEV', async () => {
+  it('attaches auth headers for ORCA/admin/realtime/chart/KARTE endpoints in DEV', async () => {
     setSession();
     setDevAuth();
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
     const { httpClient } = await importSubjects();
 
     await httpClient.httpFetch('/api/admin/orca/connection', { method: 'GET' });
-    const nonOrcaHeaders = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expect(nonOrcaHeaders.has('Authorization')).toBe(false);
-    expect(nonOrcaHeaders.has('userName')).toBe(false);
-    expect(nonOrcaHeaders.has('password')).toBe(false);
+    const hasLegacyAuthHeaders = (headers: Headers) =>
+      headers.has('Authorization') || headers.has('userName') || headers.has('password');
+    const adminHeaders = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(hasLegacyAuthHeaders(adminHeaders)).toBe(true);
 
     await httpClient.httpFetch('/orca/appointments/list', { method: 'GET' });
     const orcaHeaders = new Headers((fetchSpy.mock.calls[1]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expect(orcaHeaders.has('Authorization') || orcaHeaders.has('userName') || orcaHeaders.has('password')).toBe(true);
+    expect(hasLegacyAuthHeaders(orcaHeaders)).toBe(true);
+
+    await httpClient.httpFetch('/api/chart-events', { method: 'GET' });
+    const chartHeaders = new Headers((fetchSpy.mock.calls[2]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(hasLegacyAuthHeaders(chartHeaders)).toBe(true);
+
+    await httpClient.httpFetch('/api/realtime/reception', { method: 'GET' });
+    const realtimeHeaders = new Headers((fetchSpy.mock.calls[3]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(hasLegacyAuthHeaders(realtimeHeaders)).toBe(true);
 
     await httpClient.httpFetch('/karte/pid/00001,2000-01-01%2000%3A00%3A00', { method: 'GET' });
-    const karteHeaders = new Headers((fetchSpy.mock.calls[2]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expect(karteHeaders.has('Authorization') || karteHeaders.has('userName') || karteHeaders.has('password')).toBe(true);
+    const karteHeaders = new Headers((fetchSpy.mock.calls[4]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(hasLegacyAuthHeaders(karteHeaders)).toBe(true);
+
+    await httpClient.httpFetch('/api/healthz', { method: 'GET' });
+    const nonOrcaHeaders = new Headers((fetchSpy.mock.calls[5]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(hasLegacyAuthHeaders(nonOrcaHeaders)).toBe(false);
   });
 
   it('attaches auth headers for /api/orcaNN endpoints in DEV', async () => {

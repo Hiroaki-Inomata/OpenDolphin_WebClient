@@ -1,6 +1,7 @@
 import type { QueryFunctionContext } from '@tanstack/react-query';
 
 import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
+import { readMockRuntimeState, resolveMockGateDecision } from '../../libs/devtools/mockGate';
 import { updateObservabilityMeta } from '../../libs/observability/observability';
 import type { DataSourceTransition, ResolveMasterSource } from '../../libs/observability/types';
 import { recordOutpatientFunnel } from '../../libs/telemetry/telemetryClient';
@@ -70,7 +71,29 @@ export type VisitMutationPayload = OutpatientMeta & {
   apiResultMessage?: string;
 };
 
-const mswEnabled = import.meta.env.DEV && import.meta.env.VITE_DISABLE_MSW !== '1';
+const isMswRuntimeEnabled = () => {
+  const gate = resolveMockGateDecision();
+  if (!gate.allowed) return false;
+  return readMockRuntimeState()?.mswStarted === true;
+};
+
+const buildAppointmentCandidates = (mswEnabled: boolean): Array<{ path: string; source: ResolveMasterSource }> => [
+  { path: '/orca/appointments/list', source: 'server' as ResolveMasterSource },
+  ...(mswEnabled ? [{ path: '/orca/appointments/list/mock', source: 'mock' as ResolveMasterSource }] : []),
+];
+
+const buildVisitCandidates = (mswEnabled: boolean): Array<{ path: string; source: ResolveMasterSource }> => [
+  { path: '/orca/visits/list', source: 'server' as ResolveMasterSource },
+  ...(mswEnabled ? [{ path: '/orca/visits/list/mock', source: 'mock' as ResolveMasterSource }] : []),
+];
+
+const buildVisitMutationCandidates = (mswEnabled: boolean): Array<{ path: string; source: ResolveMasterSource }> => [
+  { path: '/orca/visits/mutation', source: 'server' as ResolveMasterSource },
+  ...(mswEnabled ? [{ path: '/orca/visits/mutation/mock', source: 'mock' as ResolveMasterSource }] : []),
+];
+
+const preferredSource = (mswEnabled: boolean): ResolveMasterSource | undefined => (mswEnabled ? 'mock' : 'server');
+
 const isTruthy = (value?: string) => {
   if (!value) return false;
   const normalized = value.trim().toLowerCase();
@@ -103,23 +126,6 @@ const CLAIM_OUTPATIENT_DISABLED_PAYLOAD: ClaimOutpatientPayload = {
   outcome: 'disabled',
 };
 
-const appointmentCandidates: Array<{ path: string; source: ResolveMasterSource }> = [
-  { path: '/orca/appointments/list', source: 'server' as ResolveMasterSource },
-  ...(mswEnabled ? [{ path: '/orca/appointments/list/mock', source: 'mock' as ResolveMasterSource }] : []),
-];
-
-const visitCandidates: Array<{ path: string; source: ResolveMasterSource }> = [
-  { path: '/orca/visits/list', source: 'server' as ResolveMasterSource },
-  ...(mswEnabled ? [{ path: '/orca/visits/list/mock', source: 'mock' as ResolveMasterSource }] : []),
-];
-
-const visitMutationCandidates = [
-  { path: '/orca/visits/mutation', source: 'server' as ResolveMasterSource },
-  ...(mswEnabled ? [{ path: '/orca/visits/mutation/mock', source: 'mock' as ResolveMasterSource }] : []),
-];
-
-const preferredSource = (): ResolveMasterSource | undefined => (mswEnabled ? 'mock' : 'server');
-
 const resolvedDataSource = (transition?: DataSourceTransition, fallback?: ResolveMasterSource): ResolveMasterSource | undefined =>
   (transition as ResolveMasterSource | undefined) ?? fallback;
 
@@ -149,9 +155,12 @@ export async function fetchAppointmentOutpatients(
   context?: QueryFunctionContext,
   options: { preferredSourceOverride?: ResolveMasterSource; screen?: string } = {},
 ): Promise<AppointmentPayload> {
+  const mswEnabled = isMswRuntimeEnabled();
+  const appointmentCandidates = buildAppointmentCandidates(mswEnabled);
+  const visitCandidates = buildVisitCandidates(mswEnabled);
   const page = params.page ?? 1;
   const size = params.size ?? 50;
-  const preferred = options.preferredSourceOverride ?? preferredSource();
+  const preferred = options.preferredSourceOverride ?? preferredSource(mswEnabled);
   const buildResolverContext = (source?: QueryFunctionContext, stripSignal = false) => {
     if (!source) return undefined;
     if (!stripSignal) return source;
@@ -397,6 +406,7 @@ export async function mutateVisit(
   context?: QueryFunctionContext,
   options: { preferredSourceOverride?: ResolveMasterSource } = {},
 ): Promise<VisitMutationPayload> {
+  const mswEnabled = isMswRuntimeEnabled();
   const acceptancePush = resolveAcceptancePush(params.acceptancePush);
   const normalizedPhysicianCode = normalizePhysicianCode(params.physicianCode);
   const insurances =
@@ -421,10 +431,10 @@ export async function mutateVisit(
   };
 
   const result = await fetchWithResolver({
-    candidates: visitMutationCandidates,
+    candidates: buildVisitMutationCandidates(mswEnabled),
     body,
     queryContext: context,
-    preferredSource: options.preferredSourceOverride ?? preferredSource(),
+    preferredSource: options.preferredSourceOverride ?? preferredSource(mswEnabled),
     description: 'visit_mutation',
   });
 

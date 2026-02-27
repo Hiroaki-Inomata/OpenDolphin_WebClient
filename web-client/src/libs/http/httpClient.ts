@@ -127,10 +127,10 @@ const normalizeHeaders = (headers?: HeadersInit): Record<string, string> => {
   return { ...headers };
 };
 
-export function buildHttpHeaders(init?: RequestInit): Record<string, string> {
+export function buildHttpHeaders(init?: RequestInit, pathname?: string | null): Record<string, string> {
   const withObservability = applyObservabilityHeaders(init);
   const withFlags = applyHeaderFlagsToInit(withObservability);
-  const withAuth = applyAuthHeaders(withFlags);
+  const withAuth = applyAuthHeaders(withFlags, pathname);
   return normalizeHeaders(withAuth.headers);
 }
 
@@ -296,7 +296,8 @@ const isOrcaEndpoint = (pathname?: string | null): boolean => {
   //   can also require explicit Basic auth headers when container principal is unavailable.
   // These endpoints must not trigger global session-expired broadcast on 401/403 because
   // they may fail for per-resource auth reasons while the app session is still valid.
-  const pattern = /^\/(orca\d*|api\/orca(?:\d+)?|api01(rv2)?|api21|blobapi|karte|odletter|touch|user)(\/|$)/;
+  const pattern =
+    /^\/(orca\d*|api\/orca(?:\d+)?|api01(rv2)?|api21|blobapi|karte|odletter|touch|user|api\/admin|api\/chart-events|chart-events|api\/realtime|realtime)(\/|$)/;
   try {
     const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
     const url = new URL(trimmed, base);
