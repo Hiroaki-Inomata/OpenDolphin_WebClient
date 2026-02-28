@@ -66,8 +66,8 @@ export type PrescriptionOrderEditorPanelProps = {
 };
 
 const SEARCH_SCOPE_CATEGORY: Record<PrescriptionSearchScope, string> = {
-  outside_adopted: 'outside',
-  in_hospital_adopted: 'facility',
+  outside_adopted: 'outer',
+  in_hospital_adopted: 'in-hospital',
   inside_adopted: 'adopted',
 };
 
@@ -528,6 +528,7 @@ export function PrescriptionOrderEditorPanel({
   }, [claimDraft.code, claimDraft.name, isPreviewMode, selectedDrug, selectedDrugIndex, selectedRp, selectedRpIndex, updateDrug]);
 
   const trimmedSearchKeyword = normalizeSearchText(searchKeyword);
+  const searchEffectiveDate = (meta.visitDate ?? today).slice(0, 10);
   const shouldAutoSearch = trimmedSearchKeyword.length >= 3;
   const shouldManualSearch = trimmedSearchKeyword.length > 0 && trimmedSearchKeyword.length <= 2;
   const shouldRunSearch = active && Boolean(patientId) && (shouldAutoSearch || manualSearchNonce > 0);
@@ -538,13 +539,17 @@ export function PrescriptionOrderEditorPanel({
       trimmedSearchKeyword,
       searchScope,
       searchMethod,
+      searchEffectiveDate,
       manualSearchNonce,
     ],
     queryFn: () =>
       fetchOrderMasterSearch({
         type: 'drug',
         keyword: trimmedSearchKeyword,
-        category: SEARCH_SCOPE_CATEGORY[searchScope],
+        method: searchMethod,
+        scope: SEARCH_SCOPE_CATEGORY[searchScope],
+        effective: searchEffectiveDate,
+        asOf: searchEffectiveDate,
       }),
     enabled: shouldRunSearch,
     staleTime: 15_000,

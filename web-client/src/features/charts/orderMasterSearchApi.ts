@@ -260,10 +260,51 @@ const extractList = <T,>(json: unknown): { items: T[]; totalCount?: number } => 
   return { items: [], totalCount: 0 };
 };
 
+type OrderMasterDrugSearchMethod = 'prefix' | 'partial';
+type OrderMasterDrugSearchScope = 'outer' | 'in-hospital' | 'adopted';
+
+const normalizeDrugSearchMethod = (value: string | undefined): OrderMasterDrugSearchMethod | undefined => {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'prefix' || normalized === 'partial') return normalized;
+  return undefined;
+};
+
+const normalizeDrugSearchScope = (value: string | undefined): OrderMasterDrugSearchScope | undefined => {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'outer' || normalized === 'outside' || normalized === 'outside_adopted') {
+    return 'outer';
+  }
+  if (normalized === 'in-hospital' || normalized === 'in_hospital' || normalized === 'facility' || normalized === 'in_hospital_adopted') {
+    return 'in-hospital';
+  }
+  if (normalized === 'adopted' || normalized === 'inside_adopted') {
+    return 'adopted';
+  }
+  return undefined;
+};
+
+const normalizeOrcaDateParam = (value: string | undefined): string | undefined => {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const digitsOnly = trimmed.replace(/[^0-9]/g, '');
+  if (digitsOnly.length === 8) return digitsOnly;
+  const slashOrHyphenDate = trimmed.match(/^(\d{4})[-/.](\d{2})[-/.](\d{2})/);
+  if (slashOrHyphenDate) {
+    return `${slashOrHyphenDate[1]}${slashOrHyphenDate[2]}${slashOrHyphenDate[3]}`;
+  }
+  return trimmed;
+};
+
 export async function fetchOrderMasterSearch(params: {
   type: OrderMasterSearchType;
   keyword: string;
   effective?: string;
+  asOf?: string;
+  method?: OrderMasterDrugSearchMethod;
+  scope?: string;
   category?: string;
   page?: number;
   size?: number;
@@ -274,11 +315,21 @@ export async function fetchOrderMasterSearch(params: {
     return { ok: false, items: [], totalCount: 0, message: '検索キーワードが未指定です。' };
   }
   const query = new URLSearchParams();
+  const normalizedDate = normalizeOrcaDateParam(params.asOf ?? params.effective);
   if (keyword) query.set('keyword', keyword);
-  if (params.effective) query.set('effective', params.effective);
+  if (normalizedDate) {
+    query.set('effective', normalizedDate);
+    query.set('asOf', normalizedDate);
+  }
   if (params.category) query.set('category', params.category);
   if (params.type === 'comment' && params.category) {
     query.set('category', params.category);
+  }
+  if (params.type === 'drug') {
+    const normalizedMethod = normalizeDrugSearchMethod(params.method);
+    if (normalizedMethod) query.set('method', normalizedMethod);
+    const normalizedScope = normalizeDrugSearchScope(params.scope ?? params.category);
+    if (normalizedScope) query.set('scope', normalizedScope);
   }
   const hasExplicitPage = typeof params.page === 'number' && Number.isFinite(params.page);
   const hasExplicitSize = typeof params.size === 'number' && Number.isFinite(params.size);
@@ -390,7 +441,7 @@ export async function fetchOrderMasterSearch(params: {
   let correctionMeta: OrderMasterSearchResult['correctionMeta'] | undefined;
   let selectionComments: OrderMasterSearchResult['selectionComments'];
   if ((params.type === 'drug' || params.type === 'generic-class' || params.type === 'kensa-sort') && isLikelyCodeSearch(keyword)) {
-    const baseDate = params.effective ?? new Date().toISOString().slice(0, 10);
+    const baseDate = normalizedDate ?? new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const requestCode = extractCodeToken(keyword);
     const requestXml = buildMedicationGetRequestXml({ requestNumber: '01', requestCode, baseDate });
     const medicationResult = await fetchOrcaMedicationGetXml(requestXml);
