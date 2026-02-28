@@ -26,6 +26,11 @@ import { getOrcaClaimSendEntry, type OrcaMedicalWarningUi } from './orcaClaimSen
 import { parseOrcaOrderItemMemo } from './orcaOrderItemMeta';
 import { buildOrderHubEventId, recordOrderHubKpi, type OrderHubKpiSource } from './orderHubKpi';
 import { buildRpRequiredEditorMessage, resolveRpRequiredFieldLabel, resolveRpRequiredIssueFromBundle } from './orderRpRequirements';
+import {
+  buildOrderDetailDisplayRowsForGroup,
+  sortBundlesByLatestRule,
+  type OrderDetailDisplayViewModel,
+} from './orderDetailDisplayViewModel';
 
 type TreatmentOrderEntity = 'treatmentOrder' | 'generalOrder' | 'surgeryOrder' | 'otherOrder';
 type TestOrderEntity = 'testOrder' | 'physiologyOrder' | 'bacteriaOrder' | 'radiologyOrder';
@@ -145,6 +150,53 @@ const summarizeBundleForCard = (bundle: OrderBundle, entity: OrderEntity): Bundl
     chips: chipsAll.slice(0, 5),
     moreLabel: chipsAll.length > 5 ? `他${chipsAll.length - 5}` : undefined,
   };
+};
+
+const renderBundleDetailSummary = (row: OrderDetailDisplayViewModel) => {
+  return (
+    <div className="soap-note__summary-body">
+      {row.title ? <p className="soap-note__summary-detail soap-note__summary-detail--heading">{row.title}</p> : null}
+      {row.items.length > 0 ? (
+        <ul className="soap-note__summary-list">
+          {row.items.map((item, index) => {
+            const quantityLine = item.secondary.find((line) => line.startsWith('薬剤量:'));
+            const quantity = quantityLine
+              ?.replace('薬剤量:', '')
+              .split('/')[0]
+              ?.trim();
+            const commentLine = item.secondary.find((line) => line.startsWith('薬剤コメント:'));
+            const comment = commentLine?.replace('薬剤コメント:', '').trim() ?? '';
+            const commentPreview = comment.length > 12 ? `${comment.slice(0, 11)}…` : comment;
+            const commentTitle = comment ? `${item.primary}${quantity ? ` ${quantity}` : ''} コメント:${comment}` : undefined;
+            const primaryLabel = comment ? `${item.primary} コメント:${commentPreview}` : item.primary;
+            return (
+              <li key={`${row.id}-dock-item-${index}`} className="soap-note__summary-list-item">
+                {item.genericNote ? <span className="soap-note__summary-item-sub">{item.genericNote}</span> : null}
+                <span className="soap-note__summary-item-name" title={commentTitle}>
+                  {primaryLabel}
+                </span>
+                {item.secondary.map((detail, detailIndex) => (
+                  <span key={`${row.id}-dock-item-${index}-detail-${detailIndex}`} className="soap-note__summary-item-sub">
+                    {detail}
+                  </span>
+                ))}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {row.detailLines.map((detail, index) => (
+        <p key={`${row.id}-dock-detail-${index}`} className="soap-note__summary-detail">
+          {detail}
+        </p>
+      ))}
+      {row.warnings.map((warning, index) => (
+        <p key={`${row.id}-dock-warning-${index}`} className="soap-note__summary-detail">
+          {warning}
+        </p>
+      ))}
+    </div>
+  );
 };
 
 type BundleWarningBadge = { tone: 'warn' | 'contra'; label: string; count: number };
@@ -356,7 +408,7 @@ export function OrderDockPanel(props: {
 
   const groupBundles = useMemo(() => {
     return ORDER_GROUP_REGISTRY.map((spec) => {
-      const bundles = spec.entities.flatMap((entity) => bundlesByEntity.get(entity) ?? []);
+      const bundles = sortBundlesByLatestRule(spec.entities.flatMap((entity) => bundlesByEntity.get(entity) ?? []));
       return { ...spec, bundles };
     });
   }, [bundlesByEntity]);
@@ -1025,6 +1077,11 @@ export function OrderDockPanel(props: {
       }
       return group.bundles;
     })();
+    const visibleRows = buildOrderDetailDisplayRowsForGroup({
+      group: group.key,
+      bundles: visibleBundles,
+      defaultEntity,
+    });
     const showEntityBadge = Boolean(
       (isQuickAddMode && isQuickAddTarget) ||
       (group.key === 'treatment' && treatmentShowAll) ||
@@ -1231,11 +1288,10 @@ export function OrderDockPanel(props: {
               ) : visibleBundles.length === 0 ? (
                 isQuickAddMode ? null : <p className="order-dock__empty">この種類のオーダーはまだありません。</p>
               ) : (
-                visibleBundles.map((bundle, index) => {
-                  const resolvedBundleEntity = bundle.entity?.trim() || defaultEntity;
-                  const bundleEntity = isOrderEntity(resolvedBundleEntity) ? resolvedBundleEntity : defaultEntity;
-                  const bundleLabel = formatBundleName(bundle);
-                  const summary = summarizeBundleForCard(bundle, bundleEntity);
+                visibleRows.map((row) => {
+                  const bundle = row.bundle;
+                  const bundleEntity = row.entity;
+                  const bundleLabel = row.bundleLabel;
                   const warnings = bundle.documentId
                     ? orcaMedicalWarnings.filter(
                         (warning) =>
@@ -1247,7 +1303,7 @@ export function OrderDockPanel(props: {
                   const canMutate = canEdit;
                   return (
                     <div
-                      key={`${group.key}-${bundle.documentId ?? 'doc'}-${bundle.moduleId ?? 'mod'}-${index}`}
+                      key={`${group.key}-${row.id}`}
                       className="order-dock__bundle"
                       role="listitem"
                     >
@@ -1267,25 +1323,8 @@ export function OrderDockPanel(props: {
                             ) : null}
                           </div>
                         </div>
-                        {summary.metaLine ? <span className="order-dock__bundle-meta">{summary.metaLine}</span> : null}
-                        {summary.chips.length > 0 ? (
-                          <div className="order-dock__chips" aria-label="項目">
-                            {summary.chips.map((chip, chipIndex) => (
-                              <span
-                                key={`${chip.title}-${chipIndex}`}
-                                className={`order-dock__chip${chip.className ? ` ${chip.className}` : ''}`}
-                                title={chip.title}
-                              >
-                                {chip.label}
-                              </span>
-                            ))}
-                            {summary.moreLabel ? (
-                              <span className="order-dock__chip order-dock__chip--more">{summary.moreLabel}</span>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <span className="order-dock__bundle-items">項目なし</span>
-                        )}
+                        <span className="order-dock__bundle-meta">{row.operatorLine}</span>
+                        {renderBundleDetailSummary(row)}
                         {rpRequiredIssue ? (
                           <>
                             <span className="order-dock__bundle-required">{buildRpRequiredEditorMessage(rpRequiredIssue)}</span>

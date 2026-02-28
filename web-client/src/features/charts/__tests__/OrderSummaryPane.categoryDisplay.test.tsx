@@ -150,4 +150,74 @@ describe('OrderSummaryPane category display', () => {
     await user.click(screen.getByRole('button', { name: '文書を編集' }));
     expect(onDocumentSelect).toHaveBeenCalledTimes(1);
   });
+
+  it('処方の bundleNumber ラベルは classCode/timing 規約に従って 日数/回数 を表示する', () => {
+    const regularPrescription: OrderBundle = {
+      entity: 'medOrder',
+      bundleName: '内服RP',
+      classCode: '212',
+      bundleNumber: '14',
+      admin: '1日1回 朝食後',
+      started: '2026-02-27T09:00:00+09:00',
+      documentId: 30,
+      moduleId: 300,
+      items: [{ name: 'アムロジピン', quantity: '1', unit: '錠' }],
+    };
+    const tonyoPrescription: OrderBundle = {
+      entity: 'medOrder',
+      bundleName: '頓用RP',
+      classCode: '221',
+      bundleNumber: '3',
+      admin: '必要時',
+      started: '2026-02-27T10:00:00+09:00',
+      documentId: 31,
+      moduleId: 301,
+      items: [{ name: 'ロキソニン', quantity: '1', unit: '錠' }],
+    };
+
+    render(<OrderSummaryPane orderBundles={[]} prescriptionBundles={[regularPrescription, tonyoPrescription]} />);
+
+    const summaryPane = screen.getByLabelText('オーダー概要');
+    const prescriptionGroup = requireElement(summaryPane.querySelector('.soap-note__order-group[data-group="prescription"]'));
+
+    expect(prescriptionGroup).toHaveTextContent('用法: 1日1回 朝食後 / 日数: 14');
+    expect(prescriptionGroup).toHaveTextContent('用法: 必要時 / 回数: 3');
+  });
+
+  it('カテゴリ内カードは started desc -> documentId desc -> index desc で並ぶ', () => {
+    const injectionBundles: OrderBundle[] = [
+      {
+        entity: 'injectionOrder',
+        bundleName: '前日',
+        started: '2026-02-27T09:00:00+09:00',
+        documentId: 1,
+        moduleId: 1,
+        items: [{ name: '生食', quantity: '1', unit: '本' }],
+      },
+      {
+        entity: 'injectionOrder',
+        bundleName: '同日doc小',
+        started: '2026-02-28T09:00:00+09:00',
+        documentId: 5,
+        moduleId: 2,
+        items: [{ name: 'ブドウ糖', quantity: '1', unit: '本' }],
+      },
+      {
+        entity: 'injectionOrder',
+        bundleName: '同日doc大',
+        started: '2026-02-28T09:00:00+09:00',
+        documentId: 9,
+        moduleId: 3,
+        items: [{ name: '乳酸リンゲル', quantity: '1', unit: '本' }],
+      },
+    ];
+
+    render(<OrderSummaryPane orderBundles={injectionBundles} prescriptionBundles={[]} />);
+
+    const summaryPane = screen.getByLabelText('オーダー概要');
+    const injectionGroup = requireElement(summaryPane.querySelector('.soap-note__order-group[data-group="injection"]'));
+    const labels = Array.from(injectionGroup.querySelectorAll('button')).map((button) => button.getAttribute('aria-label'));
+
+    expect(labels).toEqual(['同日doc大を編集', '同日doc小を編集', '前日を編集']);
+  });
 });

@@ -255,4 +255,80 @@ describe('OrderBundleEditPanel body part search', () => {
     expect(searchMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bodypart' }));
     expect(fetchOrderBundles).toHaveBeenCalled();
   });
+
+  it('既存束に bodyPart 専用フィールドがあれば 002 アイテムが無くても部位入力へ復元する', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const fetchMock = vi.mocked(fetchOrderBundles);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      patientId: 'P-1',
+      bundles: [
+        {
+          documentId: 700,
+          moduleId: 70,
+          entity: 'radiologyOrder',
+          bundleName: '胸部CT',
+          started: '2026-02-27',
+          items: [{ code: '700001', name: '胸部CT' }],
+          bodyPart: { code: 'BP001', name: '胸部', quantity: '1', unit: '部位', memo: '専用フィールド' },
+        } as any,
+      ],
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    await user.click(await screen.findByRole('button', { name: '編集' }));
+
+    expect(screen.getByLabelText('部位')).toHaveValue('胸部');
+  });
+
+  it('保存payloadは互換itemsに加えて bodyPart 専用フィールドも送る', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type }) => {
+      if (type === 'bodypart') {
+        return {
+          ok: true,
+          items: [{ type: 'bodypart', code: '002777', name: '腰部', unit: '部位', category: '2' }],
+          totalCount: 1,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="generalOrder"
+        title="オーダー編集"
+        bundleLabel="オーダー名"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText('処置項目名'), '温熱療法');
+    await user.type(screen.getByLabelText('部位検索', { selector: 'input[id$="-bodypart-keyword"]' }), '腰');
+    await waitFor(() =>
+      expect(searchMock).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'bodypart', keyword: '腰' })),
+    );
+    const bodyPartButton = await screen.findByRole('button', { name: /腰部/ });
+    await user.click(bodyPartButton);
+    await user.click(screen.getByRole('button', { name: /保存して追加/ }));
+
+    await waitFor(() => expect(mutateOrderBundles).toHaveBeenCalled());
+    const payload = vi.mocked(mutateOrderBundles).mock.calls[0]?.[0];
+    const operation = (payload?.operations?.[0] ?? {}) as Record<string, unknown>;
+
+    expect(operation).toHaveProperty(
+      'bodyPart',
+      expect.objectContaining({
+        code: '002777',
+        name: '腰部',
+      }),
+    );
+  });
 });

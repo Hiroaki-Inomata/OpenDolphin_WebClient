@@ -18,6 +18,11 @@ import {
   type OrderEntity,
   type OrderGroupKey,
 } from './orderCategoryRegistry';
+import {
+  buildOrderDetailDisplayRowsForGroup,
+  resolveLatestBundle,
+  sortBundlesByLatestRule,
+} from './orderDetailDisplayViewModel';
 
 export type RightUtilityTool = OrderGroupKey | 'document';
 
@@ -45,68 +50,9 @@ type RightUtilityDrawerProps = {
   onDocumentHistoryCopyConsumed?: (requestId: string) => void;
 };
 
-type BundleSortMeta = {
-  bundle: OrderBundle;
-  index: number;
-  startedTimestamp: number | null;
-  documentId: number | null;
-};
-
-const parseStartedTimestamp = (bundle: OrderBundle): number | null => {
-  const raw = bundle.started?.trim();
-  if (!raw) return null;
-  const parsed = Date.parse(raw);
-  if (Number.isNaN(parsed)) return null;
-  return parsed;
-};
-
-const parseDocumentId = (bundle: OrderBundle): number | null => {
-  return typeof bundle.documentId === 'number' && Number.isFinite(bundle.documentId) ? bundle.documentId : null;
-};
-
-const compareBundleSortMeta = (left: BundleSortMeta, right: BundleSortMeta) => {
-  const leftHasStarted = left.startedTimestamp !== null;
-  const rightHasStarted = right.startedTimestamp !== null;
-  if (leftHasStarted && rightHasStarted) {
-    if (left.startedTimestamp !== right.startedTimestamp) {
-      return (right.startedTimestamp ?? 0) - (left.startedTimestamp ?? 0);
-    }
-    if (left.documentId !== right.documentId) {
-      return (right.documentId ?? Number.NEGATIVE_INFINITY) - (left.documentId ?? Number.NEGATIVE_INFINITY);
-    }
-    return right.index - left.index;
-  }
-  if (leftHasStarted !== rightHasStarted) return leftHasStarted ? -1 : 1;
-  if (left.documentId !== right.documentId) {
-    return (right.documentId ?? Number.NEGATIVE_INFINITY) - (left.documentId ?? Number.NEGATIVE_INFINITY);
-  }
-  return right.index - left.index;
-};
-
-export const sortBundlesByLatestRule = (bundles: OrderBundle[]): OrderBundle[] => {
-  const metas = bundles.map<BundleSortMeta>((bundle, index) => ({
-    bundle,
-    index,
-    startedTimestamp: parseStartedTimestamp(bundle),
-    documentId: parseDocumentId(bundle),
-  }));
-  metas.sort(compareBundleSortMeta);
-  return metas.map((meta) => meta.bundle);
-};
-
-export const resolveLatestBundle = (bundles: OrderBundle[]): OrderBundle | null => {
-  if (bundles.length === 0) return null;
-  return sortBundlesByLatestRule(bundles)[0] ?? bundles[bundles.length - 1] ?? null;
-};
-
 const resolveGroupByTool = (tool: RightUtilityTool) => {
   if (tool === 'document') return null;
   return ORDER_GROUP_REGISTRY.find((spec) => spec.key === tool) ?? null;
-};
-
-const normalizeBundleName = (bundle: OrderBundle) => {
-  const value = bundle.bundleName?.trim() || bundle.className?.trim();
-  return value || '名称未設定';
 };
 
 const normalizeBundleEntity = (bundle: OrderBundle, fallback: OrderEntity): OrderEntity => {
@@ -123,16 +69,6 @@ const belongsToSelectionEntity = (bundleEntity: OrderEntity, selectedEntity: Ord
   return bundleEntity === selectedEntity;
 };
 
-const buildBundleItemsSummary = (bundle: OrderBundle) => {
-  const names = (bundle.items ?? [])
-    .map((item) => item.name?.trim())
-    .filter((name): name is string => Boolean(name))
-    .slice(0, 3);
-  if (names.length === 0) return '項目なし';
-  const suffix = (bundle.items?.length ?? 0) > names.length ? ' …' : '';
-  return `${names.join(' / ')}${suffix}`;
-};
-
 const isOrderTool = (tool: RightUtilityTool): tool is OrderGroupKey => tool !== 'document';
 
 const cloneDocumentPanelNode = (
@@ -147,6 +83,8 @@ const cloneDocumentPanelNode = (
     onHistoryCopyConsumed,
   });
 };
+
+export { resolveLatestBundle, sortBundlesByLatestRule };
 
 export function RightUtilityDrawer({
   open,
@@ -198,6 +136,15 @@ export function RightUtilityDrawer({
   }, [groupSpec, orderBundles, prescriptionBundles]);
 
   const sortedGroupBundles = useMemo(() => sortBundlesByLatestRule(groupBundles), [groupBundles]);
+
+  const existingOrderRows = useMemo(() => {
+    if (!groupSpec) return [];
+    return buildOrderDetailDisplayRowsForGroup({
+      group: groupSpec.key,
+      bundles: sortedGroupBundles,
+      defaultEntity: groupSpec.defaultEntity,
+    });
+  }, [groupSpec, sortedGroupBundles]);
 
   const selectedEntity = useMemo<OrderEntity | null>(() => {
     if (!groupSpec) return null;
@@ -347,11 +294,11 @@ export function RightUtilityDrawer({
                 )}
               </div>
 
-              <aside
-                className="soap-note__right-drawer-order-list"
+              <section
+                className="soap-note__right-drawer-order-preview"
                 aria-label={`${activeOrderPanelContext.groupSpec.label}既存一覧`}
               >
-                <div className="soap-note__right-drawer-order-list-header">
+                <div className="soap-note__right-drawer-order-preview-header">
                   <strong>既存オーダー</strong>
                   <button
                     type="button"
@@ -364,37 +311,81 @@ export function RightUtilityDrawer({
 
                 {resolvedPanelLoading ? <p className="order-dock__empty">読み込み中...</p> : null}
                 {resolvedPanelError ? <p className="order-dock__empty">取得失敗: {resolvedPanelError}</p> : null}
-                {!resolvedPanelLoading && !resolvedPanelError && sortedGroupBundles.length === 0 ? (
+                {!resolvedPanelLoading && !resolvedPanelError && existingOrderRows.length === 0 ? (
                   <p className="order-dock__empty">このカテゴリの既存オーダーはありません。</p>
                 ) : null}
                 {!resolvedPanelLoading && !resolvedPanelError ? (
-                  <div className="soap-note__right-drawer-order-list-body order-dock__bundle-list" role="list">
-                    {sortedGroupBundles.map((bundle, index) => {
-                      const entity = normalizeBundleEntity(bundle, activeOrderPanelContext.groupSpec.defaultEntity);
+                  <div className="soap-note__right-drawer-order-preview-list order-dock__bundle-list" role="list">
+                    {existingOrderRows.map((row) => {
                       const isActive = Boolean(
                         activeEditBundle &&
-                          activeEditBundle.documentId === bundle.documentId &&
-                          activeEditBundle.moduleId === bundle.moduleId,
+                          activeEditBundle.documentId === row.bundle.documentId &&
+                          activeEditBundle.moduleId === row.bundle.moduleId,
                       );
+                      const previewInstanceKey = `preview-${row.id}`;
+                      const previewRequest: OrderBundleEditPanelRequest = {
+                        requestId: previewInstanceKey,
+                        kind: 'edit',
+                        bundle: row.bundle,
+                      };
+                      const previewMeta = resolveOrderEntityEditorMeta(row.entity);
+                      if (!previewMeta) {
+                        return null;
+                      }
+                      const previewPanel =
+                        row.entity === 'medOrder' ? (
+                          <PrescriptionOrderEditorPanel
+                            patientId={patientId}
+                            meta={meta}
+                            variant="embedded"
+                            bundlesOverride={[row.bundle]}
+                            readOnlyPreview
+                            instanceKey={previewInstanceKey}
+                            active={open && activeTool === 'prescription'}
+                          />
+                        ) : (
+                          <OrderBundleEditPanel
+                            patientId={patientId}
+                            entity={row.entity}
+                            title={previewMeta.title}
+                            bundleLabel={previewMeta.bundleLabel}
+                            itemQuantityLabel={previewMeta.itemQuantityLabel}
+                            meta={meta}
+                            variant="embedded"
+                            bundlesOverride={[row.bundle]}
+                            request={previewRequest}
+                            readOnlyPreview
+                            instanceKey={previewInstanceKey}
+                          />
+                        );
                       return (
-                        <button
-                          key={`drawer-bundle-${bundle.documentId ?? 'doc'}-${bundle.moduleId ?? 'mod'}-${index}`}
-                          type="button"
+                        <article
+                          key={`drawer-bundle-${row.id}`}
                           role="listitem"
-                          className="order-dock__search-result"
+                          className="soap-note__right-drawer-order-preview-item"
                           data-active={isActive ? 'true' : 'false'}
-                          onClick={() => onOrderBundleSelect?.(entity, bundle)}
-                          title={normalizeBundleName(bundle)}
                         >
-                          <strong>{normalizeBundleName(bundle)}</strong>
-                          <span>{resolveOrderEntityLabel(entity)}</span>
-                          <span>{buildBundleItemsSummary(bundle)}</span>
-                        </button>
+                          <header className="soap-note__right-drawer-order-preview-item-header">
+                            <div>
+                              <p className="soap-note__summary-meta">{row.operatorLine}</p>
+                              <strong>{row.bundleLabel}</strong>
+                            </div>
+                            <button
+                              type="button"
+                              className="order-dock__bundle-action"
+                              onClick={() => onOrderBundleSelect?.(row.entity, row.bundle)}
+                              aria-label={`${row.bundleLabel}を編集`}
+                            >
+                              このセットを編集
+                            </button>
+                          </header>
+                          <div className="soap-note__right-drawer-order-preview-item-body">{previewPanel}</div>
+                        </article>
                       );
                     })}
                   </div>
                 ) : null}
-              </aside>
+              </section>
             </div>
           </section>
         ) : null}

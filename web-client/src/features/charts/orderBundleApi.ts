@@ -13,6 +13,14 @@ export type OrderBundleItem = {
   memo?: string;
 };
 
+export type OrderBundleBodyPart = {
+  code?: string;
+  name: string;
+  quantity?: string;
+  unit?: string;
+  memo?: string;
+};
+
 export type OrderBundle = {
   documentId?: number;
   moduleId?: number;
@@ -33,6 +41,7 @@ export type OrderBundle = {
   authorRole?: string;
   authoredAt?: string;
   items: OrderBundleItem[];
+  bodyPart?: OrderBundleBodyPart;
 };
 
 export type OrderBundleFetchResult = {
@@ -72,6 +81,7 @@ export type OrderBundleOperation = {
   startDate?: string;
   endDate?: string;
   items?: OrderBundleItem[];
+  bodyPart?: OrderBundleBodyPart;
 };
 
 export type OrderBundleMutationResult = {

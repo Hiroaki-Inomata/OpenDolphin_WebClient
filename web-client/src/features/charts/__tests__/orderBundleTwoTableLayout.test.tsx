@@ -96,4 +96,25 @@ describe('OrderBundleEditPanel predictive options', () => {
       expect(document.querySelector('datalist[id$="-item-predictive-list"] option[value="アムロジピン"]')).not.toBeNull(),
     );
   });
+
+  it('2テーブルレイアウトを維持し、処方タイミング切替で行サマリの日数/回数ラベルが更新される', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    vi.mocked(fetchOrderMasterSearch).mockResolvedValue({ ok: true, items: [], totalCount: 0 });
+
+    const user = userEvent.setup();
+    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+
+    const confirmed = screen.getByTestId('order-bundle-confirmed-table');
+    expect(confirmed.closest('.charts-side-panel__two-table-layout')).not.toBeNull();
+
+    const itemNameInput = within(confirmed).getByPlaceholderText('薬剤名');
+    await user.type(itemNameInput, 'テスト薬');
+
+    const summary = await screen.findByTestId('order-bundle-item-summary-0');
+    expect(summary).toHaveTextContent('日数: 1');
+
+    await user.click(screen.getByRole('button', { name: '頓用' }));
+    expect(summary).toHaveTextContent('回数: 1');
+  });
 });

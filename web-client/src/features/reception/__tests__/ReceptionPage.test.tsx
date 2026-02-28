@@ -295,8 +295,13 @@ const renderReceptionPage = () => {
   screen.getByRole('heading', { name: '診察待ち' });
 };
 
+const getFloatingActionGroup = () => {
+  return screen.getByRole('group', { name: '受付操作' });
+};
+
 const openAcceptWorkflowModal = async (user: ReturnType<typeof userEvent.setup>) => {
-  await user.click(screen.getByRole('button', { name: '当日受付/患者検索' }));
+  const floatingActionGroup = getFloatingActionGroup();
+  await user.click(within(floatingActionGroup).getByRole('button', { name: '当日受付/患者検索' }));
   return (await screen.findByRole('region', { name: '当日受付/患者検索' })) as HTMLElement;
 };
 
@@ -567,6 +572,22 @@ describe('ReceptionPage section collapse defaults', () => {
   });
 });
 
+describe('ReceptionPage floating actions', () => {
+  it('shows accept/search and daily-status controls in the floating action group', () => {
+    renderReceptionPage();
+
+    const floatingActionGroup = getFloatingActionGroup();
+    expect(floatingActionGroup).toBeInTheDocument();
+    expect(within(floatingActionGroup).getByRole('button', { name: '当日受付/患者検索' })).toBeInTheDocument();
+    expect(within(floatingActionGroup).getByRole('button', { name: /^日次状態:/ })).toBeInTheDocument();
+
+    const headerSection = document.querySelector('.reception-page__header');
+    if (headerSection) {
+      expect(headerSection.contains(floatingActionGroup)).toBe(false);
+    }
+  });
+});
+
 describe('ReceptionPage list and side pane guidance', () => {
   it('highlights selected row and expands details on selection', async () => {
     mockAppointmentData.entries = [
@@ -821,8 +842,17 @@ describe('ReceptionPage list and side pane guidance', () => {
 
     await user.click(within(workflowModal).getByRole('button', { name: '折りたたむ' }));
     expect(within(workflowModal).queryByRole('region', { name: '患者検索' })).toBeNull();
+    const hiddenPatientSearch = within(workflowModal).queryByRole('region', { name: '患者検索', hidden: true });
+    if (hiddenPatientSearch) {
+      const ariaHiddenContainer =
+        hiddenPatientSearch.getAttribute('aria-hidden') === 'true'
+          ? hiddenPatientSearch
+          : hiddenPatientSearch.closest('[aria-hidden="true"]');
+      expect(ariaHiddenContainer).not.toBeNull();
+    }
 
-    const dailyStatusButton = screen.getByRole('button', { name: /^日次状態:/ });
+    const floatingActionGroup = getFloatingActionGroup();
+    const dailyStatusButton = within(floatingActionGroup).getByRole('button', { name: /^日次状態:/ });
     await user.click(dailyStatusButton);
     expect(dailyStatusButton).toHaveAttribute('aria-expanded', 'true');
 
@@ -1035,6 +1065,7 @@ describe('ReceptionPage realtime sync', () => {
     }
 
     vi.stubGlobal('EventSource', MockEventSource as unknown as typeof EventSource);
+    vi.stubGlobal('fetch', undefined);
 
     renderReceptionPage();
 

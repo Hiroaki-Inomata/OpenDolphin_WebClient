@@ -1,6 +1,7 @@
 import type { OrderMasterSearchType } from './orderMasterSearchApi';
 
 export type OrderGroupKey = 'prescription' | 'injection' | 'treatment' | 'test' | 'charge';
+export type BundleNumberLabel = '日数' | '回数';
 
 export type OrderEntity =
   | 'medOrder'
@@ -499,4 +500,31 @@ export const resolveOrderEntityEditorMeta = (entity: string): OrderEntityEditorM
   const resolved = resolveOrderEntity(entity);
   if (!resolved) return null;
   return ORDER_ENTITY_REGISTRY[resolved].editor;
+};
+
+type PrescriptionTiming = 'regular' | 'tonyo' | 'gaiyo';
+
+const normalizePrescriptionTiming = (timing?: string | null): PrescriptionTiming | null => {
+  if (!timing) return null;
+  const normalized = timing.trim().toLowerCase();
+  if (normalized === 'regular' || normalized === 'tonyo' || normalized === 'gaiyo') return normalized;
+  return null;
+};
+
+export const resolveBundleNumberLabel = (params: {
+  group: OrderGroupKey;
+  classCode?: string | null;
+  prescriptionTiming?: string | null;
+}): BundleNumberLabel => {
+  if (params.group !== 'prescription') return '回数';
+
+  const classCode = (params.classCode ?? '').trim();
+  if (classCode.startsWith('22')) return '回数';
+  if (classCode.startsWith('21') || classCode.startsWith('23')) return '日数';
+
+  const timing = normalizePrescriptionTiming(params.prescriptionTiming);
+  if (timing === 'tonyo') return '回数';
+  if (timing === 'regular' || timing === 'gaiyo') return '日数';
+
+  return '日数';
 };

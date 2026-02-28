@@ -6,7 +6,13 @@ import { recordOutpatientFunnel } from '../../libs/telemetry/telemetryClient';
 import { resolveAriaLive } from '../../libs/observability/observability';
 import { useOptionalSession } from '../../AppRouter';
 import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
-import { fetchOrderBundles, mutateOrderBundles, type OrderBundle, type OrderBundleItem } from './orderBundleApi';
+import {
+  fetchOrderBundles,
+  mutateOrderBundles,
+  type OrderBundle,
+  type OrderBundleBodyPart,
+  type OrderBundleItem,
+} from './orderBundleApi';
 import { getOrcaClaimSendEntry, type OrcaMedicalWarningUi } from './orcaClaimSendCache';
 import {
   fetchOrderMasterSearch,
@@ -66,6 +72,8 @@ export type OrderBundleEditPanelProps = {
   bundleLabel: string;
   itemQuantityLabel: string;
   meta: OrderBundleEditPanelMeta;
+  readOnlyPreview?: boolean;
+  instanceKey?: string;
   variant?: 'utility' | 'embedded';
   bundlesOverride?: OrderBundle[];
   onOpenDocument?: (request: DocumentOpenRequest) => void;
@@ -101,7 +109,7 @@ type BundleFormState = {
   items: OrderBundleItem[];
   materialItems: OrderBundleItem[];
   commentItems: OrderBundleItem[];
-  bodyPart?: OrderBundleItem | null;
+  bodyPart?: OrderBundleBodyPart | null;
 };
 
 type OrderBundleSubmitAction = 'save' | 'expand' | 'expand_continue';
@@ -314,11 +322,19 @@ const resolveDocumentOpenRequest = (bundle: OrderBundle, item: OrderBundleItem):
 const countItems = (items?: OrderBundleItem[]) =>
   items ? items.filter((item) => item.name.trim().length > 0).length : 0;
 
-const splitBundleItems = (items?: OrderBundleItem[]) => {
+const splitBundleItems = (items?: OrderBundleItem[], explicitBodyPart?: OrderBundleBodyPart) => {
   const normal: OrderBundleItem[] = [];
   const material: OrderBundleItem[] = [];
   const comment: OrderBundleItem[] = [];
-  let bodyPart: OrderBundleItem | null = null;
+  let bodyPart: OrderBundleBodyPart | null = explicitBodyPart?.name?.trim()
+    ? {
+        code: explicitBodyPart.code,
+        name: explicitBodyPart.name,
+        quantity: explicitBodyPart.quantity,
+        unit: explicitBodyPart.unit,
+        memo: explicitBodyPart.memo,
+      }
+    : null;
   (items ?? []).forEach((item) => {
     const code = item.code?.trim();
     if (code && code.startsWith(BODY_PART_CODE_PREFIX)) {
@@ -343,13 +359,34 @@ const splitBundleItems = (items?: OrderBundleItem[]) => {
 };
 
 const collectBundleItems = (form: BundleFormState) => {
+  const bodyPartItem =
+    form.bodyPart && form.bodyPart.name.trim()
+      ? {
+          code: form.bodyPart.code,
+          name: form.bodyPart.name,
+          quantity: form.bodyPart.quantity,
+          unit: form.bodyPart.unit,
+          memo: form.bodyPart.memo,
+        }
+      : null;
   const merged = [
-    ...(form.bodyPart && form.bodyPart.name.trim() ? [form.bodyPart] : []),
+    ...(bodyPartItem ? [bodyPartItem] : []),
     ...form.items,
     ...form.materialItems,
     ...form.commentItems,
   ];
   return merged;
+};
+
+const resolveOperationBodyPart = (form: BundleFormState): OrderBundleBodyPart | undefined => {
+  if (!form.bodyPart?.name?.trim()) return undefined;
+  return {
+    code: form.bodyPart.code?.trim() || undefined,
+    name: form.bodyPart.name.trim(),
+    quantity: form.bodyPart.quantity?.trim() || undefined,
+    unit: form.bodyPart.unit?.trim() || undefined,
+    memo: form.bodyPart.memo?.trim() || undefined,
+  };
 };
 
 const countMainItems = (form: BundleFormState) => countItems(form.items);
@@ -377,7 +414,7 @@ const buildEmptyForm = (today: string): BundleFormState => ({
 });
 
 export const toFormState = (bundle: OrderBundle, today: string): BundleFormState => {
-  const { normal, material, comment, bodyPart } = splitBundleItems(bundle.items);
+  const { normal, material, comment, bodyPart } = splitBundleItems(bundle.items, bundle.bodyPart);
   const prescription = parsePrescriptionClassCode(bundle.classCode);
   const mergedItems = [...normal, ...material];
   return {
@@ -657,6 +694,8 @@ export function OrderBundleEditPanel({
   bundleLabel,
   itemQuantityLabel,
   meta,
+  readOnlyPreview = false,
+  instanceKey,
   variant = 'utility',
   bundlesOverride,
   onOpenDocument,
@@ -671,6 +710,14 @@ export function OrderBundleEditPanel({
 }: OrderBundleEditPanelProps) {
   const queryClient = useQueryClient();
   const executeMutateOrderBundles = mutateBundles ?? mutateOrderBundles;
+  const entityId = useMemo(() => {
+    const raw = instanceKey?.trim();
+    if (!raw) return entity;
+    const safeKey = raw.replace(/[^A-Za-z0-9_-]/g, '-');
+    if (!safeKey) return entity;
+    return `${entity}-${safeKey}`;
+  }, [entity, instanceKey]);
+  const isPreviewMode = readOnlyPreview;
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const isTestMode = import.meta.env.MODE === 'test';
   const [form, setForm] = useState<BundleFormState>(() => buildEmptyForm(today));
@@ -732,14 +779,14 @@ export function OrderBundleEditPanel({
         editorScrollRef.current.scrollTop = 0;
       }
       const el =
-        (document.getElementById(`${entity}-item-name-0`) as HTMLInputElement | null) ??
-        (document.getElementById(`${entity}-bundle-name`) as HTMLInputElement | null) ??
-        (document.getElementById(`${entity}-admin`) as HTMLInputElement | null);
+        (document.getElementById(`${entityId}-item-name-0`) as HTMLInputElement | null) ??
+        (document.getElementById(`${entityId}-bundle-name`) as HTMLInputElement | null) ??
+        (document.getElementById(`${entityId}-admin`) as HTMLInputElement | null);
       if (!el) return;
       safeScrollIntoView(el, { block: 'nearest' });
       el.focus();
     });
-  }, [entity]);
+  }, [entityId]);
 
   const clearValidationByKeys = useCallback((keys: string[]) => {
     if (keys.length === 0) return;
@@ -825,6 +872,9 @@ export function OrderBundleEditPanel({
 
   const blockReasons = useMemo(() => {
     const reasons: string[] = [];
+    if (isPreviewMode) {
+      reasons.push('プレビューモードのため編集できません。');
+    }
     if (meta.readOnly) {
       reasons.push(meta.readOnlyReason ?? '閲覧専用のため編集できません。');
     }
@@ -835,14 +885,15 @@ export function OrderBundleEditPanel({
       reasons.push('フォールバックデータのため編集できません。');
     }
     return reasons;
-  }, [meta.fallbackUsed, meta.missingMaster, meta.readOnly, meta.readOnlyReason]);
+  }, [isPreviewMode, meta.fallbackUsed, meta.missingMaster, meta.readOnly, meta.readOnlyReason]);
   const guardReasonKeys = useMemo(() => {
     const reasons: string[] = [];
+    if (isPreviewMode) reasons.push('preview');
     if (meta.readOnly) reasons.push('read_only');
     if (meta.missingMaster) reasons.push('missing_master');
     if (meta.fallbackUsed) reasons.push('fallback_used');
     return reasons;
-  }, [meta.fallbackUsed, meta.missingMaster, meta.readOnly]);
+  }, [isPreviewMode, meta.fallbackUsed, meta.missingMaster, meta.readOnly]);
   const isBlocked = blockReasons.length > 0;
   const session = useOptionalSession();
   const storageScope = useMemo(
@@ -900,29 +951,29 @@ export function OrderBundleEditPanel({
   const resolveWarningFocusTarget = useCallback(
     (warning: OrcaMedicalWarningUi): { elementId: string; target: WarningFocusTarget } | null => {
       if (warning.sourceKind === 'usage') {
-        return { elementId: `${entity}-admin`, target: { kind: 'usage' } };
+        return { elementId: `${entityId}-admin`, target: { kind: 'usage' } };
       }
       if (typeof warning.sourceItemIndex !== 'number') return null;
       const bodyPartCount = form.bodyPart && form.bodyPart.name.trim() ? 1 : 0;
       const sourceIndex = warning.sourceItemIndex;
       if (sourceIndex < bodyPartCount) {
-        return { elementId: `${entity}-bodypart`, target: { kind: 'bodyPart' } };
+        return { elementId: `${entityId}-bodypart`, target: { kind: 'bodyPart' } };
       }
       const itemsStart = bodyPartCount;
       const itemsEnd = itemsStart + form.items.length;
       if (sourceIndex >= itemsStart && sourceIndex < itemsEnd) {
         const index = sourceIndex - itemsStart;
-        return { elementId: `${entity}-item-name-${index}`, target: { kind: 'items', index } };
+        return { elementId: `${entityId}-item-name-${index}`, target: { kind: 'items', index } };
       }
       const commentStart = itemsEnd;
       const commentEnd = commentStart + form.commentItems.length;
       if (sourceIndex >= commentStart && sourceIndex < commentEnd) {
         const index = sourceIndex - commentStart;
-        return { elementId: `${entity}-comment-name-${index}`, target: { kind: 'commentItems', index } };
+        return { elementId: `${entityId}-comment-name-${index}`, target: { kind: 'commentItems', index } };
       }
       return null;
     },
-    [entity, form.bodyPart, form.commentItems.length, form.items.length],
+    [entityId, form.bodyPart, form.commentItems.length, form.items.length],
   );
 
   const [warningFocusRequest, setWarningFocusRequest] = useState<OrcaMedicalWarningUi | null>(null);
@@ -1751,17 +1802,32 @@ export function OrderBundleEditPanel({
     if (!historyCopyRequest) return;
     if (historyCopyRequest.requestId === lastExternalHistoryCopyRequestIdRef.current) return;
     lastExternalHistoryCopyRequestIdRef.current = historyCopyRequest.requestId;
+    if (isPreviewMode) {
+      onHistoryCopyConsumed?.(historyCopyRequest.requestId);
+      return;
+    }
     copyFromHistory(historyCopyRequest.bundle);
     setValidationIssues([]);
     focusFirstField();
     onHistoryCopyConsumed?.(historyCopyRequest.requestId);
-  }, [copyFromHistory, focusFirstField, historyCopyRequest, onHistoryCopyConsumed]);
+  }, [copyFromHistory, focusFirstField, historyCopyRequest, isPreviewMode, onHistoryCopyConsumed]);
 
   const lastExternalRequestIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!request) return;
     if (request.requestId === lastExternalRequestIdRef.current) return;
     lastExternalRequestIdRef.current = request.requestId;
+    if (isPreviewMode) {
+      if (request.kind === 'edit') {
+        setForm(toFormState(request.bundle, today));
+        setSelectedUsageMasterMeta(null);
+      } else if (request.kind === 'copy') {
+        setForm(toFormStateFromHistoryCopy(request.bundle, today));
+        setSelectedUsageMasterMeta(null);
+      }
+      onRequestConsumed?.(request.requestId);
+      return;
+    }
     switch (request.kind) {
       case 'new': {
         resetEditorForm();
@@ -1796,6 +1862,7 @@ export function OrderBundleEditPanel({
     copyFromHistory,
     entity,
     focusFirstField,
+    isPreviewMode,
     onRequestConsumed,
     request,
     resetEditorForm,
@@ -1980,6 +2047,7 @@ export function OrderBundleEditPanel({
 
   const mutation = useMutation({
     mutationFn: async (payload: OrderBundleSubmitPayload) => {
+      if (isPreviewMode) throw new Error('preview mode');
       if (!patientId) throw new Error('patientId is required');
       const filteredItems = collectBundleItems(payload.form)
         .filter((item) => item.name.trim().length > 0)
@@ -2002,6 +2070,7 @@ export function OrderBundleEditPanel({
             memo: payload.form.memo,
             startDate: payload.form.startDate,
             items: filteredItems,
+            bodyPart: resolveOperationBodyPart(payload.form),
           },
         ],
       });
@@ -2079,6 +2148,7 @@ export function OrderBundleEditPanel({
             memo: payload.form.memo,
             started: payload.form.startDate,
             items: normalizedItems,
+            bodyPart: resolveOperationBodyPart(payload.form),
           };
           setOptimisticBundles((prev) => {
             if (prev.some((bundle) => bundle.documentId === createdDocumentId)) return prev;
@@ -2105,6 +2175,7 @@ export function OrderBundleEditPanel({
                     memo: payload.form.memo,
                     started: payload.form.startDate,
                     items: normalizedItems,
+                    bodyPart: resolveOperationBodyPart(payload.form),
                   }
                 : bundle,
             ),
@@ -2169,6 +2240,7 @@ export function OrderBundleEditPanel({
 
   const deleteMutation = useMutation({
     mutationFn: async (bundle: OrderBundle) => {
+      if (isPreviewMode) throw new Error('preview mode');
       if (!patientId) throw new Error('patientId is required');
       return executeMutateOrderBundles({
         patientId,
@@ -2372,29 +2444,29 @@ export function OrderBundleEditPanel({
       const resolveTargetId = (key: string) => {
         switch (key) {
           case 'rp_required':
-            return `${entity}-rp-required-warning`;
+            return `${entityId}-rp-required-warning`;
           case 'missing_usage':
-            return `${entity}-admin`;
+            return `${entityId}-admin`;
           case 'missing_body_part':
-            return `${entity}-bodypart`;
+            return `${entityId}-bodypart`;
           case 'missing_items':
-            return `${entity}-item-name-0`;
+            return `${entityId}-item-name-0`;
           case USAGE_DAYS_LIMIT_ERROR_KEY:
-            return `${entity}-bundle-number`;
+            return `${entityId}-bundle-number`;
           case 'invalid_comment_item': {
             const idx = bundleForm.commentItems.findIndex((item) => {
               const hasCode = Boolean(item.code?.trim());
               const hasName = Boolean(item.name?.trim());
               return hasAnyValue(item) && (!hasCode || !hasName);
             });
-            return idx >= 0 ? `${entity}-comment-name-${idx}` : `${entity}-comment-draft-name`;
+            return idx >= 0 ? `${entityId}-comment-name-${idx}` : `${entityId}-comment-draft-name`;
           }
           case 'invalid_comment_code': {
             const idx = bundleForm.commentItems.findIndex((item) => {
               const code = item.code?.trim();
               return Boolean(code && !COMMENT_CODE_PATTERN.test(code));
             });
-            return idx >= 0 ? `${entity}-comment-name-${idx}` : `${entity}-comment-draft-name`;
+            return idx >= 0 ? `${entityId}-comment-name-${idx}` : `${entityId}-comment-draft-name`;
           }
           default:
             return null;
@@ -2409,12 +2481,16 @@ export function OrderBundleEditPanel({
         el.focus();
       });
     },
-    [entity],
+    [entityId],
   );
 
   const submitAction = (action: OrderBundleSubmitAction) => {
     if (isContraChecking) return;
     void (async () => {
+    if (isPreviewMode) {
+      setNotice({ tone: 'info', message: 'プレビューモードでは保存できません。' });
+      return;
+    }
     if (isBlocked) {
       setNotice({ tone: 'error', message: '編集ガード中のため保存できません。' });
       logAuditEvent({
@@ -2619,7 +2695,7 @@ export function OrderBundleEditPanel({
     <section
       className="charts-side-panel__section"
       data-order-entity={entity}
-      data-test-id={`${entity}-edit-panel`}
+      data-test-id={`${entityId}-edit-panel`}
       data-rp-required={rpRequiredIssueForForm ? 'true' : 'false'}
       data-rp-required-missing={rpRequiredIssueForForm ? rpRequiredIssueForForm.missing.join(',') : ''}
     >
@@ -2764,12 +2840,12 @@ export function OrderBundleEditPanel({
       )}
       {rpRequiredIssueForForm ? (
         <div
-          id={`${entity}-rp-required-warning`}
+          id={`${entityId}-rp-required-warning`}
           className="charts-side-panel__notice charts-side-panel__notice--warning"
           role="status"
           tabIndex={-1}
           aria-live={resolveAriaLive('warning')}
-          data-test-id={`${entity}-rp-required-warning`}
+          data-test-id={`${entityId}-rp-required-warning`}
         >
           <div>
             <strong>{RP_REQUIRED_ERROR_LABEL}</strong>
@@ -2777,7 +2853,7 @@ export function OrderBundleEditPanel({
           <p className="charts-side-panel__notice-detail">{buildRpRequiredEditorMessage(rpRequiredIssueForForm)}</p>
           <ul className="charts-side-panel__notice-list" aria-label="不足しているRP必須項目">
             {rpRequiredIssueForForm.missing.map((field) => (
-              <li key={`${entity}-${field}`}>{resolveRpRequiredFieldLabel(field)}</li>
+              <li key={`${entityId}-${field}`}>{resolveRpRequiredFieldLabel(field)}</li>
             ))}
           </ul>
         </div>
@@ -2841,9 +2917,9 @@ export function OrderBundleEditPanel({
             }}
           >
             <div className="charts-side-panel__field charts-side-panel__meta-section charts-side-panel__meta-section--bundle">
-              <label htmlFor={`${entity}-bundle-name`}>{bundleLabel}</label>
+              <label htmlFor={`${entityId}-bundle-name`}>{bundleLabel}</label>
               <input
-                id={`${entity}-bundle-name`}
+                id={`${entityId}-bundle-name`}
                 value={form.bundleName}
                 onChange={(event) => setForm((prev) => ({ ...prev, bundleName: event.target.value }))}
                 placeholder={orderUiProfile.bundleNamePlaceholder}
@@ -2857,7 +2933,7 @@ export function OrderBundleEditPanel({
               <div className="charts-side-panel__switch-group" role="group" aria-label="院内院外">
                 {PRESCRIPTION_LOCATION_OPTIONS.map((option) => (
                   <button
-                    key={`${entity}-prescription-location-${option.value}`}
+                    key={`${entityId}-prescription-location-${option.value}`}
                     type="button"
                     className="charts-side-panel__switch-button"
                     data-active={form.prescriptionLocation === option.value ? 'true' : 'false'}
@@ -2880,7 +2956,7 @@ export function OrderBundleEditPanel({
               <div className="charts-side-panel__switch-group" role="group" aria-label="剤区分">
                 {PRESCRIPTION_TIMING_OPTIONS.map((option) => (
                   <button
-                    key={`${entity}-prescription-timing-${option.value}`}
+                    key={`${entityId}-prescription-timing-${option.value}`}
                     type="button"
                     className="charts-side-panel__switch-button"
                     data-active={form.prescriptionTiming === option.value ? 'true' : 'false'}
@@ -2905,8 +2981,8 @@ export function OrderBundleEditPanel({
           <div className="charts-side-panel__field charts-side-panel__meta-section charts-side-panel__meta-section--mixing">
             <label className="charts-side-panel__toggle">
               <input
-                id={`${entity}-mixing`}
-                name={`${entity}-mixing`}
+                id={`${entityId}-mixing`}
+                name={`${entityId}-mixing`}
                 type="checkbox"
                 checked={mixingEnabled}
                 onChange={(event) => setMixingCommentEnabled(event.target.checked)}
@@ -2928,8 +3004,8 @@ export function OrderBundleEditPanel({
                   </button>
                 </div>
                 <input
-                  id={`${entity}-mixing-comment`}
-                  name={`${entity}-mixing-comment`}
+                  id={`${entityId}-mixing-comment`}
+                  name={`${entityId}-mixing-comment`}
                   value={mixingComment?.name ?? ''}
                   onChange={(event) => updateMixingCommentText(event.target.value)}
                   placeholder="混合コメント"
@@ -2944,10 +3020,10 @@ export function OrderBundleEditPanel({
         )}
         <div className="charts-side-panel__field-row charts-side-panel__meta-section charts-side-panel__meta-section--usage">
           <div className="charts-side-panel__field" data-invalid={usageError ? 'true' : undefined}>
-            <label htmlFor={`${entity}-admin`}>{orderUiProfile.instructionLabel}</label>
+            <label htmlFor={`${entityId}-admin`}>{orderUiProfile.instructionLabel}</label>
             {supportsUsageSearch ? (
               <select
-                id={`${entity}-admin`}
+                id={`${entityId}-admin`}
                 value={selectedUsageOptionKey}
                 data-orca-warning={orcaWarningTargets.usage ? 'true' : undefined}
                 aria-invalid={usageError ? 'true' : undefined}
@@ -2993,7 +3069,7 @@ export function OrderBundleEditPanel({
               </select>
             ) : (
               <input
-                id={`${entity}-admin`}
+                id={`${entityId}-admin`}
                 value={form.admin}
                 data-orca-warning={orcaWarningTargets.usage ? 'true' : undefined}
                 aria-invalid={usageError ? 'true' : undefined}
@@ -3008,16 +3084,16 @@ export function OrderBundleEditPanel({
             )}
             {supportsUsageSearch && (
               <>
-                <label htmlFor={`${entity}-admin-recent`}>最近使った用法</label>
+                <label htmlFor={`${entityId}-admin-recent`}>最近使った用法</label>
                 <select
-                  id={`${entity}-admin-recent`}
+                  id={`${entityId}-admin-recent`}
                   value=""
                   onChange={(event) => applyRecentUsageSelection(event.target.value)}
                   disabled={isBlocked || recentUsageHistory.length === 0}
                 >
                   <option value="">候補を選択</option>
                   {recentUsageHistory.map((usage) => (
-                    <option key={`${entity}-recent-usage-${usage}`} value={usage}>
+                    <option key={`${entityId}-recent-usage-${usage}`} value={usage}>
                       {usage}
                     </option>
                   ))}
@@ -3048,9 +3124,9 @@ export function OrderBundleEditPanel({
             )}
           </div>
           <div className="charts-side-panel__field">
-            <label htmlFor={`${entity}-bundle-number`}>{bundleNumberLabel}</label>
+            <label htmlFor={`${entityId}-bundle-number`}>{bundleNumberLabel}</label>
             <input
-              id={`${entity}-bundle-number`}
+              id={`${entityId}-bundle-number`}
               value={form.bundleNumber}
               onChange={(event) => {
                 clearValidationByKeys([USAGE_DAYS_LIMIT_ERROR_KEY]);
@@ -3090,9 +3166,9 @@ export function OrderBundleEditPanel({
             <div className="charts-side-panel__fold-content">
               <div className="charts-side-panel__subsection">
                 <div className="charts-side-panel__field charts-side-panel__meta-section--start">
-                  <label htmlFor={`${entity}-start`}>開始日</label>
+                  <label htmlFor={`${entityId}-start`}>開始日</label>
                   <input
-                    id={`${entity}-start`}
+                    id={`${entityId}-start`}
                     type="date"
                     value={form.startDate}
                     onChange={(event) => setForm((prev) => ({ ...prev, startDate: event.target.value }))}
@@ -3103,8 +3179,8 @@ export function OrderBundleEditPanel({
                   <div className="charts-side-panel__field charts-side-panel__meta-section--memo">
                     <label className="charts-side-panel__toggle">
                       <input
-                        id={`${entity}-no-procedure-charge`}
-                        name={`${entity}-no-procedure-charge`}
+                        id={`${entityId}-no-procedure-charge`}
+                        name={`${entityId}-no-procedure-charge`}
                         type="checkbox"
                         checked={isNoProcedureCharge}
                         onChange={(event) =>
@@ -3121,9 +3197,9 @@ export function OrderBundleEditPanel({
                   </div>
                 ) : (
                   <div className="charts-side-panel__field charts-side-panel__meta-section--memo">
-                    <label htmlFor={`${entity}-memo`}>{orderUiProfile.memoLabel}</label>
+                    <label htmlFor={`${entityId}-memo`}>{orderUiProfile.memoLabel}</label>
                     <textarea
-                      id={`${entity}-memo`}
+                      id={`${entityId}-memo`}
                       value={form.memo}
                       onChange={(event) => setForm((prev) => ({ ...prev, memo: event.target.value }))}
                       placeholder={orderUiProfile.memoPlaceholder}
@@ -3142,9 +3218,9 @@ export function OrderBundleEditPanel({
         ) : (
           <>
             <div className="charts-side-panel__field charts-side-panel__meta-section charts-side-panel__meta-section--start">
-              <label htmlFor={`${entity}-start`}>開始日</label>
+              <label htmlFor={`${entityId}-start`}>開始日</label>
               <input
-                id={`${entity}-start`}
+                id={`${entityId}-start`}
                 type="date"
                 value={form.startDate}
                 onChange={(event) => setForm((prev) => ({ ...prev, startDate: event.target.value }))}
@@ -3155,8 +3231,8 @@ export function OrderBundleEditPanel({
               <div className="charts-side-panel__field charts-side-panel__meta-section charts-side-panel__meta-section--memo">
                 <label className="charts-side-panel__toggle">
                   <input
-                    id={`${entity}-no-procedure-charge`}
-                    name={`${entity}-no-procedure-charge`}
+                    id={`${entityId}-no-procedure-charge`}
+                    name={`${entityId}-no-procedure-charge`}
                     type="checkbox"
                     checked={isNoProcedureCharge}
                     onChange={(event) =>
@@ -3173,9 +3249,9 @@ export function OrderBundleEditPanel({
               </div>
             ) : (
               <div className="charts-side-panel__field charts-side-panel__meta-section charts-side-panel__meta-section--memo">
-                <label htmlFor={`${entity}-memo`}>{orderUiProfile.memoLabel}</label>
+                <label htmlFor={`${entityId}-memo`}>{orderUiProfile.memoLabel}</label>
                 <textarea
-                  id={`${entity}-memo`}
+                  id={`${entityId}-memo`}
                   value={form.memo}
                   onChange={(event) => setForm((prev) => ({ ...prev, memo: event.target.value }))}
                   placeholder={orderUiProfile.memoPlaceholder}
@@ -3207,9 +3283,9 @@ export function OrderBundleEditPanel({
             </div>
             <div className="charts-side-panel__field-row">
               <div className="charts-side-panel__field" data-invalid={bodyPartError ? 'true' : undefined}>
-                <label htmlFor={`${entity}-bodypart`}>部位</label>
+                <label htmlFor={`${entityId}-bodypart`}>部位</label>
                 <input
-                  id={`${entity}-bodypart`}
+                  id={`${entityId}-bodypart`}
                   value={form.bodyPart?.name ?? ''}
                   data-orca-warning={orcaWarningTargets.bodyPart ? 'true' : undefined}
                   aria-invalid={bodyPartError ? 'true' : undefined}
@@ -3237,9 +3313,9 @@ export function OrderBundleEditPanel({
                 ) : null}
               </div>
               <div className="charts-side-panel__field">
-                <label htmlFor={`${entity}-bodypart-keyword`}>部位検索</label>
+                <label htmlFor={`${entityId}-bodypart-keyword`}>部位検索</label>
                 <input
-                  id={`${entity}-bodypart-keyword`}
+                  id={`${entityId}-bodypart-keyword`}
                   value={bodyPartKeyword}
                   onChange={(event) => setBodyPartKeyword(event.target.value)}
                   placeholder={isRadiologyOrder ? '例: 胸' : '例: 膝'}
@@ -3388,7 +3464,7 @@ export function OrderBundleEditPanel({
             </div>
           ) : null}
           {itemPredictiveCandidates.length > 0 && (
-            <datalist id={`${entity}-item-predictive-list`}>
+            <datalist id={`${entityId}-item-predictive-list`}>
               {itemPredictiveCandidates.map((candidate, candidateIndex) => (
                 <option
                   key={`${candidate.item.code ?? candidate.item.name}-${candidateIndex}`}
@@ -3452,7 +3528,7 @@ export function OrderBundleEditPanel({
             ].join(' / ');
             const shouldShowRowSummary = hasRowValue;
             return (
-              <div key={rowId ?? `${entity}-item-${index}`}>
+              <div key={rowId ?? `${entityId}-item-${index}`}>
                 <div
                   className={`charts-side-panel__item-row${
                     isInactiveRow ? ' charts-side-panel__item-row--inactive' : ''
@@ -3512,13 +3588,13 @@ export function OrderBundleEditPanel({
                     ≡
                   </button>
                   <input
-                    id={`${entity}-item-name-${index}`}
-                    name={`${entity}-item-name-${index}`}
+                    id={`${entityId}-item-name-${index}`}
+                    name={`${entityId}-item-name-${index}`}
                     value={item.name}
                     aria-invalid={itemsError && index === 0 ? 'true' : undefined}
                     list={
                       rowId === selectedItemRowId && itemPredictiveCandidates.length > 0
-                        ? `${entity}-item-predictive-list`
+                        ? `${entityId}-item-predictive-list`
                         : undefined
                     }
                     onChange={(event) => {
@@ -3537,8 +3613,8 @@ export function OrderBundleEditPanel({
                     disabled={isBlocked}
                   />
                   <input
-                    id={`${entity}-item-quantity-${index}`}
-                    name={`${entity}-item-quantity-${index}`}
+                    id={`${entityId}-item-quantity-${index}`}
+                    name={`${entityId}-item-quantity-${index}`}
                     value={item.quantity ?? ''}
                     onChange={(event) => {
                       const value = event.target.value;
@@ -3553,8 +3629,8 @@ export function OrderBundleEditPanel({
                     disabled={isBlocked}
                   />
                   <input
-                    id={`${entity}-item-unit-${index}`}
-                    name={`${entity}-item-unit-${index}`}
+                    id={`${entityId}-item-unit-${index}`}
+                    name={`${entityId}-item-unit-${index}`}
                     value={item.unit ?? ''}
                     onChange={(event) => {
                       const value = event.target.value;
@@ -3601,7 +3677,7 @@ export function OrderBundleEditPanel({
                           { value: 'no', label: '一般名なし' },
                         ].map((option) => (
                           <button
-                            key={`${entity}-item-generic-${index}-${option.value || 'default'}`}
+                            key={`${entityId}-item-generic-${index}-${option.value || 'default'}`}
                             type="button"
                             className="charts-side-panel__switch-button charts-side-panel__switch-button--compact"
                             data-active={genericValue === option.value ? 'true' : 'false'}
@@ -3615,8 +3691,8 @@ export function OrderBundleEditPanel({
                       </div>
                     ) : null}
                     <input
-                      id={`${entity}-item-user-comment-${index}`}
-                      name={`${entity}-item-user-comment-${index}`}
+                      id={`${entityId}-item-user-comment-${index}`}
+                      name={`${entityId}-item-user-comment-${index}`}
                       value={userCommentValue}
                       onChange={(event) => updateUserComment(event.target.value)}
                       onFocus={() => setSelectedItemRowId(rowId ?? null)}
@@ -3715,7 +3791,7 @@ export function OrderBundleEditPanel({
               コメント内容欄に入力した文字列で部分一致候補を表示します。候補選択でコードと名称を自動入力します。
             </p>
             {selectableCommentOptions.length > 0 && (
-              <datalist id={`${entity}-comment-suggestion-list`}>
+              <datalist id={`${entityId}-comment-suggestion-list`}>
                 {selectableCommentOptions.map((item) => {
                   const code = item.code?.trim();
                   const name = item.name.trim();
@@ -3729,19 +3805,19 @@ export function OrderBundleEditPanel({
             )}
             <div className="charts-side-panel__item-row charts-side-panel__item-row--comment">
               <input
-                id={`${entity}-comment-draft-code`}
-                name={`${entity}-comment-draft-code`}
+                id={`${entityId}-comment-draft-code`}
+                name={`${entityId}-comment-draft-code`}
                 value={commentDraft.code ?? ''}
                 placeholder="コード"
                 readOnly
                 disabled={isBlocked}
               />
               <input
-                id={`${entity}-comment-draft-name`}
-                name={`${entity}-comment-draft-name`}
+                id={`${entityId}-comment-draft-name`}
+                name={`${entityId}-comment-draft-name`}
                 value={commentDraft.name}
                 placeholder="コメント内容"
-                list={selectableCommentOptions.length > 0 ? `${entity}-comment-suggestion-list` : undefined}
+                list={selectableCommentOptions.length > 0 ? `${entityId}-comment-suggestion-list` : undefined}
                 onChange={(event) =>
                   setCommentDraft((prev) => ({
                     ...prev,
@@ -3762,16 +3838,16 @@ export function OrderBundleEditPanel({
                 disabled={isBlocked}
               />
               <input
-                id={`${entity}-comment-draft-quantity`}
-                name={`${entity}-comment-draft-quantity`}
+                id={`${entityId}-comment-draft-quantity`}
+                name={`${entityId}-comment-draft-quantity`}
                 value={commentDraft.quantity ?? ''}
                 onChange={(event) => setCommentDraft((prev) => ({ ...prev, quantity: event.target.value }))}
                 placeholder="数量"
                 disabled={isBlocked}
               />
               <input
-                id={`${entity}-comment-draft-unit`}
-                name={`${entity}-comment-draft-unit`}
+                id={`${entityId}-comment-draft-unit`}
+                name={`${entityId}-comment-draft-unit`}
                 value={commentDraft.unit ?? ''}
                 onChange={(event) => setCommentDraft((prev) => ({ ...prev, unit: event.target.value }))}
                 placeholder="単位"
@@ -3840,7 +3916,7 @@ export function OrderBundleEditPanel({
               const invalid = invalidCommentIndices.has(index);
               return (
                 <div
-                  key={`${entity}-comment-${index}`}
+                  key={`${entityId}-comment-${index}`}
                   className={`charts-side-panel__item-row charts-side-panel__item-row--comment${
                     orcaWarningTargets.commentItems.has(index) ? ' charts-side-panel__item-row--orca-warning' : ''
                   }${invalid ? ' charts-side-panel__item-row--invalid' : ''}`}
@@ -3855,16 +3931,16 @@ export function OrderBundleEditPanel({
                   return (
                     <>
                 <input
-                  id={`${entity}-comment-code-${index}`}
-                  name={`${entity}-comment-code-${index}`}
+                  id={`${entityId}-comment-code-${index}`}
+                  name={`${entityId}-comment-code-${index}`}
                   value={item.code ?? ''}
                   placeholder="コード"
                   readOnly
                   disabled={isBlocked}
                 />
                 <input
-                  id={`${entity}-comment-name-${index}`}
-                  name={`${entity}-comment-name-${index}`}
+                  id={`${entityId}-comment-name-${index}`}
+                  name={`${entityId}-comment-name-${index}`}
                   value={item.name}
                   placeholder="コメント内容"
                   readOnly={!isMixingItem}
@@ -3885,8 +3961,8 @@ export function OrderBundleEditPanel({
                   );
                 })()}
                 <input
-                  id={`${entity}-comment-quantity-${index}`}
-                  name={`${entity}-comment-quantity-${index}`}
+                  id={`${entityId}-comment-quantity-${index}`}
+                  name={`${entityId}-comment-quantity-${index}`}
                   value={item.quantity ?? ''}
                   onChange={(event) => {
                     const value = event.target.value;
@@ -3900,8 +3976,8 @@ export function OrderBundleEditPanel({
                   disabled={isBlocked}
                 />
                 <input
-                  id={`${entity}-comment-unit-${index}`}
-                  name={`${entity}-comment-unit-${index}`}
+                  id={`${entityId}-comment-unit-${index}`}
+                  name={`${entityId}-comment-unit-${index}`}
                   value={item.unit ?? ''}
                   onChange={(event) => {
                     const value = event.target.value;

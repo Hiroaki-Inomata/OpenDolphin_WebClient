@@ -48,6 +48,8 @@ type ValidationIssue = {
 export type PrescriptionOrderEditorPanelProps = {
   patientId?: string;
   meta: OrderBundleEditPanelMeta;
+  readOnlyPreview?: boolean;
+  instanceKey?: string;
   variant?: 'utility' | 'embedded';
   bundlesOverride?: OrderBundle[];
   request?: OrderBundleEditPanelRequest | null;
@@ -216,6 +218,8 @@ const mergeRpRequired = (order: PrescriptionOrder): { issue: ReturnType<typeof r
 export function PrescriptionOrderEditorPanel({
   patientId,
   meta,
+  readOnlyPreview = false,
+  instanceKey,
   variant = 'embedded',
   bundlesOverride,
   request,
@@ -227,6 +231,15 @@ export function PrescriptionOrderEditorPanel({
   active = true,
 }: PrescriptionOrderEditorPanelProps) {
   const queryClient = useQueryClient();
+  const idPrefix = useMemo(() => {
+    const raw = instanceKey?.trim();
+    if (!raw) return 'rx';
+    const safeKey = raw.replace(/[^A-Za-z0-9_-]/g, '-');
+    if (!safeKey) return 'rx';
+    return `rx-${safeKey}`;
+  }, [instanceKey]);
+  const domId = useCallback((suffix: string) => `${idPrefix}-${suffix}`, [idPrefix]);
+  const isPreviewMode = readOnlyPreview;
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [order, setOrder] = useState<PrescriptionOrder>(() => buildEmptyPrescriptionOrder(patientId ?? '', today));
   const [selectedRpIndex, setSelectedRpIndex] = useState(0);
@@ -290,6 +303,10 @@ export function PrescriptionOrderEditorPanel({
     if (!request || !patientId) return;
     if (request.requestId === lastRequestIdRef.current) return;
     lastRequestIdRef.current = request.requestId;
+    if (isPreviewMode) {
+      onRequestConsumed?.(request.requestId);
+      return;
+    }
 
     if (request.kind === 'new') {
       setOrder(buildEmptyPrescriptionOrder(patientId, today));
@@ -352,7 +369,7 @@ export function PrescriptionOrderEditorPanel({
       setValidationIssues([]);
       onRequestConsumed?.(request.requestId);
     }
-  }, [onRequestConsumed, patientId, request, today]);
+  }, [isPreviewMode, onRequestConsumed, patientId, request, today]);
 
   const selectedRp = order.rps[selectedRpIndex] ?? null;
   const selectedDrug = selectedRp?.drugs[selectedDrugIndex] ?? null;
@@ -401,6 +418,7 @@ export function PrescriptionOrderEditorPanel({
   );
 
   const addRp = () => {
+    if (isPreviewMode) return;
     setOrder((prev) => ({
       ...prev,
       rps: [...prev.rps, buildEmptyPrescriptionRp(today)],
@@ -410,6 +428,7 @@ export function PrescriptionOrderEditorPanel({
   };
 
   const removeRp = (rpIndex: number) => {
+    if (isPreviewMode) return;
     setOrder((prev) => {
       const target = prev.rps[rpIndex];
       if (!target) return prev;
@@ -429,6 +448,7 @@ export function PrescriptionOrderEditorPanel({
   };
 
   const clearAll = () => {
+    if (isPreviewMode) return;
     setOrder((prev) => {
       const deletions = prev.rps
         .map((rp) => rp.documentId)
@@ -443,6 +463,7 @@ export function PrescriptionOrderEditorPanel({
   };
 
   const addDrug = () => {
+    if (isPreviewMode) return;
     if (!selectedRp) return;
     updateRp(selectedRpIndex, (rp) => ({
       ...rp,
@@ -465,6 +486,7 @@ export function PrescriptionOrderEditorPanel({
   };
 
   const removeDrug = (rpIndex: number, drugIndex: number) => {
+    if (isPreviewMode) return;
     updateRp(rpIndex, (rp) => {
       if (rp.drugs.length <= 1) {
         return {
@@ -493,6 +515,7 @@ export function PrescriptionOrderEditorPanel({
   };
 
   const applyClaimDraft = useCallback(() => {
+    if (isPreviewMode) return;
     if (!selectedRp || !selectedDrug) return;
     const name = claimDraft.name.trim();
     if (!name) return;
@@ -502,7 +525,7 @@ export function PrescriptionOrderEditorPanel({
       claimComments: [...drug.claimComments, comment],
     }));
     setClaimDraft({ code: '', name: '' });
-  }, [claimDraft.code, claimDraft.name, selectedDrug, selectedDrugIndex, selectedRp, selectedRpIndex, updateDrug]);
+  }, [claimDraft.code, claimDraft.name, isPreviewMode, selectedDrug, selectedDrugIndex, selectedRp, selectedRpIndex, updateDrug]);
 
   const trimmedSearchKeyword = normalizeSearchText(searchKeyword);
   const shouldAutoSearch = trimmedSearchKeyword.length >= 3;
@@ -551,6 +574,7 @@ export function PrescriptionOrderEditorPanel({
   const usageOptions = usageMasterQuery.data?.items ?? [];
 
   const applyDrugCandidate = (candidate: OrderMasterSearchItem) => {
+    if (isPreviewMode) return;
     if (!selectedRp || !selectedDrug) return;
     updateDrug(selectedRpIndex, selectedDrugIndex, (drug) => ({
       ...drug,
@@ -615,6 +639,7 @@ export function PrescriptionOrderEditorPanel({
 
   const mutation = useMutation({
     mutationFn: async (action: SaveAction) => {
+      if (isPreviewMode) throw new Error('preview mode');
       if (!patientId) throw new Error('patientId is required');
       const result = await savePrescriptionOrder({
         patientId,
@@ -645,6 +670,10 @@ export function PrescriptionOrderEditorPanel({
   });
 
   const submit = (action: SaveAction) => {
+    if (isPreviewMode) {
+      setNotice({ tone: 'info', message: 'プレビューモードでは保存できません。' });
+      return;
+    }
     const issues = validate();
     setValidationIssues(issues);
     if (issues.length > 0) {
@@ -661,6 +690,7 @@ export function PrescriptionOrderEditorPanel({
   };
 
   const applyBulkDays = () => {
+    if (isPreviewMode) return;
     const value = bulkDaysValue.trim();
     if (!value) return;
     setOrder((prev) => ({
@@ -696,10 +726,10 @@ export function PrescriptionOrderEditorPanel({
           <strong>処方（RP集合）</strong>
         </div>
         <div className="charts-side-panel__subheader-actions">
-          <button type="button" className="charts-side-panel__ghost charts-side-panel__ghost--add" onClick={addRp}>
+          <button type="button" className="charts-side-panel__ghost charts-side-panel__ghost--add" onClick={addRp} disabled={isPreviewMode}>
             +RP
           </button>
-          <button type="button" className="charts-side-panel__ghost charts-side-panel__ghost--add" onClick={addDrug}>
+          <button type="button" className="charts-side-panel__ghost charts-side-panel__ghost--add" onClick={addDrug} disabled={isPreviewMode}>
             +薬剤
           </button>
           <button
@@ -709,17 +739,20 @@ export function PrescriptionOrderEditorPanel({
               if (!selectedRp) return;
               removeDrug(selectedRpIndex, selectedDrugIndex);
             }}
-            disabled={!selectedRp}
+            disabled={!selectedRp || isPreviewMode}
           >
             薬剤削除
           </button>
-          <button type="button" className="charts-side-panel__ghost charts-side-panel__ghost--danger" onClick={clearAll}>
+          <button type="button" className="charts-side-panel__ghost charts-side-panel__ghost--danger" onClick={clearAll} disabled={isPreviewMode}>
             全クリア
           </button>
         </div>
       </header>
 
       <div className="charts-side-panel__dock-body">
+        {isPreviewMode ? (
+          <div className="charts-side-panel__notice charts-side-panel__notice--info">プレビューモード: 編集操作・保存は無効です。</div>
+        ) : null}
         {notice ? (
           <div className={`charts-side-panel__notice charts-side-panel__notice--${notice.tone}`} aria-live={resolveAriaLive(notice.tone)}>
             {notice.message}
@@ -737,6 +770,10 @@ export function PrescriptionOrderEditorPanel({
           </div>
         ) : null}
 
+        <fieldset
+          disabled={isPreviewMode}
+          style={{ margin: 0, padding: 0, border: 0, minInlineSize: 0 }}
+        >
         <div className="charts-side-panel__workspace" data-variant={variant}>
           <aside className="charts-side-panel__workspace-left" aria-label="RP一覧">
             <div className="charts-side-panel__subsection">
@@ -785,9 +822,9 @@ export function PrescriptionOrderEditorPanel({
               </div>
               <div className="charts-side-panel__field-row">
                 <div className="charts-side-panel__field">
-                  <label htmlFor="rx-search-method">検索方法</label>
+                  <label htmlFor={domId('search-method')}>検索方法</label>
                   <select
-                    id="rx-search-method"
+                    id={domId('search-method')}
                     value={searchMethod}
                     onChange={(event) => setSearchMethod(event.target.value as PrescriptionSearchMethod)}
                   >
@@ -796,9 +833,9 @@ export function PrescriptionOrderEditorPanel({
                   </select>
                 </div>
                 <div className="charts-side-panel__field">
-                  <label htmlFor="rx-search-scope">検索範囲</label>
+                  <label htmlFor={domId('search-scope')}>検索範囲</label>
                   <select
-                    id="rx-search-scope"
+                    id={domId('search-scope')}
                     value={searchScope}
                     onChange={(event) => setSearchScope(event.target.value as PrescriptionSearchScope)}
                   >
@@ -811,9 +848,9 @@ export function PrescriptionOrderEditorPanel({
                 </div>
               </div>
               <div className="charts-side-panel__field">
-                <label htmlFor="rx-search-keyword">キーワード</label>
+                <label htmlFor={domId('search-keyword')}>キーワード</label>
                 <input
-                  id="rx-search-keyword"
+                  id={domId('search-keyword')}
                   value={searchKeyword}
                   onChange={(event) => {
                     setSearchKeyword(event.target.value);
@@ -877,9 +914,9 @@ export function PrescriptionOrderEditorPanel({
                 }}
               >
                 <div className="charts-side-panel__field charts-side-panel__meta-section charts-side-panel__meta-section--bundle">
-                  <label htmlFor="rx-rp-name">RP名</label>
+                  <label htmlFor={domId('rp-name')}>RP名</label>
                   <input
-                    id="rx-rp-name"
+                    id={domId('rp-name')}
                     value={selectedRp.name}
                     onChange={(event) =>
                       updateRp(selectedRpIndex, (rp) => ({
@@ -938,9 +975,9 @@ export function PrescriptionOrderEditorPanel({
 
                 <div className="charts-side-panel__field-row charts-side-panel__meta-section charts-side-panel__meta-section--usage">
                   <div className="charts-side-panel__field">
-                    <label htmlFor="rx-usage">用法マスタ</label>
+                    <label htmlFor={domId('usage')}>用法マスタ</label>
                     <select
-                      id="rx-usage"
+                      id={domId('usage')}
                       value={selectedRp.usageCode ?? ''}
                       onChange={(event) => {
                         const code = event.target.value;
@@ -961,9 +998,9 @@ export function PrescriptionOrderEditorPanel({
                     </select>
                   </div>
                   <div className="charts-side-panel__field">
-                    <label htmlFor="rx-usage-free">用法（自由入力）</label>
+                    <label htmlFor={domId('usage-free')}>用法（自由入力）</label>
                     <input
-                      id="rx-usage-free"
+                      id={domId('usage-free')}
                       value={selectedRp.usage}
                       onChange={(event) =>
                         updateRp(selectedRpIndex, (rp) => ({
@@ -975,9 +1012,9 @@ export function PrescriptionOrderEditorPanel({
                     />
                   </div>
                   <div className="charts-side-panel__field">
-                    <label htmlFor="rx-days">{selectedRp.category === 'tonyo' ? '回数' : '日数'}</label>
+                    <label htmlFor={domId('days')}>{selectedRp.category === 'tonyo' ? '回数' : '日数'}</label>
                     <input
-                      id="rx-days"
+                      id={domId('days')}
                       value={selectedRp.daysOrTimes}
                       onChange={(event) =>
                         updateRp(selectedRpIndex, (rp) => ({
@@ -991,10 +1028,10 @@ export function PrescriptionOrderEditorPanel({
 
                 <div className="charts-side-panel__field-row charts-side-panel__meta-section charts-side-panel__meta-section--memo">
                   <div className="charts-side-panel__field">
-                    <label htmlFor="rx-bulk-days">日数一括変更（内服/頓服のみ）</label>
+                    <label htmlFor={domId('bulk-days')}>日数一括変更（内服/頓服のみ）</label>
                     <div className="charts-side-panel__item-actions">
                       <input
-                        id="rx-bulk-days"
+                        id={domId('bulk-days')}
                         value={bulkDaysValue}
                         onChange={(event) => setBulkDaysValue(event.target.value)}
                         placeholder="例: 7"
@@ -1005,9 +1042,9 @@ export function PrescriptionOrderEditorPanel({
                     </div>
                   </div>
                   <div className="charts-side-panel__field">
-                    <label htmlFor="rx-remark">備考（改行不可・全角40文字）</label>
+                    <label htmlFor={domId('remark')}>備考（改行不可・全角40文字）</label>
                     <input
-                      id="rx-remark"
+                      id={domId('remark')}
                       value={selectedRp.remark}
                       onChange={(event) => {
                         const clamped = clampByFullWidth(event.target.value, 40);
@@ -1023,9 +1060,9 @@ export function PrescriptionOrderEditorPanel({
 
                 <div className="charts-side-panel__field-row charts-side-panel__meta-section charts-side-panel__meta-section--start">
                   <div className="charts-side-panel__field">
-                    <label htmlFor="rx-refill-count">処方箋設定（リフィル回数）</label>
+                    <label htmlFor={domId('refill-count')}>処方箋設定（リフィル回数）</label>
                     <select
-                      id="rx-refill-count"
+                      id={domId('refill-count')}
                       value={selectedRp.refillCount ?? ''}
                       onChange={(event) => {
                         const parsed = Number(event.target.value);
@@ -1042,9 +1079,9 @@ export function PrescriptionOrderEditorPanel({
                     </select>
                   </div>
                   <div className="charts-side-panel__field">
-                    <label htmlFor="rx-refill-pattern">処方箋設定（パターン併用禁止）</label>
+                    <label htmlFor={domId('refill-pattern')}>処方箋設定（パターン併用禁止）</label>
                     <select
-                      id="rx-refill-pattern"
+                      id={domId('refill-pattern')}
                       value={selectedRp.refillPattern}
                       onChange={(event) =>
                         updateRp(selectedRpIndex, (rp) => ({
@@ -1061,9 +1098,9 @@ export function PrescriptionOrderEditorPanel({
                     </select>
                   </div>
                   <div className="charts-side-panel__field">
-                    <label htmlFor="rx-doctor-comment">医師コメント</label>
+                    <label htmlFor={domId('doctor-comment')}>医師コメント</label>
                     <input
-                      id="rx-doctor-comment"
+                      id={domId('doctor-comment')}
                       value={order.doctorComment}
                       onChange={(event) =>
                         setOrder((prev) => ({
@@ -1095,7 +1132,7 @@ export function PrescriptionOrderEditorPanel({
                         }}
                       >
                         <input
-                          id={`rx-drug-name-${drugIndex}`}
+                          id={domId(`drug-name-${drugIndex}`)}
                           value={drug.name}
                           onChange={(event) =>
                             updateDrug(selectedRpIndex, drugIndex, (current) => ({
@@ -1106,7 +1143,7 @@ export function PrescriptionOrderEditorPanel({
                           placeholder="薬剤名"
                         />
                         <input
-                          id={`rx-drug-quantity-${drugIndex}`}
+                          id={domId(`drug-quantity-${drugIndex}`)}
                           value={drug.quantity}
                           onChange={(event) =>
                             updateDrug(selectedRpIndex, drugIndex, (current) => ({
@@ -1117,7 +1154,7 @@ export function PrescriptionOrderEditorPanel({
                           placeholder="数量"
                         />
                         <input
-                          id={`rx-drug-unit-${drugIndex}`}
+                          id={domId(`drug-unit-${drugIndex}`)}
                           value={drug.unit}
                           onChange={(event) =>
                             updateDrug(selectedRpIndex, drugIndex, (current) => ({
@@ -1154,7 +1191,7 @@ export function PrescriptionOrderEditorPanel({
                           {drug.patientRequest ? '患者希望' : '患者希望以外'}
                         </button>
                         <input
-                          id={`rx-drug-comment-${drugIndex}`}
+                          id={domId(`drug-comment-${drugIndex}`)}
                           value={drug.drugComment}
                           onChange={(event) =>
                             updateDrug(selectedRpIndex, drugIndex, (current) => ({
@@ -1260,6 +1297,7 @@ export function PrescriptionOrderEditorPanel({
             )}
           </div>
         </div>
+        </fieldset>
       </div>
 
       <footer className="charts-side-panel__dock-footer" aria-label="保存操作">
@@ -1271,7 +1309,7 @@ export function PrescriptionOrderEditorPanel({
             type="button"
             className="charts-side-panel__action charts-side-panel__action--expand"
             onClick={() => submit('expand')}
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || isPreviewMode}
           >
             保存して閉じる
           </button>
@@ -1279,7 +1317,7 @@ export function PrescriptionOrderEditorPanel({
             type="button"
             className="charts-side-panel__action charts-side-panel__action--expand-continue"
             onClick={() => submit('expand_continue')}
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || isPreviewMode}
           >
             保存して続ける
           </button>
@@ -1287,7 +1325,7 @@ export function PrescriptionOrderEditorPanel({
             type="button"
             className="charts-side-panel__action charts-side-panel__action--save"
             onClick={() => submit('save')}
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || isPreviewMode}
           >
             保存
           </button>

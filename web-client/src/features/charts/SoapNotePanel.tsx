@@ -24,7 +24,8 @@ import type { OrderBundle } from './orderBundleApi';
 import type { OrderBundleEditPanelRequest, OrderBundleEditingContext } from './OrderBundleEditPanel';
 import { OrderSummaryPane } from './OrderSummaryPane';
 import { RightUtilityDock } from './RightUtilityDock';
-import { RightUtilityDrawer, resolveLatestBundle, type RightUtilityTool } from './RightUtilityDrawer';
+import { RightUtilityDrawer, type RightUtilityTool } from './RightUtilityDrawer';
+import { resolveLatestBundle } from './orderDetailDisplayViewModel';
 import {
   ORDER_GROUP_REGISTRY,
   resolveOrderEntity,

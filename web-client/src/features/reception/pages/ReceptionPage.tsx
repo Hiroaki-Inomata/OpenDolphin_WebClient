@@ -1,5 +1,5 @@
 import { Global } from '@emotion/react';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 
@@ -119,12 +119,6 @@ const STATUS_LIST_LAYOUT_STORAGE_KEY = 'reception-status-list-layout';
 const ORCA_QUEUE_REFRESH_INTERVAL_MS = 60_000;
 const ORCA_QUEUE_QUERY_KEY = ['orca-queue'] as const;
 const PATIENT_SEARCH_PAGE_SIZE = 50;
-const ACCEPT_WORKFLOW_DRAG_MARGIN = 12;
-
-type AcceptWorkflowModalPosition = {
-  left: number;
-  top: number;
-};
 
 const pad2 = (value: number) => value.toString().padStart(2, '0');
 const formatLocalYmd = (date: Date) =>
@@ -805,16 +799,6 @@ export function ReceptionPage({
   const landingCreate = searchParams.get('create') === '1';
   const landingHandledRef = useRef<string | null>(null);
   const [acceptWorkflowModalOpen, setAcceptWorkflowModalOpen] = useState(false);
-  const [acceptWorkflowModalPosition, setAcceptWorkflowModalPosition] = useState<AcceptWorkflowModalPosition | null>(null);
-  const [acceptWorkflowModalDragging, setAcceptWorkflowModalDragging] = useState(false);
-  const acceptWorkflowModalRef = useRef<HTMLElement | null>(null);
-  const acceptWorkflowModalDragRef = useRef<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    startLeft: number;
-    startTop: number;
-  } | null>(null);
 
   useEffect(() => {
     if (!landingSection && !landingCreate) return;
@@ -3035,90 +3019,6 @@ export function ReceptionPage({
     setAcceptWorkflowModalOpen(false);
   }, []);
 
-  const clampAcceptWorkflowModalPosition = useCallback(
-    (position: AcceptWorkflowModalPosition, width: number, height: number): AcceptWorkflowModalPosition => {
-      const minLeft = ACCEPT_WORKFLOW_DRAG_MARGIN;
-      const minTop = ACCEPT_WORKFLOW_DRAG_MARGIN;
-      const maxLeft = Math.max(minLeft, window.innerWidth - width - ACCEPT_WORKFLOW_DRAG_MARGIN);
-      const maxTop = Math.max(minTop, window.innerHeight - height - ACCEPT_WORKFLOW_DRAG_MARGIN);
-      return {
-        left: Math.min(Math.max(position.left, minLeft), maxLeft),
-        top: Math.min(Math.max(position.top, minTop), maxTop),
-      };
-    },
-    [],
-  );
-
-  const handleAcceptWorkflowModalDragStart = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    const panel = acceptWorkflowModalRef.current;
-    if (!panel) return;
-    const rect = panel.getBoundingClientRect();
-    acceptWorkflowModalDragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      startLeft: rect.left,
-      startTop: rect.top,
-    };
-    setAcceptWorkflowModalDragging(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
-    event.preventDefault();
-  }, []);
-
-  const handleAcceptWorkflowModalDragMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const drag = acceptWorkflowModalDragRef.current;
-      const panel = acceptWorkflowModalRef.current;
-      if (!drag || !panel || drag.pointerId !== event.pointerId) return;
-      const next = clampAcceptWorkflowModalPosition(
-        {
-          left: drag.startLeft + (event.clientX - drag.startX),
-          top: drag.startTop + (event.clientY - drag.startY),
-        },
-        panel.offsetWidth,
-        panel.offsetHeight,
-      );
-      setAcceptWorkflowModalPosition(next);
-    },
-    [clampAcceptWorkflowModalPosition],
-  );
-
-  const stopAcceptWorkflowModalDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = acceptWorkflowModalDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    acceptWorkflowModalDragRef.current = null;
-    setAcceptWorkflowModalDragging(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!acceptWorkflowModalOpen) {
-      acceptWorkflowModalDragRef.current = null;
-      setAcceptWorkflowModalDragging(false);
-    }
-  }, [acceptWorkflowModalOpen]);
-
-  useEffect(() => {
-    if (!acceptWorkflowModalOpen) return;
-    const panel = acceptWorkflowModalRef.current;
-    if (!panel || !acceptWorkflowModalPosition) return;
-    const handleResize = () => {
-      const clamped = clampAcceptWorkflowModalPosition(
-        acceptWorkflowModalPosition,
-        panel.offsetWidth,
-        panel.offsetHeight,
-      );
-      if (clamped.left !== acceptWorkflowModalPosition.left || clamped.top !== acceptWorkflowModalPosition.top) {
-        setAcceptWorkflowModalPosition(clamped);
-      }
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [acceptWorkflowModalOpen, acceptWorkflowModalPosition, clampAcceptWorkflowModalPosition]);
-
   const handlePatientSearchSubmit = useCallback(
     async (event?: FormEvent<HTMLFormElement>) => {
       event?.preventDefault();
@@ -4436,104 +4336,6 @@ export function ReceptionPage({
               <h1>{title}</h1>
               <p>{description}</p>
             </div>
-            <div className="reception-page__title-actions">
-              <button
-                type="button"
-                className="reception-search__button primary"
-                onClick={openAcceptWorkflowModal}
-                data-test-id="reception-open-accept-workflow"
-              >
-                当日受付/患者検索
-              </button>
-              <div
-                ref={dailyCalendarRootRef}
-                className={`reception-daily-calendar${dailyCalendarOpen ? ' is-open' : ''}`}
-                data-run-id={resolvedRunId}
-              >
-                <button
-                  type="button"
-                  className="reception-daily-calendar__trigger"
-                  aria-label={`日次状態: ${appointmentEntriesSourceLabel}（カレンダー）`}
-                  aria-expanded={dailyCalendarOpen}
-                  onClick={() => {
-                    setDailyCalendarMonthStart(startOfUtcMonth(selectedDate));
-                    setDailyCalendarOpen((prev) => !prev);
-                  }}
-                >
-                  <span className="reception-daily-calendar__trigger-label">
-                    日次状態: {appointmentEntriesSourceLabel}
-                  </span>
-                  <span className="reception-daily-calendar__trigger-date">{selectedDate}</span>
-                </button>
-
-                {dailyCalendarOpen ? (
-                  <div className="reception-daily-calendar__popover" role="group" aria-label="日次状態カレンダー">
-                    <header className="reception-daily-calendar__popover-header">
-                      <button
-                        type="button"
-                        className="reception-daily-calendar__nav"
-                        onClick={() => setDailyCalendarMonthStart((prev) => shiftUtcMonth(prev, -1))}
-                      >
-                        前月
-                      </button>
-                      <strong className="reception-daily-calendar__month" aria-live={infoLive}>
-                        {dailyCalendarMonthLabel}
-                      </strong>
-                      <button
-                        type="button"
-                        className="reception-daily-calendar__nav"
-                        onClick={() => setDailyCalendarMonthStart((prev) => shiftUtcMonth(prev, 1))}
-                      >
-                        翌月
-                      </button>
-                    </header>
-                    <div className="reception-daily-calendar__weekdays" aria-hidden="true">
-                      {DAILY_CALENDAR_WEEKDAYS.map((label) => (
-                        <span key={label}>{label}</span>
-                      ))}
-                    </div>
-                    <div className="reception-daily-calendar__days">
-                      {dailyCalendarCells.map((cell) => {
-                        const enabled = dailyCalendarAvailableDates.has(cell.ymd);
-                        const selected = cell.ymd === selectedDate;
-                        return (
-                          <button
-                            key={cell.ymd}
-                            type="button"
-                            className={`reception-daily-calendar__day${selected ? ' is-selected' : ''}${enabled ? ' is-enabled' : ''}${cell.inMonth ? '' : ' is-outside'}`}
-                            onClick={() => {
-                              if (!enabled) return;
-                              setSelectedDate(cell.ymd);
-                              setDailyCalendarOpen(false);
-                            }}
-                            disabled={!enabled}
-                            aria-pressed={selected}
-                            data-weekday={cell.weekday}
-                            title={
-                              enabled
-                                ? `${cell.ymd} の受付状況へ移動`
-                                : `${cell.ymd} は受付データがありません`
-                            }
-                          >
-                            {cell.day}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <div className="reception-daily-calendar__legend" aria-hidden="true">
-                      <span className="reception-daily-calendar__legend-item">
-                        <span className="reception-daily-calendar__legend-dot" data-kind="enabled" />
-                        受付データあり
-                      </span>
-                      <span className="reception-daily-calendar__legend-item">
-                        <span className="reception-daily-calendar__legend-dot" data-kind="selected" />
-                        選択中
-                      </span>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </div>
           </div>
           <div className="reception-page__meta-bar" role="status" aria-live={infoLive} data-run-id={resolvedRunId}>
             <RunIdBadge runId={resolvedRunId} />
@@ -5795,6 +5597,113 @@ export function ReceptionPage({
 
         </section>
 
+        <div
+          className="reception-page__floating-actions"
+          role="group"
+          aria-label="受付操作"
+        >
+          <button
+            type="button"
+            className="reception-page__floating-action reception-page__floating-action--accept-workflow"
+            onClick={openAcceptWorkflowModal}
+            data-test-id="reception-open-accept-workflow"
+          >
+            当日受付/患者検索
+          </button>
+          <div
+            ref={dailyCalendarRootRef}
+            className={`reception-daily-calendar reception-page__floating-calendar${dailyCalendarOpen ? ' is-open' : ''}`}
+            data-run-id={resolvedRunId}
+          >
+            <button
+              type="button"
+              className="reception-daily-calendar__trigger"
+              aria-label={`日次状態: ${appointmentEntriesSourceLabel}（カレンダー）`}
+              aria-expanded={dailyCalendarOpen}
+              onClick={() => {
+                setDailyCalendarMonthStart(startOfUtcMonth(selectedDate));
+                setDailyCalendarOpen((prev) => !prev);
+              }}
+            >
+              <span className="reception-daily-calendar__trigger-label">
+                日次状態: {appointmentEntriesSourceLabel}
+              </span>
+              <span className="reception-daily-calendar__trigger-date">{selectedDate}</span>
+            </button>
+
+            {dailyCalendarOpen ? (
+              <div
+                className="reception-daily-calendar__popover"
+                role="group"
+                aria-label="日次状態カレンダー"
+              >
+                <header className="reception-daily-calendar__popover-header">
+                  <button
+                    type="button"
+                    className="reception-daily-calendar__nav"
+                    onClick={() => setDailyCalendarMonthStart((prev) => shiftUtcMonth(prev, -1))}
+                  >
+                    前月
+                  </button>
+                  <strong className="reception-daily-calendar__month" aria-live={infoLive}>
+                    {dailyCalendarMonthLabel}
+                  </strong>
+                  <button
+                    type="button"
+                    className="reception-daily-calendar__nav"
+                    onClick={() => setDailyCalendarMonthStart((prev) => shiftUtcMonth(prev, 1))}
+                  >
+                    翌月
+                  </button>
+                </header>
+                <div className="reception-daily-calendar__weekdays" aria-hidden="true">
+                  {DAILY_CALENDAR_WEEKDAYS.map((label) => (
+                    <span key={label}>{label}</span>
+                  ))}
+                </div>
+                <div className="reception-daily-calendar__days">
+                  {dailyCalendarCells.map((cell) => {
+                    const enabled = dailyCalendarAvailableDates.has(cell.ymd);
+                    const selected = cell.ymd === selectedDate;
+                    return (
+                      <button
+                        key={cell.ymd}
+                        type="button"
+                        className={`reception-daily-calendar__day${selected ? ' is-selected' : ''}${enabled ? ' is-enabled' : ''}${cell.inMonth ? '' : ' is-outside'}`}
+                        onClick={() => {
+                          if (!enabled) return;
+                          setSelectedDate(cell.ymd);
+                          setDailyCalendarOpen(false);
+                        }}
+                        disabled={!enabled}
+                        aria-pressed={selected}
+                        data-weekday={cell.weekday}
+                        title={
+                          enabled
+                            ? `${cell.ymd} の受付状況へ移動`
+                            : `${cell.ymd} は受付データがありません`
+                        }
+                      >
+                        {cell.day}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="reception-daily-calendar__legend" aria-hidden="true">
+                  <span className="reception-daily-calendar__legend-item">
+                    <span className="reception-daily-calendar__legend-dot" data-kind="enabled" />
+                    受付データあり
+                  </span>
+                  <span className="reception-daily-calendar__legend-item">
+                    <span className="reception-daily-calendar__legend-dot" data-kind="selected" />
+                    選択中
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
         {debugUiEnabled ? (
           <OrderConsole
             masterSource={masterSource}
@@ -5820,32 +5729,14 @@ export function ReceptionPage({
 
         {acceptWorkflowModalOpen ? (
           <section
-            ref={acceptWorkflowModalRef}
             className={`reception-accept-workflow-modal${acceptWorkflowModalCollapsed ? ' is-collapsed' : ''}`}
             role="region"
             aria-label="当日受付/患者検索"
             data-test-id="reception-accept-workflow-modal"
             data-run-id={resolvedRunId}
-            data-dragging={acceptWorkflowModalDragging ? 'true' : undefined}
-            style={
-              acceptWorkflowModalPosition
-                ? {
-                    left: `${acceptWorkflowModalPosition.left}px`,
-                    top: `${acceptWorkflowModalPosition.top}px`,
-                    right: 'auto',
-                  }
-                : undefined
-            }
           >
             <header className="reception-accept-workflow-modal__header">
-              <div
-                className="reception-accept-workflow-modal__heading"
-                onPointerDown={handleAcceptWorkflowModalDragStart}
-                onPointerMove={handleAcceptWorkflowModalDragMove}
-                onPointerUp={stopAcceptWorkflowModalDrag}
-                onPointerCancel={stopAcceptWorkflowModalDrag}
-                title="ドラッグして移動"
-              >
+              <div className="reception-accept-workflow-modal__heading">
                 <h2>当日受付/患者検索</h2>
                 <p>患者検索（AND）→ 選択 → 受付登録。</p>
               </div>
@@ -5855,6 +5746,7 @@ export function ReceptionPage({
                   className="reception-search__button ghost"
                   onClick={() => setAcceptWorkflowModalCollapsed((prev) => !prev)}
                   aria-expanded={!acceptWorkflowModalCollapsed}
+                  aria-controls="reception-accept-workflow-modal-body"
                   data-test-id="reception-accept-workflow-collapse"
                 >
                   {acceptWorkflowModalCollapsed ? '展開' : '折りたたむ'}
@@ -5864,8 +5756,11 @@ export function ReceptionPage({
                 </button>
               </div>
             </header>
-            {!acceptWorkflowModalCollapsed ? (
-              <div className="reception-accept-workflow-modal__body">
+            <div
+              id="reception-accept-workflow-modal-body"
+              className="reception-accept-workflow-modal__body"
+              aria-hidden={acceptWorkflowModalCollapsed}
+            >
                 <div className="reception-accept-modal" data-run-id={resolvedRunId}>
                   <section
                     className="reception-patient-search reception-patient-search--embedded reception-accept-modal__left"
@@ -6182,7 +6077,6 @@ export function ReceptionPage({
                   </section>
                 </div>
               </div>
-            ) : null}
           </section>
         ) : null}
 

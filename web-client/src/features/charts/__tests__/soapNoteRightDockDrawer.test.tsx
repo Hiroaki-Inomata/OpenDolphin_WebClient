@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -70,7 +70,46 @@ describe('SoapNotePanel right dock drawer', () => {
     expect(drawerHeaderLabel).toHaveTextContent('注射');
     expect(drawer.querySelector('.soap-note__right-drawer-panel[data-active="true"]')).not.toBeNull();
     expect(injectionSummaryGroup.getAttribute('data-active')).toBe('true');
-    expect(drawer).toHaveTextContent('注射セットA');
+    expect(drawer.querySelector('.soap-note__right-drawer-order-list')).toBeNull();
+    const previewSection = requireElement(drawer.querySelector('.soap-note__right-drawer-order-preview'));
+    expect(previewSection).toHaveTextContent('注射セットA');
+    expect(previewSection).toHaveTextContent('このセットを編集');
+  });
+
+  it('文書タブは右ドロワーで開閉できる', async () => {
+    const user = userEvent.setup();
+
+    renderWithQueryClient(
+      <SoapNotePanel
+        history={[]}
+        meta={{
+          runId: 'RUN-RIGHT-DOCK-DOCUMENT',
+          patientId: 'P-001',
+          appointmentId: 'APT-001',
+          receptionId: 'RCP-001',
+          visitDate: '2026-02-26',
+        }}
+        author={{ role: 'doctor', displayName: 'Dr. Dock', userId: 'doctor01' }}
+        orderBundles={[]}
+      />,
+    );
+
+    const drawer = requireElement(document.body.querySelector('.soap-note__right-drawer'));
+    const drawerHeaderLabel = requireElement(drawer.querySelector('.soap-note__right-drawer-header strong'));
+    expect(drawer.getAttribute('data-open')).toBe('false');
+
+    await user.click(screen.getByRole('button', { name: '文書を開く' }));
+    await waitFor(() => {
+      expect(drawer.getAttribute('data-open')).toBe('true');
+    });
+    expect(drawer.getAttribute('data-tool')).toBe('document');
+    expect(drawerHeaderLabel).toHaveTextContent('文書');
+    expect(drawer).toHaveTextContent('文書パネルが未接続です。');
+
+    await user.click(screen.getByRole('button', { name: '右ドロワーを閉じる' }));
+    await waitFor(() => {
+      expect(drawer.getAttribute('data-open')).toBe('false');
+    });
   });
 
   it('非モーダル右ドロワー開中でも背景のSOAP入力を操作できる', async () => {
@@ -163,5 +202,182 @@ describe('SoapNotePanel right dock drawer', () => {
     expect(drawerHeaderLabel).toHaveTextContent('処方');
     expect(prescriptionSummaryGroup.getAttribute('data-active')).toBe('true');
     expect(drawer).toHaveTextContent('糖尿病薬RP');
+  });
+
+  it('処方ドロワー一覧は SOAP右基準の詳細行（RP/後発可否/薬剤量/成分量/用法/日数/レセコメント）を表示する', async () => {
+    const user = userEvent.setup();
+    const bundles: OrderBundle[] = [
+      {
+        entity: 'medOrder',
+        bundleName: '詳細表示RP',
+        classCode: '212',
+        bundleNumber: '7',
+        admin: '1日2回',
+        started: '2026-02-27T09:00:00+09:00',
+        documentId: 301,
+        moduleId: 31,
+        items: [
+          {
+            name: '620000001 メトホルミン',
+            quantity: '2',
+            unit: '錠',
+            memo: '__orca_meta__:{"genericFlg":"no","userComment":"食後に服用"}\nレセプト文言A',
+            ingredientQuantity: '500',
+            ingredientUnit: 'mg',
+          } as any,
+        ],
+      },
+    ];
+
+    renderWithQueryClient(
+      <SoapNotePanel
+        history={[]}
+        meta={{
+          runId: 'RUN-RIGHT-DOCK-DETAIL',
+          patientId: 'P-003',
+          appointmentId: 'APT-003',
+          receptionId: 'RCP-003',
+          visitDate: '2026-02-27',
+        }}
+        author={{ role: 'doctor', displayName: 'Dr. Dock', userId: 'doctor03' }}
+        orderBundles={bundles}
+      />,
+    );
+
+    const drawer = requireElement(document.body.querySelector('.soap-note__right-drawer'));
+
+    await user.click(screen.getByRole('button', { name: '処方を開く' }));
+    await waitFor(() => {
+      expect(drawer.getAttribute('data-open')).toBe('true');
+    });
+
+    const previewItem = requireElement<HTMLElement>(screen.getByText('詳細表示RP').closest('.soap-note__right-drawer-order-preview-item'));
+    expect(within(previewItem).getByText('プレビューモード: 編集操作・保存は無効です。')).toBeInTheDocument();
+    expect(within(previewItem).getByDisplayValue('詳細表示RP')).toBeInTheDocument();
+    expect(within(previewItem).getByDisplayValue('1日2回')).toBeInTheDocument();
+    expect(within(previewItem).getByDisplayValue('7')).toBeInTheDocument();
+    expect(within(previewItem).getByDisplayValue(/メトホルミン/)).toBeInTheDocument();
+  });
+
+  it('右ドロワー一覧の並び順は started desc -> documentId desc -> index desc を維持する', async () => {
+    const user = userEvent.setup();
+    const bundles: OrderBundle[] = [
+      {
+        entity: 'injectionOrder',
+        bundleName: '前日',
+        started: '2026-02-26T09:00:00+09:00',
+        documentId: 11,
+        moduleId: 1,
+        items: [{ name: '生食', quantity: '1', unit: '本' }],
+      },
+      {
+        entity: 'injectionOrder',
+        bundleName: '同日doc小',
+        started: '2026-02-27T09:00:00+09:00',
+        documentId: 15,
+        moduleId: 2,
+        items: [{ name: 'ブドウ糖', quantity: '1', unit: '本' }],
+      },
+      {
+        entity: 'injectionOrder',
+        bundleName: '同日doc大',
+        started: '2026-02-27T09:00:00+09:00',
+        documentId: 21,
+        moduleId: 3,
+        items: [{ name: '乳酸リンゲル', quantity: '1', unit: '本' }],
+      },
+    ];
+
+    renderWithQueryClient(
+      <SoapNotePanel
+        history={[]}
+        meta={{
+          runId: 'RUN-RIGHT-DOCK-SORT',
+          patientId: 'P-004',
+          appointmentId: 'APT-004',
+          receptionId: 'RCP-004',
+          visitDate: '2026-02-27',
+        }}
+        author={{ role: 'doctor', displayName: 'Dr. Dock', userId: 'doctor04' }}
+        orderBundles={bundles}
+      />,
+    );
+
+    const drawer = requireElement(document.body.querySelector('.soap-note__right-drawer'));
+    await user.click(screen.getByRole('button', { name: '注射を開く' }));
+    await waitFor(() => {
+      expect(drawer.getAttribute('data-open')).toBe('true');
+    });
+
+    expect(drawer.querySelector('.soap-note__right-drawer-order-list')).toBeNull();
+    const previewList = requireElement(drawer.querySelector('.soap-note__right-drawer-order-preview-list'));
+    const labels = Array.from(previewList.querySelectorAll('.soap-note__right-drawer-order-preview-item-header strong')).map((node) =>
+      node.textContent?.trim(),
+    );
+
+    expect(labels).toEqual(['同日doc大', '同日doc小', '前日']);
+  });
+
+  it('既存セットpreviewの「このセットを編集」で対象セットが編集状態になる', async () => {
+    const user = userEvent.setup();
+    const bundles: OrderBundle[] = [
+      {
+        entity: 'injectionOrder',
+        bundleName: '前日',
+        started: '2026-02-26T09:00:00+09:00',
+        documentId: 11,
+        moduleId: 1,
+        items: [{ name: '生食', quantity: '1', unit: '本' }],
+      },
+      {
+        entity: 'injectionOrder',
+        bundleName: '同日doc小',
+        started: '2026-02-27T09:00:00+09:00',
+        documentId: 15,
+        moduleId: 2,
+        items: [{ name: 'ブドウ糖', quantity: '1', unit: '本' }],
+      },
+      {
+        entity: 'injectionOrder',
+        bundleName: '同日doc大',
+        started: '2026-02-27T09:00:00+09:00',
+        documentId: 21,
+        moduleId: 3,
+        items: [{ name: '乳酸リンゲル', quantity: '1', unit: '本' }],
+      },
+    ];
+
+    renderWithQueryClient(
+      <SoapNotePanel
+        history={[]}
+        meta={{
+          runId: 'RUN-RIGHT-DOCK-EDIT-BUTTON',
+          patientId: 'P-005',
+          appointmentId: 'APT-005',
+          receptionId: 'RCP-005',
+          visitDate: '2026-02-27',
+        }}
+        author={{ role: 'doctor', displayName: 'Dr. Dock', userId: 'doctor05' }}
+        orderBundles={bundles}
+      />,
+    );
+
+    const drawer = requireElement(document.body.querySelector('.soap-note__right-drawer'));
+    await user.click(screen.getByRole('button', { name: '注射を開く' }));
+    await waitFor(() => {
+      expect(drawer.getAttribute('data-open')).toBe('true');
+    });
+
+    const targetCard = requireElement<HTMLElement>(screen.getByText('前日').closest('.soap-note__right-drawer-order-preview-item'));
+    const mainEditor = requireElement<HTMLElement>(drawer.querySelector('.soap-note__right-drawer-order-editor'));
+    const bundleNameInput = within(mainEditor).getByLabelText('注射名') as HTMLInputElement;
+    expect(bundleNameInput.value).toBe('同日doc大');
+
+    await user.click(within(targetCard).getByRole('button', { name: '前日を編集' }));
+
+    await waitFor(() => {
+      expect(bundleNameInput.value).toBe('前日');
+    });
+    expect(drawer.getAttribute('data-open')).toBe('true');
   });
 });

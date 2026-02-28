@@ -195,8 +195,11 @@ export const receptionStyles = css`
   }
 
   .reception-page {
+    --reception-floating-offset-right: max(1rem, calc(env(safe-area-inset-right) + 0.65rem));
+    --reception-floating-offset-bottom: max(1rem, calc(env(safe-area-inset-bottom) + 0.65rem));
+    --reception-floating-stack-height: 7.4rem;
     min-height: 100vh;
-    padding: 3rem clamp(1rem, 4vw, 2.75rem);
+    padding: 3rem clamp(1rem, 4vw, 2.75rem) calc(3rem + var(--reception-floating-stack-height));
     background: var(--ui-surface-muted);
     display: flex;
     flex-direction: column;
@@ -307,6 +310,84 @@ export const receptionStyles = css`
     flex-wrap: wrap;
   }
 
+  @keyframes reception-float-up {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes reception-sheet-up {
+    from {
+      opacity: 0;
+      transform: translateY(22px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .reception-page__floating-actions {
+    position: fixed;
+    right: var(--reception-floating-offset-right);
+    bottom: var(--reception-floating-offset-bottom);
+    width: clamp(14rem, 24vw, 17rem);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.65rem;
+    z-index: 10700;
+    pointer-events: none;
+  }
+
+  .reception-page__floating-actions > * {
+    pointer-events: auto;
+  }
+
+  .reception-page__floating-calendar {
+    width: 100%;
+  }
+
+  .reception-page__floating-action,
+  .reception-daily-calendar__trigger {
+    border-radius: 18px;
+    border: 1px solid rgba(30, 64, 175, 0.25);
+    background: linear-gradient(180deg, rgba(239, 246, 255, 0.95), rgba(255, 255, 255, 0.96));
+    color: #0f172a;
+    min-height: 3.2rem;
+    width: 100%;
+    padding: 0.65rem 0.85rem;
+    box-shadow: 0 12px 26px rgba(30, 64, 175, 0.14);
+    backdrop-filter: blur(4px);
+  }
+
+  .reception-page__floating-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    font-weight: 800;
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+  }
+
+  .reception-page__floating-action:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .reception-page__floating-action:focus-visible,
+  .reception-daily-calendar__trigger:focus-visible {
+    outline: 3px solid rgba(37, 99, 235, 0.45);
+    outline-offset: 2px;
+  }
+
   .reception-page__header h1 {
     margin: 0;
     font-size: 2rem;
@@ -327,16 +408,12 @@ export const receptionStyles = css`
   }
 
   .reception-daily-calendar__trigger {
-    border-radius: 18px;
-    border: 1px solid rgba(30, 64, 175, 0.25);
-    background: linear-gradient(180deg, rgba(239, 246, 255, 0.95), rgba(255, 255, 255, 0.95));
-    padding: 0.65rem 0.85rem;
     cursor: pointer;
     text-align: left;
-    min-width: 14rem;
-    box-shadow: 0 10px 24px rgba(30, 64, 175, 0.1);
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
     gap: 0.2rem;
   }
 
@@ -360,15 +437,11 @@ export const receptionStyles = css`
     box-shadow: 0 16px 34px rgba(37, 99, 235, 0.18);
   }
 
-  .reception-daily-calendar__trigger:focus-visible {
-    outline: 3px solid rgba(37, 99, 235, 0.45);
-    outline-offset: 2px;
-  }
-
   .reception-daily-calendar__popover {
     position: absolute;
-    top: calc(100% + 0.45rem);
+    bottom: calc(100% + 0.55rem);
     right: 0;
+    top: auto;
     width: min(340px, 92vw);
     border-radius: 20px;
     border: 1px solid rgba(148, 163, 184, 0.45);
@@ -376,6 +449,8 @@ export const receptionStyles = css`
     box-shadow: 0 22px 60px rgba(15, 23, 42, 0.25);
     padding: 0.85rem 0.9rem;
     z-index: 200;
+    transform-origin: right bottom;
+    animation: reception-float-up 180ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .reception-daily-calendar__popover-header {
@@ -880,26 +955,34 @@ export const receptionStyles = css`
 
   .reception-accept-workflow-modal {
     position: fixed;
-    right: 1rem;
-    top: clamp(6rem, 11vh, 7.5rem);
-    width: min(760px, 58vw);
-    height: min(1040px, 92vh);
-    bottom: auto;
-    transform: none;
+    right: var(--reception-floating-offset-right);
+    bottom: calc(var(--reception-floating-offset-bottom) + var(--reception-floating-stack-height) + 0.5rem);
+    left: auto;
+    top: auto;
+    width: min(760px, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 2rem));
+    height: min(960px, calc(100vh - var(--reception-floating-stack-height) - 7.2rem));
+    max-height: calc(100vh - var(--reception-floating-stack-height) - 6rem);
+    min-height: 14.5rem;
     z-index: 10800;
-    border-radius: 20px;
+    border-radius: 22px;
     border: 1px solid rgba(148, 163, 184, 0.45);
     background: rgba(255, 255, 255, 0.98);
     box-shadow: 0 20px 70px rgba(15, 23, 42, 0.25);
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
+    overflow: hidden;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    transform-origin: right bottom;
+    animation: reception-sheet-up 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    transition: max-height 220ms ease, box-shadow 220ms ease, border-radius 220ms ease;
   }
 
   .reception-accept-workflow-modal.is-collapsed {
     height: auto;
+    min-height: 0;
+    max-height: 6.6rem;
+    border-radius: 18px;
   }
 
   .reception-accept-workflow-modal__header {
@@ -919,13 +1002,9 @@ export const receptionStyles = css`
   }
 
   .reception-accept-workflow-modal__heading {
-    cursor: grab;
-    user-select: none;
-    touch-action: none;
-  }
-
-  .reception-accept-workflow-modal[data-dragging='true'] .reception-accept-workflow-modal__heading {
-    cursor: grabbing;
+    cursor: default;
+    user-select: auto;
+    touch-action: auto;
   }
 
   .reception-accept-workflow-modal__heading p {
@@ -948,6 +1027,10 @@ export const receptionStyles = css`
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    max-height: 100%;
+    opacity: 1;
+    transform: translateY(0);
+    transition: max-height 220ms ease, opacity 180ms ease, transform 220ms ease, padding 220ms ease;
   }
 
   .reception-accept-modal {
@@ -1059,7 +1142,18 @@ export const receptionStyles = css`
   }
 
   .reception-accept-workflow-modal.is-collapsed .reception-accept-workflow-modal__body {
-    display: none;
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(0.6rem);
+    visibility: hidden;
+    padding-top: 0;
+    padding-bottom: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .reception-accept-workflow-modal.is-collapsed .reception-accept-workflow-modal__header {
+    border-bottom-color: transparent;
   }
 
   .reception-sidepane {
@@ -3772,8 +3866,32 @@ export const receptionStyles = css`
   }
 
   @media (max-width: 768px) {
+    .reception-page {
+      --reception-floating-offset-right: max(0.65rem, calc(env(safe-area-inset-right) + 0.45rem));
+      --reception-floating-offset-bottom: max(0.65rem, calc(env(safe-area-inset-bottom) + 0.45rem));
+      --reception-floating-stack-height: 6.9rem;
+    }
+
     .order-console__action {
       flex: 1 1 100%;
+    }
+
+    .reception-page__floating-actions {
+      right: var(--reception-floating-offset-right);
+      bottom: var(--reception-floating-offset-bottom);
+      width: min(16rem, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 1.4rem));
+      gap: 0.5rem;
+    }
+
+    .reception-page__floating-action,
+    .reception-daily-calendar__trigger {
+      min-height: 2.95rem;
+      padding: 0.58rem 0.75rem;
+    }
+
+    .reception-daily-calendar__popover {
+      width: min(320px, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 1rem));
+      bottom: calc(100% + 0.5rem);
     }
 
     .reception-layout {
@@ -3788,18 +3906,18 @@ export const receptionStyles = css`
     }
 
     .reception-accept-workflow-modal {
-      left: 0.4rem;
-      right: 0.4rem;
-      top: 4.9rem;
-      bottom: auto;
+      left: max(0.45rem, calc(env(safe-area-inset-left) + 0.25rem));
+      right: max(0.45rem, calc(env(safe-area-inset-right) + 0.25rem));
+      bottom: calc(var(--reception-floating-offset-bottom) + var(--reception-floating-stack-height) + 0.45rem);
+      top: auto;
       width: auto;
-      height: min(92vh, 960px);
-      transform: none;
-      border-radius: 14px;
+      height: min(86vh, 880px);
+      max-height: calc(100vh - env(safe-area-inset-top) - var(--reception-floating-stack-height) - 1.5rem);
+      border-radius: 16px;
     }
 
     .reception-accept-workflow-modal.is-collapsed {
-      height: auto;
+      max-height: 6.2rem;
     }
 
     .reception-accept-workflow-modal__header {
