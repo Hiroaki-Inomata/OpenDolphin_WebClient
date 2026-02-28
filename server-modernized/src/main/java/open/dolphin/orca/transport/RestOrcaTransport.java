@@ -6,23 +6,28 @@ import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.IOException;
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.net.http.HttpClient;
-import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.net.ssl.SSLContext;
-import open.dolphin.orca.config.OrcaConnectionConfigStore;
+import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.msg.gateway.ExternalServiceAuditLogger;
 import open.dolphin.orca.OrcaGatewayException;
+import open.dolphin.orca.config.OrcaConnectionConfigStore;
 import open.dolphin.orca.transport.OrcaHttpClient.OrcaHttpResponse;
 import open.dolphin.rest.OrcaApiProxySupport;
+import open.dolphin.session.framework.SessionTraceAttributes;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
+import org.jboss.logmanager.MDC;
 
 /**
  * HTTP transport for ORCA API endpoints using Basic auth.
@@ -34,9 +39,11 @@ public class RestOrcaTransport implements OrcaTransport {
     private static final String ORCA_ACCEPT = "application/xml";
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private OrcaHttpClient httpClient;
-    private HttpClient rawHttpClient;
-    private volatile OrcaTransportSettings cachedSettings;
+    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
+    private static final String DEFAULT_FACILITY_KEY = "_default";
+
+    private final Map<String, CachedTransportEntry> facilityCache = new ConcurrentHashMap<>();
+    private final Object reloadLock = new Object();
 
     @Inject
     SessionTraceManager traceManager;
@@ -44,15 +51,8 @@ public class RestOrcaTransport implements OrcaTransport {
     @Inject
     OrcaConnectionConfigStore orcaConnectionConfigStore;
 
-    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
-
     @PostConstruct
     private void initialize() {
-        this.rawHttpClient = HttpClient.newBuilder()
-                .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
-        this.httpClient = new OrcaHttpClient(rawHttpClient);
         OrcaTransportSettings settings = reloadSettings();
         if (settings != null) {
             LOGGER.log(Level.INFO, "ORCA transport settings loaded: {0}", settings.auditSummary());
@@ -69,24 +69,32 @@ public class RestOrcaTransport implements OrcaTransport {
 
     @Override
     public OrcaTransportResult invokeDetailed(OrcaEndpoint endpoint, OrcaTransportRequest request) {
-        OrcaTransportSettings resolved = currentSettings();
-        if (resolved == null) {
-            LOGGER.log(Level.WARNING, "ORCA transport settings unavailable; attempting reload (endpoint={0})",
-                    endpoint != null ? endpoint.getPath() : "unknown");
-            resolved = reloadCache();
+        String facilityId = resolveFacilityId();
+        CachedTransportEntry transport = currentEntry(facilityId);
+        OrcaTransportSettings resolved = transport != null ? transport.settings() : null;
+        OrcaHttpClient activeHttpClient = transport != null ? transport.httpClient() : null;
+
+        if (resolved == null || activeHttpClient == null) {
+            LOGGER.log(Level.WARNING, "ORCA transport settings unavailable; attempting reload (endpoint={0}, facilityId={1})",
+                    new Object[]{endpoint != null ? endpoint.getPath() : "unknown", safeFacility(facilityId)});
+            transport = reloadCache(facilityId);
+            resolved = transport != null ? transport.settings() : null;
+            activeHttpClient = transport != null ? transport.httpClient() : null;
         }
+
         String traceId = resolveTraceId();
         String action = "ORCA_HTTP";
         if (endpoint == null) {
             OrcaGatewayException failure = new OrcaGatewayException("Endpoint must not be null");
-            ExternalServiceAuditLogger.logOrcaFailure(traceId, action, null, resolved.auditSummary(), failure);
+            ExternalServiceAuditLogger.logOrcaFailure(traceId, action, null, auditSummary(resolved), failure);
             throw failure;
         }
-        if (!resolved.isReady()) {
+        if (resolved == null || activeHttpClient == null || !resolved.isReady()) {
             OrcaGatewayException failure = new OrcaGatewayException("ORCA transport settings are incomplete");
-            ExternalServiceAuditLogger.logOrcaFailure(traceId, action, endpoint.getPath(), resolved.auditSummary(), failure);
+            ExternalServiceAuditLogger.logOrcaFailure(traceId, action, endpoint.getPath(), auditSummary(resolved), failure);
             throw failure;
         }
+
         String payload = request != null && request.getBody() != null ? request.getBody() : "";
         String method = resolveMethod(endpoint, request);
         boolean isGet = "GET".equalsIgnoreCase(method);
@@ -104,6 +112,7 @@ public class RestOrcaTransport implements OrcaTransport {
             ExternalServiceAuditLogger.logOrcaFailure(traceId, action, endpoint.getPath(), resolved.auditSummary(), failure);
             throw failure;
         }
+
         String requestId = traceId;
         String query = resolveQuery(endpoint, payload, request);
         String url = resolved.buildUrl(endpoint, query);
@@ -111,24 +120,24 @@ public class RestOrcaTransport implements OrcaTransport {
         try {
             ExternalServiceAuditLogger.logOrcaRequest(traceId, action, endpoint.getPath(), resolved.auditSummary());
             OrcaHttpResponse response = isGet
-                    ? httpClient.get(resolved, endpoint.getPath(), query, accept, requestId, traceId)
-                    : httpClient.postXml2(resolved, endpoint.getPath(), payload, query, accept, requestId, traceId);
+                    ? activeHttpClient.get(resolved, endpoint.getPath(), query, accept, requestId, traceId)
+                    : activeHttpClient.postXml2(resolved, endpoint.getPath(), payload, query, accept, requestId, traceId);
             ExternalServiceAuditLogger.logOrcaResponse(traceId, action, endpoint.getPath(), response.status(), resolved.auditSummary());
-            java.util.Map<String, java.util.List<String>> headers = new java.util.LinkedHashMap<>(response.headers());
+            Map<String, List<String>> headers = new java.util.LinkedHashMap<>(response.headers());
             if (response.apiResult() != null && response.apiResult().apiResult() != null) {
                 String apiResult = response.apiResult().apiResult();
                 String sanitizedApiResult = OrcaApiProxySupport.sanitizeHeaderValue("X-Orca-Api-Result", apiResult);
                 if (sanitizedApiResult != null) {
-                    headers.put("X-Orca-Api-Result", java.util.List.of(sanitizedApiResult));
+                    headers.put("X-Orca-Api-Result", List.of(sanitizedApiResult));
                     headers.put("X-Orca-Api-Result-Success",
-                            java.util.List.of(Boolean.toString(OrcaApiProxySupport.isApiResultSuccess(sanitizedApiResult))));
+                            List.of(Boolean.toString(OrcaApiProxySupport.isApiResultSuccess(sanitizedApiResult))));
                 }
                 // Api_Result_Message can contain control characters; omit header to avoid invalid response headers.
                 if (response.apiResult().warnings() != null && !response.apiResult().warnings().isEmpty()) {
                     String warnings = String.join(" | ", response.apiResult().warnings());
                     String sanitized = OrcaApiProxySupport.sanitizeHeaderValue("X-Orca-Warnings", warnings);
                     if (sanitized != null) {
-                        headers.put("X-Orca-Warnings", java.util.List.of(sanitized));
+                        headers.put("X-Orca-Warnings", List.of(sanitized));
                     }
                 }
             }
@@ -172,16 +181,25 @@ public class RestOrcaTransport implements OrcaTransport {
     }
 
     public HttpClient rawHttpClient() {
-        return rawHttpClient;
+        CachedTransportEntry entry = currentEntry(resolveFacilityId());
+        return entry != null ? entry.rawHttpClient() : null;
     }
 
     public String buildOrcaUrl(String path) {
-        OrcaTransportSettings settings = currentSettings();
+        return buildOrcaUrl(resolveFacilityId(), path);
+    }
+
+    public String buildOrcaUrl(String facilityId, String path) {
+        OrcaTransportSettings settings = currentSettings(facilityId);
         return settings != null ? settings.buildOrcaUrl(path) : null;
     }
 
     public String resolveBasicAuthHeader() {
-        OrcaTransportSettings settings = currentSettings();
+        return resolveBasicAuthHeader(resolveFacilityId());
+    }
+
+    public String resolveBasicAuthHeader(String facilityId) {
+        OrcaTransportSettings settings = currentSettings(facilityId);
         if (settings == null || !settings.hasCredentials()) {
             return null;
         }
@@ -189,71 +207,96 @@ public class RestOrcaTransport implements OrcaTransport {
     }
 
     public OrcaTransportSettings reloadSettings() {
-        OrcaTransportSettings settings = reloadCache();
+        return reloadSettings(null);
+    }
+
+    public OrcaTransportSettings reloadSettings(String facilityId) {
+        CachedTransportEntry entry = reloadCache(facilityId);
+        OrcaTransportSettings settings = entry != null ? entry.settings() : null;
         if (settings != null) {
-            LOGGER.log(Level.INFO, "ORCA transport settings reloaded: {0}", settings.auditSummary());
+            LOGGER.log(Level.INFO, "ORCA transport settings reloaded: {0} facilityId={1}",
+                    new Object[]{settings.auditSummary(), safeFacility(facilityId)});
         } else {
-            LOGGER.log(Level.WARNING, "ORCA transport settings reload failed: settings null");
+            LOGGER.log(Level.WARNING, "ORCA transport settings reload failed: settings null facilityId={0}",
+                    safeFacility(facilityId));
         }
         return settings;
     }
 
     public OrcaTransportSettings currentSettingsInstance() {
-        return currentSettings();
+        return currentSettings(resolveFacilityId());
+    }
+
+    public OrcaTransportSettings currentSettingsInstance(String facilityId) {
+        return currentSettings(facilityId);
     }
 
     public String auditSummary() {
-        OrcaTransportSettings settings = currentSettings();
+        return auditSummary(resolveFacilityId());
+    }
+
+    public String auditSummary(String facilityId) {
+        OrcaTransportSettings settings = currentSettings(facilityId);
         return settings != null ? settings.auditSummary() : "orca.host=unknown";
     }
 
-    private OrcaTransportSettings currentSettings() {
-        OrcaTransportSettings settings = cachedSettings;
-        if (settings == null) {
-            settings = reloadCache();
-        }
-        return settings;
+    private OrcaTransportSettings currentSettings(String facilityId) {
+        CachedTransportEntry entry = currentEntry(facilityId);
+        return entry != null ? entry.settings() : null;
     }
 
-    private synchronized OrcaTransportSettings reloadCache() {
-        OrcaTransportSettings settings = null;
-        try {
-            settings = loadSettingsFromAdminConfig();
-        } catch (RuntimeException ex) {
-            LOGGER.log(Level.WARNING, "Failed to load ORCA transport settings from admin config: " + ex.getMessage(), ex);
+    private CachedTransportEntry currentEntry(String facilityId) {
+        String key = cacheKey(facilityId);
+        CachedTransportEntry entry = facilityCache.get(key);
+        if (entry == null) {
+            entry = reloadCache(facilityId);
         }
-        if (settings == null) {
-            settings = OrcaTransportSettings.load();
-            // Reset to default client when falling back.
-            this.rawHttpClient = HttpClient.newBuilder()
-                    .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
-                    .followRedirects(HttpClient.Redirect.NEVER)
-                    .build();
-            this.httpClient = new OrcaHttpClient(rawHttpClient);
-        }
-        if (settings == null) {
-            LOGGER.warning("ORCA transport settings load returned null");
-        } else if (!settings.isReady()) {
-            LOGGER.log(Level.WARNING, "ORCA transport settings not ready: {0}", settings.auditSummary());
-        }
-        cachedSettings = settings;
-        return settings;
+        return entry;
     }
 
-    private OrcaTransportSettings loadSettingsFromAdminConfig() {
+    private CachedTransportEntry reloadCache(String facilityId) {
+        synchronized (reloadLock) {
+            String key = cacheKey(facilityId);
+            CachedTransportEntry entry = null;
+            try {
+                entry = loadSettingsFromAdminConfig(facilityId);
+            } catch (RuntimeException ex) {
+                LOGGER.log(Level.WARNING,
+                        "Failed to load ORCA transport settings from admin config: " + ex.getMessage() + " facilityId=" + safeFacility(facilityId),
+                        ex);
+            }
+            if (entry == null) {
+                entry = loadFallbackSettings();
+            }
+            if (entry == null) {
+                LOGGER.warning("ORCA transport settings load returned null");
+                facilityCache.remove(key);
+                return null;
+            }
+            if (!entry.settings().isReady()) {
+                LOGGER.log(Level.WARNING, "ORCA transport settings not ready: {0}", entry.settings().auditSummary());
+            }
+            facilityCache.put(key, entry);
+            return entry;
+        }
+    }
+
+    private CachedTransportEntry loadSettingsFromAdminConfig(String facilityId) {
         if (orcaConnectionConfigStore == null) {
             return null;
         }
-        OrcaConnectionConfigStore.ResolvedOrcaConnection resolved = orcaConnectionConfigStore.resolve();
+
+        OrcaConnectionConfigStore.ResolvedOrcaConnection resolved = orcaConnectionConfigStore.resolve(facilityId);
         if (resolved == null) {
             return null;
         }
+
         OrcaTransportSettings settings = OrcaTransportSettings.fromAdminConfig(
                 resolved.baseUrl(),
                 resolved.useWeborca(),
                 resolved.username(),
-                resolved.password()
-        );
+                resolved.password());
+
         HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NEVER);
@@ -262,17 +305,89 @@ public class RestOrcaTransport implements OrcaTransport {
             SSLContext sslContext = OrcaTlsSupport.buildSslContext(
                     resolved.clientAuthEnabled() ? resolved.clientCertificateP12() : null,
                     resolved.clientAuthEnabled() ? resolved.clientCertificatePassphrase() : null,
-                    resolved.caCertificate()
-            );
+                    resolved.caCertificate());
             builder.sslContext(sslContext);
         }
-        this.rawHttpClient = builder.build();
-        this.httpClient = new OrcaHttpClient(rawHttpClient);
-        return settings;
+        HttpClient raw = builder.build();
+        return new CachedTransportEntry(settings, raw, new OrcaHttpClient(raw));
+    }
+
+    private CachedTransportEntry loadFallbackSettings() {
+        OrcaTransportSettings settings = OrcaTransportSettings.load();
+        if (settings == null) {
+            return null;
+        }
+        HttpClient raw = HttpClient.newBuilder()
+                .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
+        return new CachedTransportEntry(settings, raw, new OrcaHttpClient(raw));
+    }
+
+    private static String cacheKey(String facilityId) {
+        String normalized = normalizeFacilityId(facilityId);
+        return normalized != null ? normalized : DEFAULT_FACILITY_KEY;
+    }
+
+    private String resolveFacilityId() {
+        SessionTraceContext context = traceManager != null ? traceManager.current() : null;
+        if (context != null) {
+            String fromFacilityAttr = normalizeFacilityId(context.getAttribute(SessionTraceAttributes.FACILITY_ID));
+            if (fromFacilityAttr != null) {
+                return fromFacilityAttr;
+            }
+            String fromActor = extractFacilityFromCompositeActor(context.getAttribute(SessionTraceAttributes.ACTOR_ID));
+            if (fromActor != null) {
+                return fromActor;
+            }
+        }
+
+        String mdcActor = resolveActorFromMdc();
+        return extractFacilityFromCompositeActor(mdcActor);
+    }
+
+    private String resolveActorFromMdc() {
+        Object fromJboss = MDC.get(SessionTraceAttributes.ACTOR_ID_MDC_KEY);
+        if (fromJboss instanceof String actor && !actor.isBlank()) {
+            return actor;
+        }
+        String fromSlf4j = org.slf4j.MDC.get(SessionTraceAttributes.ACTOR_ID_MDC_KEY);
+        if (fromSlf4j != null && !fromSlf4j.isBlank()) {
+            return fromSlf4j;
+        }
+        return null;
+    }
+
+    private static String extractFacilityFromCompositeActor(String actorId) {
+        String normalized = normalizeFacilityId(actorId);
+        if (normalized == null) {
+            return null;
+        }
+        int idx = normalized.indexOf(IInfoModel.COMPOSITE_KEY_MAKER);
+        if (idx <= 0) {
+            return null;
+        }
+        return normalizeFacilityId(normalized.substring(0, idx));
+    }
+
+    private static String normalizeFacilityId(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String safeFacility(String facilityId) {
+        return facilityId != null ? facilityId : "default";
+    }
+
+    private static String auditSummary(OrcaTransportSettings settings) {
+        return settings != null ? settings.auditSummary() : "orca.host=unknown";
     }
 
     private static void logMissingBody(String traceId, OrcaEndpoint endpoint, OrcaTransportSettings settings) {
-        java.util.List<String> fields = endpoint != null ? endpoint.requiredFields() : java.util.List.of();
+        List<String> fields = endpoint != null ? endpoint.requiredFields() : List.of();
         String fieldSummary = fields.isEmpty() ? "unknown" : String.join(",", fields);
         LOGGER.log(Level.WARNING, "ORCA request body is missing traceId={0} path={1} requiredFields={2} target={3}",
                 new Object[]{traceId, endpoint != null ? endpoint.getPath() : "unknown", fieldSummary,
@@ -353,9 +468,9 @@ public class RestOrcaTransport implements OrcaTransport {
             return false;
         }
         if (node.isObject()) {
-            java.util.Iterator<java.util.Map.Entry<String, JsonNode>> fields = node.fields();
+            java.util.Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
             while (fields.hasNext()) {
-                java.util.Map.Entry<String, JsonNode> entry = fields.next();
+                Map.Entry<String, JsonNode> entry = fields.next();
                 JsonNode value = entry.getValue();
                 if (entry.getKey() != null && entry.getKey().equalsIgnoreCase(fieldName)
                         && hasJsonValue(value)) {
@@ -433,5 +548,11 @@ public class RestOrcaTransport implements OrcaTransport {
             }
         }
         return null;
+    }
+
+    private record CachedTransportEntry(
+            OrcaTransportSettings settings,
+            HttpClient rawHttpClient,
+            OrcaHttpClient httpClient) {
     }
 }

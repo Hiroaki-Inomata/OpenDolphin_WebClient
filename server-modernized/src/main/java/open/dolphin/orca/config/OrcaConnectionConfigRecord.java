@@ -1,5 +1,7 @@
 package open.dolphin.orca.config;
 
+import java.util.Map;
+
 /**
  * Persistent record for ORCA/WebORCA connection settings.
  *
@@ -10,6 +12,12 @@ public class OrcaConnectionConfigRecord {
     private int version = 1;
 
     private String updatedAt;
+    private String facilityId;
+
+    /**
+     * Multi-facility container. When present in the top-level JSON, each entry is scoped by facilityId.
+     */
+    private Map<String, OrcaConnectionConfigRecord> records;
 
     private Boolean useWeborca;
     private String serverUrl;
@@ -45,6 +53,22 @@ public class OrcaConnectionConfigRecord {
 
     public void setUpdatedAt(String updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getFacilityId() {
+        return facilityId;
+    }
+
+    public void setFacilityId(String facilityId) {
+        this.facilityId = facilityId;
+    }
+
+    public Map<String, OrcaConnectionConfigRecord> getRecords() {
+        return records;
+    }
+
+    public void setRecords(Map<String, OrcaConnectionConfigRecord> records) {
+        this.records = records;
     }
 
     public Boolean getUseWeborca() {
@@ -167,4 +191,3 @@ public class OrcaConnectionConfigRecord {
         this.caCertificateEncrypted = caCertificateEncrypted;
     }
 }
-
