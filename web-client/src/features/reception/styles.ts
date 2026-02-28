@@ -1107,6 +1107,13 @@ export const receptionStyles = css`
     color: #0f172a;
   }
 
+  .reception-accept-modal__selected-patient {
+    margin: 0.35rem 0 0;
+    font-size: 0.84rem;
+    color: #334155;
+    font-weight: 700;
+  }
+
   .reception-accept-modal__accept-actions {
     display: flex;
     flex-wrap: wrap;
@@ -1122,6 +1129,25 @@ export const receptionStyles = css`
     overflow: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .reception-accept-modal__submit {
+    margin-top: auto;
+    padding-top: 0.55rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+
+  .reception-accept-modal__submit .reception-search__button {
+    width: 100%;
+  }
+
+  .reception-accept-modal__submit-hint {
+    margin: 0;
+    font-size: 0.82rem;
+    color: #475569;
   }
 
   .reception-sidepane {
