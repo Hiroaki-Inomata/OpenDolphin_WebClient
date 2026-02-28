@@ -1,4 +1,4 @@
-# 開発状況（単一参照, 更新日: 2026-02-26）
+# 開発状況（単一参照, 更新日: 2026-02-28）
 
 ## 現行ステータス
 - Phase2 開発ドキュメントは **Legacy/Archive（参照専用）**。Phase2 を現行フェーズとして扱わない。
@@ -30,6 +30,16 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-02-28: `claim.sender=client` 相当（施設単位ORCA接続）へ向けた server-modernized/web-client 改修を実施（RUN_ID=20260228T131828Z）。
+  - 計画書: `docs/server-modernization/claim-sender-client-equivalent-implementation-plan-20260228.md` を新規追加し、施設スコープ化・後方互換・検証方針を明文化。
+  - 内容（server-modernized）: `OrcaConnectionConfigStore` を施設別 `records` 形式へ拡張し、旧単一JSON形式の後方互換読込を実装。`RestOrcaTransport` は施設ID（SessionTraceContext `FACILITY_ID` → `actorId` → MDC `remoteUser`）で設定を解決し、施設別キャッシュを保持。`AdminOrcaConnectionResource` はログインactorの施設IDで接続設定を読書きし、レスポンス/監査に `facilityId` を追加。
+  - 内容（web-client）: `orcaConnectionApi` で接続設定レスポンスの `facilityId` を型・正規化対象へ追加し、管理画面既存導線を維持。
+  - 追加是正: レビュー指摘により、施設更新時に `_default` フォールバックが旧値で残る問題を修正（常に最新設定で上書き）。`AdminOrcaConnectionResourceTest` を `getSnapshot(facilityId)` 仕様へ追従、`OrcaConnectionConfigStoreTest` に default同期検証を追加。
+  - 成果物（主要）: `server-modernized/src/main/java/open/dolphin/orca/config/OrcaConnectionConfigStore.java` / `server-modernized/src/main/java/open/dolphin/orca/config/OrcaConnectionConfigRecord.java` / `server-modernized/src/main/java/open/dolphin/orca/transport/RestOrcaTransport.java` / `server-modernized/src/main/java/open/dolphin/rest/AdminOrcaConnectionResource.java` / `server-modernized/src/test/java/open/dolphin/rest/AdminOrcaConnectionResourceTest.java` / `server-modernized/src/test/java/open/dolphin/orca/config/OrcaConnectionConfigStoreTest.java` / `web-client/src/features/administration/orcaConnectionApi.ts` / `web-client/src/features/administration/orcaConnectionApi.test.ts`。
+  - 検証:
+    - `mvn -f pom.server-modernized.xml -Dtest=OrcaConnectionConfigStoreTest,AdminOrcaConnectionResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（5 tests）
+    - `mvn -pl server-modernized -DskipTests compile` PASS
+    - `npm -C web-client run test -- --run src/features/administration/orcaConnectionApi.test.ts` PASS（1 file / 5 tests）
 - 2026-02-27: SOAP右側オーダー概要を現行6カテゴリ詳細カード表示へ改修し、入力者表示を server-modernized から供給（RUN_ID=20260227T215027Z）。
   - 内容（web-client）: `OrderSummaryPane` をカテゴリ固定（処方/点滴・注射/処置/検査/算定/文書）に再構成し、カード1行目をカテゴリ状態、2行目を「入力者名+職種+日時」（欠損時 `入力者不明/医師/日時不明`）で表示。本文はカテゴリ別に詳細化（処方: RP単位+薬剤量/後発可否/コメント、注射: 薬剤行+投与情報、処置/検査/算定: 項目列挙）。`bundleName` はセット名見出しとして表示しない仕様へ変更。文書はデータ供給不足時でも「文書名: 文書情報なし / 本文情報なし」でUI破綻を防止し、クリック時の文書ドロワー導線を維持。
   - 内容（server-modernized）: `/orca/order/bundles` の `OrderBundleEntry` に `enteredByName` / `enteredByRole` を追加。`module.getUserModel()` 優先、fallbackで `document.getUserModel()` を参照し、`enteredByName` は `commonName -> userId`、`enteredByRole` は `licenseDesc -> license -> 医師` で解決。
