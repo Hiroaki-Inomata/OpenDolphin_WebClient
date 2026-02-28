@@ -195,7 +195,9 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
                 UserModel enteredBy = resolveEnteredByUser(module, document);
                 entry.setEnteredByName(resolveEnteredByName(enteredBy));
                 entry.setEnteredByRole(resolveEnteredByRole(enteredBy));
-                entry.setItems(toItems(bundle.getClaimItem()));
+                List<OrderBundleFetchResponse.OrderBundleItem> items = toItems(bundle.getClaimItem());
+                entry.setBodyPart(extractBodyPart(items));
+                entry.setItems(items);
                 bundles.add(entry);
             }
         }
@@ -655,7 +657,7 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
             bundle.setClassCode(op.getClassCode());
             bundle.setClassCodeSystem(hasText(op.getClassCodeSystem()) ? op.getClassCodeSystem() : ClaimConst.CLASS_CODE_ID);
         }
-        bundle.setClaimItem(toClaimItems(op.getItems()));
+        bundle.setClaimItem(toClaimItems(op));
 
         ModuleModel module = new ModuleModel();
         ModuleInfoBean info = new ModuleInfoBean();
@@ -677,24 +679,42 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         return module;
     }
 
-    private ClaimItem[] toClaimItems(List<OrderBundleMutationRequest.BundleItem> items) {
-        if (items == null || items.isEmpty()) {
-            return null;
-        }
+    private ClaimItem[] toClaimItems(OrderBundleMutationRequest.BundleOperation op) {
         List<ClaimItem> converted = new ArrayList<>();
-        for (OrderBundleMutationRequest.BundleItem item : items) {
-            if (item == null || item.getName() == null || item.getName().isBlank()) {
-                continue;
+        List<OrderBundleMutationRequest.BundleItem> items = op != null ? op.getItems() : null;
+        if (items != null) {
+            for (OrderBundleMutationRequest.BundleItem item : items) {
+                ClaimItem claimItem = toClaimItem(item);
+                if (claimItem != null) {
+                    converted.add(claimItem);
+                }
             }
-            ClaimItem claimItem = new ClaimItem();
-            claimItem.setName(item.getName());
-            claimItem.setCode(item.getCode());
-            claimItem.setNumber(item.getQuantity());
-            claimItem.setUnit(item.getUnit());
-            claimItem.setMemo(item.getMemo());
-            converted.add(claimItem);
+        }
+        ClaimItem explicitBodyPart = toClaimItem(op != null ? op.getBodyPart() : null);
+        if (explicitBodyPart != null) {
+            List<ClaimItem> prioritized = new ArrayList<>();
+            prioritized.add(explicitBodyPart);
+            for (ClaimItem claimItem : converted) {
+                if (claimItem != null && !isBodyPartCode(claimItem.getCode())) {
+                    prioritized.add(claimItem);
+                }
+            }
+            converted = prioritized;
         }
         return converted.isEmpty() ? null : converted.toArray(new ClaimItem[0]);
+    }
+
+    private ClaimItem toClaimItem(OrderBundleMutationRequest.BundleItem item) {
+        if (item == null || item.getName() == null || item.getName().isBlank()) {
+            return null;
+        }
+        ClaimItem claimItem = new ClaimItem();
+        claimItem.setName(item.getName());
+        claimItem.setCode(item.getCode());
+        claimItem.setNumber(item.getQuantity());
+        claimItem.setUnit(item.getUnit());
+        claimItem.setMemo(item.getMemo());
+        return claimItem;
     }
 
     private String resolveEntity(OrderBundleMutationRequest.BundleOperation op) {
@@ -730,6 +750,22 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
             list.add(entry);
         }
         return list;
+    }
+
+    private OrderBundleFetchResponse.OrderBundleItem extractBodyPart(
+            List<OrderBundleFetchResponse.OrderBundleItem> items) {
+        if (items == null || items.isEmpty()) {
+            return null;
+        }
+        for (OrderBundleFetchResponse.OrderBundleItem item : items) {
+            if (item == null) {
+                continue;
+            }
+            if (isBodyPartCode(item.getCode())) {
+                return item;
+            }
+        }
+        return null;
     }
 
     private int collectAggregatesFromDocuments(List<DocumentModel> documents,
@@ -942,7 +978,7 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
                 continue;
             }
             String code = normalize(item.getCode());
-            if (code.startsWith(BODY_PART_CODE_PREFIX)) {
+            if (isBodyPartCode(code)) {
                 if (bodyPart == null) {
                     bodyPart = item;
                 } else {
@@ -1065,6 +1101,10 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private boolean isBodyPartCode(String code) {
+        return normalize(code).startsWith(BODY_PART_CODE_PREFIX);
     }
 
     private BundleDolphin decodeBundle(ModuleModel module) {

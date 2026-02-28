@@ -29,6 +29,15 @@ export const formatQuantityWithUnit = (quantity?: string | null, unit?: string |
   return `${q}${u}`;
 };
 
+export const resolvePrescriptionTiming = (bundle: OrderBundle): string | undefined => {
+  const source = bundle as unknown as Record<string, unknown>;
+  const timing = source.prescriptionTiming;
+  if (typeof timing === 'string' && timing.trim()) return timing.trim().toLowerCase();
+  const fallback = source.timing;
+  if (typeof fallback === 'string' && fallback.trim()) return fallback.trim().toLowerCase();
+  return undefined;
+};
+
 export const pickFirstString = (source: Record<string, unknown>, keys: readonly string[]) => {
   for (const key of keys) {
     const value = source[key];

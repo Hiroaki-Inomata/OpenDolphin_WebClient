@@ -25,6 +25,7 @@ import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.rest.dto.orca.OrderBundleFetchResponse;
 import open.dolphin.rest.dto.orca.OrderBundleMutationRequest;
+import open.dolphin.rest.dto.orca.OrderBundleMutationResponse;
 import open.dolphin.rest.dto.orca.OrderBundleRecommendationResponse;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
@@ -39,6 +40,7 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
 
     private OrcaOrderBundleResource resource;
     private RecordingSessionAuditDispatcher auditDispatcher;
+    private FakeKarteServiceBean fakeKarteServiceBean;
     private HttpServletRequest servletRequest;
 
     @BeforeEach
@@ -47,7 +49,8 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         auditDispatcher = new RecordingSessionAuditDispatcher();
         injectField(resource, "sessionAuditDispatcher", auditDispatcher);
         injectField(resource, "patientServiceBean", new FakePatientServiceBean());
-        injectField(resource, "karteServiceBean", new FakeKarteServiceBean());
+        fakeKarteServiceBean = new FakeKarteServiceBean();
+        injectField(resource, "karteServiceBean", fakeKarteServiceBean);
         injectField(resource, "userServiceBean", new FakeUserServiceBean());
         servletRequest = (HttpServletRequest) Proxy.newProxyInstance(
                 getClass().getClassLoader(),
@@ -141,6 +144,23 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
     }
 
     @Test
+    void getBundlesReturnsBodyPartFieldAndKeepsLegacyItems() {
+        OrderBundleFetchResponse response = resource.getBundles(
+                servletRequest,
+                "00001",
+                "medOrder",
+                "2025-01-01");
+
+        assertNotNull(response);
+        var first = response.getBundles().get(0);
+        assertNotNull(first.getBodyPart());
+        assertEquals("0021001", first.getBodyPart().getCode());
+        assertEquals("胸部", first.getBodyPart().getName());
+        assertEquals(2, first.getItems().size());
+        assertEquals("0021001", first.getItems().get(0).getCode());
+    }
+
+    @Test
     void postBundlesRejectsInvalidStartDate() {
         OrderBundleMutationRequest payload = new OrderBundleMutationRequest();
         payload.setPatientId("00001");
@@ -167,6 +187,78 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         assertNotNull(auditDispatcher.payload);
         assertEquals("ORCA_ORDER_BUNDLE_MUTATION", auditDispatcher.payload.getAction());
         assertEquals(AuditEventEnvelope.Outcome.FAILURE, auditDispatcher.outcome);
+    }
+
+    @Test
+    void postBundlesPrioritizesBodyPartFieldOverLegacyItems() {
+        OrderBundleMutationRequest payload = new OrderBundleMutationRequest();
+        payload.setPatientId("00001");
+        OrderBundleMutationRequest.BundleOperation op = new OrderBundleMutationRequest.BundleOperation();
+        op.setOperation("create");
+        op.setEntity("medOrder");
+        op.setBundleName("降圧薬セット");
+        op.setStartDate("2025-01-01");
+
+        OrderBundleMutationRequest.BundleItem bodyPart = new OrderBundleMutationRequest.BundleItem();
+        bodyPart.setCode("002999");
+        bodyPart.setName("右下肢");
+        op.setBodyPart(bodyPart);
+
+        OrderBundleMutationRequest.BundleItem legacyBodyPart = new OrderBundleMutationRequest.BundleItem();
+        legacyBodyPart.setCode("002111");
+        legacyBodyPart.setName("旧部位");
+        OrderBundleMutationRequest.BundleItem drug = new OrderBundleMutationRequest.BundleItem();
+        drug.setCode("100001");
+        drug.setName("アムロジピン");
+        op.setItems(List.of(legacyBodyPart, drug));
+        payload.setOperations(List.of(op));
+
+        OrderBundleMutationResponse response = resource.postBundles(servletRequest, payload);
+        assertNotNull(response);
+        assertEquals(1, response.getCreatedDocumentIds().size());
+
+        DocumentModel saved = fakeKarteServiceBean.getLastAddedDocument();
+        assertNotNull(saved);
+        BundleDolphin bundle = (BundleDolphin) saved.getModules().get(0).getModel();
+        ClaimItem[] claimItems = bundle.getClaimItem();
+        assertNotNull(claimItems);
+        assertEquals(2, claimItems.length);
+        assertEquals("002999", claimItems[0].getCode());
+        assertEquals("右下肢", claimItems[0].getName());
+        assertEquals("100001", claimItems[1].getCode());
+    }
+
+    @Test
+    void postBundlesFallsBackToLegacyItemsBodyPartWhenBodyPartFieldMissing() {
+        OrderBundleMutationRequest payload = new OrderBundleMutationRequest();
+        payload.setPatientId("00001");
+        OrderBundleMutationRequest.BundleOperation op = new OrderBundleMutationRequest.BundleOperation();
+        op.setOperation("create");
+        op.setEntity("medOrder");
+        op.setBundleName("降圧薬セット");
+        op.setStartDate("2025-01-01");
+
+        OrderBundleMutationRequest.BundleItem legacyBodyPart = new OrderBundleMutationRequest.BundleItem();
+        legacyBodyPart.setCode("002777");
+        legacyBodyPart.setName("頭部");
+        OrderBundleMutationRequest.BundleItem drug = new OrderBundleMutationRequest.BundleItem();
+        drug.setCode("100001");
+        drug.setName("アムロジピン");
+        op.setItems(List.of(legacyBodyPart, drug));
+        payload.setOperations(List.of(op));
+
+        OrderBundleMutationResponse response = resource.postBundles(servletRequest, payload);
+        assertNotNull(response);
+        assertEquals(1, response.getCreatedDocumentIds().size());
+
+        DocumentModel saved = fakeKarteServiceBean.getLastAddedDocument();
+        assertNotNull(saved);
+        BundleDolphin bundle = (BundleDolphin) saved.getModules().get(0).getModel();
+        ClaimItem[] claimItems = bundle.getClaimItem();
+        assertNotNull(claimItems);
+        assertEquals(2, claimItems.length);
+        assertEquals("002777", claimItems[0].getCode());
+        assertEquals("頭部", claimItems[0].getName());
     }
 
     @SuppressWarnings("unchecked")
@@ -220,6 +312,13 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
     }
 
     private static final class FakeKarteServiceBean extends KarteServiceBean {
+        private long nextDocumentId = 9000L;
+        private DocumentModel lastAddedDocument;
+
+        DocumentModel getLastAddedDocument() {
+            return lastAddedDocument;
+        }
+
         @Override
         public KarteBean getKarte(String facilityId, String patientId, Date fromDate) {
             KarteBean karte = new KarteBean();
@@ -239,6 +338,27 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         @Override
         public List<DocumentModel> getDocuments(List<Long> ids) {
             return ids.stream().map(this::buildDocument).toList();
+        }
+
+        @Override
+        public long addDocument(DocumentModel document) {
+            if (document.getId() <= 0) {
+                nextDocumentId++;
+                document.setId(nextDocumentId);
+            }
+            lastAddedDocument = document;
+            return document.getId();
+        }
+
+        @Override
+        public long updateDocument(DocumentModel document) {
+            lastAddedDocument = document;
+            return document.getId();
+        }
+
+        @Override
+        public void flush() {
+            // no-op for unit test
         }
 
         private DocumentModel buildDocument(Long documentId) {
@@ -278,7 +398,12 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
             item.setName("アムロジピン");
             item.setNumber("1");
             item.setUnit("錠");
-            bundle.setClaimItem(new ClaimItem[]{item});
+            ClaimItem bodyPart = new ClaimItem();
+            bodyPart.setCode("0021001");
+            bodyPart.setName("胸部");
+            bodyPart.setNumber("1");
+            bodyPart.setUnit("部位");
+            bundle.setClaimItem(new ClaimItem[]{bodyPart, item});
             module.setModel(bundle);
 
             if (document.getId() == 1001L) {

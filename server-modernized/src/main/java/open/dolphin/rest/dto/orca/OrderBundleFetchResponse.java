@@ -77,6 +77,7 @@ public class OrderBundleFetchResponse {
         private String started;
         private String enteredByName;
         private String enteredByRole;
+        private OrderBundleItem bodyPart;
         private List<OrderBundleItem> items;
 
         public Long getDocumentId() {
@@ -189,6 +190,14 @@ public class OrderBundleFetchResponse {
 
         public void setEnteredByRole(String enteredByRole) {
             this.enteredByRole = enteredByRole;
+        }
+
+        public OrderBundleItem getBodyPart() {
+            return bodyPart;
+        }
+
+        public void setBodyPart(OrderBundleItem bodyPart) {
+            this.bodyPart = bodyPart;
         }
 
         public List<OrderBundleItem> getItems() {

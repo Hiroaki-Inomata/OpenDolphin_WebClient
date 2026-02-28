@@ -13,6 +13,7 @@ import {
 import {
   ORDER_GROUP_REGISTRY,
   isOrderEntity,
+  resolveBundleNumberLabel,
   resolveOrderEntityEditorMeta,
   resolveOrderEntityLabel,
   resolveOrderGroupKeyByEntity,
@@ -31,6 +32,7 @@ import {
   sortBundlesByLatestRule,
   type OrderDetailDisplayViewModel,
 } from './orderDetailDisplayViewModel';
+import { normalizeInline, resolvePrescriptionTiming, stripLeadingCode } from './orderDetailFormatters';
 
 type TreatmentOrderEntity = 'treatmentOrder' | 'generalOrder' | 'surgeryOrder' | 'otherOrder';
 type TestOrderEntity = 'testOrder' | 'physiologyOrder' | 'bacteriaOrder' | 'radiologyOrder';
@@ -60,18 +62,6 @@ type EditLifecycleState = {
 };
 
 const formatBundleName = (bundle: OrderBundle) => bundle.bundleName?.trim() || bundle.className?.trim() || '名称未設定';
-
-const normalizeInline = (value: string) => value.replace(/\s+/g, ' ').trim();
-
-const stripLeadingCode = (value: string) => {
-  const normalized = normalizeInline(value);
-  if (!normalized) return '';
-  const tokens = normalized.split(' ');
-  if (tokens.length >= 2 && /^[A-Za-z0-9]{4,}$/.test(tokens[0] ?? '')) {
-    return tokens.slice(1).join(' ');
-  }
-  return normalized;
-};
 
 const formatBundleItemChip = (item: OrderBundleItem) => {
   const name = stripLeadingCode(item.name ?? '');
@@ -127,7 +117,12 @@ const summarizeBundleForCard = (bundle: OrderBundle, entity: OrderEntity): Bundl
   const memo = normalizeInline(bundle.memo ?? '');
 
   if (entity === 'medOrder') {
-    const metaParts = [usage || null, bundleNumber ? `日数:${bundleNumber}` : null].filter(Boolean) as string[];
+    const bundleNumberLabel = resolveBundleNumberLabel({
+      group: 'prescription',
+      classCode: bundle.classCode,
+      prescriptionTiming: resolvePrescriptionTiming(bundle),
+    });
+    const metaParts = [usage || null, bundleNumber ? `${bundleNumberLabel}:${bundleNumber}` : null].filter(Boolean) as string[];
     return {
       metaLine: metaParts.length > 0 ? metaParts.join(' / ') : undefined,
       chips: chipsAll.slice(0, 6),
@@ -136,7 +131,8 @@ const summarizeBundleForCard = (bundle: OrderBundle, entity: OrderEntity): Bundl
   }
 
   if (entity === 'baseChargeOrder' || entity === 'instractionChargeOrder') {
-    const metaParts = [bundleNumber ? `回数:${bundleNumber}` : null, memo ? `メモ:${memo}` : null].filter(Boolean) as string[];
+    const bundleNumberLabel = resolveBundleNumberLabel({ group: 'charge' });
+    const metaParts = [bundleNumber ? `${bundleNumberLabel}:${bundleNumber}` : null, memo ? `メモ:${memo}` : null].filter(Boolean) as string[];
     return {
       metaLine: metaParts.length > 0 ? metaParts.join(' / ') : undefined,
       chips: chipsAll.slice(0, 4),
@@ -299,6 +295,49 @@ const quickAddCategories = [
   { key: 'test', label: '+検査', entity: null },
   { key: 'charge', label: '+算定', entity: null },
 ] as const;
+
+const treatmentSubtypeTabs = [
+  { key: 'treatmentOrder' as const, label: '処置' },
+  { key: 'generalOrder' as const, label: '一般' },
+  { key: 'surgeryOrder' as const, label: '手術' },
+  { key: 'otherOrder' as const, label: 'その他' },
+] as const;
+
+const testSubtypeTabs = [
+  { key: 'testOrder' as const, label: '検査' },
+  { key: 'physiologyOrder' as const, label: '生理' },
+  { key: 'bacteriaOrder' as const, label: '細菌' },
+  { key: 'radiologyOrder' as const, label: '放射線' },
+] as const;
+
+const chargeSubtypeTabs = [
+  { key: 'baseChargeOrder' as const, label: '基本料' },
+  { key: 'instractionChargeOrder' as const, label: '指導料' },
+] as const;
+
+const resolveNextTabKey = <T extends string>(
+  key: string,
+  tabs: readonly T[],
+  selected: T,
+): T | null => {
+  const selectedIndex = tabs.indexOf(selected);
+  if (selectedIndex < 0 || tabs.length === 0) return null;
+  if (key === 'Home') return tabs[0] ?? null;
+  if (key === 'End') return tabs[tabs.length - 1] ?? null;
+  if (key === 'ArrowRight' || key === 'ArrowDown') {
+    return tabs[(selectedIndex + 1) % tabs.length] ?? null;
+  }
+  if (key === 'ArrowLeft' || key === 'ArrowUp') {
+    return tabs[(selectedIndex - 1 + tabs.length) % tabs.length] ?? null;
+  }
+  return null;
+};
+
+const focusSubtypeTabButton = (container: HTMLDivElement, key: string) => {
+  const target = container.querySelector<HTMLButtonElement>(`button[data-order-dock-tab-key="${key}"]`);
+  if (!target) return;
+  requestAnimationFrame(() => target.focus());
+};
 
 export function OrderDockPanel(props: {
   patientId?: string;
@@ -1095,6 +1134,12 @@ export function OrderDockPanel(props: {
     const isExpanded = expandedGroups[group.key];
     const groupBodyId = `order-dock-group-body-${group.key}`;
     const isEditingGroup = Boolean(inlineEntity);
+    const treatmentSelectedTab = treatmentShowAll ? 'all' : treatmentEntity;
+    const treatmentTabKeys = [...treatmentSubtypeTabs.map((tab) => tab.key), 'all'] as const;
+    const testSelectedTab = testShowAll ? 'all' : testEntity;
+    const testTabKeys = [...testSubtypeTabs.map((tab) => tab.key), 'all'] as const;
+    const chargeSelectedTab = chargeShowAll ? 'all' : chargeEntity;
+    const chargeTabKeys = [...chargeSubtypeTabs.map((tab) => tab.key), 'all'] as const;
 
     return (
       <section
@@ -1150,21 +1195,35 @@ export function OrderDockPanel(props: {
         {isExpanded ? (
           <div id={groupBodyId} className="order-dock__group-body">
             {!isQuickAddMode && group.key === 'treatment' ? (
-              <div className="order-dock__subtype-tabs" role="tablist" aria-label="処置種類">
-                {(
-                  [
-                    { key: 'treatmentOrder' as const, label: '処置' },
-                    { key: 'generalOrder' as const, label: '一般' },
-                    { key: 'surgeryOrder' as const, label: '手術' },
-                    { key: 'otherOrder' as const, label: 'その他' },
-                  ] as const
-                ).map((tab) => (
+              <div
+                className="order-dock__subtype-tabs"
+                role="tablist"
+                aria-label="処置種類"
+                onKeyDown={(event) => {
+                  const nextTab = resolveNextTabKey(event.key, treatmentTabKeys, treatmentSelectedTab);
+                  if (!nextTab) return;
+                  event.preventDefault();
+                  if (nextTab === 'all') {
+                    setTreatmentShowAll(true);
+                  } else {
+                    setTreatmentEntity(nextTab);
+                    setTreatmentShowAll(false);
+                  }
+                  focusSubtypeTabButton(event.currentTarget, nextTab);
+                }}
+              >
+                {treatmentSubtypeTabs.map((tab) => (
                   <button
                     key={`treatment-tab-${tab.key}`}
                     type="button"
                     className="order-dock__subtype-tab"
+                    id={`order-dock-treatment-tab-${tab.key}`}
+                    role="tab"
+                    aria-controls={groupBodyId}
+                    data-order-dock-tab-key={tab.key}
                     data-active={!treatmentShowAll && treatmentEntity === tab.key ? 'true' : 'false'}
-                    aria-pressed={!treatmentShowAll && treatmentEntity === tab.key}
+                    aria-selected={!treatmentShowAll && treatmentEntity === tab.key}
+                    tabIndex={!treatmentShowAll && treatmentEntity === tab.key ? 0 : -1}
                     onClick={() => {
                       setTreatmentEntity(tab.key);
                       setTreatmentShowAll(false);
@@ -1176,8 +1235,13 @@ export function OrderDockPanel(props: {
                 <button
                   type="button"
                   className="order-dock__subtype-tab"
+                  id="order-dock-treatment-tab-all"
+                  role="tab"
+                  aria-controls={groupBodyId}
+                  data-order-dock-tab-key="all"
                   data-active={treatmentShowAll ? 'true' : 'false'}
-                  aria-pressed={treatmentShowAll}
+                  aria-selected={treatmentShowAll}
+                  tabIndex={treatmentShowAll ? 0 : -1}
                   onClick={() => setTreatmentShowAll(true)}
                 >
                   すべて
@@ -1185,21 +1249,35 @@ export function OrderDockPanel(props: {
               </div>
             ) : null}
             {!isQuickAddMode && group.key === 'test' ? (
-              <div className="order-dock__subtype-tabs" role="tablist" aria-label="検査種類">
-                {(
-                  [
-                    { key: 'testOrder' as const, label: '検査' },
-                    { key: 'physiologyOrder' as const, label: '生理' },
-                    { key: 'bacteriaOrder' as const, label: '細菌' },
-                    { key: 'radiologyOrder' as const, label: '放射線' },
-                  ] as const
-                ).map((tab) => (
+              <div
+                className="order-dock__subtype-tabs"
+                role="tablist"
+                aria-label="検査種類"
+                onKeyDown={(event) => {
+                  const nextTab = resolveNextTabKey(event.key, testTabKeys, testSelectedTab);
+                  if (!nextTab) return;
+                  event.preventDefault();
+                  if (nextTab === 'all') {
+                    setTestShowAll(true);
+                  } else {
+                    setTestEntity(nextTab);
+                    setTestShowAll(false);
+                  }
+                  focusSubtypeTabButton(event.currentTarget, nextTab);
+                }}
+              >
+                {testSubtypeTabs.map((tab) => (
                   <button
                     key={`test-tab-${tab.key}`}
                     type="button"
                     className="order-dock__subtype-tab"
+                    id={`order-dock-test-tab-${tab.key}`}
+                    role="tab"
+                    aria-controls={groupBodyId}
+                    data-order-dock-tab-key={tab.key}
                     data-active={!testShowAll && testEntity === tab.key ? 'true' : 'false'}
-                    aria-pressed={!testShowAll && testEntity === tab.key}
+                    aria-selected={!testShowAll && testEntity === tab.key}
+                    tabIndex={!testShowAll && testEntity === tab.key ? 0 : -1}
                     onClick={() => {
                       setTestEntity(tab.key);
                       setTestShowAll(false);
@@ -1211,8 +1289,13 @@ export function OrderDockPanel(props: {
                 <button
                   type="button"
                   className="order-dock__subtype-tab"
+                  id="order-dock-test-tab-all"
+                  role="tab"
+                  aria-controls={groupBodyId}
+                  data-order-dock-tab-key="all"
                   data-active={testShowAll ? 'true' : 'false'}
-                  aria-pressed={testShowAll}
+                  aria-selected={testShowAll}
+                  tabIndex={testShowAll ? 0 : -1}
                   onClick={() => setTestShowAll(true)}
                 >
                   すべて
@@ -1220,19 +1303,35 @@ export function OrderDockPanel(props: {
               </div>
             ) : null}
             {!isQuickAddMode && group.key === 'charge' ? (
-              <div className="order-dock__subtype-tabs" role="tablist" aria-label="算定種類">
-                {(
-                  [
-                    { key: 'baseChargeOrder' as const, label: '基本料' },
-                    { key: 'instractionChargeOrder' as const, label: '指導料' },
-                  ] as const
-                ).map((tab) => (
+              <div
+                className="order-dock__subtype-tabs"
+                role="tablist"
+                aria-label="算定種類"
+                onKeyDown={(event) => {
+                  const nextTab = resolveNextTabKey(event.key, chargeTabKeys, chargeSelectedTab);
+                  if (!nextTab) return;
+                  event.preventDefault();
+                  if (nextTab === 'all') {
+                    setChargeShowAll(true);
+                  } else {
+                    setChargeEntity(nextTab);
+                    setChargeShowAll(false);
+                  }
+                  focusSubtypeTabButton(event.currentTarget, nextTab);
+                }}
+              >
+                {chargeSubtypeTabs.map((tab) => (
                   <button
                     key={`charge-tab-${tab.key}`}
                     type="button"
                     className="order-dock__subtype-tab"
+                    id={`order-dock-charge-tab-${tab.key}`}
+                    role="tab"
+                    aria-controls={groupBodyId}
+                    data-order-dock-tab-key={tab.key}
                     data-active={!chargeShowAll && chargeEntity === tab.key ? 'true' : 'false'}
-                    aria-pressed={!chargeShowAll && chargeEntity === tab.key}
+                    aria-selected={!chargeShowAll && chargeEntity === tab.key}
+                    tabIndex={!chargeShowAll && chargeEntity === tab.key ? 0 : -1}
                     onClick={() => {
                       setChargeEntity(tab.key);
                       setChargeShowAll(false);
@@ -1244,8 +1343,13 @@ export function OrderDockPanel(props: {
                 <button
                   type="button"
                   className="order-dock__subtype-tab"
+                  id="order-dock-charge-tab-all"
+                  role="tab"
+                  aria-controls={groupBodyId}
+                  data-order-dock-tab-key="all"
                   data-active={chargeShowAll ? 'true' : 'false'}
-                  aria-pressed={chargeShowAll}
+                  aria-selected={chargeShowAll}
+                  tabIndex={chargeShowAll ? 0 : -1}
                   onClick={() => setChargeShowAll(true)}
                 >
                   すべて
