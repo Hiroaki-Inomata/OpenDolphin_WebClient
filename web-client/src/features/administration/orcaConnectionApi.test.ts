@@ -40,6 +40,31 @@ describe('orcaConnectionApi', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('設定取得レスポンスの facilityId を正規化する', async () => {
+    mockHttpFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          facilityId: '1234',
+          port: '8000',
+          username: 'trial-user',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    const result = await fetchOrcaConnectionConfig();
+
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe(200);
+    expect(result.facilityId).toBe('1234');
+    expect(result.port).toBe(8000);
+    expect(result.username).toBe('trial-user');
+  });
+
   it('設定保存で notifySessionExpired=false を指定する', async () => {
     mockHttpFetch.mockResolvedValue(
       new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), {
@@ -69,6 +94,41 @@ describe('orcaConnectionApi', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('設定保存レスポンスの facilityId を正規化する', async () => {
+    mockHttpFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          facilityId: '9001',
+          useWeborca: false,
+          serverUrl: 'http://127.0.0.1',
+          port: 8000,
+          username: 'orca-admin',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    const result = await saveOrcaConnectionConfig({
+      useWeborca: false,
+      serverUrl: 'http://127.0.0.1',
+      port: 8000,
+      username: 'orca-admin',
+      clientAuthEnabled: false,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe(200);
+    expect(result.facilityId).toBe('9001');
+    expect(result.useWeborca).toBe(false);
+    expect(result.serverUrl).toBe('http://127.0.0.1');
+    expect(result.port).toBe(8000);
+    expect(result.username).toBe('orca-admin');
+  });
+
   it('接続テストで notifySessionExpired=false を指定する', async () => {
     mockHttpFetch.mockResolvedValue(
       new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), {
@@ -90,4 +150,3 @@ describe('orcaConnectionApi', () => {
     expect(result.ok).toBe(false);
   });
 });
-

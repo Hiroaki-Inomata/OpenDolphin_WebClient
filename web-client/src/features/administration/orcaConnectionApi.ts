@@ -4,6 +4,7 @@ import { ensureObservabilityMeta, getObservabilityMeta } from '../../libs/observ
 export type OrcaConnectionConfigResponse = {
   ok: boolean;
   status: number;
+  facilityId?: string;
   useWeborca?: boolean;
   serverUrl?: string;
   port?: number;
@@ -80,6 +81,7 @@ const normalizeConfig = (
   return {
     ok: resolvedOk,
     status,
+    facilityId: getString(body.facilityId),
     useWeborca: getBoolean(body.useWeborca),
     serverUrl: getString(body.serverUrl),
     port: getNumber(body.port),
