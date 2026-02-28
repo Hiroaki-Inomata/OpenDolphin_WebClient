@@ -78,7 +78,7 @@ class AdminOrcaConnectionResourceTest {
         record.setUsername("trial");
         record.setPasswordEncrypted("encrypted-password");
         record.setPasswordUpdatedAt("2026-02-11T23:25:24Z");
-        when(configStore.getSnapshot()).thenReturn(record);
+        when(configStore.getSnapshot("FACILITY")).thenReturn(record);
 
         Response response = resource.getConfig(request);
         assertEquals(200, response.getStatus());
@@ -87,6 +87,7 @@ class AdminOrcaConnectionResourceTest {
         Map<String, Object> body = (Map<String, Object>) response.getEntity();
         assertNotNull(body);
         assertEquals("RUN-ORCA", body.get("runId"));
+        assertEquals("FACILITY", body.get("facilityId"));
         assertEquals(Boolean.TRUE, body.get("ok"));
         assertEquals("https://weborca-trial.orca.med.or.jp", body.get("serverUrl"));
         assertEquals(443, body.get("port"));

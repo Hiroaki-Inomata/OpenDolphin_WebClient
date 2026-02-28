@@ -206,11 +206,10 @@ public class OrcaConnectionConfigStore {
 
             Map<String, OrcaConnectionConfigRecord> nextRecords = new LinkedHashMap<>(records != null ? records : Map.of());
             nextRecords.put(recordKey, copyWithoutRecords(merged));
-            if (!nextRecords.containsKey(DEFAULT_FACILITY_RECORD_KEY)) {
-                OrcaConnectionConfigRecord fallback = copyWithoutRecords(merged);
-                fallback.setFacilityId(null);
-                nextRecords.put(DEFAULT_FACILITY_RECORD_KEY, fallback);
-            }
+            // Keep the unresolved-facility fallback in sync with the latest saved settings.
+            OrcaConnectionConfigRecord fallback = copyWithoutRecords(merged);
+            fallback.setFacilityId(null);
+            nextRecords.put(DEFAULT_FACILITY_RECORD_KEY, fallback);
 
             persistStrict(buildStorageRecord(nextRecords));
             this.records = nextRecords;

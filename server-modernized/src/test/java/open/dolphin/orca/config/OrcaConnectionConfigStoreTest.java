@@ -82,6 +82,62 @@ class OrcaConnectionConfigStoreTest {
         assertEquals("weborcatrial", resolved.password());
     }
 
+    @Test
+    void updateFacilityAlsoRefreshesDefaultFallbackRecord() throws Exception {
+        originalDataDir = System.getProperty("jboss.server.data.dir");
+        System.setProperty("jboss.server.data.dir", tempDir.toString());
+
+        TotpSecretProtector protector = buildProtector();
+        OrcaConnectionConfigStore store = newStore(protector);
+
+        OrcaConnectionConfigStore.UpdateRequest initial = new OrcaConnectionConfigStore.UpdateRequest(
+                Boolean.TRUE,
+                "https://old.example.orca",
+                443,
+                "old-user",
+                "old-pass",
+                Boolean.FALSE,
+                null
+        );
+        store.update(initial, null, null, "RUN-INITIAL", "FACILITY:admin");
+
+        OrcaConnectionConfigStore.UpdateRequest facilityUpdate = new OrcaConnectionConfigStore.UpdateRequest(
+                Boolean.TRUE,
+                "https://new.example.orca",
+                443,
+                "new-user",
+                "new-pass",
+                Boolean.FALSE,
+                null
+        );
+        store.update("F001", facilityUpdate, null, null, "RUN-F001", "FACILITY:admin");
+
+        OrcaConnectionConfigRecord defaultSnapshot = store.getSnapshot();
+        assertNotNull(defaultSnapshot);
+        assertEquals("https://new.example.orca", defaultSnapshot.getServerUrl());
+        assertEquals("new-user", defaultSnapshot.getUsername());
+
+        OrcaConnectionConfigRecord unresolvedFacilitySnapshot = store.getSnapshot("UNKNOWN");
+        assertNotNull(unresolvedFacilitySnapshot);
+        assertEquals("https://new.example.orca", unresolvedFacilitySnapshot.getServerUrl());
+        assertEquals("new-user", unresolvedFacilitySnapshot.getUsername());
+
+        OrcaConnectionConfigRecord facilitySnapshot = store.getSnapshot("F001");
+        assertNotNull(facilitySnapshot);
+        assertEquals("F001", facilitySnapshot.getFacilityId());
+        assertEquals("https://new.example.orca", facilitySnapshot.getServerUrl());
+
+        Path file = tempDir.resolve("opendolphin").resolve("orca-connection-config.json");
+        String rawJson = Files.readString(file);
+        JsonNode root = new ObjectMapper().readTree(rawJson);
+        assertEquals("https://new.example.orca", root.path("records").path("_default").path("serverUrl").asText());
+        assertEquals("new-user", root.path("records").path("_default").path("username").asText());
+
+        OrcaConnectionConfigStore.ResolvedOrcaConnection resolvedDefault = store.resolve();
+        assertEquals("new-user", resolvedDefault.username());
+        assertEquals("new-pass", resolvedDefault.password());
+    }
+
     private OrcaConnectionConfigStore newStore(TotpSecretProtector protector) throws Exception {
         OrcaConnectionConfigStore store = new OrcaConnectionConfigStore();
         SecondFactorSecurityConfig secondFactorSecurityConfig = mock(SecondFactorSecurityConfig.class);
