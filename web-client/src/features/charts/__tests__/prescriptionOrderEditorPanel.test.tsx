@@ -23,7 +23,7 @@ const baseMeta = {
   visitDate: '2026-02-26',
 };
 
-const renderPanel = () => {
+const renderPanel = (metaOverrides?: Partial<typeof baseMeta>) => {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -34,7 +34,7 @@ const renderPanel = () => {
     <QueryClientProvider client={client}>
       <PrescriptionOrderEditorPanel
         patientId="P-TEST-001"
-        meta={baseMeta}
+        meta={{ ...baseMeta, ...metaOverrides }}
         active
         bundlesOverride={[
           {
@@ -156,5 +156,71 @@ describe('PrescriptionOrderEditorPanel', () => {
 
     await user.click(screen.getByRole('button', { name: /RP2:/ }));
     expect((screen.getByLabelText('日数') as HTMLInputElement).value).toBe('3');
+  });
+
+  it('薬剤検索で method/scope を API に渡し、scope は ORCA 値にマッピングする', async () => {
+    const user = userEvent.setup();
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type, keyword }) => {
+      if (type === 'youhou') return { ok: true, items: [], totalCount: 0 };
+      if (type === 'drug') {
+        return {
+          ok: true,
+          items: [{ type: 'drug', code: 'A100', name: `${keyword}候補`, unit: '錠' }],
+          totalCount: 1,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+
+    renderPanel();
+
+    const methodSelect = screen.getByLabelText('検索方法');
+    const scopeSelect = screen.getByLabelText('検索範囲');
+    const keywordInput = screen.getByLabelText('キーワード');
+
+    await user.selectOptions(methodSelect, 'partial');
+
+    const runManualSearch = async (scope: 'outside_adopted' | 'in_hospital_adopted' | 'inside_adopted') => {
+      await user.selectOptions(scopeSelect, scope);
+      await user.clear(keywordInput);
+      await user.type(keywordInput, 'アム');
+      await user.click(screen.getByRole('button', { name: '検索（2文字以下は明示実行）' }));
+    };
+
+    await runManualSearch('outside_adopted');
+    await runManualSearch('in_hospital_adopted');
+    await runManualSearch('inside_adopted');
+
+    await waitFor(() => {
+      const hasScopeCall = (scope: string) =>
+        searchMock.mock.calls.some(([params]) => {
+          const record = params as Record<string, unknown> | undefined;
+          return record?.type === 'drug' && record?.method === 'partial' && record?.scope === scope;
+        });
+
+      const hasOuter = hasScopeCall('outer');
+      const hasInHospital = hasScopeCall('in-hospital');
+      const hasAdopted = hasScopeCall('adopted');
+      expect(hasOuter).toBe(true);
+      expect(hasInHospital).toBe(true);
+      expect(hasAdopted).toBe(true);
+    });
+  });
+
+  it('visitDate が日時文字列でも用法マスタ検索の effective は YYYY-MM-DD になる', async () => {
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({ ok: true, items: [], totalCount: 0 });
+
+    renderPanel({ visitDate: '2026-02-26T23:59:59+09:00' });
+
+    await waitFor(() => {
+      expect(searchMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'youhou',
+          effective: '2026-02-26',
+        }),
+      );
+    });
   });
 });

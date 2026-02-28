@@ -53,6 +53,53 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(init?.notifySessionExpired).toBe(false);
   });
 
+  it('propagates drug method/scope and normalizes effective/asOf format', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await fetchOrderMasterSearch({
+      type: 'drug',
+      keyword: 'アムロ',
+      method: 'prefix',
+      scope: 'outside_adopted',
+      effective: '2026-02-19',
+    });
+
+    expect(result.ok).toBe(true);
+    const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    expect(requestUrl).toContain('/orca/master/drug?');
+    expect(requestUrl).toContain('method=prefix');
+    expect(requestUrl).toContain('scope=outer');
+    expect(requestUrl).toContain('effective=20260219');
+    expect(requestUrl).toContain('asOf=20260219');
+  });
+
+  it('uses category as drug scope fallback and normalizes to in-hospital', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await fetchOrderMasterSearch({
+      type: 'drug',
+      keyword: 'アムロ',
+      category: 'facility',
+    });
+
+    expect(result.ok).toBe(true);
+    const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    expect(requestUrl).toContain('scope=in-hospital');
+    expect(requestUrl).toContain('category=facility');
+  });
+
   it('routes bodypart search to /orca/master/bodypart with the same master auth headers', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(
@@ -322,7 +369,8 @@ describe('fetchOrderMasterSearch auth routing', () => {
 
     const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
     expect(requestUrl).toContain('/orca/master/youhou?');
-    expect(requestUrl).toContain('effective=2026-02-19');
+    expect(requestUrl).toContain('effective=20260219');
+    expect(requestUrl).toContain('asOf=20260219');
     expect(result.ok).toBe(true);
     expect(result.items[0]).toMatchObject({
       type: 'youhou',
@@ -334,5 +382,58 @@ describe('fetchOrderMasterSearch auth routing', () => {
       dosePerDay: 3,
       youhouCode: '0101',
     });
+  });
+
+  it('drug 検索で method と scope をクエリに付与し、scope を ORCA 値へ正規化する', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockImplementation(async () =>
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const scopeCases = [
+      { input: 'outside', expected: 'outer' },
+      { input: 'facility', expected: 'in-hospital' },
+      { input: 'adopted', expected: 'adopted' },
+    ] as const;
+
+    for (const [index, scopeCase] of scopeCases.entries()) {
+      const result = await fetchOrderMasterSearch({
+        type: 'drug',
+        keyword: `薬剤-${index}`,
+        method: 'partial',
+        scope: scopeCase.input,
+      } as Parameters<typeof fetchOrderMasterSearch>[0]);
+
+      expect(result.ok).toBe(true);
+      const requestUrl = vi.mocked(httpFetch).mock.calls[index]?.[0] ?? '';
+      const query = new URL(requestUrl, 'http://localhost').searchParams;
+      expect(query.get('method')).toBe('partial');
+      expect(query.get('scope')).toBe(scopeCase.expected);
+    }
+  });
+
+  it('drug 検索の effective/asOf は日時付き入力でも YYYYMMDD へ正規化する', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await fetchOrderMasterSearch({
+      type: 'drug',
+      keyword: 'アムロジピン',
+      effective: '2026-02-19T12:34:56+09:00',
+    });
+
+    expect(result.ok).toBe(true);
+    const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    const query = new URL(requestUrl, 'http://localhost').searchParams;
+    expect(query.get('effective')).toBe('20260219');
+    expect(query.get('asOf')).toBe('20260219');
   });
 });

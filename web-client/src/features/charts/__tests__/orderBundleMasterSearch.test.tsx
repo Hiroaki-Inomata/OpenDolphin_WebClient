@@ -456,6 +456,42 @@ describe('OrderBundleEditPanel master search UI', () => {
     });
   });
 
+  it('treatmentOrder の手技検索は etensu カテゴリ4を使用する', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({
+      ok: true,
+      items: [],
+      totalCount: 0,
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="treatmentOrder"
+        title="処置"
+        bundleLabel="処置名"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    const itemNameInput = screen.getByPlaceholderText('処置項目名');
+    await user.type(itemNameInput, '消毒');
+
+    await waitFor(() => {
+      const called = searchMock.mock.calls.some(
+        ([params]) =>
+          params?.type === 'etensu' &&
+          params?.category === '4' &&
+          typeof params?.keyword === 'string' &&
+          params.keyword.includes('消毒'),
+      );
+      expect(called).toBe(true);
+    });
+  });
+
   it('算定オーダーの手技検索は etensu カテゴリ1を使用する', async () => {
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
@@ -610,6 +646,86 @@ describe('OrderBundleEditPanel master search UI', () => {
       );
       const hasKensaSort = searchMock.mock.calls.some(
         ([params]) => params?.type === 'kensa-sort' && typeof params?.keyword === 'string' && params.keyword.includes('血液'),
+      );
+      expect(hasEtensu).toBe(true);
+      expect(hasKensaSort).toBe(true);
+    });
+  });
+
+  it('生理検査オーダーの統合検索は etensuカテゴリ6 と kensa-sort を使用する', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({
+      ok: true,
+      items: [],
+      totalCount: 0,
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="physiologyOrder"
+        title="生理検査"
+        bundleLabel="検査オーダー名"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    const itemNameInput = screen.getByPlaceholderText('検査項目名');
+    await user.type(itemNameInput, '心電図');
+
+    await waitFor(() => {
+      const hasEtensu = searchMock.mock.calls.some(
+        ([params]) =>
+          params?.type === 'etensu' &&
+          params?.category === '6' &&
+          typeof params?.keyword === 'string' &&
+          params.keyword.includes('心電図'),
+      );
+      const hasKensaSort = searchMock.mock.calls.some(
+        ([params]) => params?.type === 'kensa-sort' && typeof params?.keyword === 'string' && params.keyword.includes('心電図'),
+      );
+      expect(hasEtensu).toBe(true);
+      expect(hasKensaSort).toBe(true);
+    });
+  });
+
+  it('細菌検査オーダーの統合検索は etensuカテゴリ6 と kensa-sort を使用する', async () => {
+    localStorage.setItem('devFacilityId', 'facility');
+    localStorage.setItem('devUserId', 'doctor');
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockResolvedValue({
+      ok: true,
+      items: [],
+      totalCount: 0,
+    });
+
+    const user = userEvent.setup();
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        entity="bacteriaOrder"
+        title="細菌検査"
+        bundleLabel="検査オーダー名"
+        itemQuantityLabel="数量"
+      />,
+    );
+
+    const itemNameInput = screen.getByPlaceholderText('検査項目名');
+    await user.type(itemNameInput, '培養');
+
+    await waitFor(() => {
+      const hasEtensu = searchMock.mock.calls.some(
+        ([params]) =>
+          params?.type === 'etensu' &&
+          params?.category === '6' &&
+          typeof params?.keyword === 'string' &&
+          params.keyword.includes('培養'),
+      );
+      const hasKensaSort = searchMock.mock.calls.some(
+        ([params]) => params?.type === 'kensa-sort' && typeof params?.keyword === 'string' && params.keyword.includes('培養'),
       );
       expect(hasEtensu).toBe(true);
       expect(hasKensaSort).toBe(true);
