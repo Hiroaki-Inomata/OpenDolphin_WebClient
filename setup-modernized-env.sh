@@ -11,6 +11,13 @@ set -euo pipefail
 # WEB_CLIENT_DEV_HOST / WEB_CLIENT_DEV_PORT で npm モードのホスト/ポートを調整し、
 # WEB_CLIENT_DEV_LOG でログパス、VITE_* 系環境変数で Web クライアントの Vite 設定を
 # 切り替えられます。
+#
+# 注意（複数施設運用）:
+# - 本スクリプトが起動時に与える ORCA_* は「起動時デフォルト（_default）」として扱われます。
+# - 施設ごとに ORCA 接続先を分ける場合は、起動後に管理画面/API で各 facilityId の接続設定を
+#   必ず登録してください（_default のみでは施設別に分かれません）。
+# - 本スクリプトは server-modernized-dev を --force-recreate で再作成するため、
+#   開発環境のデータ状態によっては再起動後に施設別設定を再投入する運用が必要です。
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -282,7 +289,8 @@ read_orca_info() {
     log "Warning: ORCA credential file not found ($ORCA_CREDENTIAL_FILE)"
   fi
 
-  local fallback_port="${ORCA_API_PORT_FALLBACK:-18080}"
+  # デフォルトは WebORCA Trial（https://weborca-trial.orca.med.or.jp:443）
+  local fallback_port="${ORCA_API_PORT_FALLBACK:-443}"
   local allow_port_8000="${ORCA_API_PORT_ALLOW_8000:-0}"
   local allow_port_8000_normalized="0"
   local port_replaced="false"
@@ -316,7 +324,8 @@ read_orca_info() {
     ORCA_API_HOST="$file_host"
     ORCA_API_HOST_SOURCE="file:ORCA_CERTIFICATION_ONLY"
   else
-    ORCA_API_HOST="localhost"
+    ORCA_API_HOST="weborca-trial.orca.med.or.jp"
+    ORCA_API_HOST_SOURCE="default:weborca-trial"
   fi
 
   ORCA_API_PORT_SOURCE="default"
@@ -356,6 +365,9 @@ read_orca_info() {
   elif [[ -n "$file_user" ]]; then
     ORCA_API_USER="$file_user"
     ORCA_API_USER_SOURCE="file:ORCA_CERTIFICATION_ONLY"
+  else
+    ORCA_API_USER="trial"
+    ORCA_API_USER_SOURCE="default:trial-user"
   fi
 
   ORCA_API_PASSWORD_SOURCE="default"
@@ -368,6 +380,9 @@ read_orca_info() {
   elif [[ -n "$file_pass" ]]; then
     ORCA_API_PASSWORD="$file_pass"
     ORCA_API_PASSWORD_SOURCE="file:ORCA_CERTIFICATION_ONLY"
+  else
+    ORCA_API_PASSWORD="weborcatrial"
+    ORCA_API_PASSWORD_SOURCE="default:trial-password"
   fi
 
   if [[ ! "$ORCA_API_PORT" =~ ^[0-9]+$ ]]; then
@@ -446,6 +461,7 @@ read_orca_info() {
   log "ORCA_CONFIG source host=${ORCA_API_HOST_SOURCE} port=${ORCA_API_PORT_SOURCE} scheme=${ORCA_API_SCHEME_SOURCE} base_url=${ORCA_BASE_URL_SOURCE} mode=${ORCA_MODE_SOURCE}"
   log "ORCA_CONFIG port policy=block_8000 allow_8000=${allow_port_8000_normalized} fallback=${fallback_port} replaced=${port_replaced} original_port=${port_original} original_source=${port_source_original}"
   log "ORCA_CONFIG auth server_basic=$(mask_state "${ORCA_API_USER:-}" "${ORCA_API_PASSWORD:-}") web_proxy_basic=$(mask_state "${ORCA_PROXY_BASIC_USER:-}" "${ORCA_PROXY_BASIC_PASSWORD:-}") web_proxy_cert=$(mask_state "${ORCA_PROXY_CERT_PATH:-}" "${ORCA_PROXY_CERT_PASS:-}")"
+  log "ORCA_CONFIG note multi-facility: ORCA_* is startup default (_default); register per-facility ORCA settings after boot when using multiple facilities."
 
   if [[ "$ORCA_TARGET_ENV" =~ ^(preprod|prod)$ ]]; then
     if [[ "$ORCA_BASE_URL_SOURCE" != env:* && "$ORCA_API_HOST_SOURCE" != env:* ]]; then
