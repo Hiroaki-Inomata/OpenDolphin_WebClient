@@ -22,6 +22,13 @@ vi.mock('./orcaMedicationGetApi', () => ({
   })),
 }));
 
+const toRequestUrlString = (requestInput: RequestInfo | URL | undefined): string => {
+  if (!requestInput) return '';
+  if (typeof requestInput === 'string') return requestInput;
+  if (requestInput instanceof URL) return requestInput.toString();
+  return requestInput.url;
+};
+
 describe('fetchOrderMasterSearch auth routing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -408,7 +415,7 @@ describe('fetchOrderMasterSearch auth routing', () => {
       } as Parameters<typeof fetchOrderMasterSearch>[0]);
 
       expect(result.ok).toBe(true);
-      const requestUrl = vi.mocked(httpFetch).mock.calls[index]?.[0] ?? '';
+      const requestUrl = toRequestUrlString(vi.mocked(httpFetch).mock.calls[index]?.[0]);
       const query = new URL(requestUrl, 'http://localhost').searchParams;
       expect(query.get('method')).toBe('partial');
       expect(query.get('scope')).toBe(scopeCase.expected);
@@ -431,7 +438,7 @@ describe('fetchOrderMasterSearch auth routing', () => {
     });
 
     expect(result.ok).toBe(true);
-    const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    const requestUrl = toRequestUrlString(vi.mocked(httpFetch).mock.calls[0]?.[0]);
     const query = new URL(requestUrl, 'http://localhost').searchParams;
     expect(query.get('effective')).toBe('20260219');
     expect(query.get('asOf')).toBe('20260219');
