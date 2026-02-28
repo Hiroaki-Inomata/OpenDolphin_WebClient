@@ -14,6 +14,7 @@ import {
   formatBodyPartLine,
   formatQuantityWithUnit,
   normalizeInline,
+  resolvePrescriptionTiming,
   resolveBundleBodyPart,
   resolveDisplayItemsWithoutBodyPart,
   resolveOperatorLine,
@@ -105,15 +106,6 @@ const compareBundleSortMeta = (left: BundleSortMeta, right: BundleSortMeta) => {
     return (right.documentId ?? Number.NEGATIVE_INFINITY) - (left.documentId ?? Number.NEGATIVE_INFINITY);
   }
   return right.index - left.index;
-};
-
-const resolvePrescriptionTiming = (bundle: OrderBundle): string | undefined => {
-  const source = bundle as unknown as Record<string, unknown>;
-  const timing = source.prescriptionTiming;
-  if (typeof timing === 'string' && timing.trim()) return timing.trim().toLowerCase();
-  const fallback = source.timing;
-  if (typeof fallback === 'string' && fallback.trim()) return fallback.trim().toLowerCase();
-  return undefined;
 };
 
 const normalizeBundleName = (bundle: OrderBundle) => {

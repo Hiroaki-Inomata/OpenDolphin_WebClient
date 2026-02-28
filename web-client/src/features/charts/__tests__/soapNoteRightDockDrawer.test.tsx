@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -204,7 +204,7 @@ describe('SoapNotePanel right dock drawer', () => {
     expect(drawer).toHaveTextContent('糖尿病薬RP');
   });
 
-  it('処方ドロワー一覧は SOAP右基準の詳細行（RP/後発可否/薬剤量/成分量/用法/日数/レセコメント）を表示する', async () => {
+  it('処方ドロワー一覧は軽量カードで詳細行（RP/後発可否/薬剤量/成分量/用法/日数）を表示する', async () => {
     const user = userEvent.setup();
     const bundles: OrderBundle[] = [
       {
@@ -252,11 +252,12 @@ describe('SoapNotePanel right dock drawer', () => {
     });
 
     const previewItem = requireElement<HTMLElement>(screen.getByText('詳細表示RP').closest('.soap-note__right-drawer-order-preview-item'));
-    expect(within(previewItem).getByText('プレビューモード: 編集操作・保存は無効です。')).toBeInTheDocument();
-    expect(within(previewItem).getByDisplayValue('詳細表示RP')).toBeInTheDocument();
-    expect(within(previewItem).getByDisplayValue('1日2回')).toBeInTheDocument();
-    expect(within(previewItem).getByDisplayValue('7')).toBeInTheDocument();
-    expect(within(previewItem).getByDisplayValue(/メトホルミン/)).toBeInTheDocument();
+    expect(within(previewItem).getByText('RP7')).toBeInTheDocument();
+    expect(within(previewItem).getByText('【後発変更不可】')).toBeInTheDocument();
+    expect(within(previewItem).getByText('メトホルミン')).toBeInTheDocument();
+    expect(within(previewItem).getByText('薬剤量: 2錠 / 成分量: 500mg')).toBeInTheDocument();
+    expect(within(previewItem).getByText('用法: 1日2回 / 日数: 7')).toBeInTheDocument();
+    expect(within(previewItem).queryByText('プレビューモード: 編集操作・保存は無効です。')).not.toBeInTheDocument();
   });
 
   it('右ドロワー一覧の並び順は started desc -> documentId desc -> index desc を維持する', async () => {
@@ -316,6 +317,95 @@ describe('SoapNotePanel right dock drawer', () => {
     );
 
     expect(labels).toEqual(['同日doc大', '同日doc小', '前日']);
+  });
+
+  it('処置サブカテゴリは role=tab/aria-selected で切替でき、既存一覧は selectedEntity 連動で絞り込まれる', async () => {
+    const user = userEvent.setup();
+    const bundles: OrderBundle[] = [
+      {
+        entity: 'treatmentOrder',
+        bundleName: '処置セットA',
+        started: '2026-02-27T11:00:00+09:00',
+        documentId: 401,
+        moduleId: 41,
+        items: [{ name: '創部洗浄', quantity: '1', unit: '回' }],
+      },
+      {
+        entity: 'generalOrder',
+        bundleName: '一般処置B',
+        started: '2026-02-27T10:00:00+09:00',
+        documentId: 402,
+        moduleId: 42,
+        items: [{ name: '湿布処置', quantity: '1', unit: '回' }],
+      },
+    ];
+
+    renderWithQueryClient(
+      <SoapNotePanel
+        history={[]}
+        meta={{
+          runId: 'RUN-RIGHT-DOCK-SUBTYPE',
+          patientId: 'P-006',
+          appointmentId: 'APT-006',
+          receptionId: 'RCP-006',
+          visitDate: '2026-02-27',
+        }}
+        author={{ role: 'doctor', displayName: 'Dr. Dock', userId: 'doctor06' }}
+        orderBundles={bundles}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '処置を開く' }));
+    const tabList = await screen.findByRole('tablist', { name: '処置サブカテゴリ' });
+    const treatmentTab = within(tabList).getByRole('tab', { name: '処置' });
+    const generalTab = within(tabList).getByRole('tab', { name: '一般' });
+
+    expect(treatmentTab).toHaveAttribute('aria-selected', 'true');
+    expect(generalTab).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByText('処置セットA')).toBeInTheDocument();
+    expect(screen.queryByText('一般処置B')).not.toBeInTheDocument();
+
+    treatmentTab.focus();
+    fireEvent.keyDown(treatmentTab, { key: 'ArrowRight' });
+
+    await waitFor(() => {
+      const currentTabList = screen.getByRole('tablist', { name: '処置サブカテゴリ' });
+      expect(within(currentTabList).getByRole('tab', { name: '一般' })).toHaveAttribute('aria-selected', 'true');
+    });
+    expect(screen.getByText('一般処置B')).toBeInTheDocument();
+    expect(screen.queryByText('処置セットA')).not.toBeInTheDocument();
+  });
+
+  it('非表示ドロワーは hidden になり、Tab移動でフォーカスが流入しない', async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <SoapNotePanel
+        history={[]}
+        meta={{
+          runId: 'RUN-RIGHT-DOCK-HIDDEN-FOCUS',
+          patientId: 'P-007',
+          appointmentId: 'APT-007',
+          receptionId: 'RCP-007',
+          visitDate: '2026-02-27',
+        }}
+        author={{ role: 'doctor', displayName: 'Dr. Dock', userId: 'doctor07' }}
+        orderBundles={[]}
+      />,
+    );
+
+    const drawer = requireElement(document.body.querySelector('.soap-note__right-drawer'));
+    expect(drawer).toHaveAttribute('hidden');
+
+    const closeButton = requireElement<HTMLButtonElement>(drawer.querySelector('button[aria-label="右ドロワーを閉じる"]'));
+    let focusedClose = false;
+    for (let i = 0; i < 24; i += 1) {
+      await user.tab();
+      if (document.activeElement === closeButton) {
+        focusedClose = true;
+        break;
+      }
+    }
+    expect(focusedClose).toBe(false);
   });
 
   it('既存セットpreviewの「このセットを編集」で対象セットが編集状態になる', async () => {

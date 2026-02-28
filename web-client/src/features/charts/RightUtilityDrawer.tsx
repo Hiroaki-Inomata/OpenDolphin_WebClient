@@ -1,4 +1,13 @@
-import { cloneElement, isValidElement, useEffect, useMemo, type ReactElement, type ReactNode } from 'react';
+import {
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useMemo,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 
 import {
@@ -71,6 +80,28 @@ const belongsToSelectionEntity = (bundleEntity: OrderEntity, selectedEntity: Ord
 
 const isOrderTool = (tool: RightUtilityTool): tool is OrderGroupKey => tool !== 'document';
 
+const resolveNextTabEntity = <T extends string>(key: string, entities: readonly T[], selected: T): T | null => {
+  const selectedIndex = entities.indexOf(selected);
+  if (selectedIndex < 0 || entities.length === 0) return null;
+  if (key === 'Home') return entities[0] ?? null;
+  if (key === 'End') return entities[entities.length - 1] ?? null;
+  if (key === 'ArrowRight' || key === 'ArrowDown') {
+    return entities[(selectedIndex + 1) % entities.length] ?? null;
+  }
+  if (key === 'ArrowLeft' || key === 'ArrowUp') {
+    return entities[(selectedIndex - 1 + entities.length) % entities.length] ?? null;
+  }
+  return null;
+};
+
+const focusDrawerSubtypeTab = (container: HTMLDivElement, entity: OrderEntity) => {
+  const target = container.querySelector<HTMLButtonElement>(`button[data-drawer-subtype-entity="${entity}"]`);
+  if (!target) return;
+  requestAnimationFrame(() => target.focus());
+};
+
+const MAX_PREVIEW_ITEMS = 3;
+
 const cloneDocumentPanelNode = (
   node: ReactNode,
   historyCopyRequest?: { requestId: string; letterId: number } | null,
@@ -109,6 +140,8 @@ export function RightUtilityDrawer({
   documentHistoryCopyRequest,
   onDocumentHistoryCopyConsumed,
 }: RightUtilityDrawerProps) {
+  const drawerRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!open) return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -119,6 +152,16 @@ export function RightUtilityDrawer({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, open]);
+
+  useEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+    if (open) {
+      drawer.removeAttribute('inert');
+      return;
+    }
+    drawer.setAttribute('inert', '');
+  }, [open]);
 
   const groupSpec = useMemo(() => resolveGroupByTool(activeTool), [activeTool]);
   const isOrderPanel = isOrderTool(activeTool) && Boolean(groupSpec);
@@ -137,15 +180,6 @@ export function RightUtilityDrawer({
 
   const sortedGroupBundles = useMemo(() => sortBundlesByLatestRule(groupBundles), [groupBundles]);
 
-  const existingOrderRows = useMemo(() => {
-    if (!groupSpec) return [];
-    return buildOrderDetailDisplayRowsForGroup({
-      group: groupSpec.key,
-      bundles: sortedGroupBundles,
-      defaultEntity: groupSpec.defaultEntity,
-    });
-  }, [groupSpec, sortedGroupBundles]);
-
   const selectedEntity = useMemo<OrderEntity | null>(() => {
     if (!groupSpec) return null;
     if (activeOrderEntity && groupSpec.entities.includes(activeOrderEntity)) return activeOrderEntity;
@@ -160,18 +194,19 @@ export function RightUtilityDrawer({
     });
   }, [groupSpec, selectedEntity, sortedGroupBundles]);
 
+  const existingOrderRows = useMemo(() => {
+    if (!groupSpec || !selectedEntity) return [];
+    return buildOrderDetailDisplayRowsForGroup({
+      group: groupSpec.key,
+      bundles: bundlesBySelectedEntity,
+      defaultEntity: selectedEntity,
+    });
+  }, [bundlesBySelectedEntity, groupSpec, selectedEntity]);
+
   const selectedEntityMeta = useMemo(
     () => (selectedEntity ? resolveOrderEntityEditorMeta(selectedEntity) : null),
     [selectedEntity],
   );
-
-  const activeEditBundle = useMemo(() => {
-    if (!activeOrderRequest) return null;
-    if (activeOrderRequest.kind === 'edit' || activeOrderRequest.kind === 'copy') {
-      return activeOrderRequest.bundle;
-    }
-    return null;
-  }, [activeOrderRequest]);
 
   const documentPanelNode = useMemo(() => {
     if (!documentPanel) {
@@ -197,12 +232,18 @@ export function RightUtilityDrawer({
     isPrescriptionPanel && prescriptionBundles ? prescriptionBundles : bundlesBySelectedEntity;
   const resolvedPanelLoading = isPrescriptionPanel ? prescriptionBundlesLoading : orderBundlesLoading;
   const resolvedPanelError = isPrescriptionPanel ? prescriptionBundlesError ?? orderBundlesError : orderBundlesError;
+  const activeEditBundle =
+    activeOrderRequest && (activeOrderRequest.kind === 'edit' || activeOrderRequest.kind === 'copy')
+      ? activeOrderRequest.bundle
+      : null;
 
   const drawerNode = (
     <aside
+      ref={drawerRef}
       className="soap-note__right-drawer"
       data-open={open ? 'true' : 'false'}
       data-tool={activeTool}
+      hidden={!open}
       aria-hidden={!open}
       aria-label="右ユーティリティドロワー"
     >
@@ -247,8 +288,26 @@ export function RightUtilityDrawer({
                           key={`drawer-sub-${entity}`}
                           type="button"
                           className="order-dock__subtype-tab"
+                          role="tab"
+                          aria-controls="soap-note-right-drawer-order-preview"
+                          data-drawer-subtype-entity={entity}
                           data-active={isActive ? 'true' : 'false'}
-                          aria-pressed={isActive}
+                          aria-selected={isActive}
+                          tabIndex={isActive ? 0 : -1}
+                          onKeyDown={(event: ReactKeyboardEvent<HTMLButtonElement>) => {
+                            const next = resolveNextTabEntity(
+                              event.key,
+                              activeOrderPanelContext.groupSpec.entities,
+                              activeOrderPanelContext.selectedEntity,
+                            );
+                            if (!next) return;
+                            event.preventDefault();
+                            onOrderEntitySwitch?.(next);
+                            const tabList = event.currentTarget.closest('[role="tablist"]');
+                            if (tabList instanceof HTMLDivElement) {
+                              focusDrawerSubtypeTab(tabList, next);
+                            }
+                          }}
                           onClick={() => onOrderEntitySwitch?.(entity)}
                         >
                           {resolveOrderEntityLabel(entity)}
@@ -295,7 +354,9 @@ export function RightUtilityDrawer({
               </div>
 
               <section
+                id="soap-note-right-drawer-order-preview"
                 className="soap-note__right-drawer-order-preview"
+                role="tabpanel"
                 aria-label={`${activeOrderPanelContext.groupSpec.label}既存一覧`}
               >
                 <div className="soap-note__right-drawer-order-preview-header">
@@ -312,7 +373,7 @@ export function RightUtilityDrawer({
                 {resolvedPanelLoading ? <p className="order-dock__empty">読み込み中...</p> : null}
                 {resolvedPanelError ? <p className="order-dock__empty">取得失敗: {resolvedPanelError}</p> : null}
                 {!resolvedPanelLoading && !resolvedPanelError && existingOrderRows.length === 0 ? (
-                  <p className="order-dock__empty">このカテゴリの既存オーダーはありません。</p>
+                  <p className="order-dock__empty">このサブカテゴリの既存オーダーはありません。</p>
                 ) : null}
                 {!resolvedPanelLoading && !resolvedPanelError ? (
                   <div className="soap-note__right-drawer-order-preview-list order-dock__bundle-list" role="list">
@@ -322,42 +383,6 @@ export function RightUtilityDrawer({
                           activeEditBundle.documentId === row.bundle.documentId &&
                           activeEditBundle.moduleId === row.bundle.moduleId,
                       );
-                      const previewInstanceKey = `preview-${row.id}`;
-                      const previewRequest: OrderBundleEditPanelRequest = {
-                        requestId: previewInstanceKey,
-                        kind: 'edit',
-                        bundle: row.bundle,
-                      };
-                      const previewMeta = resolveOrderEntityEditorMeta(row.entity);
-                      if (!previewMeta) {
-                        return null;
-                      }
-                      const previewPanel =
-                        row.entity === 'medOrder' ? (
-                          <PrescriptionOrderEditorPanel
-                            patientId={patientId}
-                            meta={meta}
-                            variant="embedded"
-                            bundlesOverride={[row.bundle]}
-                            readOnlyPreview
-                            instanceKey={previewInstanceKey}
-                            active={open && activeTool === 'prescription'}
-                          />
-                        ) : (
-                          <OrderBundleEditPanel
-                            patientId={patientId}
-                            entity={row.entity}
-                            title={previewMeta.title}
-                            bundleLabel={previewMeta.bundleLabel}
-                            itemQuantityLabel={previewMeta.itemQuantityLabel}
-                            meta={meta}
-                            variant="embedded"
-                            bundlesOverride={[row.bundle]}
-                            request={previewRequest}
-                            readOnlyPreview
-                            instanceKey={previewInstanceKey}
-                          />
-                        );
                       return (
                         <article
                           key={`drawer-bundle-${row.id}`}
@@ -379,7 +404,44 @@ export function RightUtilityDrawer({
                               このセットを編集
                             </button>
                           </header>
-                          <div className="soap-note__right-drawer-order-preview-item-body">{previewPanel}</div>
+                          <div className="soap-note__right-drawer-order-preview-item-body">
+                            {row.title ? (
+                              <p className="soap-note__right-drawer-order-preview-item-title">{row.title}</p>
+                            ) : null}
+                            {row.items.length > 0 ? (
+                              <ul className="soap-note__right-drawer-order-preview-item-list" aria-label="既存セット内容">
+                                {row.items.slice(0, MAX_PREVIEW_ITEMS).map((item, index) => (
+                                  <li key={`${row.id}-preview-item-${index}`} className="soap-note__right-drawer-order-preview-item-line">
+                                    <span className="soap-note__right-drawer-order-preview-item-primary">{item.primary}</span>
+                                    {item.genericNote ? (
+                                      <span className="soap-note__right-drawer-order-preview-item-note">{item.genericNote}</span>
+                                    ) : null}
+                                    {item.secondary.slice(0, 2).map((secondary, secondaryIndex) => (
+                                      <span
+                                        key={`${row.id}-preview-item-${index}-secondary-${secondaryIndex}`}
+                                        className="soap-note__right-drawer-order-preview-item-secondary"
+                                      >
+                                        {secondary}
+                                      </span>
+                                    ))}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                            {row.items.length > MAX_PREVIEW_ITEMS ? (
+                              <p className="soap-note__right-drawer-order-preview-item-more">他{row.items.length - MAX_PREVIEW_ITEMS}件</p>
+                            ) : null}
+                            {row.detailLines.slice(0, 2).map((detail, index) => (
+                              <p key={`${row.id}-preview-detail-${index}`} className="soap-note__right-drawer-order-preview-item-detail">
+                                {detail}
+                              </p>
+                            ))}
+                            {row.warnings.slice(0, 1).map((warning, index) => (
+                              <p key={`${row.id}-preview-warning-${index}`} className="soap-note__right-drawer-order-preview-item-warning">
+                                {warning}
+                              </p>
+                            ))}
+                          </div>
                         </article>
                       );
                     })}

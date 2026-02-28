@@ -44,6 +44,7 @@ public class OrderBundleMutationRequest {
         private String memo;
         private String startDate;
         private String endDate;
+        private BundleItem bodyPart;
         private List<BundleItem> items;
 
         public String getOperation() {
@@ -156,6 +157,14 @@ public class OrderBundleMutationRequest {
 
         public void setEndDate(String endDate) {
             this.endDate = endDate;
+        }
+
+        public BundleItem getBodyPart() {
+            return bodyPart;
+        }
+
+        public void setBodyPart(BundleItem bodyPart) {
+            this.bodyPart = bodyPart;
         }
 
         public List<BundleItem> getItems() {

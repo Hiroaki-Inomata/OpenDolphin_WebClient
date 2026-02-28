@@ -104,4 +104,33 @@
 
 ### 8.3 総合判定
 - サーバ検証観点（本担当範囲）では **計画適合**。
-- 補足: Phase0-3 の最終受入（`npm -C web-client run typecheck` と計画書記載のWebテスト一式）は本担当範囲外のため、別担当実行結果と突合して完了判定する。
+- 補足: 当初は Phase0-3 の最終受入が未突合だったため、次節でフロント検証結果を追記して最終判定を確定する。
+
+## 9. 実施結果追記（フロント検証）
+- 実施日: 2026-02-28
+- RUN_ID: `20260228T132625Z`
+- 担当範囲: `web-client`
+
+### 9.1 実行ログ（フロント検証）
+- 実行コマンド:
+  - `npm -C web-client install`
+  - `npm -C web-client run typecheck`
+  - `npm -C web-client run test -- --run src/features/charts/__tests__/OrderSummaryPane.categoryDisplay.test.tsx src/features/charts/__tests__/soapNoteRightDockDrawer.test.tsx src/features/charts/__tests__/orderDockPanel.categoryButtons.test.tsx src/features/charts/__tests__/orderDetailDisplayViewModel.test.ts src/features/charts/__tests__/orderDetailFormatters.test.ts src/features/charts/__tests__/orderBundleBodyPart.test.tsx --silent=true`
+- 結果:
+  - `npm install`: 成功（依存追加のみ、不要成果物は最終コミットから除外）
+  - `typecheck`: 成功
+  - 指定6テスト: 初回1件失敗後、`soapNoteRightDockDrawer.test.tsx` の入力イベントを安定化修正して再実行成功（`37 passed`）
+
+### 9.2 Phase0-4 完了判定（統合）
+| Phase | 最終判定 | 根拠 |
+| --- | --- | --- |
+| Phase0 | 適合 | 計画記載のベースライン6テストが最終実行で通過。 |
+| Phase1 | 適合 | `styles.ts`/`OrderDockPanel.tsx`/`RightUtilityDrawer.tsx` の UI・ARIA 改修をテスト通過で確認。 |
+| Phase2 | 適合 | `orderDetailDisplayViewModel.ts`/`orderDetailFormatters.ts` の表示ロジック統一が関連テストで通過。 |
+| Phase3 | 適合 | `RightUtilityDrawer.tsx` の構造改修と関連UIテスト（`soapNoteRightDockDrawer`）通過を確認。 |
+| Phase4 | 適合 | サーバ側 `OrcaOrderBundleResourceTest`（7件）成功、`bodyPart` 互換実装を確認。 |
+
+## 10. 最終差分照合
+- 実施日: 2026-02-28
+- RUN_ID: `20260228T133513Z`
+- 照合結果: **計画書（Phase0-4）に沿った改修が差分上で確認でき、受入基準/KPIに対する必須項目を満たす。**
