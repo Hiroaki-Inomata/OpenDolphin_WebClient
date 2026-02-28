@@ -197,7 +197,7 @@ export const receptionStyles = css`
   .reception-page {
     --reception-floating-offset-right: max(1rem, calc(env(safe-area-inset-right) + 0.65rem));
     --reception-floating-offset-bottom: max(1rem, calc(env(safe-area-inset-bottom) + 0.65rem));
-    --reception-floating-stack-height: 7.4rem;
+    --reception-floating-stack-height: 3.9rem;
     min-height: 100vh;
     padding: 3rem clamp(1rem, 4vw, 2.75rem) calc(3rem + var(--reception-floating-stack-height));
     background: var(--ui-surface-muted);
@@ -336,10 +336,10 @@ export const receptionStyles = css`
     position: fixed;
     right: var(--reception-floating-offset-right);
     bottom: var(--reception-floating-offset-bottom);
-    width: clamp(14rem, 24vw, 17rem);
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
+    width: clamp(20rem, 42vw, 30rem);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
     gap: 0.65rem;
     z-index: 10700;
     pointer-events: none;
@@ -978,13 +978,6 @@ export const receptionStyles = css`
     transition: max-height 220ms ease, box-shadow 220ms ease, border-radius 220ms ease;
   }
 
-  .reception-accept-workflow-modal.is-collapsed {
-    height: auto;
-    min-height: 0;
-    max-height: 6.6rem;
-    border-radius: 18px;
-  }
-
   .reception-accept-workflow-modal__header {
     display: flex;
     justify-content: space-between;
@@ -1013,13 +1006,6 @@ export const receptionStyles = css`
     color: #475569;
   }
 
-  .reception-accept-workflow-modal__actions {
-    display: flex;
-    gap: 0.55rem;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-
   .reception-accept-workflow-modal__body {
     flex: 1;
     min-height: 0;
@@ -1028,9 +1014,6 @@ export const receptionStyles = css`
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     max-height: 100%;
-    opacity: 1;
-    transform: translateY(0);
-    transition: max-height 220ms ease, opacity 180ms ease, transform 220ms ease, padding 220ms ease;
   }
 
   .reception-accept-modal {
@@ -1139,21 +1122,6 @@ export const receptionStyles = css`
     overflow: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
-  }
-
-  .reception-accept-workflow-modal.is-collapsed .reception-accept-workflow-modal__body {
-    max-height: 0;
-    opacity: 0;
-    transform: translateY(0.6rem);
-    visibility: hidden;
-    padding-top: 0;
-    padding-bottom: 0;
-    pointer-events: none;
-    overflow: hidden;
-  }
-
-  .reception-accept-workflow-modal.is-collapsed .reception-accept-workflow-modal__header {
-    border-bottom-color: transparent;
   }
 
   .reception-sidepane {
@@ -3869,7 +3837,7 @@ export const receptionStyles = css`
     .reception-page {
       --reception-floating-offset-right: max(0.65rem, calc(env(safe-area-inset-right) + 0.45rem));
       --reception-floating-offset-bottom: max(0.65rem, calc(env(safe-area-inset-bottom) + 0.45rem));
-      --reception-floating-stack-height: 6.9rem;
+      --reception-floating-stack-height: 3.5rem;
     }
 
     .order-console__action {
@@ -3879,7 +3847,7 @@ export const receptionStyles = css`
     .reception-page__floating-actions {
       right: var(--reception-floating-offset-right);
       bottom: var(--reception-floating-offset-bottom);
-      width: min(16rem, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 1.4rem));
+      width: min(22rem, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 1.4rem));
       gap: 0.5rem;
     }
 
@@ -3916,18 +3884,9 @@ export const receptionStyles = css`
       border-radius: 16px;
     }
 
-    .reception-accept-workflow-modal.is-collapsed {
-      max-height: 6.2rem;
-    }
-
     .reception-accept-workflow-modal__header {
       padding: 0.7rem;
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .reception-accept-workflow-modal__actions {
-      justify-content: flex-end;
+      align-items: flex-start;
     }
 
     .reception-accept-workflow-modal__body {

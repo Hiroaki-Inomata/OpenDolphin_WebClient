@@ -777,7 +777,7 @@ describe('ReceptionPage list and side pane guidance', () => {
     expect(within(resultPanel).getByText('2 / 2')).toBeInTheDocument();
   });
 
-  it('closes the accept workflow modal', async () => {
+  it('toggles the accept workflow modal from the floating button', async () => {
     mockMutationQueue.push({
       patients: [
         {
@@ -792,6 +792,9 @@ describe('ReceptionPage list and side pane guidance', () => {
     const user = userEvent.setup();
     renderReceptionPage();
 
+    const floatingActionGroup = getFloatingActionGroup();
+    const acceptButton = within(floatingActionGroup).getByRole('button', { name: '当日受付/患者検索' });
+
     const workflowModal = await openAcceptWorkflowModal(user);
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
     await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-3');
@@ -800,11 +803,12 @@ describe('ReceptionPage list and side pane guidance', () => {
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
     expect(within(resultPanel).getByRole('button', { name: /クローズ確認患者/ })).toBeInTheDocument();
 
-    await user.click(within(resultPanel).getByRole('button', { name: '閉じる' }));
+    await user.click(acceptButton);
 
     await waitFor(() => {
       expect(screen.queryByRole('region', { name: '当日受付/患者検索' })).toBeNull();
     });
+    expect(acceptButton).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('renders patient search pane on the left and result pane on the right in accept workflow modal', async () => {
@@ -833,31 +837,36 @@ describe('ReceptionPage list and side pane guidance', () => {
     expect(within(acceptPanel).getByRole('button', { name: '予約外受付' })).toBeInTheDocument();
   });
 
-  it('allows collapsing/expanding accept workflow panel and keeps background controls operable', async () => {
+  it('removes collapse/close controls from accept workflow modal', async () => {
     const user = userEvent.setup();
     renderReceptionPage();
 
     const workflowModal = await openAcceptWorkflowModal(user);
     expect(within(workflowModal).getByRole('region', { name: '患者検索' })).toBeInTheDocument();
+    expect(within(workflowModal).queryByRole('button', { name: '折りたたむ' })).toBeNull();
+    expect(within(workflowModal).queryByRole('button', { name: '展開' })).toBeNull();
+    expect(within(workflowModal).queryByRole('button', { name: '閉じる' })).toBeNull();
+  });
 
-    await user.click(within(workflowModal).getByRole('button', { name: '折りたたむ' }));
-    expect(within(workflowModal).queryByRole('region', { name: '患者検索' })).toBeNull();
-    const hiddenPatientSearch = within(workflowModal).queryByRole('region', { name: '患者検索', hidden: true });
-    if (hiddenPatientSearch) {
-      const ariaHiddenContainer =
-        hiddenPatientSearch.getAttribute('aria-hidden') === 'true'
-          ? hiddenPatientSearch
-          : hiddenPatientSearch.closest('[aria-hidden="true"]');
-      expect(ariaHiddenContainer).not.toBeNull();
-    }
-
+  it('keeps accept workflow and daily calendar mutually exclusive', async () => {
+    const user = userEvent.setup();
+    renderReceptionPage();
     const floatingActionGroup = getFloatingActionGroup();
+    const acceptButton = within(floatingActionGroup).getByRole('button', { name: '当日受付/患者検索' });
     const dailyStatusButton = within(floatingActionGroup).getByRole('button', { name: /^日次状態:/ });
+
+    await user.click(acceptButton);
+    expect(await screen.findByRole('region', { name: '当日受付/患者検索' })).toBeInTheDocument();
+
     await user.click(dailyStatusButton);
+    expect(await screen.findByRole('group', { name: '日次状態カレンダー' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '当日受付/患者検索' })).toBeNull();
     expect(dailyStatusButton).toHaveAttribute('aria-expanded', 'true');
 
-    await user.click(within(workflowModal).getByRole('button', { name: '展開' }));
-    expect(within(workflowModal).getByRole('region', { name: '患者検索' })).toBeInTheDocument();
+    await user.click(acceptButton);
+    expect(await screen.findByRole('region', { name: '当日受付/患者検索' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: '日次状態カレンダー' })).toBeNull();
+    expect(dailyStatusButton).toHaveAttribute('aria-expanded', 'false');
   });
 });
 

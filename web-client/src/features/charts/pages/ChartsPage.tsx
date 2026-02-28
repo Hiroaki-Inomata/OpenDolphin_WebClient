@@ -3190,50 +3190,6 @@ function ChartsContent() {
     storageScope,
   ]);
 
-  const editStateBar = useMemo(() => {
-    if (sidePanelMeta.readOnly) {
-      return {
-        tone: 'blocked' as const,
-        label: '閲覧専用',
-        detail: sidePanelMeta.readOnlyReason ?? 'ロックまたは権限状態により編集できません。',
-      };
-    }
-    const warnings: string[] = [];
-    if (resolvedMissingMaster) warnings.push('マスター未同期');
-    if (resolvedFallbackUsed) warnings.push('フォールバック経路');
-    if (networkDegradedReason) warnings.push(networkDegradedReason);
-    if (warnings.length > 0) {
-      return {
-        tone: 'warning' as const,
-        label: 'データ状態に注意',
-        detail: warnings.join(' / '),
-      };
-    }
-    const syncDetail = (() => {
-      if (soapSyncState.isSaving) return 'SOAPを保存中です。';
-      if (!soapSyncState.serverSynced && soapSyncState.error) return `SOAP保存未反映: ${soapSyncState.error}`;
-      if (!soapSyncState.serverSynced && soapSyncState.localSaved) return 'SOAPはローカル保存済み、サーバ未反映です。';
-      if (draftState.dirty) return '未保存の入力があります。';
-      return '未保存なし。';
-    })();
-    return {
-      tone: 'ready' as const,
-      label: '編集可能',
-      detail: syncDetail,
-    };
-  }, [
-    draftState.dirty,
-    networkDegradedReason,
-    resolvedFallbackUsed,
-    resolvedMissingMaster,
-    sidePanelMeta.readOnly,
-    sidePanelMeta.readOnlyReason,
-    soapSyncState.error,
-    soapSyncState.isSaving,
-    soapSyncState.localSaved,
-    soapSyncState.serverSynced,
-  ]);
-
   const saveOrderSetMutation = useMutation({
     mutationFn: async () => {
       if (!patientId) {
@@ -4471,30 +4427,6 @@ function ChartsContent() {
             <div className="charts-workbench__sticky">
               <div className="charts-workbench__sticky-grid">
                 <div className="charts-encounter-header" aria-label="患者情報と診療操作">
-                  <div
-                    className={`charts-edit-state-bar charts-edit-state-bar--${editStateBar.tone}`}
-                    role="status"
-                    aria-live={resolveAriaLive(editStateBar.tone === 'blocked' ? 'warning' : 'info')}
-                  >
-                    <div className="charts-edit-state-bar__main">
-                      <strong>
-                        {editStateBar.tone === 'ready' ? '✅' : editStateBar.tone === 'blocked' ? '⛔' : '⚠'} {editStateBar.label}
-                      </strong>
-                      <span>{editStateBar.detail}</span>
-                    </div>
-                    <div className="charts-edit-state-bar__actions" role="group" aria-label="編集状態の操作">
-                      {editStateBar.tone !== 'ready' ? (
-                        <button type="button" onClick={() => void handleRefreshSummary()} disabled={isManualRefreshing}>
-                          {isManualRefreshing ? '再取得中...' : '再取得'}
-                        </button>
-                      ) : null}
-                      {tabLock.isReadOnly && !approvalLocked ? (
-                        <button type="button" onClick={() => tabLock.forceTakeover()}>
-                          強制引き継ぎ
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
                   <div className="charts-patient-tabs" aria-label="開いているカルテ" data-test-id="charts-patient-tabs">
                     <div className="charts-patient-tabs__list" role="list" aria-label="カルテタブ一覧">
                       {patientTabs.length > 0 ? (

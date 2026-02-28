@@ -114,7 +114,6 @@ const COLLAPSE_STORAGE_KEY = 'reception-section-collapses';
 const FILTER_STORAGE_KEY = 'reception-filter-state';
 const FILTER_PANEL_COLLAPSE_KEY = 'reception-filter-panel-collapsed';
 const ACCEPT_DETAILS_COLLAPSE_KEY = 'reception-accept-details-collapsed';
-const ACCEPT_WORKFLOW_MODAL_COLLAPSE_KEY = 'reception-accept-workflow-modal-collapsed';
 const STATUS_LIST_LAYOUT_STORAGE_KEY = 'reception-status-list-layout';
 const ORCA_QUEUE_REFRESH_INTERVAL_MS = 60_000;
 const ORCA_QUEUE_QUERY_KEY = ['orca-queue'] as const;
@@ -792,9 +791,6 @@ export function ReceptionPage({
   const [acceptDetailsCollapsed, setAcceptDetailsCollapsed] = useState(() =>
     loadCollapsedPanel(ACCEPT_DETAILS_COLLAPSE_KEY, true),
   );
-  const [acceptWorkflowModalCollapsed, setAcceptWorkflowModalCollapsed] = useState(() =>
-    loadCollapsedPanel(ACCEPT_WORKFLOW_MODAL_COLLAPSE_KEY, false),
-  );
   const landingSection = searchParams.get('section') ?? undefined;
   const landingCreate = searchParams.get('create') === '1';
   const landingHandledRef = useRef<string | null>(null);
@@ -836,7 +832,6 @@ export function ReceptionPage({
     }
     if (landingSection === 'accept' || landingCreate) {
       setAcceptWorkflowModalOpen(true);
-      setAcceptWorkflowModalCollapsed(false);
       setAcceptDetailsCollapsed(false);
       window.setTimeout(() => {
         const el = document.getElementById('reception-patient-search-patient-id');
@@ -846,7 +841,7 @@ export function ReceptionPage({
         }
       }, 0);
     }
-  }, [landingCreate, landingSection, setAcceptDetailsCollapsed, setAcceptWorkflowModalCollapsed, setFiltersCollapsed]);
+  }, [landingCreate, landingSection, setAcceptDetailsCollapsed, setFiltersCollapsed]);
   const [exceptionsModalOpen, setExceptionsModalOpen] = useState(false);
   const [recordsModalPatient, setRecordsModalPatient] = useState<{ patientId: string; name?: string } | null>(null);
   const [missingMasterNote, setMissingMasterNote] = useState('');
@@ -1219,10 +1214,6 @@ export function ReceptionPage({
   useEffect(() => {
     persistCollapsedPanel(ACCEPT_DETAILS_COLLAPSE_KEY, acceptDetailsCollapsed);
   }, [acceptDetailsCollapsed]);
-
-  useEffect(() => {
-    persistCollapsedPanel(ACCEPT_WORKFLOW_MODAL_COLLAPSE_KEY, acceptWorkflowModalCollapsed);
-  }, [acceptWorkflowModalCollapsed]);
 
   useEffect(() => {
     persistStatusListLayout(statusListLayout);
@@ -1719,6 +1710,16 @@ export function ReceptionPage({
     if (!parsed) return dailyCalendarMonthStart;
     return `${parsed.year}年${parsed.month}月`;
   }, [dailyCalendarMonthStart]);
+  const toggleDailyCalendar = useCallback(() => {
+    setDailyCalendarOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setAcceptWorkflowModalOpen(false);
+        setDailyCalendarMonthStart(startOfUtcMonth(selectedDate));
+      }
+      return next;
+    });
+  }, [selectedDate]);
   useEffect(() => {
     if (!dailyCalendarOpen) return;
     const handlePointerDown = (event: PointerEvent) => {
@@ -1740,6 +1741,10 @@ export function ReceptionPage({
       window.removeEventListener('keydown', handleEscape);
     };
   }, [dailyCalendarOpen]);
+  useEffect(() => {
+    if (!acceptWorkflowModalOpen) return;
+    setDailyCalendarOpen(false);
+  }, [acceptWorkflowModalOpen]);
   const departmentCodeMap = useMemo(() => {
     const raw = appointmentQuery.data?.raw as Record<string, unknown> | undefined;
     const map = new Map<string, string>();
@@ -3011,12 +3016,19 @@ export function ReceptionPage({
 
   const openAcceptWorkflowModal = useCallback(() => {
     setAcceptWorkflowModalOpen(true);
-    setAcceptWorkflowModalCollapsed(false);
+    setDailyCalendarOpen(false);
     setAcceptResult(null);
   }, []);
 
-  const closeAcceptWorkflowModal = useCallback(() => {
-    setAcceptWorkflowModalOpen(false);
+  const toggleAcceptWorkflowModal = useCallback(() => {
+    setAcceptWorkflowModalOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setDailyCalendarOpen(false);
+        setAcceptResult(null);
+      }
+      return next;
+    });
   }, []);
 
   const handlePatientSearchSubmit = useCallback(
@@ -3044,7 +3056,7 @@ export function ReceptionPage({
       setPatientSearchSelected(null);
       setAutoSelectFirstPatientSearchResult(true);
       setAcceptWorkflowModalOpen(true);
-      setAcceptWorkflowModalCollapsed(false);
+      setDailyCalendarOpen(false);
       await patientSearchMutation.mutateAsync({ keyword: primaryKeyword });
       logUiState({
         action: 'patient_search',
@@ -5605,7 +5617,8 @@ export function ReceptionPage({
           <button
             type="button"
             className="reception-page__floating-action reception-page__floating-action--accept-workflow"
-            onClick={openAcceptWorkflowModal}
+            onClick={toggleAcceptWorkflowModal}
+            aria-expanded={acceptWorkflowModalOpen}
             data-test-id="reception-open-accept-workflow"
           >
             当日受付/患者検索
@@ -5620,10 +5633,7 @@ export function ReceptionPage({
               className="reception-daily-calendar__trigger"
               aria-label={`日次状態: ${appointmentEntriesSourceLabel}（カレンダー）`}
               aria-expanded={dailyCalendarOpen}
-              onClick={() => {
-                setDailyCalendarMonthStart(startOfUtcMonth(selectedDate));
-                setDailyCalendarOpen((prev) => !prev);
-              }}
+              onClick={toggleDailyCalendar}
             >
               <span className="reception-daily-calendar__trigger-label">
                 日次状態: {appointmentEntriesSourceLabel}
@@ -5729,7 +5739,7 @@ export function ReceptionPage({
 
         {acceptWorkflowModalOpen ? (
           <section
-            className={`reception-accept-workflow-modal${acceptWorkflowModalCollapsed ? ' is-collapsed' : ''}`}
+            className="reception-accept-workflow-modal"
             role="region"
             aria-label="当日受付/患者検索"
             data-test-id="reception-accept-workflow-modal"
@@ -5740,27 +5750,8 @@ export function ReceptionPage({
                 <h2>当日受付/患者検索</h2>
                 <p>患者検索（AND）→ 選択 → 受付登録。</p>
               </div>
-              <div className="reception-accept-workflow-modal__actions">
-                <button
-                  type="button"
-                  className="reception-search__button ghost"
-                  onClick={() => setAcceptWorkflowModalCollapsed((prev) => !prev)}
-                  aria-expanded={!acceptWorkflowModalCollapsed}
-                  aria-controls="reception-accept-workflow-modal-body"
-                  data-test-id="reception-accept-workflow-collapse"
-                >
-                  {acceptWorkflowModalCollapsed ? '展開' : '折りたたむ'}
-                </button>
-                <button type="button" className="reception-search__button ghost" onClick={closeAcceptWorkflowModal}>
-                  閉じる
-                </button>
-              </div>
             </header>
-            <div
-              id="reception-accept-workflow-modal-body"
-              className="reception-accept-workflow-modal__body"
-              aria-hidden={acceptWorkflowModalCollapsed}
-            >
+            <div className="reception-accept-workflow-modal__body">
                 <div className="reception-accept-modal" data-run-id={resolvedRunId}>
                   <section
                     className="reception-patient-search reception-patient-search--embedded reception-accept-modal__left"
@@ -5898,9 +5889,6 @@ export function ReceptionPage({
                                 : `${patientSearchResults.length}件`}
                           </span>
                         </div>
-                        <button type="button" className="reception-search__button ghost" onClick={closeAcceptWorkflowModal}>
-                          閉じる
-                        </button>
                       </header>
                       <div className="reception-accept-modal__results-body">
                         <div className="reception-patient-search__list" role="list" aria-label="検索結果">

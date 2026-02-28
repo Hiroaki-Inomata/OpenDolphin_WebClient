@@ -682,53 +682,15 @@ describe('PatientsPage return flow', () => {
     mockAuthFlags.fallbackUsed = false;
   });
 
-  it('returnTo クエリ指定のとき ReturnToBar が returnTo へ戻れる', async () => {
+  it('returnTo 指定があっても戻り導線は表示しない', () => {
     mockPatients();
     setRouterSearch('?from=charts&returnTo=/f/FAC-TEST/charts?patientId=000001');
 
     renderPatientsPage();
 
-    expect(screen.getByText('カルテに戻れます')).toBeInTheDocument();
-    const backButton = screen.getByRole('button', { name: /カルテへ戻る/ });
-    await userEvent.setup().click(backButton);
-    expect(mockGuardedNavigate).toHaveBeenCalledWith('/f/FAC-TEST/charts?patientId=000001');
-  });
-
-  it('returnTo 保存済みのとき ReturnToBar が sessionStorage の returnTo を使う', async () => {
-    mockPatients();
-    setRouterSearch('?from=charts');
-    sessionStorage.setItem('opendolphin:web-client:patients:returnTo:v1', '/f/FAC-TEST/charts?patientId=000002');
-
-    renderPatientsPage();
-
-    expect(screen.getByText('カルテに戻れます')).toBeInTheDocument();
-    const backButton = screen.getByRole('button', { name: /カルテへ戻る/ });
-    await userEvent.setup().click(backButton);
-    expect(mockGuardedNavigate).toHaveBeenCalledWith('/f/FAC-TEST/charts?patientId=000002');
-  });
-
-  it('returnTo 不正時は安全な fallback（/f/:facilityId/charts）へ戻る', async () => {
-    mockPatients();
-    setRouterSearch('?from=charts&returnTo=https://example.com');
-
-    renderPatientsPage();
-
-    expect(screen.getByText('戻り先がないため安全な画面へ戻ります')).toBeInTheDocument();
-    const backButton = screen.getByRole('button', { name: /カルテへ戻る/ });
-    await userEvent.setup().click(backButton);
-    expect(mockGuardedNavigate).toHaveBeenCalledWith('/f/FAC-TEST/charts');
-  });
-
-  it('Charts 由来でない場合は fallback（/f/:facilityId/charts）へ戻る', async () => {
-    mockPatients();
-    setRouterSearch('');
-
-    renderPatientsPage();
-
-    expect(screen.getByText('戻り先がないため安全な画面へ戻ります')).toBeInTheDocument();
-    const backButton = screen.getByRole('button', { name: '◀︎ 戻る' });
-    await userEvent.setup().click(backButton);
-    expect(mockGuardedNavigate).toHaveBeenCalledWith('/f/FAC-TEST/charts');
+    expect(screen.queryByRole('region', { name: '戻り導線' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /戻る/ })).not.toBeInTheDocument();
+    expect(mockGuardedNavigate).not.toHaveBeenCalled();
   });
 });
 
