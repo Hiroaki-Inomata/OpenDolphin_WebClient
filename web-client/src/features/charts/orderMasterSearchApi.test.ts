@@ -324,6 +324,30 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(result.fallbackUsed).toBe(true);
   });
 
+  it('drug 検索で MASTER_DRUG_UNAVAILABLE は空結果かつ missingMaster/fallbackUsed=true を返す', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 'MASTER_DRUG_UNAVAILABLE',
+          message: '薬剤マスタを取得できませんでした',
+        }),
+        {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+
+    const result = await fetchOrderMasterSearch({ type: 'drug', keyword: 'アムロジピン' });
+
+    expect(result.ok).toBe(true);
+    expect(result.items).toEqual([]);
+    expect(result.totalCount).toBe(0);
+    expect(result.missingMaster).toBe(true);
+    expect(result.fallbackUsed).toBe(true);
+  });
+
   it('treats uppercase statusText unavailable as unavailable for non-etensu searches', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(
@@ -442,5 +466,28 @@ describe('fetchOrderMasterSearch auth routing', () => {
     const query = new URL(requestUrl, 'http://localhost').searchParams;
     expect(query.get('effective')).toBe('20260219');
     expect(query.get('asOf')).toBe('20260219');
+  });
+
+  it('drug 検索で asOf と effective を同時指定した場合は asOf を優先し YYYYMMDD へ正規化する', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await fetchOrderMasterSearch({
+      type: 'drug',
+      keyword: 'アムロジピン',
+      effective: '2026-02-19T12:34:56+09:00',
+      asOf: '2026/03/01',
+    });
+
+    expect(result.ok).toBe(true);
+    const requestUrl = toRequestUrlString(vi.mocked(httpFetch).mock.calls[0]?.[0]);
+    const query = new URL(requestUrl, 'http://localhost').searchParams;
+    expect(query.get('effective')).toBe('20260301');
+    expect(query.get('asOf')).toBe('20260301');
   });
 });

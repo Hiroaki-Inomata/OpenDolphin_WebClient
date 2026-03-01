@@ -223,4 +223,40 @@ describe('PrescriptionOrderEditorPanel', () => {
       );
     });
   });
+
+  it('visitDate が日時文字列でも薬剤マスタ検索の effective/asOf は YYYY-MM-DD になる', async () => {
+    const user = userEvent.setup();
+    const searchMock = vi.mocked(fetchOrderMasterSearch);
+    searchMock.mockImplementation(async ({ type, keyword }) => {
+      if (type === 'youhou') return { ok: true, items: [], totalCount: 0 };
+      if (type === 'drug') {
+        return {
+          ok: true,
+          items: [{ type: 'drug', code: 'A100', name: `${keyword}候補`, unit: '錠' }],
+          totalCount: 1,
+        };
+      }
+      return { ok: true, items: [], totalCount: 0 };
+    });
+
+    renderPanel({ visitDate: '2026-02-26T23:59:59+09:00' });
+
+    const keywordInput = screen.getByLabelText('キーワード');
+    await user.clear(keywordInput);
+    await user.type(keywordInput, 'アム');
+    await user.click(screen.getByRole('button', { name: '検索（2文字以下は明示実行）' }));
+
+    await waitFor(() => {
+      const hasExpectedDrugCall = searchMock.mock.calls.some(([params]) => {
+        const record = params as Record<string, unknown> | undefined;
+        return (
+          record?.type === 'drug' &&
+          record?.keyword === 'アム' &&
+          record?.effective === '2026-02-26' &&
+          record?.asOf === '2026-02-26'
+        );
+      });
+      expect(hasExpectedDrugCall).toBe(true);
+    });
+  });
 });
