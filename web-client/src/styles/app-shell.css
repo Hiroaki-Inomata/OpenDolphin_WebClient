@@ -312,6 +312,56 @@
   text-underline-offset: 0.23em;
 }
 
+.workspace-tabs__tab--shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 36px;
+  padding: 0.5rem 0.85rem;
+  border-radius: 8px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+  transform: translateY(0);
+  text-decoration: none;
+}
+
+.workspace-tabs__tab--shortcut:hover,
+.workspace-tabs__tab--shortcut:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.12);
+}
+
+.workspace-tabs__tab--shortcut.is-active {
+  border-color: var(--ui-primary);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.1);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.22em;
+}
+
+.workspace-tabs__tab--reception {
+  background: var(--ui-success-bg);
+  border-color: var(--ui-success-border);
+  color: var(--ui-success-text);
+}
+
+.workspace-tabs__tab--chart {
+  background: var(--ui-info-bg);
+  border-color: var(--ui-info-border);
+  color: var(--ui-info-text);
+}
+
+.workspace-tabs__tab--patients {
+  background: var(--ui-warning-bg);
+  border-color: var(--ui-warning-border);
+  color: var(--ui-warning-text);
+}
+
+.workspace-tabs__tab-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
 .workspace-tabs__close {
   border: 1px solid var(--ui-border);
   background: var(--ui-surface-muted);
@@ -378,6 +428,15 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
+}
+
+.workspace-tabs__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .app-shell__nav-runid {
@@ -720,6 +779,12 @@
 
   .workspace-tabs__dynamic-area {
     width: 100%;
+  }
+
+  .workspace-tabs__actions {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
   }
 
   .workspace-tabs__overflow-panel {

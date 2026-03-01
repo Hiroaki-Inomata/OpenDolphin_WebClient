@@ -37,7 +37,7 @@ describe('AppRouter navigation guard', () => {
     localStorage.clear();
   });
 
-  it('non system_admin は管理画面ボタン/ORCAステータスが表示されず、受付/患者管理へ遷移できる', async () => {
+  it('non system_admin は管理画面ボタン/ORCAステータスが表示されず、受付/患者管理タブで遷移できる', async () => {
     prepareSession('doctor');
     const user = userEvent.setup();
     const queryClient = new QueryClient();
@@ -52,8 +52,8 @@ describe('AppRouter navigation guard', () => {
     expect(screen.queryByText(/^ORCA:/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '管理画面を開く' })).not.toBeInTheDocument();
 
-    const patientsButton = await screen.findByRole('button', { name: '患者管理' });
-    const receptionButton = await screen.findByRole('button', { name: '受付' });
+    const patientsButton = await screen.findByRole('tab', { name: '患者管理' });
+    const receptionButton = await screen.findByRole('tab', { name: '受付' });
 
     await user.click(patientsButton);
     expect(window.location.pathname).toBe('/f/0001/patients');

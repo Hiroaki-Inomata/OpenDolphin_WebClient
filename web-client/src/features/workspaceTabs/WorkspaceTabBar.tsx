@@ -19,6 +19,13 @@ type WorkspaceTabBarProps = {
   facilityId?: string;
   userId?: string;
   role?: string;
+  onRequestSwitchAccount?: () => void;
+  onRequestLogout?: () => void;
+  orcaStatus?: {
+    tone: 'info' | 'success' | 'warning' | 'error';
+    label: string;
+    tooltip?: string;
+  };
 };
 
 const normalizeText = (value: unknown): string | undefined => {
@@ -41,7 +48,14 @@ const formatTabLabel = (tab: ChartsPatientTab) => {
   return `${patientName}（${department}）`;
 };
 
-export function WorkspaceTabBar({ facilityId, userId, role }: WorkspaceTabBarProps) {
+export function WorkspaceTabBar({
+  facilityId,
+  userId,
+  role,
+  onRequestSwitchAccount,
+  onRequestLogout,
+  orcaStatus,
+}: WorkspaceTabBarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const appNav = useAppNavigation({ facilityId, userId });
@@ -60,15 +74,25 @@ export function WorkspaceTabBar({ facilityId, userId, role }: WorkspaceTabBarPro
   const dynamicTabs = patientTabsState.tabs;
   const isChartsScreen = /\/charts\/?$/.test(location.pathname);
   const isChartsArea = ['charts', 'print', 'orderSets'].includes(appNav.currentScreen);
-  const activeDynamicKey = isChartsScreen ? patientTabsState.activeKey : undefined;
-  const hasActiveDynamic = Boolean(activeDynamicKey && dynamicTabs.some((tab) => tab.key === activeDynamicKey));
+  const activeChartTab = useMemo(() => {
+    const tabs = patientTabsState.tabs;
+    if (tabs.length === 0) return undefined;
+    if (patientTabsState.activeKey) {
+      const byActive = tabs.find((tab) => tab.key === patientTabsState.activeKey);
+      if (byActive) return byActive;
+    }
+    return tabs[0];
+  }, [patientTabsState.activeKey, patientTabsState.tabs]);
+  const hasActiveDynamic = Boolean(activeChartTab);
   const isSystemAdmin = role === 'system_admin';
+  const chartMenuPatientName = normalizeText(activeChartTab?.name) ?? activeChartTab?.patientId ?? '患者';
+  const chartMenuLabel = `カルテ（${chartMenuPatientName}）`;
 
   const activeFixedKey = useMemo(() => {
     if (appNav.currentScreen === 'reception') return 'reception';
     if (appNav.currentScreen === 'patients') return 'patients';
     if (appNav.currentScreen === 'admin') return 'admin';
-    if (isChartsArea && !hasActiveDynamic) return 'charts';
+    if (isChartsArea && hasActiveDynamic) return 'active-chart';
     return undefined;
   }, [appNav.currentScreen, hasActiveDynamic, isChartsArea]);
 
@@ -194,38 +218,95 @@ export function WorkspaceTabBar({ facilityId, userId, role }: WorkspaceTabBarPro
     navigate(buildFacilityPath(facilityId, '/administration'));
   }, [facilityId, navigate]);
 
+  const handleOpenActiveChart = useCallback(() => {
+    if (!activeChartTab) return;
+    selectDynamicTab(activeChartTab);
+  }, [activeChartTab, selectDynamicTab]);
+
   return (
     <div className="app-shell__tabbar">
-      <div className="workspace-tabs" role="tablist" aria-label="ワークスペースタブ">
-        <div className="workspace-tabs__fixed">
+      <div className="workspace-tabs">
+        <div className="workspace-tabs__fixed" role="tablist" aria-label="固定ワークスペースタブ">
           <button
             type="button"
             role="tab"
-            className={`workspace-tabs__tab${activeFixedKey === 'reception' ? ' is-active' : ''}`}
+            className={`workspace-tabs__tab workspace-tabs__tab--shortcut workspace-tabs__tab--reception${activeFixedKey === 'reception' ? ' is-active' : ''}`}
             aria-selected={activeFixedKey === 'reception'}
             tabIndex={activeFixedKey === 'reception' ? 0 : -1}
             onClick={() => appNav.openReception()}
           >
+            <svg
+              className="workspace-tabs__tab-icon"
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M8 6V4" />
+              <path d="M16 6V4" />
+              <path d="M4 9h16" />
+              <path d="M6 20h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2z" />
+              <path d="M8 13h4" />
+              <path d="M8 16h6" />
+            </svg>
             受付
           </button>
+          {activeChartTab ? (
+            <button
+              type="button"
+              role="tab"
+              className={`workspace-tabs__tab workspace-tabs__tab--shortcut workspace-tabs__tab--chart${activeFixedKey === 'active-chart' ? ' is-active' : ''}`}
+              aria-selected={activeFixedKey === 'active-chart'}
+              tabIndex={activeFixedKey === 'active-chart' ? 0 : -1}
+              title={chartMenuLabel}
+              onClick={handleOpenActiveChart}
+            >
+              <svg
+                className="workspace-tabs__tab-icon"
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M4 19a2 2 0 0 0 2 2h12" />
+                <path d="M6 2h12a2 2 0 0 1 2 2v16" />
+                <path d="M6 2a2 2 0 0 0-2 2v15" />
+                <path d="M8 6h8" />
+                <path d="M8 10h8" />
+                <path d="M8 14h6" />
+              </svg>
+              {chartMenuLabel}
+            </button>
+          ) : null}
           <button
             type="button"
             role="tab"
-            className={`workspace-tabs__tab${activeFixedKey === 'charts' ? ' is-active' : ''}`}
-            aria-selected={activeFixedKey === 'charts'}
-            tabIndex={activeFixedKey === 'charts' ? 0 : -1}
-            onClick={() => appNav.openCharts()}
-          >
-            カルテ
-          </button>
-          <button
-            type="button"
-            role="tab"
-            className={`workspace-tabs__tab${activeFixedKey === 'patients' ? ' is-active' : ''}`}
+            className={`workspace-tabs__tab workspace-tabs__tab--shortcut workspace-tabs__tab--patients${activeFixedKey === 'patients' ? ' is-active' : ''}`}
             aria-selected={activeFixedKey === 'patients'}
             tabIndex={activeFixedKey === 'patients' ? 0 : -1}
             onClick={() => appNav.openPatients()}
           >
+            <svg
+              className="workspace-tabs__tab-icon"
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="8" r="4" />
+              <path d="M22 20v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
             患者管理
           </button>
           {isSystemAdmin ? (
@@ -243,10 +324,10 @@ export function WorkspaceTabBar({ facilityId, userId, role }: WorkspaceTabBarPro
         </div>
 
         <div className="workspace-tabs__dynamic-area">
-          <div className="workspace-tabs__dynamic" ref={dynamicListRef}>
+          <div className="workspace-tabs__dynamic" ref={dynamicListRef} role="tablist" aria-label="患者ワークスペースタブ">
             {dynamicTabs.map((tab) => {
               const label = formatTabLabel(tab);
-              const isActive = activeDynamicKey === tab.key;
+              const isActive = activeChartTab?.key === tab.key && isChartsArea;
               return (
                 <div key={tab.key} className="workspace-tabs__item">
                   <button
@@ -291,7 +372,7 @@ export function WorkspaceTabBar({ facilityId, userId, role }: WorkspaceTabBarPro
                 <div className="workspace-tabs__overflow-panel" aria-label="患者タブ一覧">
                   {dynamicTabs.map((tab) => {
                     const label = formatTabLabel(tab);
-                    const isActive = activeDynamicKey === tab.key;
+                    const isActive = activeChartTab?.key === tab.key && isChartsArea;
                     return (
                       <div key={`overflow-${tab.key}`} className="workspace-tabs__overflow-entry">
                         <button
@@ -322,6 +403,30 @@ export function WorkspaceTabBar({ facilityId, userId, role }: WorkspaceTabBarPro
               ) : null}
             </div>
           ) : null}
+        </div>
+
+        <div className="workspace-tabs__actions" role="group" aria-label="ワークスペース操作">
+          {isSystemAdmin && orcaStatus ? (
+            <span
+              className={`status-pill status-pill--xs status-pill--${orcaStatus.tone}`}
+              role="status"
+              aria-live="polite"
+              title={orcaStatus.tooltip}
+            >
+              {orcaStatus.label}
+            </span>
+          ) : null}
+          {isSystemAdmin ? (
+            <button type="button" className="app-shell__admin" onClick={handleOpenAdministration} aria-label="管理画面を開く">
+              管理画面
+            </button>
+          ) : null}
+          <button type="button" className="app-shell__switch" onClick={onRequestSwitchAccount}>
+            施設/ユーザー切替
+          </button>
+          <button type="button" className="app-shell__logout" onClick={onRequestLogout}>
+            ログアウト
+          </button>
         </div>
       </div>
     </div>

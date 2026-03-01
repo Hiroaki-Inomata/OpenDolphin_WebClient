@@ -71,7 +71,6 @@ import { isSystemAdminRole } from './libs/auth/roles';
 import { testOrcaConnection, type OrcaConnectionTestResponse } from './features/administration/orcaConnectionApi';
 import { FocusTrapDialog } from './components/modals/FocusTrapDialog';
 import { NavigationGuardProvider, resolveScreenKey, useNavigationGuard } from './routes/NavigationGuardProvider';
-import { useAppNavigation } from './routes/useAppNavigation';
 
 type Session = LoginResult;
 const AUTH_STORAGE_KEY = 'opendolphin:web-client:auth';
@@ -1144,7 +1143,6 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
   const session = useSession();
   const { flags } = useAuthService();
   const { isDirty, dirtySources } = useNavigationGuard();
-  const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
   const isSystemAdmin = isSystemAdminRole(session.role);
   const resolvedRunId = flags.runId || session.runId;
   const traceId = getObservabilityMeta().traceId;
@@ -1378,22 +1376,6 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
     }
   }, [enqueueToast, resolvedRunId, traceId]);
 
-  const handleOpenReception = () => {
-    appNav.openReception();
-  };
-
-  const handleOpenPatients = () => {
-    appNav.openPatients();
-  };
-
-  const handleOpenCharts = () => {
-    appNav.openCharts();
-  };
-
-  const handleOpenAdministration = () => {
-    navigate(buildFacilityPath(session.facilityId, '/administration'));
-  };
-
   return (
     <AppToastProvider value={{ enqueue: enqueueToast, dismiss: dismissToast }}>
       <ChartEventStreamBridge />
@@ -1424,112 +1406,26 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
               RUN_ID: {resolvedRunId}
               <span className="app-shell__pill-note">クリックでコピー</span>
             </button>
-            <div className="app-shell__tools" role="group" aria-label="画面ショートカット">
-              <button
-                type="button"
-                className="app-shell__tool app-shell__tool--reception"
-                onClick={handleOpenReception}
-                aria-current={appNav.currentScreen === 'reception' ? 'page' : undefined}
-              >
-                <svg
-                  className="app-shell__tool-icon"
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M8 6V4" />
-                  <path d="M16 6V4" />
-                  <path d="M4 9h16" />
-                  <path d="M6 20h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2z" />
-                  <path d="M8 13h4" />
-                  <path d="M8 16h6" />
-                </svg>
-                受付
-              </button>
-              <button
-                type="button"
-                className="app-shell__tool app-shell__tool--charts"
-                onClick={handleOpenCharts}
-                aria-current={['charts', 'print', 'orderSets'].includes(appNav.currentScreen) ? 'page' : undefined}
-              >
-                <svg
-                  className="app-shell__tool-icon"
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M4 19a2 2 0 0 0 2 2h12" />
-                  <path d="M6 2h12a2 2 0 0 1 2 2v16" />
-                  <path d="M6 2a2 2 0 0 0-2 2v15" />
-                  <path d="M8 6h8" />
-                  <path d="M8 10h8" />
-                  <path d="M8 14h6" />
-                </svg>
-                カルテ
-              </button>
-              <button
-                type="button"
-                className="app-shell__tool app-shell__tool--patients"
-                onClick={handleOpenPatients}
-                aria-current={appNav.currentScreen === 'patients' ? 'page' : undefined}
-              >
-                <svg
-                  className="app-shell__tool-icon"
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                  <circle cx="9" cy="8" r="4" />
-                  <path d="M22 20v-2a4 4 0 0 0-3-3.87" />
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                </svg>
-                患者管理
-              </button>
-            </div>
-            {isSystemAdmin ? (
-              <>
-                <span
-                  className={`status-pill status-pill--xs status-pill--${orcaTopStatus.tone}`}
-                  role="status"
-                  aria-live="polite"
-                  title={orcaTopStatusTooltip}
-                >
-                  {orcaTopStatus.label}
-                </span>
-                <button
-                  type="button"
-                  className="app-shell__admin"
-                  onClick={handleOpenAdministration}
-                  aria-label="管理画面を開く"
-                >
-                  管理画面
-                </button>
-              </>
-            ) : null}
-            <button type="button" className="app-shell__switch" onClick={requestSwitchAccount}>
-              施設/ユーザー切替
-            </button>
-            <button type="button" className="app-shell__logout" onClick={requestLogout}>
-              ログアウト
-            </button>
           </div>
         </header>
 
         <MockModeBanner />
-        <WorkspaceTabBar facilityId={session.facilityId} userId={session.userId} role={session.role} />
+        <WorkspaceTabBar
+          facilityId={session.facilityId}
+          userId={session.userId}
+          role={session.role}
+          onRequestSwitchAccount={requestSwitchAccount}
+          onRequestLogout={requestLogout}
+          orcaStatus={
+            isSystemAdmin
+              ? {
+                  tone: orcaTopStatus.tone,
+                  label: orcaTopStatus.label,
+                  tooltip: orcaTopStatusTooltip,
+                }
+              : undefined
+          }
+        />
 
         <div className="app-shell__body" id="app-shell-main" tabIndex={-1} data-tab-id={outletScreenKey}>
           <AppOutletErrorBoundary
