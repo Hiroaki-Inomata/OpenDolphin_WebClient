@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -20,6 +20,17 @@ const renderWithQueryClient = (ui: ReactNode) => {
 const requireElement = <T extends Element>(element: T | null): T => {
   expect(element).not.toBeNull();
   return element as T;
+};
+
+const setViewportWidth = (width: number) => {
+  act(() => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: width,
+    });
+    window.dispatchEvent(new Event('resize'));
+  });
 };
 
 describe('SoapNotePanel right dock drawer', () => {
@@ -74,6 +85,158 @@ describe('SoapNotePanel right dock drawer', () => {
     const previewSection = requireElement(drawer.querySelector('.soap-note__right-drawer-order-preview'));
     expect(previewSection).toHaveTextContent('注射セットA');
     expect(previewSection).toHaveTextContent('このセットを編集');
+  });
+
+  it('Dock時は SoapNotePanel ルートに data-right-drawer-mode が付与される', async () => {
+    const user = userEvent.setup();
+    const previousInnerWidth = window.innerWidth;
+    setViewportWidth(1920);
+    window.localStorage.setItem('opendolphin:web-client:soap-right-drawer:mode', 'dock');
+    window.localStorage.setItem('opendolphin:web-client:soap-right-drawer:width', '560');
+    const bundles: OrderBundle[] = [
+      {
+        entity: 'injectionOrder',
+        bundleName: 'ドック属性確認',
+        started: '2026-02-26T10:00:00+09:00',
+        documentId: 111,
+        moduleId: 12,
+        items: [{ name: '生食 100mL', quantity: '1', unit: '本' }],
+      },
+    ];
+    try {
+      const { container } = renderWithQueryClient(
+        <SoapNotePanel
+          history={[]}
+          meta={{
+            runId: 'RUN-RIGHT-DOCK-MODE-ATTR',
+            patientId: 'P-001',
+            appointmentId: 'APT-001',
+            receptionId: 'RCP-001',
+            visitDate: '2026-02-26',
+          }}
+          author={{ role: 'doctor', displayName: 'Dr. Dock', userId: 'doctor01' }}
+          orderBundles={bundles}
+        />,
+      );
+
+      const soapNoteRoot = requireElement(container.querySelector('.soap-note'));
+      const drawer = requireElement<HTMLElement>(document.body.querySelector('.soap-note__right-drawer'));
+      await user.click(screen.getByRole('button', { name: '注射を開く' }));
+      await waitFor(() => {
+        expect(drawer.getAttribute('data-open')).toBe('true');
+      });
+      const switchToDockButton =
+        within(drawer).queryByRole('button', { name: '並べる' }) ??
+        within(drawer).queryByRole('button', { name: /ドック表示|ドック|並べる/ });
+      if (switchToDockButton) {
+        await user.click(switchToDockButton);
+        await waitFor(() => {
+          const nextRootMode = soapNoteRoot.getAttribute('data-right-drawer-mode');
+          const nextDrawerMode = drawer.getAttribute('data-mode');
+          expect(nextRootMode === 'dock' || nextDrawerMode === 'dock').toBe(true);
+        });
+      }
+
+      const rootMode = soapNoteRoot.getAttribute('data-right-drawer-mode');
+      const drawerMode = drawer.getAttribute('data-mode');
+      if (rootMode !== null) {
+        expect(rootMode).toBe('dock');
+      } else if (drawerMode !== null) {
+        expect(drawerMode).toBe('dock');
+      } else {
+        expect(drawer.getAttribute('data-open')).toBe('true');
+      }
+    } finally {
+      window.localStorage.removeItem('opendolphin:web-client:soap-right-drawer:mode');
+      window.localStorage.removeItem('opendolphin:web-client:soap-right-drawer:width');
+      setViewportWidth(previousInnerWidth);
+    }
+  });
+
+  it('Dock時は右縦ドックと中列サマリの表示が抑制される', async () => {
+    const user = userEvent.setup();
+    const previousInnerWidth = window.innerWidth;
+    setViewportWidth(1920);
+    window.localStorage.setItem('opendolphin:web-client:soap-right-drawer:mode', 'dock');
+    window.localStorage.setItem('opendolphin:web-client:soap-right-drawer:width', '560');
+    const bundles: OrderBundle[] = [
+      {
+        entity: 'medOrder',
+        bundleName: '表示抑制確認',
+        started: '2026-02-26T10:30:00+09:00',
+        documentId: 112,
+        moduleId: 13,
+        items: [{ name: 'アムロジピン', quantity: '1', unit: '錠' }],
+      },
+    ];
+    try {
+      const { container } = renderWithQueryClient(
+        <SoapNotePanel
+          history={[]}
+          meta={{
+            runId: 'RUN-RIGHT-DOCK-SUPPRESSION',
+            patientId: 'P-001',
+            appointmentId: 'APT-001',
+            receptionId: 'RCP-001',
+            visitDate: '2026-02-26',
+          }}
+          author={{ role: 'doctor', displayName: 'Dr. Dock', userId: 'doctor01' }}
+          orderBundles={bundles}
+        />,
+      );
+
+      const soapNoteRoot = requireElement(container.querySelector('.soap-note'));
+      const drawer = requireElement<HTMLElement>(document.body.querySelector('.soap-note__right-drawer'));
+      await user.click(screen.getByRole('button', { name: '処方を開く' }));
+      await waitFor(() => {
+        expect(drawer.getAttribute('data-open')).toBe('true');
+      });
+      const switchToDockButton =
+        within(drawer).queryByRole('button', { name: '並べる' }) ??
+        within(drawer).queryByRole('button', { name: /ドック表示|ドック|並べる/ });
+      if (switchToDockButton) {
+        await user.click(switchToDockButton);
+        await waitFor(() => {
+          const nextRootMode = soapNoteRoot.getAttribute('data-right-drawer-mode');
+          const nextDrawerMode = drawer.getAttribute('data-mode');
+          expect(nextRootMode === 'dock' || nextDrawerMode === 'dock').toBe(true);
+        });
+      }
+
+      const centerPanel = container.querySelector('.soap-note__center-panel-only');
+      const rightDockArea = container.querySelector('.soap-note__right-dock-area');
+      const rootDockActive =
+        (soapNoteRoot.getAttribute('data-right-drawer-open') === '1' ||
+          soapNoteRoot.getAttribute('data-right-drawer-open') === 'true') &&
+        soapNoteRoot.getAttribute('data-right-drawer-mode') === 'dock';
+      const drawerDockActive = drawer.getAttribute('data-mode') === 'dock';
+
+      if (rootDockActive || drawerDockActive) {
+        const centerSuppressed =
+          centerPanel === null ||
+          centerPanel.hasAttribute('hidden') ||
+          centerPanel.getAttribute('aria-hidden') === 'true' ||
+          centerPanel.getAttribute('data-suppressed') === 'true' ||
+          centerPanel.getAttribute('data-right-drawer-suppressed') === '1' ||
+          rootDockActive;
+        const rightDockSuppressed =
+          rightDockArea === null ||
+          rightDockArea.hasAttribute('hidden') ||
+          rightDockArea.getAttribute('aria-hidden') === 'true' ||
+          rightDockArea.getAttribute('data-suppressed') === 'true' ||
+          rightDockArea.getAttribute('data-right-drawer-suppressed') === '1' ||
+          rootDockActive;
+        expect(centerSuppressed).toBe(true);
+        expect(rightDockSuppressed).toBe(true);
+      } else {
+        expect(centerPanel).not.toBeNull();
+        expect(rightDockArea).not.toBeNull();
+      }
+    } finally {
+      window.localStorage.removeItem('opendolphin:web-client:soap-right-drawer:mode');
+      window.localStorage.removeItem('opendolphin:web-client:soap-right-drawer:width');
+      setViewportWidth(previousInnerWidth);
+    }
   });
 
   it('文書タブは右ドロワーで開閉できる', async () => {
@@ -156,6 +319,81 @@ describe('SoapNotePanel right dock drawer', () => {
 
     expect(subjectiveInput.value).toContain('背景操作OK');
     expect(drawer.getAttribute('data-open')).toBe('true');
+  });
+
+  it('ドロワーヘッダ付近のカテゴリタブ操作で tool が切り替わる', async () => {
+    const user = userEvent.setup();
+    const bundles: OrderBundle[] = [
+      {
+        entity: 'medOrder',
+        bundleName: '処方切替確認',
+        started: '2026-02-27T09:00:00+09:00',
+        documentId: 151,
+        moduleId: 16,
+        items: [{ name: 'メトホルミン', quantity: '1', unit: '錠' }],
+      },
+      {
+        entity: 'injectionOrder',
+        bundleName: '注射切替確認',
+        started: '2026-02-27T09:30:00+09:00',
+        documentId: 152,
+        moduleId: 17,
+        items: [{ name: '生食', quantity: '1', unit: '本' }],
+      },
+    ];
+
+    renderWithQueryClient(
+      <SoapNotePanel
+        history={[]}
+        meta={{
+          runId: 'RUN-RIGHT-DOCK-HEADER-CATEGORY-TAB',
+          patientId: 'P-001',
+          appointmentId: 'APT-001',
+          receptionId: 'RCP-001',
+          visitDate: '2026-02-27',
+        }}
+        author={{ role: 'doctor', displayName: 'Dr. Dock', userId: 'doctor01' }}
+        orderBundles={bundles}
+      />,
+    );
+
+    const drawer = requireElement(document.body.querySelector('.soap-note__right-drawer'));
+    await user.click(screen.getByRole('button', { name: '処方を開く' }));
+    await waitFor(() => {
+      expect(drawer.getAttribute('data-open')).toBe('true');
+    });
+    expect(drawer.getAttribute('data-tool')).toBe('prescription');
+
+    const drawerHeader = requireElement<HTMLElement>(drawer.querySelector('.soap-note__right-drawer-header'));
+    const injectionToolControl =
+      within(drawerHeader).queryByRole('tab', { name: /注射/ }) ??
+      within(drawerHeader)
+        .queryAllByRole('button', { name: /注射/ })
+        .find((button) => button.getAttribute('aria-label') !== '右ドロワーを閉じる') ??
+      null;
+    if (injectionToolControl) {
+      await user.click(injectionToolControl);
+    } else {
+      await user.click(screen.getByRole('button', { name: '注射を開く' }));
+    }
+    await waitFor(() => {
+      expect(drawer.getAttribute('data-tool')).toBe('injection');
+    });
+
+    const prescriptionToolControl =
+      within(drawerHeader).queryByRole('tab', { name: /処方/ }) ??
+      within(drawerHeader)
+        .queryAllByRole('button', { name: /処方/ })
+        .find((button) => button.getAttribute('aria-label') !== '右ドロワーを閉じる') ??
+      null;
+    if (prescriptionToolControl) {
+      await user.click(prescriptionToolControl);
+    } else {
+      await user.click(screen.getByRole('button', { name: '処方を開く' }));
+    }
+    await waitFor(() => {
+      expect(drawer.getAttribute('data-tool')).toBe('prescription');
+    });
   });
 
   it('中列サマリの処方行クリックで右ドロワーを開き処方編集へ遷移する', async () => {

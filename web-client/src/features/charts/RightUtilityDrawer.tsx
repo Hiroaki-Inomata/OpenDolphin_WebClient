@@ -4,6 +4,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
@@ -174,6 +175,7 @@ export function RightUtilityDrawer({
 }: RightUtilityDrawerProps) {
   const drawerRef = useRef<HTMLElement | null>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
+  const peekCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -200,6 +202,8 @@ export function RightUtilityDrawer({
     return () => {
       resizeCleanupRef.current?.();
       resizeCleanupRef.current = null;
+      peekCleanupRef.current?.();
+      peekCleanupRef.current = null;
     };
   }, []);
 
@@ -278,6 +282,13 @@ export function RightUtilityDrawer({
       : null;
   const resolvedDrawerWidth = clampDrawerWidth(width);
   const orderLayout = !minimized && resolvedDrawerWidth >= SPLIT_LAYOUT_MIN_WIDTH ? 'split' : 'stack';
+  const drawerInlineStyle = useMemo(
+    () =>
+      ({
+        '--soap-right-drawer-width': `${resolvedDrawerWidth}px`,
+      }) as CSSProperties,
+    [resolvedDrawerWidth],
+  );
 
   const handleResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0 || typeof window === 'undefined') return;
@@ -316,6 +327,36 @@ export function RightUtilityDrawer({
     window.addEventListener('pointercancel', handlePointerEnd);
   };
 
+  const handlePeekPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || !onPeekChange || typeof window === 'undefined') return;
+    event.preventDefault();
+
+    peekCleanupRef.current?.();
+    onPeekChange(true);
+
+    const cleanup = () => {
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+      window.removeEventListener('blur', handleWindowBlur);
+      if (peekCleanupRef.current === cleanup) {
+        peekCleanupRef.current = null;
+      }
+      onPeekChange(false);
+    };
+
+    const handlePointerEnd = (pointerEvent: PointerEvent) => {
+      if (pointerEvent.pointerId !== event.pointerId) return;
+      cleanup();
+    };
+
+    const handleWindowBlur = () => cleanup();
+
+    peekCleanupRef.current = cleanup;
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+    window.addEventListener('blur', handleWindowBlur);
+  };
+
   const drawerNode = (
     <aside
       ref={drawerRef}
@@ -328,7 +369,7 @@ export function RightUtilityDrawer({
       hidden={!open}
       aria-hidden={!open}
       aria-label="右ユーティリティドロワー"
-      style={{ width: `${resolvedDrawerWidth}px` }}
+      style={drawerInlineStyle}
     >
       <button
         type="button"
@@ -351,11 +392,11 @@ export function RightUtilityDrawer({
         <>
           <header className="soap-note__right-drawer-header">
             <strong>{activeTool === 'document' ? '文書' : groupSpec?.label ?? 'オーダー'}</strong>
-            <div className="soap-note__right-drawer-header-actions">
+            <div className="soap-note__right-drawer-header-controls">
               <div className="soap-note__right-drawer-mode-switch" role="group" aria-label="右ドロワー表示モード">
                 <button
                   type="button"
-                  className="order-dock__bundle-action"
+                  className="soap-note__right-drawer-header-control order-dock__bundle-action"
                   data-active={mode === 'dock' ? 'true' : 'false'}
                   aria-pressed={mode === 'dock'}
                   onClick={() => onModeChange?.('dock')}
@@ -364,7 +405,7 @@ export function RightUtilityDrawer({
                 </button>
                 <button
                   type="button"
-                  className="order-dock__bundle-action"
+                  className="soap-note__right-drawer-header-control order-dock__bundle-action"
                   data-active={mode === 'overlay' ? 'true' : 'false'}
                   aria-pressed={mode === 'overlay'}
                   onClick={() => onModeChange?.('overlay')}
@@ -374,7 +415,7 @@ export function RightUtilityDrawer({
               </div>
               <button
                 type="button"
-                className="order-dock__bundle-action"
+                className="soap-note__right-drawer-header-control order-dock__bundle-action"
                 onClick={() => onMinimizedChange?.(!minimized)}
                 aria-label={minimized ? '右ドロワーを展開' : '右ドロワーを最小化'}
               >
@@ -382,30 +423,37 @@ export function RightUtilityDrawer({
               </button>
               <button
                 type="button"
-                className="order-dock__bundle-action"
-                onPointerDown={() => onPeekChange?.(true)}
-                onPointerUp={() => onPeekChange?.(false)}
-                onPointerCancel={() => onPeekChange?.(false)}
-                onPointerLeave={() => onPeekChange?.(false)}
+                className="soap-note__right-drawer-peek-button order-dock__bundle-action"
+                onPointerDown={handlePeekPointerDown}
                 aria-label="押している間だけプレビュー"
               >
                 Peek
               </button>
-              <button type="button" className="order-dock__bundle-action" onClick={onClose} aria-label="右ドロワーを閉じる">
+              <button
+                type="button"
+                className="soap-note__right-drawer-header-control order-dock__bundle-action"
+                onClick={onClose}
+                aria-label="右ドロワーを閉じる"
+              >
                 閉じる
               </button>
             </div>
           </header>
 
-          <div className="soap-note__right-drawer-tool-tabs" role="tablist" aria-label="右ユーティリティカテゴリ">
+          <div
+            className="soap-note__right-drawer-tool-tabs soap-note__right-drawer-category-tabs"
+            role="tablist"
+            aria-label="右ユーティリティカテゴリ"
+          >
             {RIGHT_UTILITY_TOOLS.map((item) => {
               const isActive = item.tool === activeTool;
               return (
                 <button
                   key={`drawer-tool-${item.tool}`}
                   type="button"
-                  className="order-dock__subtype-tab"
+                  className="soap-note__right-drawer-category-tab order-dock__subtype-tab"
                   role="tab"
+                  data-drawer-category={item.tool}
                   data-active={isActive ? 'true' : 'false'}
                   aria-selected={isActive}
                   tabIndex={isActive ? 0 : -1}
