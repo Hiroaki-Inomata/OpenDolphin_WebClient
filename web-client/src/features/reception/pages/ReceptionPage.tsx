@@ -46,7 +46,6 @@ import { PatientMetaRow } from '../../shared/PatientMetaRow';
 import {
   OUTPATIENT_AUTO_REFRESH_INTERVAL_MS,
   formatAutoRefreshTimestamp,
-  resolveAutoRefreshIntervalMs,
   useAutoRefreshNotice,
 } from '../../shared/autoRefreshNotice';
 import { MISSING_MASTER_RECOVERY_NEXT_ACTION } from '../../shared/missingMasterRecovery';
@@ -1116,11 +1115,6 @@ export function ReceptionPage({
     if (!appointmentQuery.dataUpdatedAt) return '—';
     return formatAutoRefreshTimestamp(appointmentQuery.dataUpdatedAt);
   }, [appointmentQuery.dataUpdatedAt]);
-  const autoRefreshIntervalLabel = useMemo(() => {
-    const resolved = resolveAutoRefreshIntervalMs(OUTPATIENT_AUTO_REFRESH_INTERVAL_MS);
-    if (!Number.isFinite(resolved) || resolved <= 0) return '停止';
-    return `${Math.round(resolved / 1000)}秒`;
-  }, []);
 
   useEffect(() => {
     selectedDateRef.current = selectedDate;
@@ -4350,7 +4344,7 @@ export function ReceptionPage({
             <div className="reception-page__title-actions">
               <button
                 type="button"
-                className="reception-search__button ghost"
+                className="reception-page__title-link"
                 onClick={() => {
                   appNav.openPatients({ carryover: receptionCarryover });
                 }}
@@ -4390,37 +4384,40 @@ export function ReceptionPage({
                 runId={resolvedRunId}
               />
             </div>
-            <div className="reception-page__meta-details">
-              <RunIdBadge runId={resolvedRunId} />
-              <StatusPill
-                className="reception-pill"
-                label="dataSourceTransition"
-                value={metaDataSourceTransition}
-                tone={resolveTransitionTone()}
-                runId={resolvedRunId}
-              />
-              <StatusPill
-                className="reception-pill"
-                label="missingMaster"
-                value={String(metaMissingMaster)}
-                tone={resolveMetaFlagTone(metaMissingMaster)}
-                runId={resolvedRunId}
-              />
-              <StatusPill
-                className="reception-pill"
-                label="cacheHit"
-                value={String(metaCacheHit)}
-                tone={resolveCacheHitTone(metaCacheHit)}
-                runId={resolvedRunId}
-              />
-              <AuditSummaryInline
-                auditEvent={latestAuditEvent}
-                className="reception-pill"
-                variant="inline"
-                label="監査サマリ"
-                runId={resolvedRunId}
-              />
-            </div>
+            <details className="reception-page__meta-details" data-test-id="reception-meta-details">
+              <summary className="reception-page__meta-details-summary">システム詳細</summary>
+              <div className="reception-page__meta-advanced" aria-label="システム詳細">
+                <RunIdBadge runId={resolvedRunId} />
+                <StatusPill
+                  className="reception-pill"
+                  label="dataSourceTransition"
+                  value={metaDataSourceTransition}
+                  tone={resolveTransitionTone()}
+                  runId={resolvedRunId}
+                />
+                <StatusPill
+                  className="reception-pill"
+                  label="missingMaster"
+                  value={String(metaMissingMaster)}
+                  tone={resolveMetaFlagTone(metaMissingMaster)}
+                  runId={resolvedRunId}
+                />
+                <StatusPill
+                  className="reception-pill"
+                  label="cacheHit"
+                  value={String(metaCacheHit)}
+                  tone={resolveCacheHitTone(metaCacheHit)}
+                  runId={resolvedRunId}
+                />
+                <AuditSummaryInline
+                  auditEvent={latestAuditEvent}
+                  className="reception-pill"
+                  variant="inline"
+                  label="監査サマリ"
+                  runId={resolvedRunId}
+                />
+              </div>
+            </details>
           </div>
           <section
             className={`reception-search reception-search--header${filtersCollapsed ? ' is-collapsed' : ''}`}
@@ -4438,10 +4435,8 @@ export function ReceptionPage({
                   <span>
                     支払: {paymentMode === 'all' ? 'すべて' : paymentMode === 'insurance' ? '保険' : '自費'}
                   </span>
-                </div>
-                <div className="reception-search__header-meta reception-search__header-meta--advanced" aria-live={infoLive}>
-                  <span>src: {appointmentEntriesSourceLabel}</span>
-                  <span>sort: {sortKey}</span>
+                  <span className="reception-search__header-meta-advanced">src: {appointmentEntriesSourceLabel}</span>
+                  <span className="reception-search__header-meta-advanced">sort: {sortKey}</span>
                 </div>
               </div>
               <button
@@ -4550,36 +4545,39 @@ export function ReceptionPage({
                       </select>
                     </label>
                   </div>
-                  <div className="reception-search__row reception-search__row--secondary">
-                    <label className="reception-search__field">
-                      <span>保険/自費</span>
-                      <select
-                        id="reception-search-payment-mode"
-                        name="receptionSearchPaymentMode"
-                        value={paymentMode}
-                        onChange={(event) => setPaymentMode(normalizePaymentMode(event.target.value))}
-                      >
-                        <option value="all">すべて</option>
-                        <option value="insurance">保険</option>
-                        <option value="self">自費</option>
-                      </select>
-                    </label>
-                    <label className="reception-search__field">
-                      <span>ソート</span>
-                      <select
-                        id="reception-search-sort"
-                        name="receptionSearchSort"
-                        value={sortKey}
-                        onChange={(event) => setSortKey(event.target.value as SortKey)}
-                      >
-                        <option value="time">優先時間（受付→予約）</option>
-                        <option value="acceptance">受付時間</option>
-                        <option value="reservation">予約時間</option>
-                        <option value="name">氏名</option>
-                        <option value="department">診療科</option>
-                      </select>
-                    </label>
-                  </div>
+                  <details className="reception-search__details">
+                    <summary className="reception-search__details-summary">詳細条件</summary>
+                    <div className="reception-search__row reception-search__row--secondary">
+                      <label className="reception-search__field">
+                        <span>保険/自費</span>
+                        <select
+                          id="reception-search-payment-mode"
+                          name="receptionSearchPaymentMode"
+                          value={paymentMode}
+                          onChange={(event) => setPaymentMode(normalizePaymentMode(event.target.value))}
+                        >
+                          <option value="all">すべて</option>
+                          <option value="insurance">保険</option>
+                          <option value="self">自費</option>
+                        </select>
+                      </label>
+                      <label className="reception-search__field">
+                        <span>ソート</span>
+                        <select
+                          id="reception-search-sort"
+                          name="receptionSearchSort"
+                          value={sortKey}
+                          onChange={(event) => setSortKey(event.target.value as SortKey)}
+                        >
+                          <option value="time">優先時間（受付→予約）</option>
+                          <option value="acceptance">受付時間</option>
+                          <option value="reservation">予約時間</option>
+                          <option value="name">氏名</option>
+                          <option value="department">診療科</option>
+                        </select>
+                      </label>
+                    </div>
+                  </details>
                   <div className="reception-search__actions">
                     <button type="submit" className="reception-search__button primary">
                       検索
@@ -4938,21 +4936,23 @@ export function ReceptionPage({
             </section>
             ) : null}
 
-            <div className="reception-results-toolbar" aria-live={infoLive} ref={summaryRef} tabIndex={-1}>
-              <div className="reception-results-toolbar__summary">
+            <div
+              className="reception-results-toolbar"
+              role="region"
+              aria-label="検索結果操作"
+              ref={summaryRef}
+              tabIndex={-1}
+            >
+              <div className="reception-results-toolbar__summary" aria-live={infoLive}>
                 <strong>{summaryText}</strong>
-                {appointmentQuery.isFetching && <span className="reception-results-toolbar__state">更新中…</span>}
-              </div>
-              <div className="reception-results-toolbar__details">
-                <span>最終更新: {appointmentUpdatedAtLabel}</span>
-                <span>自動更新: {autoRefreshIntervalLabel}</span>
-                <span>RT同期: {RECEPTION_REALTIME_STATUS_LABEL[receptionRealtimeStatus]}</span>
-                <span>選択保持: {selectedEntry ? '保持中' : '未選択'}</span>
+                {appointmentQuery.isFetching ? (
+                  <span className="reception-results-toolbar__loading">更新中…</span>
+                ) : null}
               </div>
               <div className="reception-results-toolbar__actions" role="group" aria-label="一覧表示切替">
                 <button
                   type="button"
-                  className="reception-search__button ghost"
+                  className="reception-results-toolbar__toggle"
                   onClick={() => setStatusListLayout('table')}
                   aria-pressed={statusListLayout === 'table'}
                 >
@@ -4960,7 +4960,7 @@ export function ReceptionPage({
                 </button>
                 <button
                   type="button"
-                  className="reception-search__button ghost"
+                  className="reception-results-toolbar__toggle"
                   onClick={() => setStatusListLayout('cards')}
                   aria-pressed={statusListLayout === 'cards'}
                 >
@@ -5523,7 +5523,7 @@ export function ReceptionPage({
                                 {status === '会計待ち' ? (
                                   <button
                                     type="button"
-                                    className="reception-table__action-button primary"
+                                    className="reception-card__action reception-card__action--primary"
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       setOpenCardActionMenuKey(null);
@@ -5553,8 +5553,8 @@ export function ReceptionPage({
                                 >
                                   <button
                                     type="button"
-                                    className="reception-table__action-button"
-                                    aria-label="テーブル操作を開く"
+                                    className="reception-card__action reception-card__action--menu-trigger"
+                                    aria-label="行の操作を開く"
                                     aria-haspopup="menu"
                                     aria-expanded={tableActionMenuOpen}
                                     onClick={(event) => {
@@ -5565,7 +5565,7 @@ export function ReceptionPage({
                                     その他
                                   </button>
                                   {tableActionMenuOpen ? (
-                                    <div className="reception-card__submenu" role="menu" aria-label="テーブル追加操作">
+                                    <div className="reception-card__submenu" role="menu" aria-label="行の追加操作">
                                       <button
                                         type="button"
                                         className="reception-card__submenu-item"

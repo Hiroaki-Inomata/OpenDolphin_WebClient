@@ -310,6 +310,25 @@ export const receptionStyles = css`
     flex-wrap: wrap;
   }
 
+  .reception-page__title-link {
+    border: 1px solid rgba(29, 78, 216, 0.25);
+    background: transparent;
+    color: #1d4ed8;
+    border-radius: 999px;
+    padding: 0.45rem 0.8rem;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .reception-page__title-link:hover {
+    background: rgba(239, 246, 255, 0.9);
+  }
+
+  .reception-page__title-link:focus-visible {
+    outline: 2px solid rgba(30, 64, 175, 0.45);
+    outline-offset: 2px;
+  }
+
   @keyframes reception-float-up {
     from {
       opacity: 0;
@@ -336,12 +355,12 @@ export const receptionStyles = css`
     position: fixed;
     right: var(--reception-floating-offset-right);
     bottom: var(--reception-floating-offset-bottom);
-    width: clamp(20rem, 42vw, 30rem);
+    width: clamp(16rem, 34vw, 26rem);
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: end;
-    gap: 0.65rem;
-    z-index: 10700;
+    gap: 0.55rem;
+    z-index: 10680;
     pointer-events: none;
   }
 
@@ -355,14 +374,14 @@ export const receptionStyles = css`
 
   .reception-page__floating-action,
   .reception-daily-calendar__trigger {
-    border-radius: 18px;
-    border: 1px solid rgba(30, 64, 175, 0.25);
-    background: linear-gradient(180deg, rgba(239, 246, 255, 0.95), rgba(255, 255, 255, 0.96));
-    color: #0f172a;
-    min-height: 3.2rem;
+    border-radius: 16px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: rgba(255, 255, 255, 0.92);
+    color: #1e293b;
+    min-height: 3.05rem;
     width: 100%;
-    padding: 0.65rem 0.85rem;
-    box-shadow: 0 12px 26px rgba(30, 64, 175, 0.14);
+    padding: 0.6rem 0.82rem;
+    box-shadow: 0 10px 18px rgba(15, 23, 42, 0.1);
     backdrop-filter: blur(4px);
   }
 
@@ -371,7 +390,7 @@ export const receptionStyles = css`
     align-items: center;
     justify-content: center;
     gap: 0.45rem;
-    font-weight: 800;
+    font-weight: 750;
     cursor: pointer;
     text-align: center;
     text-decoration: none;
@@ -421,7 +440,7 @@ export const receptionStyles = css`
     font-size: 0.78rem;
     letter-spacing: 0.04em;
     font-weight: 800;
-    color: #1e3a8a;
+    color: #475569;
     text-transform: uppercase;
   }
 
@@ -433,8 +452,8 @@ export const receptionStyles = css`
   }
 
   .reception-daily-calendar.is-open .reception-daily-calendar__trigger {
-    border-color: rgba(37, 99, 235, 0.55);
-    box-shadow: 0 16px 34px rgba(37, 99, 235, 0.18);
+    border-color: rgba(100, 116, 139, 0.6);
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);
   }
 
   .reception-daily-calendar__popover {
@@ -804,10 +823,46 @@ export const receptionStyles = css`
   }
 
   .reception-page__meta-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1rem;
+  }
+
+  .reception-page__meta-primary {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
-    margin-top: 1rem;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .reception-page__meta-details {
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    border-radius: 999px;
+    background: #ffffff;
+    padding: 0.1rem 0.25rem;
+  }
+
+  .reception-page__meta-details-summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 0.35rem 0.75rem;
+    font-weight: 800;
+    font-size: 0.85rem;
+    color: #334155;
+  }
+
+  .reception-page__meta-details-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .reception-page__meta-advanced {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem 0.5rem 0.6rem;
   }
 
   .reception-page__alerts {
@@ -1760,10 +1815,20 @@ export const receptionStyles = css`
     font-weight: 650;
   }
 
+  .reception-search__header-meta-advanced {
+    font-size: 0.82rem;
+    color: #64748b;
+    font-weight: 650;
+  }
+
   .reception-search__header-summary {
     color: #0f172a;
     font-weight: 800;
     font-size: 0.92rem;
+  }
+
+  .reception-search[data-collapsed='true'] .reception-search__header-meta-advanced {
+    display: none;
   }
 
   .reception-search.is-collapsed {
@@ -1780,6 +1845,31 @@ export const receptionStyles = css`
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 0.75rem;
+  }
+
+  .reception-search__row--secondary {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.55rem;
+    margin-top: 0.55rem;
+  }
+
+  .reception-search__details {
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 0.35rem 0.6rem;
+  }
+
+  .reception-search__details-summary {
+    cursor: pointer;
+    list-style: none;
+    font-weight: 800;
+    color: #334155;
+    padding: 0.35rem 0.25rem;
+  }
+
+  .reception-search__details-summary::-webkit-details-marker {
+    display: none;
   }
 
   .reception-search__field {
@@ -2897,6 +2987,10 @@ export const receptionStyles = css`
     z-index: 4;
   }
 
+  .reception-board--table .reception-card__submenu {
+    z-index: 8;
+  }
+
   .reception-card__submenu-item {
     border-radius: 10px;
     border: 1px solid #cbd5e1;
@@ -3363,6 +3457,54 @@ export const receptionStyles = css`
     font-weight: 600;
   }
 
+  .reception-results-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.85rem 1rem;
+    border-radius: 16px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: #ffffff;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  }
+
+  .reception-results-toolbar__summary {
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+    min-width: 0;
+  }
+
+  .reception-results-toolbar__loading {
+    font-size: 0.85rem;
+    color: #475569;
+    font-weight: 700;
+  }
+
+  .reception-results-toolbar__actions {
+    display: inline-flex;
+    gap: 0.4rem;
+  }
+
+  .reception-results-toolbar__toggle {
+    border-radius: 10px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #0f172a;
+    padding: 0.45rem 0.75rem;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .reception-results-toolbar__toggle[aria-pressed='true'] {
+    background: #eef2ff;
+    border-color: rgba(37, 99, 235, 0.45);
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+  }
+
   .reception-section {
     background: #ffffff;
     border-radius: 20px;
@@ -3443,11 +3585,12 @@ export const receptionStyles = css`
   }
 
   .reception-table__wrapper {
-    overflow: auto;
+    overflow-x: auto;
+    overflow-y: visible;
   }
 
   .reception-board--table .reception-table__wrapper {
-    max-height: clamp(180px, 28vh, 360px);
+    max-height: none;
   }
 
   .reception-table__wrapper:focus-visible {
@@ -3575,7 +3718,11 @@ export const receptionStyles = css`
   }
 
   .reception-table__action {
-    white-space: normal;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.45rem;
+    white-space: nowrap;
   }
 
   .reception-table__action-button {
@@ -3586,7 +3733,7 @@ export const receptionStyles = css`
     font-weight: 700;
     padding: 0.35rem 0.75rem;
     cursor: pointer;
-    margin: 0 0.35rem 0.25rem 0;
+    margin: 0;
   }
 
   .reception-table__action-button:hover {
@@ -3881,6 +4028,19 @@ export const receptionStyles = css`
     .reception-daily-calendar__trigger {
       min-height: 2.95rem;
       padding: 0.58rem 0.75rem;
+    }
+
+    .reception-page__meta-bar {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .reception-page__meta-details {
+      justify-self: start;
+    }
+
+    .reception-results-toolbar__actions {
+      width: 100%;
+      justify-content: flex-start;
     }
 
     .reception-daily-calendar__popover {

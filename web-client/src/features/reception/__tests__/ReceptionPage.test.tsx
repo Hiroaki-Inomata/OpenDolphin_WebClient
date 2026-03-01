@@ -308,6 +308,19 @@ const openAcceptWorkflowModal = async (user: ReturnType<typeof userEvent.setup>)
 const getAcceptRegisterPanel = (workflowModal: HTMLElement) =>
   within(workflowModal).getByRole('region', { name: '受付登録モーダル' });
 
+const openRowActionMenu = async (user: ReturnType<typeof userEvent.setup>, row: HTMLElement) => {
+  const trigger = within(row).getByRole('button', { name: /その他|操作を開く/ });
+  await user.click(trigger);
+};
+
+const getRowMenuAction = (row: HTMLElement, name: RegExp) => {
+  const action = within(row).queryByRole('menuitem', { name }) ?? within(row).queryByRole('button', { name });
+  if (!action) {
+    throw new Error(`行アクションが見つかりません: ${name.toString()}`);
+  }
+  return action as HTMLButtonElement;
+};
+
 beforeEach(() => {
   mockClaimData = { ...baseClaimData };
   mockAppointmentData = { ...baseAppointmentData };
@@ -445,7 +458,7 @@ describe('ReceptionPage accept UX', () => {
     expect(registerButton).toBeEnabled();
   });
 
-  it('enables cancel action only when entry has a receptionId', async () => {
+  it('enables cancel action in その他 menu only when entry has a receptionId', async () => {
     mockAppointmentData.entries = [
       {
         id: 'row-1',
@@ -471,13 +484,16 @@ describe('ReceptionPage accept UX', () => {
       },
     ];
 
+    const user = userEvent.setup();
     renderReceptionPage();
 
     const row1 = screen.getByRole('row', { name: /受付IDなし患者/ });
-    expect(within(row1).getByRole('button', { name: '受付取消' })).toBeDisabled();
+    await openRowActionMenu(user, row1);
+    expect(getRowMenuAction(row1, /受付取消/)).toBeDisabled();
 
     const row2 = screen.getByRole('row', { name: /取消可能患者/ });
-    expect(within(row2).getByRole('button', { name: '受付取消' })).toBeEnabled();
+    await openRowActionMenu(user, row2);
+    expect(getRowMenuAction(row2, /受付取消/)).toBeEnabled();
   });
 
   it('shows confirmation dialog before cancel execution', async () => {
@@ -510,7 +526,8 @@ describe('ReceptionPage accept UX', () => {
     renderReceptionPage();
 
     const row = screen.getByRole('row', { name: /取消確認患者/ });
-    await user.click(within(row).getByRole('button', { name: '受付取消' }));
+    await openRowActionMenu(user, row);
+    await user.click(getRowMenuAction(row, /受付取消/));
 
     expect(mockMutationQueue).toHaveLength(1);
     const dialog = await screen.findByRole('dialog', { name: '受付取消の確認' });
@@ -688,7 +705,8 @@ describe('ReceptionPage list and side pane guidance', () => {
 
     // Preview medical records in a modal (no new tab).
     const row = screen.getByRole('row', { name: /集約患者/ });
-    await user.click(within(row).getByRole('button', { name: '過去カルテ' }));
+    await openRowActionMenu(user, row);
+    await user.click(getRowMenuAction(row, /過去カルテ/));
     const dialog = (await screen.findByRole('dialog', { name: /過去カルテ/ })) as HTMLElement;
     expect(within(dialog).getByText(/患者ID:\s*P-010/)).toBeInTheDocument();
     await waitFor(() => {
@@ -930,7 +948,7 @@ describe('ReceptionPage status/date/card action UX', () => {
     expect(screen.getByRole('button', { name: '検索' })).toBeInTheDocument();
   });
 
-  it('shows row action buttons for charts/history/cancel', () => {
+  it('shows row action menu items for charts/history/cancel', async () => {
     mockAppointmentData.entries = [
       {
         id: 'row-card-1',
@@ -944,12 +962,15 @@ describe('ReceptionPage status/date/card action UX', () => {
         source: 'visits',
       },
     ];
+    const user = userEvent.setup();
     renderReceptionPage();
 
     const row = screen.getByRole('row', { name: /カード患者/ });
-    expect(within(row).getByRole('button', { name: 'カルテを開く' })).toBeInTheDocument();
-    expect(within(row).getByRole('button', { name: '過去カルテ' })).toBeInTheDocument();
-    expect(within(row).getByRole('button', { name: '受付取消' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: /その他|操作を開く/ })).toBeInTheDocument();
+    await openRowActionMenu(user, row);
+    expect(getRowMenuAction(row, /カルテを開く/)).toBeInTheDocument();
+    expect(getRowMenuAction(row, /過去カルテ/)).toBeInTheDocument();
+    expect(getRowMenuAction(row, /受付取消/)).toBeInTheDocument();
   });
 
   it('moves 会計待ち entries under 診察終了 tab filtering', async () => {
