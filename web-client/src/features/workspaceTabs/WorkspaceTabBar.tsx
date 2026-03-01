@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { buildFacilityPath } from '../../routes/facilityRoutes';
@@ -214,6 +214,20 @@ export function WorkspaceTabBar({
     [isChartsScreen, patientTabsState, storageScope],
   );
 
+  const suppressCloseMouseDown = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
+
+  const handleCloseButtonClick = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>, key: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      closeDynamicTab(key);
+    },
+    [closeDynamicTab],
+  );
+
   const handleOpenAdministration = useCallback(() => {
     navigate(buildFacilityPath(facilityId, '/administration'));
   }, [facilityId, navigate]);
@@ -345,10 +359,8 @@ export function WorkspaceTabBar({
                     type="button"
                     className="workspace-tabs__close"
                     aria-label={`${label}を閉じる`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      closeDynamicTab(tab.key);
-                    }}
+                    onMouseDown={suppressCloseMouseDown}
+                    onClick={(event) => handleCloseButtonClick(event, tab.key)}
                   >
                     ×
                   </button>
@@ -389,10 +401,8 @@ export function WorkspaceTabBar({
                           type="button"
                           className="workspace-tabs__close"
                           aria-label={`${label}を閉じる`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            closeDynamicTab(tab.key);
-                          }}
+                          onMouseDown={suppressCloseMouseDown}
+                          onClick={(event) => handleCloseButtonClick(event, tab.key)}
                         >
                           ×
                         </button>

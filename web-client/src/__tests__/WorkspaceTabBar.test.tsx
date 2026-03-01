@@ -96,4 +96,32 @@ describe('WorkspaceTabBar navigation', () => {
       expect(window.location.pathname).toBe('/f/0001/charts');
     });
   });
+
+  it('受付画面で患者タブの✗を押しても charts へ遷移せずタブだけ閉じる', async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient();
+
+    localStorage.clear();
+    sessionStorage.clear();
+    setAuthSession();
+    setPatientTabsStorage();
+
+    window.history.pushState({}, '', '/f/0001/reception');
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AppRouter />
+      </QueryClientProvider>,
+    );
+
+    const closeButton = await screen.findByRole('button', { name: '山田太郎（内科）を閉じる' });
+    await user.click(closeButton);
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe('/f/0001/reception');
+    });
+    await waitFor(() => {
+      expect(screen.queryByRole('tab', { name: '山田太郎（内科）' })).toBeNull();
+    });
+  });
 });
