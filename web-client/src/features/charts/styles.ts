@@ -5113,7 +5113,7 @@ export const chartsStyles = css`
     gap: var(--charts-space-md);
     --soap-right-drawer-reserved: min(640px, 56vw);
     --soap-right-drawer-minimized-handle: 56px;
-    --soap-right-drawer-resize-handle-size: 12px;
+    --soap-right-drawer-resize-handle-size: 40px;
   }
 
   .revision-drawer {
@@ -5467,7 +5467,7 @@ export const chartsStyles = css`
 
   .soap-note__body {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(360px, 38vw) 72px;
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 19vw) 72px;
     gap: var(--charts-space-md);
     align-items: start;
   }
@@ -5590,29 +5590,27 @@ export const chartsStyles = css`
     display: flex;
     flex-direction: column;
     z-index: 52;
-    transform: translateY(14px);
+    transform: translateX(16px);
     opacity: 0;
     pointer-events: none;
-    transition: transform 180ms ease, opacity 180ms ease;
+    transition:
+      transform 180ms ease,
+      opacity 180ms ease;
+    will-change: transform, opacity;
   }
 
   .soap-note__right-drawer[data-open='true'] {
-    transform: translateY(0);
+    transform: translateX(0);
     opacity: 1;
     pointer-events: auto;
   }
 
   .soap-note__right-drawer[data-mode='dock'] {
-    --soap-right-drawer-width: var(--soap-right-drawer-reserved);
     right: max(8px, env(safe-area-inset-right));
   }
 
-  .soap-note__right-drawer[data-mode='overlay'] {
-    --soap-right-drawer-width: min(640px, 56vw);
-  }
-
   .soap-note__right-drawer[data-open='true'][data-minimized='true'] {
-    transform: translateX(calc(100% - var(--soap-right-drawer-minimized-handle)));
+    transform: translateX(0);
     opacity: 1;
     pointer-events: auto;
   }
@@ -5622,20 +5620,52 @@ export const chartsStyles = css`
     left: 0;
     top: 0;
     bottom: 0;
-    width: var(--soap-right-drawer-minimized-handle);
+    width: var(--soap-right-drawer-minimized-handle, 56px);
     border: 0;
-    background: linear-gradient(180deg, rgba(239, 246, 255, 0.98), rgba(219, 234, 254, 0.9));
-    color: #1e3a8a;
-    font-size: 0.72rem;
-    font-weight: 900;
-    letter-spacing: 0.03em;
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
+    border-right: 1px solid rgba(148, 163, 184, 0.32);
+    background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.94));
     cursor: pointer;
     display: none;
     align-items: center;
     justify-content: center;
     z-index: 3;
+    transition: background-color 120ms ease;
+  }
+
+  .soap-note__right-drawer-restore-handle:hover {
+    background: linear-gradient(180deg, rgba(241, 245, 249, 0.98), rgba(226, 232, 240, 0.94));
+  }
+
+  .soap-note__right-drawer-restore-handle:focus-visible {
+    outline: 2px solid rgba(37, 99, 235, 0.45);
+    outline-offset: -2px;
+  }
+
+  .soap-note__right-drawer-restore-icon {
+    position: relative;
+    width: 12px;
+    height: 18px;
+    display: inline-block;
+  }
+
+  .soap-note__right-drawer-restore-icon::before,
+  .soap-note__right-drawer-restore-icon::after {
+    content: '';
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-left: 2px solid rgba(71, 85, 105, 0.9);
+    border-bottom: 2px solid rgba(71, 85, 105, 0.9);
+    transform: rotate(45deg);
+    left: 2px;
+  }
+
+  .soap-note__right-drawer-restore-icon::before {
+    top: 2px;
+  }
+
+  .soap-note__right-drawer-restore-icon::after {
+    top: 9px;
   }
 
   .soap-note__right-drawer[data-minimized='true'] .soap-note__right-drawer-restore-handle {
@@ -5660,20 +5690,56 @@ export const chartsStyles = css`
     top: 0;
     left: 0;
     bottom: 0;
-    width: var(--soap-right-drawer-resize-handle-size);
+    width: var(--soap-right-drawer-resize-handle-size, 40px);
     cursor: col-resize;
     touch-action: none;
-    z-index: 2;
-    opacity: 0;
+    z-index: 4;
+    opacity: 1;
     border: 0;
-    background: linear-gradient(90deg, rgba(37, 99, 235, 0.2), transparent);
-    transition: opacity 120ms ease;
+    padding: 0;
+    background: transparent;
+    transition:
+      opacity 120ms ease,
+      background-color 120ms ease,
+      box-shadow 120ms ease;
   }
 
-  .soap-note__right-drawer:hover .soap-note__right-drawer-resize-handle,
-  .soap-note__right-drawer:hover [data-role='right-drawer-resize-handle'],
+  .soap-note__right-drawer-resize-handle::before,
+  .soap-note__right-drawer [data-role='right-drawer-resize-handle']::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 0;
+    opacity: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      rgba(71, 85, 105, 0.46) 0%,
+      rgba(100, 116, 139, 0.28) 22%,
+      rgba(148, 163, 184, 0.14) 56%,
+      rgba(148, 163, 184, 0.04) 100%
+    );
+    transition:
+      width 120ms ease,
+      opacity 120ms ease;
+  }
+
+  .soap-note__right-drawer-resize-handle:hover,
+  .soap-note__right-drawer [data-role='right-drawer-resize-handle']:hover,
   .soap-note__right-drawer-resize-handle:focus-visible,
   .soap-note__right-drawer [data-role='right-drawer-resize-handle']:focus-visible {
+    opacity: 1;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .soap-note__right-drawer-resize-handle:hover::before,
+  .soap-note__right-drawer [data-role='right-drawer-resize-handle']:hover::before,
+  .soap-note__right-drawer-resize-handle:focus-visible::before,
+  .soap-note__right-drawer [data-role='right-drawer-resize-handle']:focus-visible::before {
+    width: calc(var(--soap-right-drawer-resize-handle-size, 40px) * 0.6667);
     opacity: 1;
   }
 
@@ -7510,7 +7576,7 @@ export const chartsStyles = css`
     }
 
     .soap-note__right-drawer[data-open='true'][data-minimized='true'] {
-      transform: translateY(0);
+      transform: translateX(0);
     }
 
     .soap-note__right-drawer[data-minimized='true'] .soap-note__right-drawer-content {

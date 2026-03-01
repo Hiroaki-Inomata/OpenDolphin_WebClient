@@ -171,9 +171,6 @@ const isBundleMatchedToEntity = (bundle: OrderBundle, targetEntity: OrderEntity,
   return entity === targetEntity;
 };
 
-type RightDrawerMode = 'dock' | 'overlay';
-
-const RIGHT_DRAWER_MODE_STORAGE_KEY = 'opendolphin:web-client:soap-right-drawer:mode';
 const RIGHT_DRAWER_WIDTH_STORAGE_KEY = 'opendolphin:web-client:soap-right-drawer:width';
 const RIGHT_DRAWER_HANDLE_WIDTH = 56;
 const RIGHT_DRAWER_MIN_WIDTH = 560;
@@ -208,17 +205,6 @@ const clampRightDrawerWidth = (value: number, viewportWidth: number) => {
 const resolveDefaultRightDrawerWidth = (viewportWidth: number) => {
   const preferred = clampNumber(RIGHT_DRAWER_DEFAULT_MIN, viewportWidth * 0.52, RIGHT_DRAWER_DEFAULT_MAX);
   return clampRightDrawerWidth(preferred, viewportWidth);
-};
-
-const loadStoredRightDrawerMode = (): RightDrawerMode => {
-  if (typeof localStorage === 'undefined') return 'dock';
-  try {
-    const raw = localStorage.getItem(RIGHT_DRAWER_MODE_STORAGE_KEY);
-    if (raw === 'dock' || raw === 'overlay') return raw;
-    return 'dock';
-  } catch {
-    return 'dock';
-  }
 };
 
 const loadStoredRightDrawerWidth = (viewportWidth: number) => {
@@ -420,7 +406,6 @@ export function SoapNotePanel({
   }, []);
 
   const [viewportW, setViewportW] = useState(() => resolveViewportWidth());
-  const [rightDrawerMode, setRightDrawerMode] = useState<RightDrawerMode>(() => loadStoredRightDrawerMode());
   const [rightDrawerWidth, setRightDrawerWidth] = useState(() => loadStoredRightDrawerWidth(resolveViewportWidth()));
   const [drawerMinimized, setDrawerMinimized] = useState(false);
   const [drawerPeek, setDrawerPeek] = useState(false);
@@ -457,15 +442,6 @@ export function SoapNotePanel({
   useEffect(() => {
     if (typeof localStorage === 'undefined') return;
     try {
-      localStorage.setItem(RIGHT_DRAWER_MODE_STORAGE_KEY, rightDrawerMode);
-    } catch {
-      // ignore storage errors
-    }
-  }, [rightDrawerMode]);
-
-  useEffect(() => {
-    if (typeof localStorage === 'undefined') return;
-    try {
       localStorage.setItem(RIGHT_DRAWER_WIDTH_STORAGE_KEY, String(Math.round(rightDrawerWidth)));
     } catch {
       // ignore storage errors
@@ -476,7 +452,7 @@ export function SoapNotePanel({
     () => viewportW <= RIGHT_DRAWER_OVERLAY_BREAKPOINT || viewportW - rightDrawerWidth < RIGHT_DRAWER_REQUIRED_MAIN_WIDTH,
     [rightDrawerWidth, viewportW],
   );
-  const effectiveMode: RightDrawerMode = forcedOverlay ? 'overlay' : rightDrawerMode;
+  const effectiveMode: 'dock' | 'overlay' = forcedOverlay ? 'overlay' : 'dock';
   const effectiveMinimized = drawerMinimized || drawerPeek;
 
   const orderBundlesByGroup = useMemo(() => {
@@ -1438,7 +1414,6 @@ export function SoapNotePanel({
     mode: effectiveMode,
     minimized: effectiveMinimized,
     width: rightDrawerWidth,
-    onModeChange: setRightDrawerMode,
     onMinimizedChange: setDrawerMinimized,
     onPeekChange: setDrawerPeek,
     onWidthChange: handleDrawerWidthChange,

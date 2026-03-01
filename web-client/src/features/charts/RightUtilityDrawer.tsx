@@ -48,7 +48,6 @@ type RightUtilityDrawerProps = {
   mode?: 'dock' | 'overlay';
   minimized?: boolean;
   width?: number;
-  onModeChange?: (mode: 'dock' | 'overlay') => void;
   onMinimizedChange?: (minimized: boolean) => void;
   onPeekChange?: (peek: boolean) => void;
   onWidthChange?: (width: number) => void;
@@ -119,6 +118,8 @@ const MAX_PREVIEW_ITEMS = 3;
 const MIN_DRAWER_WIDTH = 560;
 const MAX_DRAWER_RIGHT_GUTTER = 80;
 const SPLIT_LAYOUT_MIN_WIDTH = 860;
+const MINIMIZED_HANDLE_WIDTH = 56;
+const RESIZE_HIT_WIDTH = 40;
 
 const clampDrawerWidth = (width: number) => {
   if (!Number.isFinite(width)) return MIN_DRAWER_WIDTH;
@@ -148,7 +149,6 @@ export function RightUtilityDrawer({
   mode = 'dock',
   minimized = false,
   width = 860,
-  onModeChange,
   onMinimizedChange,
   onPeekChange,
   onWidthChange,
@@ -282,12 +282,15 @@ export function RightUtilityDrawer({
       : null;
   const resolvedDrawerWidth = clampDrawerWidth(width);
   const orderLayout = !minimized && resolvedDrawerWidth >= SPLIT_LAYOUT_MIN_WIDTH ? 'split' : 'stack';
+  const visibleDrawerWidth = minimized ? MINIMIZED_HANDLE_WIDTH : resolvedDrawerWidth;
   const drawerInlineStyle = useMemo(
     () =>
       ({
-        '--soap-right-drawer-width': `${resolvedDrawerWidth}px`,
+        '--soap-right-drawer-width': `${visibleDrawerWidth}px`,
+        '--soap-right-drawer-minimized-handle': `${MINIMIZED_HANDLE_WIDTH}px`,
+        '--soap-right-drawer-resize-handle-size': `${RESIZE_HIT_WIDTH}px`,
       }) as CSSProperties,
-    [resolvedDrawerWidth],
+    [visibleDrawerWidth],
   );
 
   const handleResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -366,7 +369,6 @@ export function RightUtilityDrawer({
       data-mode={mode}
       data-minimized={minimized ? 'true' : 'false'}
       data-order-layout={orderLayout}
-      hidden={!open}
       aria-hidden={!open}
       aria-label="右ユーティリティドロワー"
       style={drawerInlineStyle}
@@ -376,43 +378,22 @@ export function RightUtilityDrawer({
         className="soap-note__right-drawer-restore-handle"
         onClick={() => onMinimizedChange?.(false)}
         aria-label="右ドロワーを復帰"
+        title="右ドロワーを復帰"
       >
-        復帰
+        <span className="soap-note__right-drawer-restore-icon" aria-hidden="true" />
       </button>
       <button
         type="button"
         className="soap-note__right-drawer-resize-handle"
         onPointerDown={handleResizePointerDown}
         aria-label="右ドロワー幅を調整"
-      >
-        幅調整
-      </button>
+      />
 
       {!minimized ? (
         <>
           <header className="soap-note__right-drawer-header">
             <strong>{activeTool === 'document' ? '文書' : groupSpec?.label ?? 'オーダー'}</strong>
             <div className="soap-note__right-drawer-header-controls">
-              <div className="soap-note__right-drawer-mode-switch" role="group" aria-label="右ドロワー表示モード">
-                <button
-                  type="button"
-                  className="soap-note__right-drawer-header-control order-dock__bundle-action"
-                  data-active={mode === 'dock' ? 'true' : 'false'}
-                  aria-pressed={mode === 'dock'}
-                  onClick={() => onModeChange?.('dock')}
-                >
-                  並べる
-                </button>
-                <button
-                  type="button"
-                  className="soap-note__right-drawer-header-control order-dock__bundle-action"
-                  data-active={mode === 'overlay' ? 'true' : 'false'}
-                  aria-pressed={mode === 'overlay'}
-                  onClick={() => onModeChange?.('overlay')}
-                >
-                  重ねる
-                </button>
-              </div>
               <button
                 type="button"
                 className="soap-note__right-drawer-header-control order-dock__bundle-action"
@@ -425,9 +406,9 @@ export function RightUtilityDrawer({
                 type="button"
                 className="soap-note__right-drawer-peek-button order-dock__bundle-action"
                 onPointerDown={handlePeekPointerDown}
-                aria-label="押している間だけプレビュー"
+                aria-label="押している間だけ一時的に隠す"
               >
-                Peek
+                一時隠す
               </button>
               <button
                 type="button"

@@ -614,7 +614,7 @@ describe('SoapNotePanel right dock drawer', () => {
     expect(screen.queryByText('処置セットA')).not.toBeInTheDocument();
   });
 
-  it('非表示ドロワーは hidden になり、Tab移動でフォーカスが流入しない', async () => {
+  it('非表示ドロワーは inert/aria-hidden になり、Tab移動でフォーカスが流入しない', async () => {
     const user = userEvent.setup();
     renderWithQueryClient(
       <SoapNotePanel
@@ -632,7 +632,11 @@ describe('SoapNotePanel right dock drawer', () => {
     );
 
     const drawer = requireElement(document.body.querySelector('.soap-note__right-drawer'));
-    expect(drawer).toHaveAttribute('hidden');
+    expect(drawer.getAttribute('data-open')).toBe('false');
+    expect(drawer.getAttribute('aria-hidden')).toBe('true');
+    await waitFor(() => {
+      expect(drawer).toHaveAttribute('inert');
+    });
 
     const closeButton = requireElement<HTMLButtonElement>(drawer.querySelector('button[aria-label="右ドロワーを閉じる"]'));
     let focusedClose = false;
@@ -644,6 +648,88 @@ describe('SoapNotePanel right dock drawer', () => {
       }
     }
     expect(focusedClose).toBe(false);
+  });
+
+  it('最小化時はドロワー実幅がハンドル幅へ縮み、復帰で元の幅へ戻る', async () => {
+    const user = userEvent.setup();
+    renderWithQueryClient(
+      <SoapNotePanel
+        history={[]}
+        meta={{
+          runId: 'RUN-RIGHT-DOCK-MINIMIZE-WIDTH',
+          patientId: 'P-008',
+          appointmentId: 'APT-008',
+          receptionId: 'RCP-008',
+          visitDate: '2026-02-27',
+        }}
+        author={{ role: 'doctor', displayName: 'Dr. Dock', userId: 'doctor08' }}
+        orderBundles={[]}
+      />,
+    );
+
+    const drawer = requireElement<HTMLElement>(document.body.querySelector('.soap-note__right-drawer'));
+    await user.click(screen.getByRole('button', { name: '処方を開く' }));
+    await waitFor(() => {
+      expect(drawer.getAttribute('data-open')).toBe('true');
+    });
+
+    const initialWidth = drawer.style.getPropertyValue('--soap-right-drawer-width');
+    expect(initialWidth).not.toBe('');
+    await user.click(screen.getByRole('button', { name: '右ドロワーを最小化' }));
+
+    await waitFor(() => {
+      expect(drawer.getAttribute('data-minimized')).toBe('true');
+    });
+    expect(drawer.style.getPropertyValue('--soap-right-drawer-width')).toBe('56px');
+    expect(drawer).not.toHaveTextContent('復帰');
+
+    await user.click(screen.getByRole('button', { name: '右ドロワーを復帰' }));
+    await waitFor(() => {
+      expect(drawer.getAttribute('data-minimized')).toBe('false');
+    });
+    expect(drawer.style.getPropertyValue('--soap-right-drawer-width')).toBe(initialWidth);
+  });
+
+  it('一時隠す押下中のみ最小化扱いとなり、解除で元幅へ戻る', async () => {
+    const user = userEvent.setup();
+    const { container } = renderWithQueryClient(
+      <SoapNotePanel
+        history={[]}
+        meta={{
+          runId: 'RUN-RIGHT-DOCK-PEEK-WIDTH',
+          patientId: 'P-009',
+          appointmentId: 'APT-009',
+          receptionId: 'RCP-009',
+          visitDate: '2026-02-27',
+        }}
+        author={{ role: 'doctor', displayName: 'Dr. Dock', userId: 'doctor09' }}
+        orderBundles={[]}
+      />,
+    );
+
+    const soapRoot = requireElement<HTMLElement>(container.querySelector('.soap-note'));
+    const drawer = requireElement<HTMLElement>(document.body.querySelector('.soap-note__right-drawer'));
+    await user.click(screen.getByRole('button', { name: '処方を開く' }));
+    await waitFor(() => {
+      expect(drawer.getAttribute('data-open')).toBe('true');
+    });
+
+    const peekButton = screen.getByRole('button', { name: '押している間だけ一時的に隠す' });
+    const initialWidth = drawer.style.getPropertyValue('--soap-right-drawer-width');
+    fireEvent.pointerDown(peekButton, { button: 0, pointerId: 7 });
+
+    await waitFor(() => {
+      expect(soapRoot.getAttribute('data-right-drawer-min')).toBe('true');
+    });
+    expect(drawer.getAttribute('data-minimized')).toBe('true');
+    expect(drawer.style.getPropertyValue('--soap-right-drawer-width')).toBe('56px');
+
+    fireEvent.pointerUp(window, { pointerId: 7 });
+    await waitFor(() => {
+      expect(soapRoot.getAttribute('data-right-drawer-min')).toBe('false');
+    });
+    expect(drawer.getAttribute('data-minimized')).toBe('false');
+    expect(drawer.style.getPropertyValue('--soap-right-drawer-width')).toBe(initialWidth);
   });
 
   it('既存セットpreviewの「このセットを編集」で対象セットが編集状態になる', async () => {
