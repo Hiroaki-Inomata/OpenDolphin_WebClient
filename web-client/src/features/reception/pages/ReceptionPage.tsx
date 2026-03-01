@@ -4347,65 +4347,80 @@ export function ReceptionPage({
               <h1>{title}</h1>
               <p>{description}</p>
             </div>
+            <div className="reception-page__title-actions">
+              <button
+                type="button"
+                className="reception-search__button ghost"
+                onClick={() => {
+                  appNav.openPatients({ carryover: receptionCarryover });
+                }}
+              >
+                Patients へ
+              </button>
+            </div>
           </div>
           <div className="reception-page__meta-bar" role="status" aria-live={infoLive} data-run-id={resolvedRunId}>
-            <RunIdBadge runId={resolvedRunId} />
-            <StatusPill
-              className="reception-pill"
-              label="dataSourceTransition"
-              value={metaDataSourceTransition}
-              tone={resolveTransitionTone()}
-              runId={resolvedRunId}
-            />
-            <StatusPill
-              className="reception-pill"
-              label="missingMaster"
-              value={String(metaMissingMaster)}
-              tone={resolveMetaFlagTone(metaMissingMaster)}
-              runId={resolvedRunId}
-            />
-            <StatusPill
-              className="reception-pill"
-              label="cacheHit"
-              value={String(metaCacheHit)}
-              tone={resolveCacheHitTone(metaCacheHit)}
-              runId={resolvedRunId}
-            />
-            <AuditSummaryInline
-              auditEvent={latestAuditEvent}
-              className="reception-pill"
-              variant="inline"
-              label="監査サマリ"
-              runId={resolvedRunId}
-            />
-            <StatusPill
-              className="reception-pill"
-              label="最終更新"
-              value={appointmentUpdatedAtLabel}
-              tone="neutral"
-              runId={resolvedRunId}
-            />
-            <StatusPill
-              className="reception-pill"
-              label="RT同期"
-              value={RECEPTION_REALTIME_STATUS_LABEL[receptionRealtimeStatus]}
-              tone={RECEPTION_REALTIME_STATUS_TONE[receptionRealtimeStatus]}
-              runId={resolvedRunId}
-            />
-            <button
-              type="button"
-              className={`reception-exception-indicator${exceptionCounts.total > 0 ? ' is-active' : ''}`}
-              data-tone={exceptionIndicatorTone}
-              onClick={openExceptionsModal}
-              aria-label={`例外一覧を開く（${exceptionCounts.total}件）`}
-              title={`送信エラー:${exceptionCounts.sendError} / 遅延:${exceptionCounts.delayed} / 未承認:${exceptionCounts.unapproved}`}
-            >
-              <span className="reception-exception-indicator__icon" aria-hidden="true">
-                !
-              </span>
-              <span className="reception-exception-indicator__label">例外</span>
-              <span className="reception-exception-indicator__count">{exceptionCounts.total}</span>
-            </button>
+            <div className="reception-page__meta-primary">
+              <button
+                type="button"
+                className={`reception-exception-indicator${exceptionCounts.total > 0 ? ' is-active' : ''}`}
+                data-tone={exceptionIndicatorTone}
+                onClick={openExceptionsModal}
+                aria-label={`例外一覧を開く（${exceptionCounts.total}件）`}
+                title={`送信エラー:${exceptionCounts.sendError} / 遅延:${exceptionCounts.delayed} / 未承認:${exceptionCounts.unapproved}`}
+              >
+                <span className="reception-exception-indicator__icon" aria-hidden="true">
+                  !
+                </span>
+                <span className="reception-exception-indicator__label">例外</span>
+                <span className="reception-exception-indicator__count">{exceptionCounts.total}</span>
+              </button>
+              <StatusPill
+                className="reception-pill"
+                label="最終更新"
+                value={appointmentUpdatedAtLabel}
+                tone="neutral"
+                runId={resolvedRunId}
+              />
+              <StatusPill
+                className="reception-pill"
+                label="RT同期"
+                value={RECEPTION_REALTIME_STATUS_LABEL[receptionRealtimeStatus]}
+                tone={RECEPTION_REALTIME_STATUS_TONE[receptionRealtimeStatus]}
+                runId={resolvedRunId}
+              />
+            </div>
+            <div className="reception-page__meta-details">
+              <RunIdBadge runId={resolvedRunId} />
+              <StatusPill
+                className="reception-pill"
+                label="dataSourceTransition"
+                value={metaDataSourceTransition}
+                tone={resolveTransitionTone()}
+                runId={resolvedRunId}
+              />
+              <StatusPill
+                className="reception-pill"
+                label="missingMaster"
+                value={String(metaMissingMaster)}
+                tone={resolveMetaFlagTone(metaMissingMaster)}
+                runId={resolvedRunId}
+              />
+              <StatusPill
+                className="reception-pill"
+                label="cacheHit"
+                value={String(metaCacheHit)}
+                tone={resolveCacheHitTone(metaCacheHit)}
+                runId={resolvedRunId}
+              />
+              <AuditSummaryInline
+                auditEvent={latestAuditEvent}
+                className="reception-pill"
+                variant="inline"
+                label="監査サマリ"
+                runId={resolvedRunId}
+              />
+            </div>
           </div>
           <section
             className={`reception-search reception-search--header${filtersCollapsed ? ' is-collapsed' : ''}`}
@@ -4423,13 +4438,11 @@ export function ReceptionPage({
                   <span>
                     支払: {paymentMode === 'all' ? 'すべて' : paymentMode === 'insurance' ? '保険' : '自費'}
                   </span>
+                </div>
+                <div className="reception-search__header-meta reception-search__header-meta--advanced" aria-live={infoLive}>
                   <span>src: {appointmentEntriesSourceLabel}</span>
                   <span>sort: {sortKey}</span>
                 </div>
-                <span className="reception-search__header-summary" aria-live={infoLive}>
-	                  {summaryText}
-	                  {appointmentQuery.isFetching ? ' (更新中…)' : ''}
-                </span>
               </div>
               <button
                 type="button"
@@ -4443,7 +4456,7 @@ export function ReceptionPage({
             {!filtersCollapsed ? (
               <>
                 <form className="reception-search__form" onSubmit={handleSearchSubmit}>
-                  <div className="reception-search__row">
+                  <div className="reception-search__row reception-search__row--primary">
                     <label className="reception-search__field">
                       <span>日付</span>
                       <input
@@ -4536,6 +4549,8 @@ export function ReceptionPage({
                         ))}
                       </select>
                     </label>
+                  </div>
+                  <div className="reception-search__row reception-search__row--secondary">
                     <label className="reception-search__field">
                       <span>保険/自費</span>
                       <select
@@ -4579,33 +4594,6 @@ export function ReceptionPage({
                     <button type="button" className="reception-search__button ghost" onClick={handleClear}>
                       クリア
                     </button>
-                    <button
-                      type="button"
-                      className="reception-search__button ghost"
-                      onClick={() => {
-                        appNav.openPatients({ carryover: receptionCarryover });
-                      }}
-                    >
-                      Patients へ
-                    </button>
-                    <div role="group" aria-label="一覧表示切替">
-                      <button
-                        type="button"
-                        className="reception-search__button ghost"
-                        onClick={() => setStatusListLayout('table')}
-                        aria-pressed={statusListLayout === 'table'}
-                      >
-                        表
-                      </button>
-                      <button
-                        type="button"
-                        className="reception-search__button ghost"
-                        onClick={() => setStatusListLayout('cards')}
-                        aria-pressed={statusListLayout === 'cards'}
-                      >
-                        カード
-                      </button>
-                    </div>
                   </div>
                 </form>
                 <div className="reception-search__saved" aria-label="保存ビュー">
@@ -4666,18 +4654,6 @@ export function ReceptionPage({
                     <button type="button" className="reception-search__button primary" onClick={handleSaveView}>
                       現在の条件を保存
                     </button>
-                  </div>
-                </div>
-                <div className="reception-summary" aria-live={infoLive} ref={summaryRef} tabIndex={-1}>
-                  <div className="reception-summary__main">
-                    <strong>{summaryText}</strong>
-                    {appointmentQuery.isFetching && <span className="reception-summary__state">更新中…</span>}
-                  </div>
-                  <div className="reception-summary__meta">
-                    <span>最終更新: {appointmentUpdatedAtLabel}</span>
-                    <span>自動更新: {autoRefreshIntervalLabel}</span>
-                    <span>RT同期: {RECEPTION_REALTIME_STATUS_LABEL[receptionRealtimeStatus]}</span>
-                    <span>選択保持: {selectedEntry ? '保持中' : '未選択'}</span>
                   </div>
                 </div>
                 {!appointmentQuery.isLoading && sortedEntries.length === 0 && (
@@ -4961,6 +4937,37 @@ export function ReceptionPage({
               </div>
             </section>
             ) : null}
+
+            <div className="reception-results-toolbar" aria-live={infoLive} ref={summaryRef} tabIndex={-1}>
+              <div className="reception-results-toolbar__summary">
+                <strong>{summaryText}</strong>
+                {appointmentQuery.isFetching && <span className="reception-results-toolbar__state">更新中…</span>}
+              </div>
+              <div className="reception-results-toolbar__details">
+                <span>最終更新: {appointmentUpdatedAtLabel}</span>
+                <span>自動更新: {autoRefreshIntervalLabel}</span>
+                <span>RT同期: {RECEPTION_REALTIME_STATUS_LABEL[receptionRealtimeStatus]}</span>
+                <span>選択保持: {selectedEntry ? '保持中' : '未選択'}</span>
+              </div>
+              <div className="reception-results-toolbar__actions" role="group" aria-label="一覧表示切替">
+                <button
+                  type="button"
+                  className="reception-search__button ghost"
+                  onClick={() => setStatusListLayout('table')}
+                  aria-pressed={statusListLayout === 'table'}
+                >
+                  表
+                </button>
+                <button
+                  type="button"
+                  className="reception-search__button ghost"
+                  onClick={() => setStatusListLayout('cards')}
+                  aria-pressed={statusListLayout === 'cards'}
+                >
+                  カード
+                </button>
+              </div>
+            </div>
 
             {statusListLayout === 'cards' ? (
             <div className="reception-board" role="region" aria-label="ステータス別患者一覧">
@@ -5407,6 +5414,8 @@ export function ReceptionPage({
                           const rowKey =
                             entryKey(entry) ??
                             `${entry.patientId ?? 'unknown'}-${entry.appointmentTime ?? entry.department ?? 'row'}`;
+                          const tableActionMenuKey = `table:${status}:${rowKey}`;
+                          const tableActionMenuOpen = openCardActionMenuKey === tableActionMenuKey;
                           return (
                             <tr
                               key={rowKey}
@@ -5415,9 +5424,10 @@ export function ReceptionPage({
                               onClick={() => handleSelectRow(entry)}
                               onDoubleClick={() => handleRowDoubleClick(entry)}
                               onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                  handleRowDoubleClick(entry);
-                                }
+                                if (event.target !== event.currentTarget) return;
+                                if (event.key !== 'Enter') return;
+                                event.preventDefault();
+                                handleRowDoubleClick(entry);
                               }}
                               aria-selected={isSelected}
                               aria-label={`${entry.name ?? '患者'} ${entry.appointmentTime ?? ''} ${entry.department ?? ''}`}
@@ -5516,6 +5526,7 @@ export function ReceptionPage({
                                     className="reception-table__action-button primary"
                                     onClick={(event) => {
                                       event.stopPropagation();
+                                      setOpenCardActionMenuKey(null);
                                       void handleSendBilling(entry);
                                     }}
                                     disabled={!entry.patientId || claimSendingPatientId === entry.patientId}
@@ -5530,68 +5541,104 @@ export function ReceptionPage({
                                     {claimSendingPatientId === entry.patientId ? '会計送信中…' : '会計送信'}
                                   </button>
                                 ) : null}
-                                {isReceptionStatusMvpPhase2 && mvpDecision?.canRetry ? (
+                                <div
+                                  className={`reception-card__menu${tableActionMenuOpen ? ' is-open' : ''}`}
+                                  data-card-actions-menu-root="true"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                  }}
+                                  onKeyDown={(event) => {
+                                    event.stopPropagation();
+                                  }}
+                                >
                                   <button
                                     type="button"
-                                    className="reception-table__action-button warning"
-                                    data-test-id="reception-status-mvp-retry"
+                                    className="reception-table__action-button"
+                                    aria-label="テーブル操作を開く"
+                                    aria-haspopup="menu"
+                                    aria-expanded={tableActionMenuOpen}
                                     onClick={(event) => {
                                       event.stopPropagation();
-                                      void handleRetryQueue(entry);
+                                      setOpenCardActionMenuKey((prev) => (prev === tableActionMenuKey ? null : tableActionMenuKey));
                                     }}
-                                    title={mvpDecision.retryTitle ?? 'ORCA再送を要求します'}
                                   >
-                                    再送
+                                    その他
                                   </button>
-                                ) : null}
-                                <button
-                                  type="button"
-                                  className="reception-table__action-button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    openMedicalRecordsModal({ patientId: entry.patientId, name: entry.name }, 'selection');
-                                  }}
-                                  disabled={!entry.patientId}
-                                  title={
-                                    entry.patientId ? '過去カルテをモーダルで確認' : '患者IDが未登録のため過去カルテを表示できません'
-                                  }
-                                >
-                                  過去カルテ
-                                </button>
-                                <button
-                                  type="button"
-                                  className="reception-table__action-button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    handleOpenCharts(entry);
-                                  }}
-                                  disabled={!canOpenCharts}
-                                  title={canOpenCharts ? 'カルテを開く' : '患者IDが未登録のためカルテを開けません'}
-                                >
-                                  カルテを開く
-                                </button>
-                                <button
-                                  type="button"
-                                  className="reception-table__action-button danger"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    requestCancelEntry(entry, 'table');
-                                  }}
-                                  disabled={isAcceptSubmitting || !entry.patientId || !entry.receptionId || status === '予約'}
-                                  title={
-                                    isAcceptSubmitting
-                                      ? '送信中です'
-                                      : !entry.patientId
-                                        ? '患者IDが未登録のため取消できません'
-                                        : status === '予約'
-                                          ? '予約は受付取消できません'
-                                          : entry.receptionId
-                                            ? '受付取消'
-                                            : '受付IDが未登録のため取消できません'
-                                  }
-                                >
-                                  受付取消
-                                </button>
+                                  {tableActionMenuOpen ? (
+                                    <div className="reception-card__submenu" role="menu" aria-label="テーブル追加操作">
+                                      <button
+                                        type="button"
+                                        className="reception-card__submenu-item"
+                                        role="menuitem"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setOpenCardActionMenuKey(null);
+                                          handleOpenCharts(entry);
+                                        }}
+                                        disabled={!canOpenCharts}
+                                        title={canOpenCharts ? 'カルテを開く' : '患者IDが未登録のためカルテを開けません'}
+                                      >
+                                        カルテを開く
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="reception-card__submenu-item"
+                                        role="menuitem"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setOpenCardActionMenuKey(null);
+                                          openMedicalRecordsModal({ patientId: entry.patientId, name: entry.name }, 'selection');
+                                        }}
+                                        disabled={!entry.patientId}
+                                        title={
+                                          entry.patientId ? '過去カルテをモーダルで確認' : '患者IDが未登録のため過去カルテを表示できません'
+                                        }
+                                      >
+                                        過去カルテ
+                                      </button>
+                                      {isReceptionStatusMvpPhase2 && mvpDecision?.canRetry ? (
+                                        <button
+                                          type="button"
+                                          className="reception-card__submenu-item warning"
+                                          role="menuitem"
+                                          data-test-id="reception-status-mvp-retry"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setOpenCardActionMenuKey(null);
+                                            void handleRetryQueue(entry);
+                                          }}
+                                          title={mvpDecision.retryTitle ?? 'ORCA再送を要求します'}
+                                        >
+                                          再送
+                                        </button>
+                                      ) : null}
+                                      <button
+                                        type="button"
+                                        className="reception-card__submenu-item danger"
+                                        role="menuitem"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setOpenCardActionMenuKey(null);
+                                          requestCancelEntry(entry, 'table');
+                                        }}
+                                        disabled={isAcceptSubmitting || !entry.patientId || !entry.receptionId || status === '予約'}
+                                        title={
+                                          isAcceptSubmitting
+                                            ? '送信中です'
+                                            : !entry.patientId
+                                              ? '患者IDが未登録のため取消できません'
+                                              : status === '予約'
+                                                ? '予約は受付取消できません'
+                                                : entry.receptionId
+                                                  ? '受付取消'
+                                                  : '受付IDが未登録のため取消できません'
+                                        }
+                                      >
+                                        受付取消
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
                               </td>
                             </tr>
                           );
