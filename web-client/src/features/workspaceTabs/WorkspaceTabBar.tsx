@@ -71,7 +71,6 @@ export function WorkspaceTabBar({
   );
   const [patientTabsState, setPatientTabsState] = useState<ChartsPatientTabsStorage>(loadPatientTabs);
 
-  const dynamicTabs = patientTabsState.tabs;
   const isChartsScreen = /\/charts\/?$/.test(location.pathname);
   const isChartsArea = ['charts', 'print', 'orderSets'].includes(appNav.currentScreen);
   const activeChartTab = useMemo(() => {
@@ -87,6 +86,11 @@ export function WorkspaceTabBar({
   const isSystemAdmin = role === 'system_admin';
   const chartMenuPatientName = normalizeText(activeChartTab?.name) ?? activeChartTab?.patientId ?? '患者';
   const chartMenuLabel = `カルテ（${chartMenuPatientName}）`;
+  const dynamicTabs = useMemo(() => {
+    const activeKey = activeChartTab?.key;
+    if (!activeKey) return patientTabsState.tabs;
+    return patientTabsState.tabs.filter((tab) => tab.key !== activeKey);
+  }, [activeChartTab?.key, patientTabsState.tabs]);
 
   const activeFixedKey = useMemo(() => {
     if (appNav.currentScreen === 'reception') return 'reception';
@@ -269,34 +273,45 @@ export function WorkspaceTabBar({
             受付
           </button>
           {activeChartTab ? (
-            <button
-              type="button"
-              role="tab"
-              className={`workspace-tabs__tab workspace-tabs__tab--shortcut workspace-tabs__tab--chart${activeFixedKey === 'active-chart' ? ' is-active' : ''}`}
-              aria-selected={activeFixedKey === 'active-chart'}
-              tabIndex={activeFixedKey === 'active-chart' ? 0 : -1}
-              title={chartMenuLabel}
-              onClick={handleOpenActiveChart}
-            >
-              <svg
-                className="workspace-tabs__tab-icon"
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            <div className="workspace-tabs__item workspace-tabs__item--fixed-chart">
+              <button
+                type="button"
+                role="tab"
+                className={`workspace-tabs__tab workspace-tabs__tab--shortcut workspace-tabs__tab--chart${activeFixedKey === 'active-chart' ? ' is-active' : ''}`}
+                aria-selected={activeFixedKey === 'active-chart'}
+                tabIndex={activeFixedKey === 'active-chart' ? 0 : -1}
+                title={chartMenuLabel}
+                onClick={handleOpenActiveChart}
               >
-                <path d="M4 19a2 2 0 0 0 2 2h12" />
-                <path d="M6 2h12a2 2 0 0 1 2 2v16" />
-                <path d="M6 2a2 2 0 0 0-2 2v15" />
-                <path d="M8 6h8" />
-                <path d="M8 10h8" />
-                <path d="M8 14h6" />
-              </svg>
-              {chartMenuLabel}
-            </button>
+                <svg
+                  className="workspace-tabs__tab-icon"
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M4 19a2 2 0 0 0 2 2h12" />
+                  <path d="M6 2h12a2 2 0 0 1 2 2v16" />
+                  <path d="M6 2a2 2 0 0 0-2 2v15" />
+                  <path d="M8 6h8" />
+                  <path d="M8 10h8" />
+                  <path d="M8 14h6" />
+                </svg>
+                {chartMenuLabel}
+              </button>
+              <button
+                type="button"
+                className="workspace-tabs__close"
+                aria-label={`${chartMenuLabel}を閉じる`}
+                onMouseDown={suppressCloseMouseDown}
+                onClick={(event) => handleCloseButtonClick(event, activeChartTab.key)}
+              >
+                ×
+              </button>
+            </div>
           ) : null}
           <button
             type="button"

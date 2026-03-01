@@ -68,7 +68,7 @@ afterEach(() => {
 });
 
 describe('WorkspaceTabBar navigation', () => {
-  it('患者タブクリックで charts へ遷移する', async () => {
+  it('固定カルテタブクリックで charts へ遷移し、患者タブが重複表示されない', async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient();
 
@@ -87,8 +87,9 @@ describe('WorkspaceTabBar navigation', () => {
 
     expect(window.location.pathname).toBe('/f/0001/reception');
 
-    const patientTab = await screen.findByRole('tab', { name: '山田太郎（内科）' });
+    const patientTab = await screen.findByRole('tab', { name: 'カルテ（山田太郎）' });
     expect(patientTab).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: '山田太郎（内科）' })).toBeNull();
 
     await user.click(patientTab);
 
@@ -114,14 +115,14 @@ describe('WorkspaceTabBar navigation', () => {
       </QueryClientProvider>,
     );
 
-    const closeButton = await screen.findByRole('button', { name: '山田太郎（内科）を閉じる' });
+    const closeButton = await screen.findByRole('button', { name: 'カルテ（山田太郎）を閉じる' });
     await user.click(closeButton);
 
     await waitFor(() => {
       expect(window.location.pathname).toBe('/f/0001/reception');
     });
     await waitFor(() => {
-      expect(screen.queryByRole('tab', { name: '山田太郎（内科）' })).toBeNull();
+      expect(screen.queryByRole('tab', { name: 'カルテ（山田太郎）' })).toBeNull();
     });
   });
 });
