@@ -47,6 +47,7 @@ import { AppToastProvider, type AppToast, type AppToastInput } from './libs/ui/a
 import { logAuditEvent } from './libs/audit/auditLogger';
 import { ChartEventStreamBridge } from './features/shared/ChartEventStreamBridge';
 import { MockModeBanner } from './features/shared/MockModeBanner';
+import { WorkspaceTabBar } from './features/workspaceTabs/WorkspaceTabBar';
 import {
   SESSION_EXPIRED_EVENT,
   clearSessionExpiredNotice,
@@ -1528,8 +1529,9 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
         </header>
 
         <MockModeBanner />
+        <WorkspaceTabBar facilityId={session.facilityId} userId={session.userId} role={session.role} />
 
-        <div className="app-shell__body" id="app-shell-main" tabIndex={-1}>
+        <div className="app-shell__body" id="app-shell-main" tabIndex={-1} data-tab-id={outletScreenKey}>
           <AppOutletErrorBoundary
             screenKey={outletScreenKey}
             runId={resolvedRunId}
