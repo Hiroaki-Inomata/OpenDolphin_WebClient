@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 
 import { OrderBundleEditPanel } from '../OrderBundleEditPanel';
 import { fetchContraindicationCheckXml } from '../contraindicationCheckApi';
 import { fetchOrderMasterSearch } from '../orderMasterSearchApi';
+import type { OrderBundle } from '../orderBundleApi';
 
 vi.mock('../orderBundleApi', async () => ({
   fetchOrderBundles: vi.fn().mockResolvedValue({
@@ -71,6 +73,17 @@ const baseProps = {
   },
 };
 
+const buildHistoryBundle = (overrides: Partial<OrderBundle> = {}): OrderBundle => ({
+  documentId: 100,
+  moduleId: 200,
+  bundleName: '降圧薬セット',
+  admin: '1日1回 朝',
+  bundleNumber: '7',
+  started: '2025-12-01',
+  items: [{ code: 'A100', name: 'アムロジピン', quantity: '1', unit: '錠' }],
+  ...overrides,
+});
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -79,38 +92,16 @@ afterEach(() => {
 
 describe('OrderBundleEditPanel contraindication warning', () => {
   it('禁忌チェック警告と症状情報を表示する', async () => {
+    const user = userEvent.setup();
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    sessionStorage.setItem('devFacilityId', 'facility');
+    sessionStorage.setItem('devUserId', 'doctor');
 
     vi.mocked(fetchOrderMasterSearch).mockResolvedValue({
       ok: true,
       items: [],
       totalCount: 0,
-    });
-    vi.mocked(fetchOrderMasterSearch).mockImplementation(async ({ type }) => {
-      if (type === 'drug') {
-        return {
-          ok: true,
-          items: [
-            {
-              type: 'drug',
-              code: 'A100',
-              name: 'アムロジピン',
-              unit: '錠',
-            },
-          ],
-          totalCount: 1,
-        };
-      }
-      if (type === 'youhou') {
-        return {
-          ok: true,
-          items: [{ type: 'youhou', name: '1日1回' }],
-          totalCount: 1,
-        };
-      }
-      return { ok: true, items: [], totalCount: 0 };
     });
 
     vi.mocked(fetchContraindicationCheckXml).mockResolvedValue({
@@ -138,22 +129,17 @@ describe('OrderBundleEditPanel contraindication warning', () => {
       missingTags: [],
     } as any);
 
-    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        historyCopyRequest={{ requestId: 'history-copy-1', bundle: buildHistoryBundle() }}
+        onHistoryCopyConsumed={vi.fn()}
+      />,
+    );
 
-    const itemNameInput = screen.getByPlaceholderText('薬剤名');
-    fireEvent.change(itemNameInput, { target: { value: 'アム' } });
+    await waitFor(() => expect(screen.getByDisplayValue('降圧薬セット')).toBeInTheDocument());
 
-    await waitFor(() => expect(screen.getByText('アムロジピン')).toBeInTheDocument());
-
-    const rowButton = screen.getByText('アムロジピン').closest('button');
-    expect(rowButton).not.toBeNull();
-    fireEvent.click(rowButton!);
-
-    fireEvent.change(screen.getByLabelText('用法'), { target: { value: '1日1回' } });
-    await waitFor(() => expect(screen.getByText('1日1回')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('1日1回').closest('button')!);
-
-    fireEvent.click(screen.getByRole('button', { name: '保存して追加' }));
+    await user.click(screen.getByRole('button', { name: /保存して追加/ }));
 
     await waitFor(() => expect(fetchContraindicationCheckXml).toHaveBeenCalled());
 
@@ -163,38 +149,16 @@ describe('OrderBundleEditPanel contraindication warning', () => {
   });
 
   it('症状情報がない場合は症状表示を出さない', async () => {
+    const user = userEvent.setup();
     localStorage.setItem('devFacilityId', 'facility');
     localStorage.setItem('devUserId', 'doctor');
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    sessionStorage.setItem('devFacilityId', 'facility');
+    sessionStorage.setItem('devUserId', 'doctor');
 
     vi.mocked(fetchOrderMasterSearch).mockResolvedValue({
       ok: true,
       items: [],
       totalCount: 0,
-    });
-    vi.mocked(fetchOrderMasterSearch).mockImplementation(async ({ type }) => {
-      if (type === 'drug') {
-        return {
-          ok: true,
-          items: [
-            {
-              type: 'drug',
-              code: 'A200',
-              name: 'ロサルタン',
-              unit: '錠',
-            },
-          ],
-          totalCount: 1,
-        };
-      }
-      if (type === 'youhou') {
-        return {
-          ok: true,
-          items: [{ type: 'youhou', name: '1日1回' }],
-          totalCount: 1,
-        };
-      }
-      return { ok: true, items: [], totalCount: 0 };
     });
 
     vi.mocked(fetchContraindicationCheckXml).mockResolvedValue({
@@ -222,22 +186,22 @@ describe('OrderBundleEditPanel contraindication warning', () => {
       missingTags: [],
     } as any);
 
-    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        historyCopyRequest={{
+          requestId: 'history-copy-2',
+          bundle: buildHistoryBundle({
+            bundleName: 'ARBセット',
+            items: [{ code: 'A200', name: 'ロサルタン', quantity: '1', unit: '錠' }],
+          }),
+        }}
+        onHistoryCopyConsumed={vi.fn()}
+      />,
+    );
 
-    const itemNameInput = screen.getByPlaceholderText('薬剤名');
-    fireEvent.change(itemNameInput, { target: { value: 'ロサ' } });
-
-    await waitFor(() => expect(screen.getByText('ロサルタン')).toBeInTheDocument());
-
-    const rowButton = screen.getByText('ロサルタン').closest('button');
-    expect(rowButton).not.toBeNull();
-    fireEvent.click(rowButton!);
-
-    fireEvent.change(screen.getByLabelText('用法'), { target: { value: '1日1回' } });
-    await waitFor(() => expect(screen.getByText('1日1回')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('1日1回').closest('button')!);
-
-    fireEvent.click(screen.getByRole('button', { name: '保存して追加' }));
+    await waitFor(() => expect(screen.getByDisplayValue('ARBセット')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /保存して追加/ }));
 
     await waitFor(() => expect(fetchContraindicationCheckXml).toHaveBeenCalled());
 

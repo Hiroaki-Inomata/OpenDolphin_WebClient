@@ -715,7 +715,7 @@ describe('PatientsPage search summary', () => {
 
     renderPatientsPage();
 
-    const summary = screen.getByText('検索結果').closest('.patients-search__summary');
+    const summary = screen.getByText('検索結果').closest('.patients-sidebar__statusbar');
     expect(summary).not.toBeNull();
     if (!summary) return;
     const summaryScope = within(summary as HTMLElement);

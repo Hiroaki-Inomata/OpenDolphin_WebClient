@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 
@@ -16,6 +16,7 @@ const mockHistoryBundle = vi.hoisted(() => ({
   started: '2025-12-01',
   items: [
     {
+      code: '620001402',
       name: 'アムロジピン',
       quantity: '1',
       unit: '錠',
@@ -38,6 +39,20 @@ vi.mock('../stampApi', async () => ({
   fetchStampDetail: vi.fn(),
 }));
 
+vi.mock('../contraindicationCheckApi', async () => ({
+  buildContraindicationCheckRequestXml: vi.fn().mockReturnValue('<data />'),
+  fetchContraindicationCheckXml: vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    rawXml: '<data />',
+    apiResult: '00',
+    apiResultMessage: 'OK',
+    results: [],
+    symptomInfo: [],
+    missingTags: [],
+  }),
+}));
+
 const renderWithClient = (ui: ReactElement) => {
   const client = new QueryClient({
     defaultOptions: {
@@ -54,6 +69,7 @@ const baseProps = {
   title: '処方編集',
   bundleLabel: 'RP名',
   itemQuantityLabel: '用量',
+  variant: 'utility' as const,
   meta: {
     runId: 'RUN-ORDER',
     cacheHit: false,
@@ -72,13 +88,17 @@ afterEach(() => {
 describe('OrderBundleEditPanel history copy', () => {
   it('履歴コピー後は新規作成として保存される', async () => {
     const user = userEvent.setup();
-    renderWithClient(<OrderBundleEditPanel {...baseProps} />);
+    renderWithClient(
+      <OrderBundleEditPanel
+        {...baseProps}
+        historyCopyRequest={{ requestId: 'history-copy-1', bundle: mockHistoryBundle }}
+        onHistoryCopyConsumed={vi.fn()}
+      />,
+    );
 
-    const list = await screen.findByRole('list');
-    const copyButton = within(list).getByRole('button', { name: 'コピー' });
-    await user.click(copyButton);
+    await waitFor(() => expect(screen.getByDisplayValue('降圧薬セット')).toBeInTheDocument());
 
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+    await user.click(screen.getByRole('button', { name: /保存して追加/ }));
 
     const mutateMock = vi.mocked(mutateOrderBundles);
     await waitFor(() => expect(mutateMock).toHaveBeenCalled());
@@ -100,8 +120,7 @@ describe('OrderBundleEditPanel history copy', () => {
 
     await screen.findByText('編集はブロックされています: 閲覧専用です');
 
-    const list = await screen.findByRole('list');
-    const copyButton = within(list).getByRole('button', { name: 'コピー' });
+    const copyButton = await screen.findByRole('button', { name: 'コピー' });
     expect(copyButton).toBeDisabled();
   });
 });

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-import { clearAuditEventLog, getAuditEventLog } from '../../../libs/audit/auditLogger';
+import * as auditLogger from '../../../libs/audit/auditLogger';
 import { OrderBundleEditPanel } from '../OrderBundleEditPanel';
 
 vi.mock('../orderBundleApi', () => ({
@@ -21,11 +21,11 @@ const buildQueryClient = () =>
 
 describe('OrderBundleEditPanel audit', () => {
   beforeEach(() => {
-    clearAuditEventLog();
+    auditLogger.clearAuditEventLog();
   });
 
   afterEach(() => {
-    clearAuditEventLog();
+    auditLogger.clearAuditEventLog();
   });
 
   it('必須違反時に blockedReasons と validationMessages を記録する', async () => {
@@ -48,22 +48,51 @@ describe('OrderBundleEditPanel audit', () => {
             dataSourceTransition: 'server',
             patientId: 'P-001',
           }}
+          request={{
+            requestId: 'REQ-ORDER-AUDIT',
+            kind: 'edit',
+            bundle: {
+              entity: 'medOrder',
+              bundleName: '監査テストRP',
+              bundleNumber: '1',
+              admin: '',
+              items: [
+                {
+                  code: '620001402',
+                  name: 'アムロジピン',
+                  quantity: '1',
+                  unit: '錠',
+                },
+              ],
+            },
+          }}
         />
       </QueryClientProvider>,
     );
 
-    await user.click(screen.getByRole('button', { name: '保存して追加' }));
+    await waitFor(() => {
+      expect(screen.getByLabelText('RP名')).toHaveValue('監査テストRP');
+    });
+    const auditSpy = vi.spyOn(auditLogger, 'logAuditEvent');
+    await user.click(screen.getByRole('button', { name: /保存して追加/ }));
 
-    const events = getAuditEventLog();
-    const blocked = events.find((event) => (event.payload as any)?.details?.operationPhase === 'lock');
-    const details = (blocked?.payload as any)?.details ?? {};
+    await waitFor(() => {
+      const blocked = auditSpy.mock.calls.find((call) => {
+        const blockedReasons = (call[0].payload as any)?.details?.blockedReasons;
+        return Array.isArray(blockedReasons) && blockedReasons.includes('missing_usage');
+      });
+      expect(blocked).toBeTruthy();
+    });
+
+    const blocked = auditSpy.mock.calls.find((call) => {
+      const blockedReasons = (call[0].payload as any)?.details?.blockedReasons;
+      return Array.isArray(blockedReasons) && blockedReasons.includes('missing_usage');
+    });
+    const details = (blocked?.[0].payload as any)?.details ?? {};
 
     expect(blocked).toBeTruthy();
-    expect(details.blockedReasons).toEqual(['missing_items', 'missing_usage']);
-    expect(details.validationMessages).toEqual([
-      '薬剤/項目を1件以上入力してください。',
-      '用法を入力してください。',
-    ]);
+    expect(details.blockedReasons).toEqual(['missing_usage']);
+    expect(details.validationMessages).toEqual(['用法を入力してください。']);
     expect(details.operationPhase).toBe('lock');
   });
 });
