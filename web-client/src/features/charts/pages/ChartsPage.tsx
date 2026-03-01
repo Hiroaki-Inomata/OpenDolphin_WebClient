@@ -92,6 +92,18 @@ import {
   type ChartOrderSetEntry,
   type ChartOrderSetSnapshot,
 } from '../chartOrderSetStorage';
+import {
+  applyEncounterTabState,
+  buildPatientTabKey,
+  readChartsPatientTabsStorage,
+  writeChartsPatientTabsStorage,
+  type ChartsPatientTabsStorage,
+} from '../patientTabsStorage';
+import {
+  WORKSPACE_CHARTS_TAB_REQUEST_EVENT,
+  dispatchChartsPatientTabsUpdated,
+  type WorkspaceChartsTabRequest,
+} from '../../workspaceTabs/workspaceTabEvents';
 
 const parseDate = (value?: string): Date | null => {
   if (!value) return null;
@@ -371,149 +383,6 @@ const resolveUtilityVisualKind = (action: DockedUtilityAction | null): UtilityVi
   return 'none';
 };
 
-type ChartsPatientTab = {
-  key: string;
-  patientId: string;
-  visitDate: string; // YYYY-MM-DD
-  appointmentId?: string;
-  receptionId?: string;
-  name?: string;
-  openedAt: string; // ISO
-};
-
-type ChartsPatientTabsStorage = {
-  version: 1;
-  updatedAt: string;
-  activeKey?: string;
-  tabs: ChartsPatientTab[];
-};
-
-const PATIENT_TABS_STORAGE_BASE = 'opendolphin:web-client:charts:patient-tabs';
-const PATIENT_TABS_STORAGE_VERSION = 'v1';
-
-const buildPatientTabKey = (patientId: string, visitDate: string) => `${patientId}::${visitDate}`;
-
-const applyEncounterTabState = (
-  prev: ChartsPatientTabsStorage,
-  params: {
-    patientId: string;
-    visitDate: string;
-    appointmentId?: string;
-    receptionId?: string;
-    name?: string;
-  },
-): ChartsPatientTabsStorage => {
-  const patientId = normalizeEncounterId(params.patientId);
-  const visitDate = normalizeVisitDate(params.visitDate);
-  if (!patientId || !visitDate) return prev;
-  const key = buildPatientTabKey(patientId, visitDate);
-  const existing = prev.tabs.find((tab) => tab.key === key);
-  const appointmentId = normalizeEncounterId(params.appointmentId) ?? existing?.appointmentId;
-  const receptionId = normalizeEncounterId(params.receptionId) ?? existing?.receptionId;
-  const name = typeof params.name === 'string' && params.name.trim() ? params.name.trim() : existing?.name;
-  const nextTab: ChartsPatientTab = {
-    key,
-    patientId,
-    visitDate,
-    appointmentId,
-    receptionId,
-    name,
-    openedAt: existing?.openedAt ?? new Date().toISOString(),
-  };
-  const tabUnchanged =
-    existing !== undefined &&
-    existing.patientId === nextTab.patientId &&
-    existing.visitDate === nextTab.visitDate &&
-    (existing.appointmentId ?? undefined) === (nextTab.appointmentId ?? undefined) &&
-    (existing.receptionId ?? undefined) === (nextTab.receptionId ?? undefined) &&
-    (existing.name ?? undefined) === (nextTab.name ?? undefined);
-  const activeUnchanged = prev.activeKey === key;
-  if (tabUnchanged && activeUnchanged) return prev;
-
-  const nextTabs = existing
-    ? tabUnchanged
-      ? prev.tabs
-      : prev.tabs.map((tab) => (tab.key === key ? nextTab : tab))
-    : [...prev.tabs, nextTab];
-  return {
-    ...prev,
-    activeKey: key,
-    tabs: nextTabs,
-  };
-};
-
-const readChartsPatientTabsStorage = (
-  scope?: { facilityId?: string; userId?: string },
-): ChartsPatientTabsStorage | null => {
-  if (typeof sessionStorage === 'undefined') return null;
-  const scopedKey =
-    buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope) ??
-    `${PATIENT_TABS_STORAGE_BASE}:v1`;
-  try {
-    const raw = sessionStorage.getItem(scopedKey) ?? sessionStorage.getItem(`${PATIENT_TABS_STORAGE_BASE}:v1`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<ChartsPatientTabsStorage> | null;
-    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.tabs)) return null;
-
-    const normalizedTabs = parsed.tabs.reduce<ChartsPatientTab[]>((acc, tab) => {
-      const patientId = typeof tab.patientId === 'string' ? tab.patientId.trim() : '';
-      const visitDate = normalizeVisitDate(typeof tab.visitDate === 'string' ? tab.visitDate : undefined);
-      if (!patientId || !visitDate) return acc;
-      const key = typeof tab.key === 'string' && tab.key.trim() ? tab.key.trim() : buildPatientTabKey(patientId, visitDate);
-      const normalized: ChartsPatientTab = {
-        key,
-        patientId,
-        visitDate,
-        openedAt: typeof tab.openedAt === 'string' ? tab.openedAt : new Date().toISOString(),
-      };
-      if (typeof tab.appointmentId === 'string') normalized.appointmentId = tab.appointmentId;
-      if (typeof tab.receptionId === 'string') normalized.receptionId = tab.receptionId;
-      if (typeof tab.name === 'string') normalized.name = tab.name;
-      acc.push(normalized);
-      return acc;
-    }, []);
-
-    const activeKey =
-      typeof parsed.activeKey === 'string' && parsed.activeKey.trim()
-        ? parsed.activeKey.trim()
-        : normalizedTabs[0]?.key;
-
-    // migrate legacy to scoped
-    const scopedKeyActual = buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope);
-    if (scopedKeyActual && !sessionStorage.getItem(scopedKeyActual)) {
-      try {
-        sessionStorage.setItem(scopedKeyActual, raw);
-        if (scopedKey !== scopedKeyActual) {
-          sessionStorage.removeItem(`${PATIENT_TABS_STORAGE_BASE}:v1`);
-        }
-      } catch {
-        // ignore migration errors
-      }
-    }
-
-    return {
-      version: 1,
-      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
-      activeKey,
-      tabs: normalizedTabs,
-    };
-  } catch {
-    return null;
-  }
-};
-
-const writeChartsPatientTabsStorage = (state: ChartsPatientTabsStorage, scope?: { facilityId?: string; userId?: string }) => {
-  if (typeof sessionStorage === 'undefined') return;
-  const scopedKey =
-    buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope) ??
-    `${PATIENT_TABS_STORAGE_BASE}:v1`;
-  try {
-    sessionStorage.setItem(scopedKey, JSON.stringify(state));
-  } catch {
-    // ignore storage errors
-  }
-};
-
 const readSoapHistoryStorage = (scope?: { facilityId?: string; userId?: string }): SoapHistoryStorage | null => {
   if (typeof sessionStorage === 'undefined') return null;
   const scopedKey =
@@ -599,17 +468,22 @@ const filterSameDayOrderBundles = (bundles: OrderBundle[], visitDate?: string) =
   });
 };
 export function ChartsPage() {
+  const [reloadEpoch, setReloadEpoch] = useState(0);
+  const handleRequestHardReload = useCallback(() => {
+    setReloadEpoch((prev) => prev + 1);
+  }, []);
+
   return (
     <>
       {/* NOTE: Global の配列指定だと chartsStyles が注入されないケースがあったため分離する。 */}
       <Global styles={receptionStyles} />
       <Global styles={chartsStyles} />
-      <ChartsContent />
+      <ChartsContent key={reloadEpoch} onRequestHardReload={handleRequestHardReload} />
     </>
   );
 }
 
-function ChartsContent() {
+function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => void }) {
   const { flags, setCacheHit, setDataSourceTransition, setMissingMaster, setFallbackUsed, bumpRunId } = useAuthService();
   const session = useSession();
   const { registerDirty } = useNavigationGuard();
@@ -709,6 +583,7 @@ function ChartsContent() {
       },
       storageScope,
     );
+    dispatchChartsPatientTabsUpdated();
   }, [patientTabsState, storageScope]);
 
   useEffect(() => {
@@ -794,6 +669,7 @@ function ChartsContent() {
         targetKey?: string;
       }
   >(null);
+  const [reloadGuardOpen, setReloadGuardOpen] = useState(false);
   const showDebugUi = import.meta.env.VITE_ENABLE_DEBUG_UI === '1' && isSystemAdminRole(session.role);
   const showOperationalMeta = showDebugUi;
   const [approvalState, setApprovalState] = useState<{
@@ -927,12 +803,13 @@ function ChartsContent() {
   const lastOrcaQueueSnapshot = useRef<string | null>(null);
 
   const openEncounterInTabs = useCallback(
-    (next: OutpatientEncounterContext, options?: { name?: string }) => {
+    (next: OutpatientEncounterContext, options?: { name?: string; department?: string }) => {
       const normalizedNext = normalizeEncounterContext(next);
       const patientId = normalizedNext.patientId;
       if (!patientId) return;
       const visitDate = normalizedNext.visitDate ?? today;
       const name = options?.name?.trim() || undefined;
+      const department = options?.department?.trim() || undefined;
 
       setPatientTabsState((prev) =>
         applyEncounterTabState(prev, {
@@ -941,6 +818,7 @@ function ChartsContent() {
           appointmentId: normalizedNext.appointmentId,
           receptionId: normalizedNext.receptionId,
           name,
+          department,
         }),
       );
 
@@ -966,7 +844,7 @@ function ChartsContent() {
           receptionId: tab.receptionId,
           visitDate: tab.visitDate,
         },
-        { name: tab.name },
+        { name: tab.name, department: tab.department },
       );
     },
     [openEncounterInTabs, patientTabs],
@@ -1063,6 +941,28 @@ function ChartsContent() {
     [activePatientTabKey, draftState.dirty, forceClosePatientTab, lockState.locked, lockState.reason],
   );
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleWorkspaceChartsTabRequest = (event: Event) => {
+      const detail = (event as CustomEvent<WorkspaceChartsTabRequest>).detail;
+      if (!detail || (detail.action !== 'select' && detail.action !== 'close')) return;
+
+      const key = detail.key.trim();
+      if (!key) return;
+
+      if (detail.action === 'select') {
+        requestSelectPatientTab(key);
+        return;
+      }
+      requestClosePatientTab(key);
+    };
+
+    window.addEventListener(WORKSPACE_CHARTS_TAB_REQUEST_EVENT, handleWorkspaceChartsTabRequest as EventListener);
+    return () => {
+      window.removeEventListener(WORKSPACE_CHARTS_TAB_REQUEST_EVENT, handleWorkspaceChartsTabRequest as EventListener);
+    };
+  }, [requestClosePatientTab, requestSelectPatientTab]);
+
   const handleTabGuardCancel = useCallback(() => {
     setTabGuard(null);
   }, []);
@@ -1082,6 +982,24 @@ function ChartsContent() {
       forceClosePatientTab(targetKey);
     }
   }, [forceClosePatientTab, forceSelectPatientTab, tabGuard]);
+
+  const requestReload = useCallback(() => {
+    if (draftState.dirty) {
+      setReloadGuardOpen(true);
+      return;
+    }
+    onRequestHardReload();
+  }, [draftState.dirty, onRequestHardReload]);
+
+  const handleCancelReloadGuard = useCallback(() => {
+    setReloadGuardOpen(false);
+  }, []);
+
+  const handleConfirmReloadGuard = useCallback(() => {
+    setReloadGuardOpen(false);
+    setDraftState((prev) => ({ ...prev, dirty: false, dirtySources: [] }));
+    onRequestHardReload();
+  }, [onRequestHardReload]);
 
   useEffect(() => {
     // Feature flag gate: prevent accessing the Images utility via persisted state / URL triggers.
@@ -2477,15 +2395,30 @@ function ChartsContent() {
     const key = patientTabKeyForContext;
     if (!key) return;
     const nextName = (selectedEntry?.name ?? fallbackPatient?.name ?? '').trim();
-    if (!nextName) return;
+    const nextDepartment = (selectedEntry?.department ?? '').trim();
+    if (!nextName && !nextDepartment) return;
     setPatientTabsState((prev) => {
       const existing = prev.tabs.find((tab) => tab.key === key);
       if (!existing) return prev;
-      if ((existing.name ?? '').trim() === nextName) return prev;
-      const nextTabs = prev.tabs.map((tab) => (tab.key === key ? { ...tab, name: nextName } : tab));
+      const currentName = (existing.name ?? '').trim();
+      const currentDepartment = (existing.department ?? '').trim();
+      const resolvedName = nextName || existing.name;
+      const resolvedDepartment = nextDepartment || existing.department;
+      if (currentName === (resolvedName ?? '').trim() && currentDepartment === (resolvedDepartment ?? '').trim()) {
+        return prev;
+      }
+      const nextTabs = prev.tabs.map((tab) =>
+        tab.key === key
+          ? {
+              ...tab,
+              name: resolvedName,
+              department: resolvedDepartment,
+            }
+          : tab,
+      );
       return { ...prev, tabs: nextTabs };
     });
-  }, [fallbackPatient?.name, patientTabKeyForContext, patientTabsState.tabs, selectedEntry?.name]);
+  }, [fallbackPatient?.name, patientTabKeyForContext, selectedEntry?.department, selectedEntry?.name]);
 
   const lockTarget = useMemo(() => {
     const patientId = selectedEntry?.patientId ?? encounterContext.patientId;
@@ -4127,6 +4060,24 @@ function ChartsContent() {
         </section>
       </FocusTrapDialog>
       <FocusTrapDialog
+        open={reloadGuardOpen}
+        title="未保存の変更があります"
+        description="更新すると未保存の内容は破棄されます。"
+        onClose={handleCancelReloadGuard}
+        testId="charts-reload-guard-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="カルテ更新の未保存確認">
+          <div className="charts-tab-guard__actions" role="group" aria-label="カルテ更新操作">
+            <button type="button" onClick={handleCancelReloadGuard}>
+              キャンセル
+            </button>
+            <button type="button" className="charts-tab-guard__danger" onClick={handleConfirmReloadGuard}>
+              破棄して更新
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
+      <FocusTrapDialog
         open={Boolean(tabGuard)}
         title="未保存の入力があります"
         description="患者切替・タブ操作の前に、未保存ドラフトを破棄するかキャンセルしてください。"
@@ -4425,63 +4376,8 @@ function ChartsContent() {
             style={utilityPanelInlineStyle}
           >
             <div className="charts-workbench__sticky">
-              <div className="charts-workbench__sticky-grid">
+                <div className="charts-workbench__sticky-grid">
                 <div className="charts-encounter-header" aria-label="患者情報と診療操作">
-                  <div className="charts-patient-tabs" aria-label="開いているカルテ" data-test-id="charts-patient-tabs">
-                    <div className="charts-patient-tabs__list" role="list" aria-label="カルテタブ一覧">
-                      {patientTabs.length > 0 ? (
-                        patientTabs.map((tab) => {
-                          const tabName = tab.name?.trim() || '患者';
-                          const label = `${tabName}（${tab.patientId}）`;
-                          const isActive = tab.key === activePatientTabKey;
-                          const isDirtyTab = isActive && draftState.dirty;
-                          const dirtyReason = isDirtyTab && (draftState.dirtySources ?? []).length > 0 ? (draftState.dirtySources ?? []).join('/') : undefined;
-                          return (
-                            <div
-                              key={tab.key}
-                              className={`charts-patient-tabs__item${isActive ? ' is-active' : ''}`}
-                              role="listitem"
-                              data-patient-id={tab.patientId}
-                            >
-                              <button
-                                type="button"
-                                className="charts-patient-tabs__select"
-                                aria-current={isActive ? 'page' : undefined}
-                                onClick={() => requestSelectPatientTab(tab.key)}
-                                title={`${label} / visitDate=${tab.visitDate}${isDirtyTab ? ` / 未保存:${dirtyReason ?? 'あり'}` : ''}`}
-                                data-dirty={isDirtyTab ? 'true' : 'false'}
-                              >
-                                <span className="charts-patient-tabs__name">
-                                  {tabName}
-                                  {isDirtyTab ? (
-                                    <span
-                                      className="charts-patient-tabs__dirty-dot"
-                                      aria-label={`未保存${dirtyReason ? ` (${dirtyReason})` : ''}`}
-                                      title={`未保存${dirtyReason ? ` (${dirtyReason})` : ''}`}
-                                    >
-                                      ●
-                                    </span>
-                                  ) : null}
-                                </span>
-                                <span className="charts-patient-tabs__id">{tab.patientId}</span>
-                              </button>
-                              <button
-                                type="button"
-                                className="charts-patient-tabs__close"
-                                onClick={() => requestClosePatientTab(tab.key)}
-                                aria-label={`${label} を閉じる`}
-                                title="閉じる"
-                              >
-                                ×
-                              </button>
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <span className="charts-patient-tabs__empty">タブなし</span>
-                      )}
-                    </div>
-                  </div>
                   <div
                     className="charts-card charts-card--summary charts-card--summary-with-actions"
                     id="charts-patient-summary"
@@ -4509,6 +4405,7 @@ function ChartsContent() {
                         if (!activePatientTabKey) return;
                         requestClosePatientTab(activePatientTabKey);
                       }}
+                      onReloadChart={requestReload}
                       encounterActionDisabled={!activePatientTabKey || lockState.locked || tabLock.isReadOnly || approvalLocked}
                       inlineActionBar={
                         <ChartsActionBar

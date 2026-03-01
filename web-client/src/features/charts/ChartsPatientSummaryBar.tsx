@@ -26,6 +26,7 @@ type ChartsPatientSummaryBarProps = {
   onFinishEncounter?: () => void;
   onPauseEncounter?: () => void;
   onCloseChart?: () => void;
+  onReloadChart?: () => void;
   encounterActionDisabled?: boolean;
   inlineActionBar?: ReactNode;
 };
@@ -69,6 +70,7 @@ export function ChartsPatientSummaryBar({
   dataSourceTransition,
   onStartEncounter,
   onCloseChart,
+  onReloadChart,
   encounterActionDisabled = false,
   inlineActionBar,
 }: ChartsPatientSummaryBarProps) {
@@ -103,6 +105,14 @@ export function ChartsPatientSummaryBar({
               disabled={encounterActionDisabled || !onStartEncounter}
             >
               診察開始
+            </button>
+            <button
+              type="button"
+              className="charts-patient-summary__primary-action charts-patient-summary__primary-action--reload"
+              onClick={onReloadChart}
+              disabled={encounterActionDisabled || !onReloadChart}
+            >
+              更新
             </button>
             <button
               type="button"
