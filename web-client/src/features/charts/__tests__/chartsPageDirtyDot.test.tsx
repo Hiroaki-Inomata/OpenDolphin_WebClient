@@ -270,7 +270,7 @@ vi.mock('../SoapNotePanel', () => ({
 }));
 
 describe('ChartsPage patient tab dirty indicator', () => {
-  it('ドラフトが dirty のとき患者タブに未保存ドットを表示する', async () => {
+  it('WorkspaceTabBar 統合後は Charts 内の患者タブUIを描画しない', async () => {
     const patientTabKey = 'P-001::2026-02-16';
     const storageKey = 'opendolphin:web-client:charts:patient-tabs:v1:facility:doctor';
     sessionStorage.setItem(
@@ -311,12 +311,9 @@ describe('ChartsPage patient tab dirty indicator', () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() =>
-      expect(document.querySelector('[data-test-id="charts-patient-tabs"]')).not.toBeNull(),
-    );
-    await waitFor(() =>
-      expect(document.querySelector('.charts-patient-tabs__dirty-dot')).not.toBeNull(),
-    );
+    await screen.findByRole('button', { name: '診察終了（上部モック）' });
+    expect(document.querySelector('[data-test-id="charts-patient-tabs"]')).toBeNull();
+    expect(document.querySelector('.charts-patient-tabs__dirty-dot')).toBeNull();
   });
 
   it('未保存状態で診察終了すると保存/破棄/キャンセルの3択ダイアログを表示する', async () => {
@@ -376,7 +373,7 @@ describe('ChartsPage patient tab dirty indicator', () => {
     });
   });
 
-  it('Shift+Enter でドラフト保存ショートカットを実行できる', async () => {
+  it('Shift+Enter でドラフト保存ショートカット後は終了ガードを表示しない', async () => {
     const patientTabKey = 'P-001::2026-02-16';
     const storageKey = 'opendolphin:web-client:charts:patient-tabs:v1:facility:doctor';
     sessionStorage.setItem(
@@ -418,12 +415,11 @@ describe('ChartsPage patient tab dirty indicator', () => {
     );
 
     const user = userEvent.setup();
-    await waitFor(() => expect(document.querySelector('.charts-patient-tabs__dirty-dot')).not.toBeNull());
-
     await user.keyboard('{Shift>}{Enter}{/Shift}');
+    await user.click(await screen.findByRole('button', { name: '診察終了（上部モック）' }));
 
     await waitFor(() => {
-      expect(document.querySelector('.charts-patient-tabs__dirty-dot')).toBeNull();
+      expect(screen.queryByRole('alertdialog', { name: '診察終了の確認' })).toBeNull();
     });
   });
 });
