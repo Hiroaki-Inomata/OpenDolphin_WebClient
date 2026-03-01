@@ -4,7 +4,9 @@ import {
   useEffect,
   useMemo,
   useRef,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
 } from 'react';
@@ -32,12 +34,25 @@ import {
   resolveLatestBundle,
   sortBundlesByLatestRule,
 } from './orderDetailDisplayViewModel';
+import {
+  RIGHT_UTILITY_TOOLS,
+  resolveRightUtilityToolLabel,
+  type RightUtilityTool,
+} from './rightUtilityTools';
 
-export type RightUtilityTool = OrderGroupKey | 'document';
+export type { RightUtilityTool } from './rightUtilityTools';
 
 type RightUtilityDrawerProps = {
   open: boolean;
   activeTool: RightUtilityTool;
+  mode?: 'dock' | 'overlay';
+  minimized?: boolean;
+  width?: number;
+  onModeChange?: (mode: 'dock' | 'overlay') => void;
+  onMinimizedChange?: (minimized: boolean) => void;
+  onPeekChange?: (peek: boolean) => void;
+  onWidthChange?: (width: number) => void;
+  onToolSelect?: (tool: RightUtilityTool) => void;
   patientId?: string;
   meta: OrderBundleEditPanelMeta;
   orderBundles?: OrderBundle[];
@@ -101,6 +116,16 @@ const focusDrawerSubtypeTab = (container: HTMLDivElement, entity: OrderEntity) =
 };
 
 const MAX_PREVIEW_ITEMS = 3;
+const MIN_DRAWER_WIDTH = 560;
+const MAX_DRAWER_RIGHT_GUTTER = 80;
+const SPLIT_LAYOUT_MIN_WIDTH = 860;
+
+const clampDrawerWidth = (width: number) => {
+  if (!Number.isFinite(width)) return MIN_DRAWER_WIDTH;
+  if (typeof window === 'undefined') return Math.max(MIN_DRAWER_WIDTH, Math.round(width));
+  const max = Math.max(MIN_DRAWER_WIDTH, window.innerWidth - MAX_DRAWER_RIGHT_GUTTER);
+  return Math.max(MIN_DRAWER_WIDTH, Math.min(Math.round(width), max));
+};
 
 const cloneDocumentPanelNode = (
   node: ReactNode,
@@ -120,6 +145,14 @@ export { resolveLatestBundle, sortBundlesByLatestRule };
 export function RightUtilityDrawer({
   open,
   activeTool,
+  mode = 'dock',
+  minimized = false,
+  width = 860,
+  onModeChange,
+  onMinimizedChange,
+  onPeekChange,
+  onWidthChange,
+  onToolSelect,
   patientId,
   meta,
   orderBundles,
@@ -141,6 +174,8 @@ export function RightUtilityDrawer({
   onDocumentHistoryCopyConsumed,
 }: RightUtilityDrawerProps) {
   const drawerRef = useRef<HTMLElement | null>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
+  const peekCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -162,6 +197,15 @@ export function RightUtilityDrawer({
     }
     drawer.setAttribute('inert', '');
   }, [open]);
+
+  useEffect(() => {
+    return () => {
+      resizeCleanupRef.current?.();
+      resizeCleanupRef.current = null;
+      peekCleanupRef.current?.();
+      peekCleanupRef.current = null;
+    };
+  }, []);
 
   const groupSpec = useMemo(() => resolveGroupByTool(activeTool), [activeTool]);
   const isOrderPanel = isOrderTool(activeTool) && Boolean(groupSpec);
@@ -236,6 +280,82 @@ export function RightUtilityDrawer({
     activeOrderRequest && (activeOrderRequest.kind === 'edit' || activeOrderRequest.kind === 'copy')
       ? activeOrderRequest.bundle
       : null;
+  const resolvedDrawerWidth = clampDrawerWidth(width);
+  const orderLayout = !minimized && resolvedDrawerWidth >= SPLIT_LAYOUT_MIN_WIDTH ? 'split' : 'stack';
+  const drawerInlineStyle = useMemo(
+    () =>
+      ({
+        '--soap-right-drawer-width': `${resolvedDrawerWidth}px`,
+      }) as CSSProperties,
+    [resolvedDrawerWidth],
+  );
+
+  const handleResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || typeof window === 'undefined') return;
+    event.preventDefault();
+
+    resizeCleanupRef.current?.();
+
+    const pointerId = event.pointerId;
+    const updateWidth = (clientX: number) => {
+      onWidthChange?.(clampDrawerWidth(window.innerWidth - clientX));
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+      if (resizeCleanupRef.current === cleanup) {
+        resizeCleanupRef.current = null;
+      }
+    };
+
+    const handlePointerMove = (pointerEvent: PointerEvent) => {
+      if (pointerEvent.pointerId !== pointerId) return;
+      updateWidth(pointerEvent.clientX);
+    };
+
+    const handlePointerEnd = (pointerEvent: PointerEvent) => {
+      if (pointerEvent.pointerId !== pointerId) return;
+      cleanup();
+    };
+
+    resizeCleanupRef.current = cleanup;
+    updateWidth(event.clientX);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+  };
+
+  const handlePeekPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || !onPeekChange || typeof window === 'undefined') return;
+    event.preventDefault();
+
+    peekCleanupRef.current?.();
+    onPeekChange(true);
+
+    const cleanup = () => {
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+      window.removeEventListener('blur', handleWindowBlur);
+      if (peekCleanupRef.current === cleanup) {
+        peekCleanupRef.current = null;
+      }
+      onPeekChange(false);
+    };
+
+    const handlePointerEnd = (pointerEvent: PointerEvent) => {
+      if (pointerEvent.pointerId !== event.pointerId) return;
+      cleanup();
+    };
+
+    const handleWindowBlur = () => cleanup();
+
+    peekCleanupRef.current = cleanup;
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+    window.addEventListener('blur', handleWindowBlur);
+  };
 
   const drawerNode = (
     <aside
@@ -243,18 +363,110 @@ export function RightUtilityDrawer({
       className="soap-note__right-drawer"
       data-open={open ? 'true' : 'false'}
       data-tool={activeTool}
+      data-mode={mode}
+      data-minimized={minimized ? 'true' : 'false'}
+      data-order-layout={orderLayout}
       hidden={!open}
       aria-hidden={!open}
       aria-label="右ユーティリティドロワー"
+      style={drawerInlineStyle}
     >
-      <header className="soap-note__right-drawer-header">
-        <strong>{activeTool === 'document' ? '文書' : groupSpec?.label ?? 'オーダー'}</strong>
-        <button type="button" className="order-dock__bundle-action" onClick={onClose} aria-label="右ドロワーを閉じる">
-          閉じる
-        </button>
-      </header>
+      <button
+        type="button"
+        className="soap-note__right-drawer-restore-handle"
+        onClick={() => onMinimizedChange?.(false)}
+        aria-label="右ドロワーを復帰"
+      >
+        復帰
+      </button>
+      <button
+        type="button"
+        className="soap-note__right-drawer-resize-handle"
+        onPointerDown={handleResizePointerDown}
+        aria-label="右ドロワー幅を調整"
+      >
+        幅調整
+      </button>
 
-      <div className="soap-note__right-drawer-content">
+      {!minimized ? (
+        <>
+          <header className="soap-note__right-drawer-header">
+            <strong>{activeTool === 'document' ? '文書' : groupSpec?.label ?? 'オーダー'}</strong>
+            <div className="soap-note__right-drawer-header-controls">
+              <div className="soap-note__right-drawer-mode-switch" role="group" aria-label="右ドロワー表示モード">
+                <button
+                  type="button"
+                  className="soap-note__right-drawer-header-control order-dock__bundle-action"
+                  data-active={mode === 'dock' ? 'true' : 'false'}
+                  aria-pressed={mode === 'dock'}
+                  onClick={() => onModeChange?.('dock')}
+                >
+                  並べる
+                </button>
+                <button
+                  type="button"
+                  className="soap-note__right-drawer-header-control order-dock__bundle-action"
+                  data-active={mode === 'overlay' ? 'true' : 'false'}
+                  aria-pressed={mode === 'overlay'}
+                  onClick={() => onModeChange?.('overlay')}
+                >
+                  重ねる
+                </button>
+              </div>
+              <button
+                type="button"
+                className="soap-note__right-drawer-header-control order-dock__bundle-action"
+                onClick={() => onMinimizedChange?.(!minimized)}
+                aria-label={minimized ? '右ドロワーを展開' : '右ドロワーを最小化'}
+              >
+                {minimized ? '展開' : '最小化'}
+              </button>
+              <button
+                type="button"
+                className="soap-note__right-drawer-peek-button order-dock__bundle-action"
+                onPointerDown={handlePeekPointerDown}
+                aria-label="押している間だけプレビュー"
+              >
+                Peek
+              </button>
+              <button
+                type="button"
+                className="soap-note__right-drawer-header-control order-dock__bundle-action"
+                onClick={onClose}
+                aria-label="右ドロワーを閉じる"
+              >
+                閉じる
+              </button>
+            </div>
+          </header>
+
+          <div
+            className="soap-note__right-drawer-tool-tabs soap-note__right-drawer-category-tabs"
+            role="tablist"
+            aria-label="右ユーティリティカテゴリ"
+          >
+            {RIGHT_UTILITY_TOOLS.map((item) => {
+              const isActive = item.tool === activeTool;
+              return (
+                <button
+                  key={`drawer-tool-${item.tool}`}
+                  type="button"
+                  className="soap-note__right-drawer-category-tab order-dock__subtype-tab"
+                  role="tab"
+                  data-drawer-category={item.tool}
+                  data-active={isActive ? 'true' : 'false'}
+                  aria-selected={isActive}
+                  tabIndex={isActive ? 0 : -1}
+                  aria-label={`${resolveRightUtilityToolLabel(item.tool)}タブへ切替`}
+                  onClick={() => onToolSelect?.(item.tool)}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="soap-note__right-drawer-content">
         {isDocumentPanelActive ? (
           <section
             key="drawer-document-panel"
@@ -451,10 +663,13 @@ export function RightUtilityDrawer({
             </div>
           </section>
         ) : null}
-      </div>
+          </div>
+        </>
+      ) : null}
     </aside>
   );
 
   if (typeof document === 'undefined') return drawerNode;
-  return createPortal(drawerNode, document.body);
+  const portalHost = document.getElementById('charts-portal-root') ?? document.body;
+  return createPortal(drawerNode, portalHost);
 }
