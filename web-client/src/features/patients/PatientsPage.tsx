@@ -1882,239 +1882,302 @@ export function PatientsPage({ runId }: PatientsPageProps) {
         />
       )}
 
-      <section className="patients-search" id="patients-search" tabIndex={-1} aria-label="検索とフィルタ" aria-live={infoLive}>
-        <form className="patients-search__form" onSubmit={handleFilterSubmit}>
-          <div className="patients-search__row">
-            <label className="patients-search__field">
-              <span>キーワード</span>
-              <input
-                id="patients-filter-keyword"
-                name="patientsFilterKeyword"
-                type="search"
-                value={draftFilters.keyword}
-                onChange={(event) => onFilterChange('keyword', event.target.value)}
-                placeholder="氏名 / カナ / ID"
-                aria-label="患者検索キーワード"
-              />
-            </label>
-            <label className="patients-search__field">
-              <span>診療科</span>
-              <input
-                id="patients-filter-department"
-                name="patientsFilterDepartment"
-                value={draftFilters.department}
-                onChange={(event) => onFilterChange('department', event.target.value)}
-                placeholder="例: 内科"
-              />
-            </label>
-            <label className="patients-search__field">
-              <span>担当医</span>
-              <input
-                id="patients-filter-physician"
-                name="patientsFilterPhysician"
-                value={draftFilters.physician}
-                onChange={(event) => onFilterChange('physician', event.target.value)}
-                placeholder="例: 藤井"
-              />
-            </label>
-            <label className="patients-search__field">
-              <span>保険/自費</span>
-              <select
-                id="patients-filter-payment-mode"
-                name="patientsFilterPaymentMode"
-                value={draftFilters.paymentMode}
-                onChange={(event) => onFilterChange('paymentMode', event.target.value)}
-              >
-                <option value="all">すべて</option>
-                <option value="insurance">保険</option>
-                <option value="self">自費</option>
-              </select>
-            </label>
-          </div>
-          <div className="patients-search__actions">
-            <button type="submit" className="patients-search__button primary">
-              検索を更新
-            </button>
-            <button type="button" className="patients-search__button ghost" onClick={() => patientsQuery.refetch()}>
-              再取得
-            </button>
-            <button type="button" className="patients-search__button ghost" onClick={handleClearFilters}>
-              クリア
-            </button>
-          </div>
-        </form>
-        {hasPendingFilterChanges ? (
-          <div className="patients-search__pending" role="status" aria-live="polite">
-            未適用の検索条件があります。「検索を更新」で反映してください。
-          </div>
-        ) : null}
-        <section className="patients-search__import" aria-label="ORCA患者取り込み">
-          <label className="patients-search__field">
-            <span>ORCA患者番号で取り込み</span>
-            <input
-              id="patients-orca-import-patient-id"
-              name="patientsOrcaImportPatientId"
-              value={orcaImportPatientId}
-              onChange={(event) => setOrcaImportPatientId(event.target.value)}
-              placeholder="数字のみ（例: 00001234）"
-              inputMode="numeric"
-            />
-          </label>
-          <button
-            type="button"
-            className="patients-search__button primary"
-            onClick={handleImportByPatientId}
-            disabled={importMutation.isPending || !importPatientIdDraft}
-          >
-            {importMutation.isPending ? '取り込み中…' : 'ORCAから取り込み'}
-          </button>
-        </section>
-        <div className="patients-search__saved" aria-label="保存ビュー">
-          <div className="patients-search__saved-meta" role="status" aria-live={infoLive}>
-            <span className="patients-search__saved-share">受付 ↔ 患者管理 で共有</span>
-            <span className="patients-search__saved-updated">
-              {selectedSavedView ? `選択中の更新: ${savedViewUpdatedAtLabel ?? '—'}` : '選択中のビューはありません'}
-            </span>
-          </div>
-          <div className="patients-search__saved-row">
-            <label className="patients-search__field">
-              <span>保存ビュー</span>
-              <select
-                id="patients-saved-view"
-                name="patientsSavedView"
-                value={selectedViewId}
-                onChange={(event) => setSelectedViewId(event.target.value)}
-              >
-                <option value="">選択してください</option>
-                {savedViews.map((view) => (
-                  <option key={view.id} value={view.id}>
-                    {view.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="patients-search__button ghost"
-              onClick={() => {
-                const view = savedViews.find((item) => item.id === selectedViewId);
-                if (view) applySavedView(view);
-              }}
-              disabled={!selectedViewId}
-            >
-              適用
-            </button>
-            <button
-              type="button"
-              className="patients-search__button ghost"
-              onClick={handleDeleteView}
-              disabled={!selectedViewId}
-            >
-              削除
-            </button>
-          </div>
-          <div className="patients-search__saved-row">
-            <label className="patients-search__field">
-              <span>ビュー名</span>
-              <input
-                id="patients-saved-view-name"
-                name="patientsSavedViewName"
-                value={savedViewName}
-                onChange={(event) => setSavedViewName(event.target.value)}
-                placeholder="例: 内科/午前/保険"
-              />
-            </label>
-            <button type="button" className="patients-search__button primary" onClick={handleSaveView}>
-              現在の条件を保存
-            </button>
-          </div>
-        </div>
-        {patientsErrorContext && (
-          <ApiFailureBanner
-            subject="患者情報"
-            destination="患者管理"
-            runId={patientsQuery.data?.runId ?? flags.runId}
-            nextAction="再取得"
-            retryLabel="再取得"
-            onRetry={() => patientsQuery.refetch()}
-            isRetrying={patientsQuery.isFetching}
-            {...patientsErrorContext}
-          />
-        )}
-        <div className="patients-search__summary" role="status" aria-live={infoLive}>
-          <div className="patients-search__summary-main">
-            <span className="patients-search__summary-label">検索結果</span>
-            <strong>{resolvedRecordsReturned ?? patients.length}件</strong>
-            {patientsQuery.isFetching && <span className="patients-search__summary-state">更新中…</span>}
-          </div>
-          <div className="patients-search__summary-meta">
-            <span>更新完了: {patientsUpdatedAtLabel}</span>
-            <span>自動更新: {autoRefreshIntervalLabel}</span>
-            <span>適用条件: {appliedFilters.keyword || 'キーワードなし'}</span>
-            <span>検索状態: {hasPendingFilterChanges ? '未適用あり' : '最新条件で表示中'}</span>
-          </div>
-          {selectionNotice && (
-            <div
-              className={`patients-search__summary-note patients-search__summary-note--${selectionNotice.tone}`}
-              role="status"
-              aria-live={selectionNotice.tone === 'warning' ? 'assertive' : 'polite'}
-            >
-              {selectionNotice.message}
-            </div>
-          )}
-        </div>
-      </section>
+      <section className="patients-page__content patients-page__split">
+        <aside className="patients-page__sidebar" aria-label="患者検索と一覧">
 
-      <section className="patients-page__content">
-        <div className="patients-page__list" role="list" aria-label="患者一覧">
-          {(unlinkedCounts.missingPatientId > 0 || unlinkedCounts.missingName > 0) && (
+          {/* 左上：検索（コンパクト + 詳細は折りたたみ） */}
+          <section className="patients-search" id="patients-search" tabIndex={-1} aria-label="検索とフィルタ" aria-live={infoLive}>
+            <form className="patients-search__form" onSubmit={handleFilterSubmit}>
+
+              {/* 基本：キーワード + 更新/クリア（同一ブロック） */}
+              <div className="patients-search__primary">
+                <label className="patients-search__field patients-search__field--keyword">
+                  <span>キーワード</span>
+                  <input
+                    id="patients-filter-keyword"
+                    name="patientsFilterKeyword"
+                    type="search"
+                    value={draftFilters.keyword}
+                    onChange={(event) => onFilterChange('keyword', event.target.value)}
+                    placeholder="氏名 / カナ / ID"
+                    aria-label="患者検索キーワード"
+                  />
+                </label>
+
+                <div className="patients-search__primary-actions">
+                  <button type="submit" className="patients-search__button primary">
+                    検索を更新
+                  </button>
+                  <button type="button" className="patients-search__button ghost" onClick={handleClearFilters}>
+                    クリア
+                  </button>
+
+                  {/* 未適用の注意は“細いピル”で、ボタンの横に常時見える位置へ */}
+                  {hasPendingFilterChanges ? (
+                    <span className="patients-search__pending-pill" role="status" aria-live="polite">
+                      未適用あり
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* 詳細条件：折りたたみ（draftに値がある時は最初から開く） */}
+              <details
+                className="patients-search__advanced"
+                open={Boolean(draftFilters.department || draftFilters.physician || draftFilters.paymentMode !== 'all')}
+              >
+                <summary>詳細条件</summary>
+                <div className="patients-search__row">
+                  <label className="patients-search__field">
+                    <span>診療科</span>
+                    <input
+                      id="patients-filter-department"
+                      name="patientsFilterDepartment"
+                      value={draftFilters.department}
+                      onChange={(event) => onFilterChange('department', event.target.value)}
+                      placeholder="例: 内科"
+                    />
+                  </label>
+
+                  <label className="patients-search__field">
+                    <span>担当医</span>
+                    <input
+                      id="patients-filter-physician"
+                      name="patientsFilterPhysician"
+                      value={draftFilters.physician}
+                      onChange={(event) => onFilterChange('physician', event.target.value)}
+                      placeholder="例: 藤井"
+                    />
+                  </label>
+
+                  <label className="patients-search__field">
+                    <span>保険/自費</span>
+                    <select
+                      id="patients-filter-payment-mode"
+                      name="patientsFilterPaymentMode"
+                      value={draftFilters.paymentMode}
+                      onChange={(event) => onFilterChange('paymentMode', event.target.value)}
+                    >
+                      <option value="all">すべて</option>
+                      <option value="insurance">保険</option>
+                      <option value="self">自費</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="patients-search__actions">
+                  <button type="button" className="patients-search__button ghost" onClick={() => patientsQuery.refetch()}>
+                    再取得
+                  </button>
+                </div>
+              </details>
+
+              {/* ORCA取り込み：折りたたみ */}
+              <details className="patients-search__advanced">
+                <summary>ORCA患者番号で取り込み</summary>
+                <section className="patients-search__import" aria-label="ORCA患者取り込み">
+                  <label className="patients-search__field">
+                    <span>ORCA患者番号で取り込み</span>
+                    <input
+                      id="patients-orca-import-patient-id"
+                      name="patientsOrcaImportPatientId"
+                      value={orcaImportPatientId}
+                      onChange={(event) => setOrcaImportPatientId(event.target.value)}
+                      placeholder="数字のみ（例: 00001234）"
+                      inputMode="numeric"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="patients-search__button primary"
+                    onClick={handleImportByPatientId}
+                    disabled={importMutation.isPending || !importPatientIdDraft}
+                  >
+                    {importMutation.isPending ? '取り込み中…' : 'ORCAから取り込み'}
+                  </button>
+                </section>
+              </details>
+
+              {/* 保存ビュー：適用は見せる／管理（削除・保存）は折りたたみ */}
+              <div className="patients-search__saved" aria-label="保存ビュー">
+                <div className="patients-search__saved-meta" role="status" aria-live={infoLive}>
+                  <span className="patients-search__saved-share">受付 ↔ 患者管理 で共有</span>
+                  <span className="patients-search__saved-updated">
+                    {selectedSavedView ? `選択中の更新: ${savedViewUpdatedAtLabel ?? '—'}` : '選択中のビューはありません'}
+                  </span>
+                </div>
+
+                {/* 適用（常時表示） */}
+                <div className="patients-search__saved-row">
+                  <label className="patients-search__field">
+                    <span>保存ビュー</span>
+                    <select
+                      id="patients-saved-view"
+                      name="patientsSavedView"
+                      value={selectedViewId}
+                      onChange={(event) => setSelectedViewId(event.target.value)}
+                    >
+                      <option value="">選択してください</option>
+                      {savedViews.map((view) => (
+                        <option key={view.id} value={view.id}>
+                          {view.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <button
+                    type="button"
+                    className="patients-search__button ghost"
+                    onClick={() => {
+                      const view = savedViews.find((item) => item.id === selectedViewId);
+                      if (view) applySavedView(view);
+                    }}
+                    disabled={!selectedViewId}
+                  >
+                    適用
+                  </button>
+                </div>
+
+                {/* 管理（折りたたみ） */}
+                <details className="patients-search__advanced">
+                  <summary>保存ビューを管理</summary>
+
+                  <div className="patients-search__saved-row">
+                    <button
+                      type="button"
+                      className="patients-search__button ghost"
+                      onClick={handleDeleteView}
+                      disabled={!selectedViewId}
+                    >
+                      削除
+                    </button>
+                  </div>
+
+                  <div className="patients-search__saved-row">
+                    <label className="patients-search__field">
+                      <span>ビュー名</span>
+                      <input
+                        id="patients-saved-view-name"
+                        name="patientsSavedViewName"
+                        value={savedViewName}
+                        onChange={(event) => setSavedViewName(event.target.value)}
+                        placeholder="例: 内科/午前/保険"
+                      />
+                    </label>
+
+                    <button type="button" className="patients-search__button primary" onClick={handleSaveView}>
+                      現在の条件を保存
+                    </button>
+                  </div>
+                </details>
+              </div>
+            </form>
+          </section>
+
+          {/* 左：ステータスバー（件数/更新/未適用/選択注意を“常時見える”場所へ） */}
+          <div className="patients-sidebar__statusbar" role="status" aria-live={infoLive}>
+            <div className="patients-sidebar__statusbar-main">
+              <span className="patients-sidebar__statusbar-label">検索結果</span>
+              <strong className="patients-sidebar__statusbar-count">{resolvedRecordsReturned ?? patients.length}件</strong>
+              {patientsQuery.isFetching ? <span className="patients-sidebar__statusbar-fetching">更新中…</span> : null}
+            </div>
+
+            <div className="patients-sidebar__statusbar-meta">
+              <span>更新: {patientsUpdatedAtLabel}</span>
+              <span>自動更新: {autoRefreshIntervalLabel}</span>
+              <span>
+                適用: {[
+                  appliedFilters.keyword ? `KW=${appliedFilters.keyword}` : 'KWなし',
+                  appliedFilters.department ? `診療科=${appliedFilters.department}` : null,
+                  appliedFilters.physician ? `担当医=${appliedFilters.physician}` : null,
+                  appliedFilters.paymentMode !== 'all' ? `支払=${appliedFilters.paymentMode}` : null,
+                ].filter(Boolean).join(' / ')}
+              </span>
+              <span>検索状態: {hasPendingFilterChanges ? '未適用あり' : '最新'}</span>
+            </div>
+
+            {/* selectionNotice はここへ移動（一覧と同じ文脈で常時見える） */}
+            {selectionNotice ? (
+              <div
+                className={`patients-sidebar__statusbar-note patients-sidebar__statusbar-note--${selectionNotice.tone}`}
+                role="status"
+                aria-live={selectionNotice.tone === 'warning' ? 'assertive' : 'polite'}
+              >
+                {selectionNotice.message}
+              </div>
+            ) : null}
+          </div>
+
+          {/* APIエラーは左（検索/一覧）文脈に置く（検索セクション内から移動） */}
+          {patientsErrorContext ? (
+            <ApiFailureBanner
+              subject="患者情報"
+              destination="患者管理"
+              runId={patientsQuery.data?.runId ?? flags.runId}
+              nextAction="再取得"
+              retryLabel="再取得"
+              onRetry={() => patientsQuery.refetch()}
+              isRetrying={patientsQuery.isFetching}
+              {...patientsErrorContext}
+            />
+          ) : null}
+
+          {/* 欠損アラートは一覧の上（常時見える）に固定（一覧内から移動） */}
+          {(unlinkedCounts.missingPatientId > 0 || unlinkedCounts.missingName > 0) ? (
             <div className={`patients-page__list-alert${isUnlinkedStopNotice ? ' is-blocked' : ''}`} role="status" aria-live="polite">
               <strong>{unlinkedAlertLabel}</strong>
               <span>患者ID欠損: {unlinkedCounts.missingPatientId}</span>
               <span>氏名欠損: {unlinkedCounts.missingName}</span>
             </div>
-          )}
-          {patientsEmptyState && (
-            <div className="patients-page__empty" role="status" aria-live={infoLive}>
-              <strong className="patients-page__empty-title">{patientsEmptyState.title}</strong>
-              <span className="patients-page__empty-body">{patientsEmptyState.body}</span>
-              <div className="patients-page__empty-actions" role="group" aria-label="次アクション">
-                <button type="button" className="ghost" onClick={() => void refetchPatients()}>
-                  再取得
-                </button>
-                {canImportByPatientId ? (
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={importMutation.isPending}
-                    onClick={handleImportByPatientId}
-                    title="ORCA患者番号（Patient_ID）を指定して取り込みます（ローカルDBへ反映）"
-                  >
-                    {importMutation.isPending ? 'ORCA取り込み中…' : 'ORCAから取り込み'}
+          ) : null}
+
+          {/* 左下：患者一覧（ここだけスクロール） */}
+          <div className="patients-page__list" role="list" aria-label="患者一覧">
+
+            {/* emptyState は一覧内のまま */}
+            {patientsEmptyState ? (
+              <div className="patients-page__empty" role="status" aria-live={infoLive}>
+                <strong className="patients-page__empty-title">{patientsEmptyState.title}</strong>
+                <span className="patients-page__empty-body">{patientsEmptyState.body}</span>
+                <div className="patients-page__empty-actions" role="group" aria-label="次アクション">
+                  <button type="button" className="ghost" onClick={() => void refetchPatients()}>
+                    再取得
                   </button>
-                ) : null}
-                {patientsEmptyState.showReception ? (
-                  <button type="button" className="ghost" onClick={handleOpenReception}>
-                    受付へ
-                  </button>
-                ) : null}
+                  {canImportByPatientId ? (
+                    <button
+                      type="button"
+                      className="ghost"
+                      disabled={importMutation.isPending}
+                      onClick={handleImportByPatientId}
+                      title="ORCA患者番号（Patient_ID）を指定して取り込みます（ローカルDBへ反映）"
+                    >
+                      {importMutation.isPending ? 'ORCA取り込み中…' : 'ORCAから取り込み'}
+                    </button>
+                  ) : null}
+                  {patientsEmptyState.showReception ? (
+                    <button type="button" className="ghost" onClick={handleOpenReception}>
+                      受付へ
+                    </button>
+                  ) : null}
+                </div>
+                <span className="patients-page__empty-hint">{patientsEmptyState.hint}</span>
+                <span className="patients-page__empty-hint">ヒント: ID/氏名/カナ・診療科・担当医で絞れます。</span>
               </div>
-              <span className="patients-page__empty-hint">{patientsEmptyState.hint}</span>
-              <span className="patients-page__empty-hint">ヒント: ID/氏名/カナ・診療科・担当医で絞れます。</span>
-            </div>
-          )}
-          {patients.map((patient, index) => {
-            const selected = selectedId === resolvePatientKey(patient);
-            const unlinkedState = resolveUnlinkedState(patient);
-            return (
-              <button
-                key={`${resolvePatientKey(patient)}-${index}`}
-                type="button"
-                className={`patients-page__row${selected ? ' is-selected' : ''}${unlinkedState.isUnlinked ? ' is-unlinked' : ''}`}
-                onClick={() => handleSelect(patient)}
-                aria-pressed={selected}
-              >
-                <div className="patients-page__row-main">
+            ) : null}
+
+            {/* 患者行（次の “3) 患者行をGrid化” で map内を置換） */}
+            {patients.map((patient, index) => {
+              const selected = selectedId === resolvePatientKey(patient);
+              const unlinkedState = resolveUnlinkedState(patient);
+              return (
+                <button
+                  key={`${resolvePatientKey(patient)}-${index}`}
+                  type="button"
+                  className={`patients-page__row${selected ? ' is-selected' : ''}${unlinkedState.isUnlinked ? ' is-unlinked' : ''}`}
+                  onClick={() => handleSelect(patient)}
+                  aria-pressed={selected}
+                >
                   <StatusPill
                     className="patients-page__row-id"
                     size="xs"
@@ -2124,44 +2187,88 @@ export function PatientsPage({ runId }: PatientsPageProps) {
                   >
                     {patient.patientId ?? '—'}
                   </StatusPill>
-                  <strong>{patient.name ?? '氏名未登録'}</strong>
-                  <span className="patients-page__row-kana">{patient.kana ?? 'カナ未登録'}</span>
-                  {unlinkedState.isUnlinked ? (
-                    <span
-                      className={`patients-page__row-warning${isUnlinkedStopNotice ? ' is-blocked' : ''}`}
-                      role="status"
-                      aria-live="polite"
-                    >
-                      {unlinkedBadgeLabel}
+
+                  <div className="patients-page__row-name">
+                    <strong className="patients-page__row-name-main">{patient.name ?? '氏名未登録'}</strong>
+                    <span className="patients-page__row-name-kana">{patient.kana ?? 'カナ未登録'}</span>
+                  </div>
+
+                  <div className="patients-page__row-flags" aria-label="状態">
+                    {unlinkedState.isUnlinked ? (
+                      <span className={`patients-page__row-flag patients-page__row-flag--unlinked${isUnlinkedStopNotice ? ' is-blocked' : ''}`}>
+                        {unlinkedBadgeLabel}
+                      </span>
+                    ) : null}
+                    {unlinkedState.missingPatientId ? (
+                      <span className={`patients-page__row-flag patients-page__row-flag--detail${isUnlinkedStopNotice ? ' is-blocked' : ''}`}>
+                        患者ID欠損
+                      </span>
+                    ) : null}
+                    {unlinkedState.missingName ? (
+                      <span className={`patients-page__row-flag patients-page__row-flag--detail${isUnlinkedStopNotice ? ' is-blocked' : ''}`}>
+                        氏名欠損
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="patients-page__row-meta">
+                    <span className="patients-page__row-meta-age">
+                      {resolveAgeLabel(patient.birthDate)} / {resolveSexLabel(patient.sex)}
                     </span>
-                  ) : null}
-                </div>
-                <div className="patients-page__row-meta">
-                  <span>
-                    {resolveAgeLabel(patient.birthDate)} / {resolveSexLabel(patient.sex)}
-                  </span>
-                  <span className="patients-page__row-insurance" title={patient.insurance ?? '保険未設定'}>
-                    {patient.insurance ? truncateText(patient.insurance, 28) : '保険未設定'}
-                  </span>
-                  <span>{patient.lastVisit ? `最終受診 ${patient.lastVisit}` : '受診履歴なし'}</span>
-                  {unlinkedState.missingPatientId ? (
-                    <span className={`patients-page__row-warning-detail${isUnlinkedStopNotice ? ' is-blocked' : ''}`}>患者ID欠損</span>
-                  ) : null}
-                  {unlinkedState.missingName ? (
-                    <span className={`patients-page__row-warning-detail${isUnlinkedStopNotice ? ' is-blocked' : ''}`}>氏名欠損</span>
-                  ) : null}
-                </div>
-              </button>
-            );
-          })}
-        </div>
+                    <span className="patients-page__row-meta-insurance" title={patient.insurance ?? '保険未設定'}>
+                      {patient.insurance ? truncateText(patient.insurance, 28) : '保険未設定'}
+                    </span>
+                    <span className="patients-page__row-meta-last">
+                      {patient.lastVisit ? `最終受診 ${patient.lastVisit}` : '受診履歴なし'}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
 
         <div className="patients-page__form" aria-live={resolveAriaLive(blocking ? 'warning' : 'info')}>
-          {!selectedId ? (
-            <div className="patients-page__selection-placeholder" role="status" aria-live="polite">
-              患者を選択してください。
+          <div className="patients-detail__context" role="status" aria-live={infoLive}>
+            <div className="patients-detail__context-head">
+              <p className="patients-detail__context-kicker">選択中の患者</p>
+              <h2 className="patients-detail__context-title">
+                {form.patientId ? `ORCA患者番号（Patient_ID） ${form.patientId}` : '患者未選択'}
+              </h2>
             </div>
-          ) : null}
+
+            {form.patientId ? (
+              <div className="patients-detail__context-meta">
+                <div className="patients-detail__context-name">
+                  <strong className="patients-detail__context-name-main">{form.name ?? '氏名未登録'}</strong>
+                  <span className="patients-detail__context-name-kana">{form.kana ?? 'カナ未登録'}</span>
+                </div>
+
+                <div className="patients-detail__context-facts">
+                  <span>
+                    {resolveAgeLabel(form.birthDate)} / {resolveSexLabel(form.sex)}
+                  </span>
+                  <span>{form.lastVisit ? `最終受診 ${form.lastVisit}` : '受診履歴なし'}</span>
+                  <span title={form.insurance ?? '保険未設定'}>
+                    {form.insurance ? truncateText(form.insurance, 36) : '保険未設定'}
+                  </span>
+                </div>
+
+                <div className="patients-detail__context-badges" role="status" aria-live="polite">
+                  {selectedUnlinkedBadge ? (
+                    <span className="patients-detail__badge is-unlinked">{selectedUnlinkedBadge}</span>
+                  ) : null}
+                  {blocking ? (
+                    <span className="patients-detail__badge is-blocked">編集ブロック中</span>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <div className="patients-page__selection-placeholder" role="status" aria-live="polite">
+                患者を選択してください。
+              </div>
+            )}
+          </div>
           <div className="patients-page__detail-tabs" role="tablist" aria-label="患者詳細タブ">
             {PATIENTS_DETAIL_TABS.map((tab) => (
               <button
@@ -2196,19 +2303,7 @@ export function PatientsPage({ runId }: PatientsPageProps) {
             <div>
               <p className="patients-page__pill">患者情報（編集）</p>
               <div className="patients-page__form-title">
-                <h2>
-                  {form.patientId ? `ORCA患者番号（Patient_ID） ${form.patientId}` : '患者未選択'}
-                </h2>
-                {selectedUnlinkedBadge ? (
-                  <span className="patients-page__status-pill is-unlinked" role="status">
-                    {selectedUnlinkedBadge}
-                  </span>
-                ) : null}
-                {blocking ? (
-                  <span className="patients-page__status-pill is-blocked" role="status">
-                    編集ブロック中
-                  </span>
-                ) : null}
+                <h3 className="patients-page__section-title">患者情報（編集）</h3>
               </div>
               <p className="patients-page__sub">
                 {form.patientId
