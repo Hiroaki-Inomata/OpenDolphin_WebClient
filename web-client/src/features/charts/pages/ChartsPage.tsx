@@ -5125,6 +5125,7 @@ function ChartsContent() {
           </section>
         </>
       )}
+      <div id="charts-portal-root" />
     </main>
     </>
   );

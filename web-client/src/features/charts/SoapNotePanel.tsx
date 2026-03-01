@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
 import type { DataSourceTransition } from './authService';
 import { recordChartsAuditEvent } from './audit';
@@ -169,6 +169,69 @@ const isBundleMatchedToEntity = (bundle: OrderBundle, targetEntity: OrderEntity,
     return entity === 'testOrder' || entity === 'laboTest';
   }
   return entity === targetEntity;
+};
+
+type RightDrawerMode = 'dock' | 'overlay';
+
+const RIGHT_DRAWER_MODE_STORAGE_KEY = 'opendolphin:web-client:soap-right-drawer:mode';
+const RIGHT_DRAWER_WIDTH_STORAGE_KEY = 'opendolphin:web-client:soap-right-drawer:width';
+const RIGHT_DRAWER_HANDLE_WIDTH = 56;
+const RIGHT_DRAWER_MIN_WIDTH = 560;
+const RIGHT_DRAWER_MAX_WIDTH = 960;
+const RIGHT_DRAWER_DEFAULT_MIN = 760;
+const RIGHT_DRAWER_DEFAULT_MAX = 920;
+const RIGHT_DRAWER_OVERLAY_BREAKPOINT = 1023;
+const RIGHT_DRAWER_REQUIRED_MAIN_WIDTH = 980;
+
+const clampNumber = (min: number, value: number, max: number) => Math.min(max, Math.max(min, value));
+
+const resolveViewportWidth = () => {
+  if (typeof window === 'undefined') return 1440;
+  return window.innerWidth;
+};
+
+const resolveRightDrawerWidthBounds = (viewportWidth: number) => {
+  const maxByViewport = Math.min(RIGHT_DRAWER_MAX_WIDTH, viewportWidth - 80);
+  const max = Math.max(RIGHT_DRAWER_MIN_WIDTH, maxByViewport);
+  return {
+    min: RIGHT_DRAWER_MIN_WIDTH,
+    max,
+  };
+};
+
+const clampRightDrawerWidth = (value: number, viewportWidth: number) => {
+  const { min, max } = resolveRightDrawerWidthBounds(viewportWidth);
+  const safeValue = Number.isFinite(value) ? value : min;
+  return Math.round(clampNumber(min, safeValue, max));
+};
+
+const resolveDefaultRightDrawerWidth = (viewportWidth: number) => {
+  const preferred = clampNumber(RIGHT_DRAWER_DEFAULT_MIN, viewportWidth * 0.52, RIGHT_DRAWER_DEFAULT_MAX);
+  return clampRightDrawerWidth(preferred, viewportWidth);
+};
+
+const loadStoredRightDrawerMode = (): RightDrawerMode => {
+  if (typeof localStorage === 'undefined') return 'dock';
+  try {
+    const raw = localStorage.getItem(RIGHT_DRAWER_MODE_STORAGE_KEY);
+    if (raw === 'dock' || raw === 'overlay') return raw;
+    return 'dock';
+  } catch {
+    return 'dock';
+  }
+};
+
+const loadStoredRightDrawerWidth = (viewportWidth: number) => {
+  if (typeof localStorage === 'undefined') return resolveDefaultRightDrawerWidth(viewportWidth);
+  try {
+    const raw = localStorage.getItem(RIGHT_DRAWER_WIDTH_STORAGE_KEY);
+    if (!raw) return resolveDefaultRightDrawerWidth(viewportWidth);
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return resolveDefaultRightDrawerWidth(viewportWidth);
+    return clampRightDrawerWidth(parsed, viewportWidth);
+  } catch {
+    return resolveDefaultRightDrawerWidth(viewportWidth);
+  }
 };
 
 export function SoapNotePanel({
@@ -356,6 +419,11 @@ export function SoapNotePanel({
     return `soap-order-${ts}-${perf}-${seq}-${rand}`;
   }, []);
 
+  const [viewportW, setViewportW] = useState(() => resolveViewportWidth());
+  const [rightDrawerMode, setRightDrawerMode] = useState<RightDrawerMode>(() => loadStoredRightDrawerMode());
+  const [rightDrawerWidth, setRightDrawerWidth] = useState(() => loadStoredRightDrawerWidth(resolveViewportWidth()));
+  const [drawerMinimized, setDrawerMinimized] = useState(false);
+  const [drawerPeek, setDrawerPeek] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<RightUtilityTool>('prescription');
   const [activeOrderEntity, setActiveOrderEntity] = useState<OrderEntity | null>(null);
@@ -372,6 +440,44 @@ export function SoapNotePanel({
   const lastDocumentDockOpenRequestIdRef = useRef<string | null>(null);
   const lastDocumentHistoryCopyRequestIdRef = useRef<string | null>(null);
   const pendingExternalHistoryCopyRequestIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleResize = () => {
+      setViewportW(window.innerWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    setRightDrawerWidth((prev) => clampRightDrawerWidth(prev, viewportW));
+  }, [viewportW]);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(RIGHT_DRAWER_MODE_STORAGE_KEY, rightDrawerMode);
+    } catch {
+      // ignore storage errors
+    }
+  }, [rightDrawerMode]);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(RIGHT_DRAWER_WIDTH_STORAGE_KEY, String(Math.round(rightDrawerWidth)));
+    } catch {
+      // ignore storage errors
+    }
+  }, [rightDrawerWidth]);
+
+  const forcedOverlay = useMemo(
+    () => viewportW <= RIGHT_DRAWER_OVERLAY_BREAKPOINT || viewportW - rightDrawerWidth < RIGHT_DRAWER_REQUIRED_MAIN_WIDTH,
+    [rightDrawerWidth, viewportW],
+  );
+  const effectiveMode: RightDrawerMode = forcedOverlay ? 'overlay' : rightDrawerMode;
+  const effectiveMinimized = drawerMinimized || drawerPeek;
 
   const orderBundlesByGroup = useMemo(() => {
     const map = new Map<OrderGroupKey, OrderBundle[]>();
@@ -443,7 +549,15 @@ export function SoapNotePanel({
 
   const handleDrawerClose = useCallback(() => {
     setDrawerOpen(false);
+    setDrawerPeek(false);
   }, []);
+
+  const handleDrawerWidthChange = useCallback(
+    (nextWidth: number) => {
+      setRightDrawerWidth(clampRightDrawerWidth(nextWidth, viewportW));
+    },
+    [viewportW],
+  );
 
   const handleDrawerOrderEntitySwitch = useCallback(
     (entity: OrderEntity) => {
@@ -1288,8 +1402,60 @@ export function SoapNotePanel({
     return steps;
   }, [history]);
 
+  const rightDrawerReservedWidth =
+    drawerOpen && effectiveMode === 'dock'
+      ? (effectiveMinimized ? RIGHT_DRAWER_HANDLE_WIDTH : rightDrawerWidth) + 12
+      : 0;
+  const soapNoteStyle = useMemo(
+    () =>
+      ({
+        '--soap-right-drawer-reserved': `${rightDrawerReservedWidth}px`,
+      }) as CSSProperties,
+    [rightDrawerReservedWidth],
+  );
+  const rightUtilityDrawerProps = {
+    open: drawerOpen,
+    activeTool,
+    patientId: meta.patientId,
+    meta: orderEditorMeta,
+    orderBundles: effectiveOrderBundles,
+    orderBundlesLoading: resolvedOrderBundlesLoading,
+    orderBundlesError: resolvedOrderBundlesError,
+    prescriptionBundles,
+    prescriptionBundlesLoading,
+    prescriptionBundlesError,
+    activeOrderEntity,
+    activeOrderRequest,
+    onOrderRequestConsumed: handleDrawerOrderRequestConsumed,
+    onOrderEditingContextChange: setActiveOrderContext,
+    onOrderEntitySwitch: handleDrawerOrderEntitySwitch,
+    onOrderBundleSelect: handleDrawerOrderBundleSelect,
+    onOrderBundleCreate: handleDrawerOrderBundleCreate,
+    onClose: handleDrawerClose,
+    documentPanel,
+    documentHistoryCopyRequest: pendingDocumentHistoryCopyRequest,
+    onDocumentHistoryCopyConsumed: handleDocumentHistoryCopyConsumed,
+    mode: effectiveMode,
+    minimized: effectiveMinimized,
+    width: rightDrawerWidth,
+    onModeChange: setRightDrawerMode,
+    onMinimizedChange: setDrawerMinimized,
+    onPeekChange: setDrawerPeek,
+    onWidthChange: handleDrawerWidthChange,
+    onToolSelect: handleDockToolSelect,
+  };
+
   return (
-    <section className="soap-note" aria-label="SOAP 記載" data-run-id={meta.runId} data-view-mode={viewMode}>
+    <section
+      className="soap-note"
+      aria-label="SOAP 記載"
+      data-run-id={meta.runId}
+      data-view-mode={viewMode}
+      data-right-drawer-open={drawerOpen ? 'true' : 'false'}
+      data-right-drawer-mode={effectiveMode}
+      data-right-drawer-min={effectiveMinimized ? 'true' : 'false'}
+      style={soapNoteStyle}
+    >
       <header className="soap-note__header">
         <div>
           <h2>SOAP 記載</h2>
@@ -1630,29 +1796,7 @@ export function SoapNotePanel({
         >
           <RightUtilityDock activeTool={activeTool} onSelectTool={handleDockToolSelect} />
         </aside>
-        <RightUtilityDrawer
-          open={drawerOpen}
-          activeTool={activeTool}
-          patientId={meta.patientId}
-          meta={orderEditorMeta}
-          orderBundles={effectiveOrderBundles}
-          orderBundlesLoading={resolvedOrderBundlesLoading}
-          orderBundlesError={resolvedOrderBundlesError}
-          prescriptionBundles={prescriptionBundles}
-          prescriptionBundlesLoading={prescriptionBundlesLoading}
-          prescriptionBundlesError={prescriptionBundlesError}
-          activeOrderEntity={activeOrderEntity}
-          activeOrderRequest={activeOrderRequest}
-          onOrderRequestConsumed={handleDrawerOrderRequestConsumed}
-          onOrderEditingContextChange={setActiveOrderContext}
-          onOrderEntitySwitch={handleDrawerOrderEntitySwitch}
-          onOrderBundleSelect={handleDrawerOrderBundleSelect}
-          onOrderBundleCreate={handleDrawerOrderBundleCreate}
-          onClose={handleDrawerClose}
-          documentPanel={documentPanel}
-          documentHistoryCopyRequest={pendingDocumentHistoryCopyRequest}
-          onDocumentHistoryCopyConsumed={handleDocumentHistoryCopyConsumed}
-        />
+        <RightUtilityDrawer {...rightUtilityDrawerProps} />
       </div>
     </section>
   );
