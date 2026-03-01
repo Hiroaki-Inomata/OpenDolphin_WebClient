@@ -205,6 +205,7 @@ describe('SoapNotePanel right dock drawer', () => {
 
       const centerPanel = container.querySelector('.soap-note__center-panel-only');
       const rightDockArea = container.querySelector('.soap-note__right-dock-area');
+      expect(rightDockArea).toBeNull();
       const rootDockActive =
         (soapNoteRoot.getAttribute('data-right-drawer-open') === '1' ||
           soapNoteRoot.getAttribute('data-right-drawer-open') === 'true') &&
@@ -219,18 +220,9 @@ describe('SoapNotePanel right dock drawer', () => {
           centerPanel.getAttribute('data-suppressed') === 'true' ||
           centerPanel.getAttribute('data-right-drawer-suppressed') === '1' ||
           rootDockActive;
-        const rightDockSuppressed =
-          rightDockArea === null ||
-          rightDockArea.hasAttribute('hidden') ||
-          rightDockArea.getAttribute('aria-hidden') === 'true' ||
-          rightDockArea.getAttribute('data-suppressed') === 'true' ||
-          rightDockArea.getAttribute('data-right-drawer-suppressed') === '1' ||
-          rootDockActive;
         expect(centerSuppressed).toBe(true);
-        expect(rightDockSuppressed).toBe(true);
       } else {
         expect(centerPanel).not.toBeNull();
-        expect(rightDockArea).not.toBeNull();
       }
     } finally {
       window.localStorage.removeItem('opendolphin:web-client:soap-right-drawer:mode');
