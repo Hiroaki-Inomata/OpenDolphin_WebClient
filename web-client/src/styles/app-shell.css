@@ -260,14 +260,50 @@
   gap: 0.35rem;
 }
 
+.workspace-tabs__dynamic-controls {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
 .workspace-tabs__dynamic {
   min-width: 0;
   flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   white-space: nowrap;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+}
+
+.workspace-tabs__scroll-btn {
+  border: 1px solid var(--ui-border);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  border-radius: 8px;
+  min-height: 34px;
+  min-width: 34px;
+  padding: 0;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.workspace-tabs__scroll-btn:hover,
+.workspace-tabs__scroll-btn:focus-visible {
+  border-color: var(--ui-primary);
+  box-shadow: 0 10px 18px rgba(29, 78, 216, 0.14);
+  outline: none;
+}
+
+.workspace-tabs__scroll-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  box-shadow: none;
 }
 
 .workspace-tabs__item {
@@ -778,6 +814,10 @@
   }
 
   .workspace-tabs__dynamic-area {
+    width: 100%;
+  }
+
+  .workspace-tabs__dynamic-controls {
     width: 100%;
   }
 

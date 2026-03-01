@@ -62,6 +62,8 @@ export function WorkspaceTabBar({
   const dynamicListRef = useRef<HTMLDivElement | null>(null);
   const overflowRootRef = useRef<HTMLDivElement | null>(null);
   const [hasOverflow, setHasOverflow] = useState(false);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
   const [overflowOpen, setOverflowOpen] = useState(false);
 
   const storageScope = useMemo(() => ({ facilityId, userId }), [facilityId, userId]);
@@ -71,34 +73,17 @@ export function WorkspaceTabBar({
   );
   const [patientTabsState, setPatientTabsState] = useState<ChartsPatientTabsStorage>(loadPatientTabs);
 
+  const dynamicTabs = patientTabsState.tabs;
   const isChartsScreen = /\/charts\/?$/.test(location.pathname);
   const isChartsArea = ['charts', 'print', 'orderSets'].includes(appNav.currentScreen);
-  const activeChartTab = useMemo(() => {
-    const tabs = patientTabsState.tabs;
-    if (tabs.length === 0) return undefined;
-    if (patientTabsState.activeKey) {
-      const byActive = tabs.find((tab) => tab.key === patientTabsState.activeKey);
-      if (byActive) return byActive;
-    }
-    return tabs[0];
-  }, [patientTabsState.activeKey, patientTabsState.tabs]);
-  const hasActiveDynamic = Boolean(activeChartTab);
+  const activeDynamicKey = isChartsArea ? patientTabsState.activeKey : undefined;
   const isSystemAdmin = role === 'system_admin';
-  const chartMenuPatientName = normalizeText(activeChartTab?.name) ?? activeChartTab?.patientId ?? '患者';
-  const chartMenuLabel = `カルテ（${chartMenuPatientName}）`;
-  const dynamicTabs = useMemo(() => {
-    const activeKey = activeChartTab?.key;
-    if (!activeKey) return patientTabsState.tabs;
-    return patientTabsState.tabs.filter((tab) => tab.key !== activeKey);
-  }, [activeChartTab?.key, patientTabsState.tabs]);
 
   const activeFixedKey = useMemo(() => {
     if (appNav.currentScreen === 'reception') return 'reception';
     if (appNav.currentScreen === 'patients') return 'patients';
-    if (appNav.currentScreen === 'admin') return 'admin';
-    if (isChartsArea && hasActiveDynamic) return 'active-chart';
     return undefined;
-  }, [appNav.currentScreen, hasActiveDynamic, isChartsArea]);
+  }, [appNav.currentScreen]);
 
   const refreshPatientTabs = useCallback(() => {
     setPatientTabsState(loadPatientTabs());
@@ -108,9 +93,21 @@ export function WorkspaceTabBar({
     const list = dynamicListRef.current;
     if (!list) {
       setHasOverflow(false);
+      setCanScrollLeft(false);
+      setCanScrollRight(false);
       return;
     }
-    setHasOverflow(list.scrollWidth > list.clientWidth + 1);
+    const overflow = list.scrollWidth > list.clientWidth + 1;
+    setHasOverflow(overflow);
+    if (!overflow) {
+      setCanScrollLeft(false);
+      setCanScrollRight(false);
+      return;
+    }
+    const left = list.scrollLeft;
+    const maxLeft = Math.max(0, list.scrollWidth - list.clientWidth);
+    setCanScrollLeft(left > 1);
+    setCanScrollRight(left < maxLeft - 1);
   }, []);
 
   useEffect(() => {
@@ -140,9 +137,11 @@ export function WorkspaceTabBar({
     const handleResize = () => updateOverflow();
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(handleResize) : null;
     observer?.observe(list);
+    list.addEventListener('scroll', handleResize, { passive: true });
     window.addEventListener('resize', handleResize);
     return () => {
       observer?.disconnect();
+      list.removeEventListener('scroll', handleResize);
       window.removeEventListener('resize', handleResize);
     };
   }, [updateOverflow, dynamicTabs.length]);
@@ -236,10 +235,15 @@ export function WorkspaceTabBar({
     navigate(buildFacilityPath(facilityId, '/administration'));
   }, [facilityId, navigate]);
 
-  const handleOpenActiveChart = useCallback(() => {
-    if (!activeChartTab) return;
-    selectDynamicTab(activeChartTab);
-  }, [activeChartTab, selectDynamicTab]);
+  const scrollDynamicTabs = useCallback((direction: 'left' | 'right') => {
+    const list = dynamicListRef.current;
+    if (!list) return;
+    const offset = Math.max(200, Math.floor(list.clientWidth * 0.55));
+    list.scrollBy({
+      left: direction === 'left' ? -offset : offset,
+      behavior: 'smooth',
+    });
+  }, []);
 
   return (
     <div className="app-shell__tabbar">
@@ -272,47 +276,6 @@ export function WorkspaceTabBar({
             </svg>
             受付
           </button>
-          {activeChartTab ? (
-            <div className="workspace-tabs__item workspace-tabs__item--fixed-chart">
-              <button
-                type="button"
-                role="tab"
-                className={`workspace-tabs__tab workspace-tabs__tab--shortcut workspace-tabs__tab--chart${activeFixedKey === 'active-chart' ? ' is-active' : ''}`}
-                aria-selected={activeFixedKey === 'active-chart'}
-                tabIndex={activeFixedKey === 'active-chart' ? 0 : -1}
-                title={chartMenuLabel}
-                onClick={handleOpenActiveChart}
-              >
-                <svg
-                  className="workspace-tabs__tab-icon"
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M4 19a2 2 0 0 0 2 2h12" />
-                  <path d="M6 2h12a2 2 0 0 1 2 2v16" />
-                  <path d="M6 2a2 2 0 0 0-2 2v15" />
-                  <path d="M8 6h8" />
-                  <path d="M8 10h8" />
-                  <path d="M8 14h6" />
-                </svg>
-                {chartMenuLabel}
-              </button>
-              <button
-                type="button"
-                className="workspace-tabs__close"
-                aria-label={`${chartMenuLabel}を閉じる`}
-                onMouseDown={suppressCloseMouseDown}
-                onClick={(event) => handleCloseButtonClick(event, activeChartTab.key)}
-              >
-                ×
-              </button>
-            </div>
-          ) : null}
           <button
             type="button"
             role="tab"
@@ -338,50 +301,79 @@ export function WorkspaceTabBar({
             </svg>
             患者管理
           </button>
-          {isSystemAdmin ? (
-            <button
-              type="button"
-              role="tab"
-              className={`workspace-tabs__tab${activeFixedKey === 'admin' ? ' is-active' : ''}`}
-              aria-selected={activeFixedKey === 'admin'}
-              tabIndex={activeFixedKey === 'admin' ? 0 : -1}
-              onClick={handleOpenAdministration}
-            >
-              管理
-            </button>
-          ) : null}
         </div>
 
         <div className="workspace-tabs__dynamic-area">
-          <div className="workspace-tabs__dynamic" ref={dynamicListRef} role="tablist" aria-label="患者ワークスペースタブ">
-            {dynamicTabs.map((tab) => {
-              const label = formatTabLabel(tab);
-              const isActive = activeChartTab?.key === tab.key && isChartsArea;
-              return (
-                <div key={tab.key} className="workspace-tabs__item">
-                  <button
-                    type="button"
-                    role="tab"
-                    className={`workspace-tabs__tab${isActive ? ' is-active' : ''}`}
-                    aria-selected={isActive}
-                    tabIndex={isActive ? 0 : -1}
-                    title={label}
-                    onClick={() => selectDynamicTab(tab)}
-                  >
-                    {label}
-                  </button>
-                  <button
-                    type="button"
-                    className="workspace-tabs__close"
-                    aria-label={`${label}を閉じる`}
-                    onMouseDown={suppressCloseMouseDown}
-                    onClick={(event) => handleCloseButtonClick(event, tab.key)}
-                  >
-                    ×
-                  </button>
-                </div>
-              );
-            })}
+          <div className="workspace-tabs__dynamic-controls">
+            {hasOverflow ? (
+              <button
+                type="button"
+                className="workspace-tabs__scroll-btn"
+                aria-label="患者タブを左へスクロール"
+                onClick={() => scrollDynamicTabs('left')}
+                disabled={!canScrollLeft}
+              >
+                {'<'}
+              </button>
+            ) : null}
+            <div className="workspace-tabs__dynamic" ref={dynamicListRef} role="tablist" aria-label="患者ワークスペースタブ">
+              {dynamicTabs.map((tab) => {
+                const label = formatTabLabel(tab);
+                const isActive = activeDynamicKey === tab.key;
+                return (
+                  <div key={tab.key} className="workspace-tabs__item">
+                    <button
+                      type="button"
+                      role="tab"
+                      className={`workspace-tabs__tab workspace-tabs__tab--shortcut workspace-tabs__tab--chart${isActive ? ' is-active' : ''}`}
+                      aria-selected={isActive}
+                      tabIndex={isActive ? 0 : -1}
+                      title={label}
+                      onClick={() => selectDynamicTab(tab)}
+                    >
+                      <svg
+                        className="workspace-tabs__tab-icon"
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M4 19a2 2 0 0 0 2 2h12" />
+                        <path d="M6 2h12a2 2 0 0 1 2 2v16" />
+                        <path d="M6 2a2 2 0 0 0-2 2v15" />
+                        <path d="M8 6h8" />
+                        <path d="M8 10h8" />
+                        <path d="M8 14h6" />
+                      </svg>
+                      {label}
+                    </button>
+                    <button
+                      type="button"
+                      className="workspace-tabs__close"
+                      aria-label={`${label}を閉じる`}
+                      onMouseDown={suppressCloseMouseDown}
+                      onClick={(event) => handleCloseButtonClick(event, tab.key)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {hasOverflow ? (
+              <button
+                type="button"
+                className="workspace-tabs__scroll-btn"
+                aria-label="患者タブを右へスクロール"
+                onClick={() => scrollDynamicTabs('right')}
+                disabled={!canScrollRight}
+              >
+                {'>'}
+              </button>
+            ) : null}
           </div>
 
           {hasOverflow ? (
@@ -399,13 +391,13 @@ export function WorkspaceTabBar({
                 <div className="workspace-tabs__overflow-panel" aria-label="患者タブ一覧">
                   {dynamicTabs.map((tab) => {
                     const label = formatTabLabel(tab);
-                    const isActive = activeChartTab?.key === tab.key && isChartsArea;
+                    const isActive = activeDynamicKey === tab.key;
                     return (
                       <div key={`overflow-${tab.key}`} className="workspace-tabs__overflow-entry">
                         <button
                           type="button"
                           role="tab"
-                          className={`workspace-tabs__tab${isActive ? ' is-active' : ''}`}
+                          className={`workspace-tabs__tab workspace-tabs__tab--shortcut workspace-tabs__tab--chart${isActive ? ' is-active' : ''}`}
                           aria-selected={isActive}
                           tabIndex={isActive ? 0 : -1}
                           onClick={() => selectDynamicTab(tab)}
