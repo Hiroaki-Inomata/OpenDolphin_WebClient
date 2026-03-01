@@ -23,7 +23,6 @@ import type { RpHistoryEntry } from './karteExtrasApi';
 import type { OrderBundle } from './orderBundleApi';
 import type { OrderBundleEditPanelRequest, OrderBundleEditingContext } from './OrderBundleEditPanel';
 import { OrderSummaryPane } from './OrderSummaryPane';
-import { RightUtilityDock } from './RightUtilityDock';
 import { RightUtilityDrawer, type RightUtilityTool } from './RightUtilityDrawer';
 import { resolveLatestBundle } from './orderDetailDisplayViewModel';
 import {
@@ -509,6 +508,21 @@ export function SoapNotePanel({
       openOrderCategoryFromTool(tool, 'right-panel');
     },
     [openDocumentTool, openOrderCategoryFromTool],
+  );
+
+  const handleSummaryRailSelect = useCallback(
+    (tool: RightUtilityTool) => {
+      if (drawerOpen && tool === activeTool) {
+        setDrawerPeek(false);
+        if (effectiveMode === 'dock') setDrawerMinimized((prev) => !prev);
+        else setDrawerOpen(false);
+        return;
+      }
+      setDrawerPeek(false);
+      setDrawerMinimized(false);
+      handleDockToolSelect(tool);
+    },
+    [activeTool, drawerOpen, effectiveMode, handleDockToolSelect],
   );
 
   const handleOrderSummaryBundleSelect = useCallback(
@@ -1759,18 +1773,10 @@ export function SoapNotePanel({
           orderBundlesError={resolvedOrderBundlesError}
           prescriptionBundles={prescriptionBundles}
           activeTool={activeTool}
+          onToolSelect={handleSummaryRailSelect}
           onBundleSelect={handleOrderSummaryBundleSelect}
           onDocumentSelect={openDocumentTool}
         />
-        <aside
-          className="soap-note__right-dock-area"
-          id="charts-order-pane"
-          tabIndex={-1}
-          data-focus-anchor="true"
-          aria-label="右ドック"
-        >
-          <RightUtilityDock activeTool={activeTool} onSelectTool={handleDockToolSelect} />
-        </aside>
         <RightUtilityDrawer {...rightUtilityDrawerProps} />
       </div>
     </section>

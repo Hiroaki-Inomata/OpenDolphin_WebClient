@@ -216,7 +216,9 @@ describe('OrderSummaryPane category display', () => {
 
     const summaryPane = screen.getByLabelText('オーダー概要');
     const injectionGroup = requireElement(summaryPane.querySelector('.soap-note__order-group[data-group="injection"]'));
-    const labels = Array.from(injectionGroup.querySelectorAll('button')).map((button) => button.getAttribute('aria-label'));
+    const labels = Array.from(injectionGroup.querySelectorAll('button.soap-note__summary-card')).map((button) =>
+      button.getAttribute('aria-label'),
+    );
 
     expect(labels).toEqual(['同日doc大を編集', '同日doc小を編集', '前日を編集']);
   });

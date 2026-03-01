@@ -5495,7 +5495,7 @@ export const chartsStyles = css`
   }
 
   .soap-note__center-panel-only {
-    grid-column: 2;
+    grid-column: 2 / 4;
     min-width: 0;
   }
 
@@ -7300,10 +7300,12 @@ export const chartsStyles = css`
   }
 
   .soap-note__order-group {
+    position: relative;
     min-width: 0;
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-xs);
+    padding-right: calc(72px + var(--charts-space-md));
   }
 
   .soap-note__order-group + .soap-note__order-group {
@@ -7320,6 +7322,33 @@ export const chartsStyles = css`
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--charts-space-sm);
+  }
+
+  button.soap-note__order-group-rail {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 72px;
+    min-width: 72px;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+  }
+
+  button.soap-note__order-group-rail[data-empty='true'] {
+    border-style: dashed;
+  }
+
+  button.soap-note__order-group-rail[data-empty='true']::after {
+    content: '＋';
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.95rem;
+    font-weight: 900;
+    line-height: 1;
   }
 
   .soap-note__order-group-meta {
@@ -7497,7 +7526,7 @@ export const chartsStyles = css`
     }
 
     .soap-note__center-panel-only {
-      grid-column: 1 / 2;
+      grid-column: 1 / -1;
     }
 
     .soap-note__right-dock-area {
@@ -7523,6 +7552,25 @@ export const chartsStyles = css`
     .soap-note__center-panel-only,
     .soap-note__right-dock-area {
       grid-column: 1;
+    }
+
+    .soap-note__order-group {
+      padding-right: 0;
+    }
+
+    button.soap-note__order-group-rail {
+      position: relative;
+      top: auto;
+      bottom: auto;
+      right: auto;
+      width: 100%;
+      min-width: 0;
+    }
+
+    button.soap-note__order-group-rail[data-empty='true']::after {
+      top: 50%;
+      left: 14px;
+      transform: translateY(-50%);
     }
 
     .soap-note__right-dock-area {

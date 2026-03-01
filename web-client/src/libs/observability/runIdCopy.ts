@@ -6,8 +6,8 @@ export async function copyTextToClipboard(value: string): Promise<ClipboardCopyM
     return 'clipboard';
   }
 
-  if (typeof window !== 'undefined' && typeof window.prompt === 'function') {
-    window.prompt('クリップボードに直接コピーできません。手動でコピーしてください。', value);
+  if (typeof window !== 'undefined') {
+    // Fallback for browsers where Clipboard API is unavailable.
     return 'prompt';
   }
 
