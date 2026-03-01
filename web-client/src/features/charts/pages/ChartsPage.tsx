@@ -93,15 +93,17 @@ import {
   type ChartOrderSetSnapshot,
 } from '../chartOrderSetStorage';
 import {
-  WORKSPACE_CHARTS_TAB_REQUEST_EVENT,
   applyEncounterTabState,
   buildPatientTabKey,
-  dispatchChartsPatientTabsUpdated,
   readChartsPatientTabsStorage,
   writeChartsPatientTabsStorage,
   type ChartsPatientTabsStorage,
-  type WorkspaceChartsTabRequest,
 } from '../patientTabsStorage';
+import {
+  WORKSPACE_CHARTS_TAB_REQUEST_EVENT,
+  dispatchChartsPatientTabsUpdated,
+  type WorkspaceChartsTabRequest,
+} from '../../workspaceTabs/workspaceTabEvents';
 
 const parseDate = (value?: string): Date | null => {
   if (!value) return null;
@@ -945,10 +947,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
       const detail = (event as CustomEvent<WorkspaceChartsTabRequest>).detail;
       if (!detail || (detail.action !== 'select' && detail.action !== 'close')) return;
 
-      const keyFromDetail = typeof detail.key === 'string' ? detail.key.trim() : '';
-      const patientId = normalizeEncounterId(detail.patientId);
-      const visitDate = normalizeVisitDate(detail.visitDate);
-      const key = keyFromDetail || (patientId && visitDate ? buildPatientTabKey(patientId, visitDate) : '');
+      const key = detail.key.trim();
       if (!key) return;
 
       if (detail.action === 'select') {

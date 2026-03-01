@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-import { buildScopedStorageKey } from '../../libs/session/storageScope';
 import { buildFacilityPath } from '../../routes/facilityRoutes';
 import { useAppNavigation } from '../../routes/useAppNavigation';
+import {
+  readChartsPatientTabsStorage,
+  writeChartsPatientTabsStorage,
+  type ChartsPatientTab,
+  type ChartsPatientTabsStorage,
+} from '../charts/patientTabsStorage';
 import {
   CHARTS_PATIENT_TABS_UPDATED_EVENT,
   dispatchChartsPatientTabsUpdated,
@@ -15,28 +20,6 @@ type WorkspaceTabBarProps = {
   userId?: string;
   role?: string;
 };
-
-type ChartsPatientTab = {
-  key: string;
-  patientId: string;
-  visitDate: string;
-  appointmentId?: string;
-  receptionId?: string;
-  name?: string;
-  department?: string;
-  openedAt?: string;
-};
-
-type ChartsPatientTabsStorage = {
-  version: 1;
-  updatedAt: string;
-  activeKey?: string;
-  tabs: ChartsPatientTab[];
-};
-
-const PATIENT_TABS_STORAGE_BASE = 'opendolphin:web-client:charts:patient-tabs';
-const PATIENT_TABS_STORAGE_VERSION = 'v1';
-const LEGACY_PATIENT_TABS_STORAGE_KEY = `${PATIENT_TABS_STORAGE_BASE}:v1`;
 
 const normalizeText = (value: unknown): string | undefined => {
   if (typeof value !== 'string') return undefined;
@@ -50,69 +33,6 @@ const createInitialTabsState = (): ChartsPatientTabsStorage => ({
   activeKey: undefined,
   tabs: [],
 });
-
-const normalizeTab = (raw: unknown): ChartsPatientTab | null => {
-  if (!raw || typeof raw !== 'object') return null;
-  const source = raw as Partial<ChartsPatientTab>;
-  const patientId = normalizeText(source.patientId);
-  const visitDate = normalizeText(source.visitDate);
-  if (!patientId || !visitDate) return null;
-  const key = normalizeText(source.key) ?? `${patientId}::${visitDate}`;
-  const normalized: ChartsPatientTab = {
-    key,
-    patientId,
-    visitDate,
-  };
-  const appointmentId = normalizeText(source.appointmentId);
-  const receptionId = normalizeText(source.receptionId);
-  const name = normalizeText(source.name);
-  const department = normalizeText(source.department);
-  const openedAt = normalizeText(source.openedAt);
-  if (appointmentId) normalized.appointmentId = appointmentId;
-  if (receptionId) normalized.receptionId = receptionId;
-  if (name) normalized.name = name;
-  if (department) normalized.department = department;
-  if (openedAt) normalized.openedAt = openedAt;
-  return normalized;
-};
-
-const readChartsPatientTabsStorage = (scope?: { facilityId?: string; userId?: string }): ChartsPatientTabsStorage | null => {
-  if (typeof sessionStorage === 'undefined') return null;
-  const scopedKey =
-    buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope) ?? LEGACY_PATIENT_TABS_STORAGE_KEY;
-  try {
-    const raw = sessionStorage.getItem(scopedKey) ?? sessionStorage.getItem(LEGACY_PATIENT_TABS_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<ChartsPatientTabsStorage> | null;
-    if (!parsed || !Array.isArray(parsed.tabs)) return null;
-    const tabs = parsed.tabs.reduce<ChartsPatientTab[]>((acc, entry) => {
-      const tab = normalizeTab(entry);
-      if (tab) acc.push(tab);
-      return acc;
-    }, []);
-    const rawActiveKey = normalizeText(parsed.activeKey);
-    const hasActiveKey = rawActiveKey ? tabs.some((tab) => tab.key === rawActiveKey) : false;
-    return {
-      version: 1,
-      updatedAt: normalizeText(parsed.updatedAt) ?? new Date().toISOString(),
-      activeKey: hasActiveKey ? rawActiveKey : tabs[0]?.key,
-      tabs,
-    };
-  } catch {
-    return null;
-  }
-};
-
-const writeChartsPatientTabsStorage = (state: ChartsPatientTabsStorage, scope?: { facilityId?: string; userId?: string }) => {
-  if (typeof sessionStorage === 'undefined') return;
-  const scopedKey =
-    buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope) ?? LEGACY_PATIENT_TABS_STORAGE_KEY;
-  try {
-    sessionStorage.setItem(scopedKey, JSON.stringify(state));
-  } catch {
-    // ignore storage errors
-  }
-};
 
 const formatTabLabel = (tab: ChartsPatientTab) => {
   const patientName = normalizeText(tab.name) ?? '患者';

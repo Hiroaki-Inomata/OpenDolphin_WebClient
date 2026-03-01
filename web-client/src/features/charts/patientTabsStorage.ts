@@ -23,16 +23,6 @@ export type ChartsPatientTabsStorage = {
 export const PATIENT_TABS_STORAGE_BASE = 'opendolphin:web-client:charts:patient-tabs';
 export const PATIENT_TABS_STORAGE_VERSION = 'v1';
 
-export const WORKSPACE_CHARTS_TAB_REQUEST_EVENT = 'opendolphin:workspace:charts-tab-request';
-export const WORKSPACE_CHARTS_TABS_UPDATED_EVENT = 'opendolphin:workspace:charts-tabs-updated';
-
-export type WorkspaceChartsTabRequest = {
-  action: 'select' | 'close';
-  key?: string;
-  patientId?: string;
-  visitDate?: string;
-};
-
 export const buildPatientTabKey = (patientId: string, visitDate: string) => `${patientId}::${visitDate}`;
 
 export const applyEncounterTabState = (
@@ -169,9 +159,4 @@ export const writeChartsPatientTabsStorage = (
   } catch {
     // ignore storage errors
   }
-};
-
-export const dispatchChartsPatientTabsUpdated = () => {
-  if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(WORKSPACE_CHARTS_TABS_UPDATED_EVENT));
 };

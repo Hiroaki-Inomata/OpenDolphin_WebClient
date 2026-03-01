@@ -17,5 +17,5 @@ export const dispatchWorkspaceChartsTabRequest = (detail: WorkspaceChartsTabRequ
 
 export const dispatchChartsPatientTabsUpdated = () => {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new Event(CHARTS_PATIENT_TABS_UPDATED_EVENT));
+  window.dispatchEvent(new CustomEvent(CHARTS_PATIENT_TABS_UPDATED_EVENT));
 };
