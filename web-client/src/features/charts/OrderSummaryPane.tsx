@@ -10,7 +10,7 @@ import {
   type OrderDetailDisplayCategoryViewModel,
   type OrderDetailDisplayViewModel,
 } from './orderDetailDisplayViewModel';
-import type { RightUtilityTool } from './RightUtilityDrawer';
+import type { RightUtilityTool } from './rightUtilityTools';
 
 type OrderSummaryPaneProps = {
   orderBundles?: OrderBundle[];
