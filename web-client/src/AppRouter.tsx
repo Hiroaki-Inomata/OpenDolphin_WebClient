@@ -44,6 +44,7 @@ import { AuthServiceProvider, clearStoredAuthFlags, useAuthService } from './fea
 import { PatientsPage } from './features/patients/PatientsPage';
 import { AdministrationPage } from './features/administration/AdministrationPage';
 import { AppToastProvider, type AppToast, type AppToastInput } from './libs/ui/appToast';
+import { clearDevVolatilePlainPassword } from './libs/http/devAuthVolatile';
 import { logAuditEvent } from './libs/audit/auditLogger';
 import { ChartEventStreamBridge } from './features/shared/ChartEventStreamBridge';
 import { MockModeBanner } from './features/shared/MockModeBanner';
@@ -178,6 +179,7 @@ const clearStoredCredentials = () => {
       // ignore storage errors
     }
   }
+  clearDevVolatilePlainPassword();
 };
 
 const SessionContext = createContext<Session | null>(null);

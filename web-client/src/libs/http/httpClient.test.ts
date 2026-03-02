@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { clearDevVolatilePlainPassword } from './devAuthVolatile';
 import { shouldNotifySessionExpired } from './httpClient';
 
 const AUTH_KEY = 'opendolphin:web-client:auth';
@@ -23,7 +24,6 @@ const setDevAuth = (
 ) => {
   storage.setItem('devFacilityId', values.facilityId ?? 'f001');
   storage.setItem('devUserId', values.userId ?? 'user01');
-  storage.setItem('devPasswordPlain', values.passwordPlain ?? 'plain-password');
   storage.setItem('devPasswordMd5', values.passwordMd5 ?? 'md5-password');
   storage.setItem('devClientUuid', values.clientUuid ?? 'client-uuid-1');
 };
@@ -46,6 +46,7 @@ describe('shouldNotifySessionExpired', () => {
   beforeEach(() => {
     sessionStorage.clear();
     localStorage.clear();
+    clearDevVolatilePlainPassword();
   });
 
   it('returns false when no stored session exists', () => {
@@ -93,6 +94,7 @@ describe('httpFetch session expiry debounce', () => {
     vi.setSystemTime(new Date('2026-01-19T00:00:00Z'));
     sessionStorage.clear();
     localStorage.clear();
+    clearDevVolatilePlainPassword();
   });
 
   afterEach(() => {
@@ -147,6 +149,7 @@ describe('httpFetch session expiry reasons', () => {
     vi.resetModules();
     sessionStorage.clear();
     localStorage.clear();
+    clearDevVolatilePlainPassword();
   });
 
   afterEach(() => {
@@ -288,11 +291,16 @@ describe('httpFetch session expiry reasons', () => {
     const authorization = headers.get('Authorization');
     if (authorization) {
       const token = authorization.replace(/^Basic\s+/i, '');
-      expect(atob(token)).toBe('ormaster:change_me');
+      expect(atob(token)).toBe('ormaster:latest-md5');
     } else {
       expect(headers.get('userName')).toBe('f001:ormaster');
+      expect(headers.get('password')).toBe('latest-md5');
     }
-    expect(headers.get('X-Facility-Id')).toBe('f001');
+    if (httpClient.isFacilityHeaderEnabled()) {
+      expect(headers.get('X-Facility-Id')).toBe('f001');
+    } else {
+      expect(headers.get('X-Facility-Id')).toBeNull();
+    }
   });
 
   it('does not notify for /api21 and /blobapi endpoints on 401/403', async () => {

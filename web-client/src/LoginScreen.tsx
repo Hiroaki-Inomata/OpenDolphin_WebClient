@@ -4,6 +4,7 @@ import CryptoJS from 'crypto-js';
 import { v4 as uuidv4 } from 'uuid';
 
 import { httpFetch, isLegacyHeaderAuthEnabled } from './libs/http/httpClient';
+import { setDevVolatilePlainPassword } from './libs/http/devAuthVolatile';
 import { generateRunId, updateObservabilityMeta } from './libs/observability/observability';
 import { consumeSessionExpiredNotice } from './libs/session/sessionExpiry';
 import { logAuditEvent } from './libs/audit/auditLogger';
@@ -64,7 +65,7 @@ const normalizeRoles = (roles?: Array<string | { role?: string }>) => {
 const inferRole = (_userId: string, roles?: Array<string | { role?: string }>) => {
   const normalized = normalizeRoles(roles);
   if (normalized.length > 0) return normalized[0];
-  return 'doctor';
+  return 'unknown';
 };
 
 type LoginFormValues = {
@@ -222,6 +223,11 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
         const urlFacilityId = normalize(initialFacilityId ?? '');
         const storedFacilityId = urlFacilityId || normalizedValues.facilityId;
         const passwordMd5 = hashPasswordMd5(normalizedValues.password);
+        setDevVolatilePlainPassword({
+          facilityId: storedFacilityId,
+          userId: normalizedValues.userId,
+          passwordPlain: normalizedValues.password,
+        });
         try {
           // サーバーからの result.userId は "facilityId:userId" 形式で返されるが、
           // httpClient.ts は devFacilityId と devUserId を結合するため、
@@ -242,7 +248,6 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
             sessionStorage.setItem('devUserId', normalizedValues.userId);
             sessionStorage.setItem('devPasswordMd5', passwordMd5);
             sessionStorage.setItem('devClientUuid', result.clientUuid);
-            sessionStorage.setItem('devPasswordPlain', normalizedValues.password);
           }
         } catch {
           // ignore fallback failures

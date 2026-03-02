@@ -108,60 +108,6 @@ const MASTER_ENDPOINT_MAP: Record<OrderMasterSearchType, string> = {
 
 const COMMENT_CODE_PATTERN = /^(008[1-6]|8[1-6]|098|099|98|99)/;
 
-type ConnectedAuth = {
-  facilityId: string;
-  userId: string;
-  passwordPlain?: string;
-  passwordMd5?: string;
-};
-
-const readStorageItem = (storage: Storage | undefined, key: string): string | undefined => {
-  if (!storage) return undefined;
-  try {
-    return storage.getItem(key) ?? undefined;
-  } catch {
-    return undefined;
-  }
-};
-
-const readConnectedAuth = (): ConnectedAuth | null => {
-  if (!import.meta.env.DEV) return null;
-  const fromStorage = (storage: Storage | undefined): ConnectedAuth | null => {
-    const facilityId = readStorageItem(storage, 'devFacilityId')?.trim();
-    const userId = readStorageItem(storage, 'devUserId')?.trim();
-    if (!facilityId || !userId) return null;
-    return {
-      facilityId,
-      userId,
-      passwordPlain: readStorageItem(storage, 'devPasswordPlain'),
-      passwordMd5: readStorageItem(storage, 'devPasswordMd5'),
-    };
-  };
-
-  const local = fromStorage(typeof localStorage === 'undefined' ? undefined : localStorage);
-  if (local) {
-    const sessionPlain = readStorageItem(typeof sessionStorage === 'undefined' ? undefined : sessionStorage, 'devPasswordPlain');
-    if (sessionPlain && !local.passwordPlain) {
-      return { ...local, passwordPlain: sessionPlain };
-    }
-    return local;
-  }
-  return fromStorage(typeof sessionStorage === 'undefined' ? undefined : sessionStorage);
-};
-
-const buildMasterAuthHeaders = (): Record<string, string> => {
-  if (!import.meta.env.DEV) return {};
-  const connected = readConnectedAuth();
-  if (!connected) return {};
-  const password = connected.passwordPlain ?? connected.passwordMd5;
-  if (!password) return { 'X-Facility-Id': connected.facilityId };
-  const token = btoa(unescape(encodeURIComponent(`${connected.userId}:${password}`)));
-  return {
-    Authorization: `Basic ${token}`,
-    'X-Facility-Id': connected.facilityId,
-  };
-};
-
 const normalizeDrugEntry = (entry: OrcaDrugMasterEntry, type: OrderMasterSearchType): OrderMasterSearchItem | null => {
   const name = entry.name?.trim();
   if (!name) return null;
@@ -351,7 +297,6 @@ export async function fetchOrderMasterSearch(params: {
   const endpoint = MASTER_ENDPOINT_MAP[params.type];
   const meta = ensureObservabilityMeta();
   const response = await httpFetch(`${endpoint}?${query.toString()}`, {
-    headers: buildMasterAuthHeaders(),
     notifySessionExpired: false,
   });
   const json = (await response.json().catch(() => ({}))) as unknown;
