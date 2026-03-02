@@ -2,6 +2,7 @@ package open.dolphin.session;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.UUID;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
@@ -11,6 +12,7 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import open.dolphin.infomodel.*;
+import open.dolphin.security.auth.PasswordHashService;
 import open.dolphin.session.framework.SessionOperation;
 
 /**
@@ -38,24 +40,37 @@ public class UserServiceBean {
     @Inject
     private UserServiceBean self;
 
+    @Inject
+    private PasswordHashService passwordHashService;
+
     
     public boolean authenticate(String userName, String password) {
-
-        boolean ret = false;
+        if (userName == null || userName.isBlank() || password == null) {
+            return false;
+        }
 
         try {
             UserModel user = (UserModel)
                 em.createQuery(QUERY_USER_BY_UID)
                   .setParameter(UID, userName)
                   .getSingleResult();
-            if (user.getPassword().equals(password)) {
-                ret = true;
+
+            PasswordHashService.VerificationResult verification = hashService()
+                    .verify(user.getPassword(), password);
+            if (!verification.matched()) {
+                return false;
             }
 
+            if (verification.requiresUpgrade()) {
+                String upgraded = verification.upgradedHash()
+                        .orElseGet(() -> hashService().hashForStorage(password));
+                user.setPassword(upgraded);
+                em.merge(user);
+            }
+            return true;
         } catch (Exception e) {
+            return false;
         }
-
-        return ret;
     }
 
     /**
@@ -77,6 +92,7 @@ public class UserServiceBean {
                                                    .setParameter("fid", fid)
                                                    .getSingleResult();
         add.setFacilityModel(facility);
+        add.setPassword(normalizePasswordForStorage(add.getPassword(), null));
 
         // role を detach してから User を persist
         List<RoleModel> roles = add.getRoles();
@@ -191,6 +207,7 @@ public class UserServiceBean {
         UserModel current = (UserModel) em.find(UserModel.class, update.getId());
         update.setMemberType(current.getMemberType());
         update.setRegisteredDate(current.getRegisteredDate());
+        update.setPassword(normalizePasswordForStorage(update.getPassword(), current.getPassword()));
         em.merge(update);
         return 1;
     }
@@ -248,7 +265,7 @@ public class UserServiceBean {
             StringBuilder sb = new StringBuilder();
             remove.setMemo(sb.toString());
             remove.setMemberType(MEMBER_TYPE_EXPIRED);
-            remove.setPassword("c9dbeb1de83e60eb1eb3675fa7d69a02");
+            remove.setPassword(hashService().hashRaw(UUID.randomUUID().toString()));
         } else {
             em.remove(remove);
         }
@@ -279,7 +296,7 @@ public class UserServiceBean {
         return user.getCommonName();
     }
     
-    public boolean isAdmin(String userId, String password) {
+    public boolean isAdmin(String userId) {
         boolean ret = false;
         try {
             UserModel user = (UserModel)em.createQuery(QUERY_USER_BY_UID).setParameter(UID, userId).getSingleResult();
@@ -293,6 +310,11 @@ public class UserServiceBean {
         }
 
         return ret;
+    }
+
+    @Deprecated
+    public boolean isAdmin(String userId, String password) {
+        return isAdmin(userId);
     }
     
     public boolean checkAuthority(String userId, String password, Collection<RoleModel> checkRoles) {
@@ -320,6 +342,23 @@ public class UserServiceBean {
         }
 
         return !err;
+    }
+
+    private PasswordHashService hashService() {
+        if (passwordHashService == null) {
+            passwordHashService = new PasswordHashService();
+        }
+        return passwordHashService;
+    }
+
+    private String normalizePasswordForStorage(String requestedPassword, String currentPassword) {
+        if (requestedPassword == null || requestedPassword.isBlank()) {
+            return currentPassword;
+        }
+        if (hashService().isManagedHash(requestedPassword)) {
+            return requestedPassword;
+        }
+        return hashService().hashForStorage(requestedPassword);
     }
 
     private boolean isAdminRole(String role) {

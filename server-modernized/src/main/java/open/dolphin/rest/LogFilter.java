@@ -2,8 +2,6 @@ package open.dolphin.rest;
 
 import java.io.IOException;
 import java.security.Principal;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
@@ -104,11 +102,6 @@ public class LogFilter implements Filter {
         BlockWrapper wrapper = null;
 
         try {
-            if (isIdentityTokenRequest(req)) {
-                chain.doFilter(request, response);
-                return;
-            }
-
             Optional<String> principalUser = resolvePrincipalUser();
             if (principalUser.isEmpty()) {
                 principalUser = authenticateWithBasicHeader(req);
@@ -391,12 +384,7 @@ public class LogFilter implements Filter {
             return Optional.empty();
         }
 
-        // Accept both plain and MD5-hashed passwords for compatibility.
         if (userService.authenticate(compositeUser, rawPass)) {
-            return Optional.of(compositeUser);
-        }
-        String hashed = md5(rawPass);
-        if (hashed != null && userService.authenticate(compositeUser, hashed)) {
             return Optional.of(compositeUser);
         }
         SECURITY_LOGGER.log(Level.FINE, "Basic authentication failed for user {0}", compositeUser);
@@ -417,10 +405,6 @@ public class LogFilter implements Filter {
             return Optional.empty();
         }
         if (userService.authenticate(compositeUser, rawPass)) {
-            return Optional.of(compositeUser);
-        }
-        String hashed = md5(rawPass);
-        if (hashed != null && userService.authenticate(compositeUser, hashed)) {
             return Optional.of(compositeUser);
         }
         SECURITY_LOGGER.log(Level.FINE, "Header authentication failed for user {0}", compositeUser);
@@ -446,24 +430,6 @@ public class LogFilter implements Filter {
             return remainder.substring(0, sep);
         }
         return null;
-    }
-
-    private String md5(String value) {
-        if (value == null) {
-            return null;
-        }
-        try {
-            MessageDigest digest = MessageDigest.getInstance("MD5");
-            byte[] hash = digest.digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(hash.length * 2);
-            for (byte b : hash) {
-                sb.append(String.format("%02x", b));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException e) {
-            SECURITY_LOGGER.log(Level.FINE, "MD5 not available", e);
-            return null;
-        }
     }
 
     private void sendUnauthorized(HttpServletRequest request, HttpServletResponse response, String errorCode,
@@ -546,14 +512,6 @@ public class LogFilter implements Filter {
             return null;
         }
         return value.trim();
-    }
-
-    private boolean isIdentityTokenRequest(HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        if (uri == null) {
-            return false;
-        }
-        return uri.endsWith("identityToken");
     }
 
     private boolean isAnonymousPrincipal(String principalName) {

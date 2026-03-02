@@ -18,6 +18,7 @@ import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.AccountSummary;
 import open.dolphin.session.SystemServiceBean;
+import open.dolphin.session.UserServiceBean;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
 import open.dolphin.system.license.LicenseRepository;
@@ -44,6 +45,9 @@ class SystemResourceTest extends RuntimeDelegateTestSupport {
     private SystemServiceBean systemServiceBean;
 
     @Mock
+    private UserServiceBean userServiceBean;
+
+    @Mock
     private AuditTrailService auditTrailService;
 
     @Mock
@@ -65,6 +69,7 @@ class SystemResourceTest extends RuntimeDelegateTestSupport {
         licenseRepository = new InMemoryLicenseRepository();
 
         setField(resource, "systemServiceBean", systemServiceBean);
+        setField(resource, "userServiceBean", userServiceBean);
         setField(resource, "auditTrailService", auditTrailService);
         setField(resource, "sessionTraceManager", sessionTraceManager);
         setField(resource, "httpServletRequest", httpServletRequest);
@@ -75,6 +80,7 @@ class SystemResourceTest extends RuntimeDelegateTestSupport {
         when(httpServletRequest.getHeader("User-Agent")).thenReturn("JUnit");
         when(httpServletRequest.getHeader("X-Request-Id")).thenReturn(REQUEST_ID);
         when(httpServletRequest.isUserInRole("ADMIN")).thenReturn(true);
+        when(userServiceBean.isAdmin(REMOTE_USER)).thenReturn(true);
         SessionTraceContext trace = new SessionTraceContext("trace-system", Instant.now(), "SYSTEM_OPERATION", Map.of());
         when(sessionTraceManager.current()).thenReturn(trace);
     }
@@ -85,6 +91,48 @@ class SystemResourceTest extends RuntimeDelegateTestSupport {
 
         assertThat(greeting).isEqualTo("Hellow, Dolphin");
         verifyNoInteractions(auditTrailService, systemServiceBean);
+    }
+
+    @Test
+    void addFacilityAdmin_rejectsWhenRemoteUserIsMissing() {
+        when(httpServletRequest.getRemoteUser()).thenReturn(null);
+        when(httpServletRequest.getRequestURI()).thenReturn("/dolphin");
+
+        assertThatThrownBy(() -> resource.addFacilityAdmin("{\"userId\":\"manager01\"}"))
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> assertThat(((WebApplicationException) ex).getResponse().getStatus()).isEqualTo(401));
+
+        verify(auditTrailService).record(auditCaptor.capture());
+        Map<String, Object> details = auditCaptor.getValue().getDetails();
+        assertThat(details.get("deniedReason")).isEqualTo("remote_user_missing");
+    }
+
+    @Test
+    void checkLicense_rejectsWhenUserIsNotAdmin() {
+        when(httpServletRequest.getRequestURI()).thenReturn("/dolphin/license");
+        when(userServiceBean.isAdmin(REMOTE_USER)).thenReturn(false);
+
+        assertThatThrownBy(() -> resource.checkLicense(LICENSE_SCOPE, "XYZ"))
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> assertThat(((WebApplicationException) ex).getResponse().getStatus()).isEqualTo(403));
+
+        verify(auditTrailService).record(auditCaptor.capture());
+        Map<String, Object> details = auditCaptor.getValue().getDetails();
+        assertThat(details.get("deniedReason")).isEqualTo("admin_privilege_required");
+    }
+
+    @Test
+    void sendCloudZeroMail_rejectsWhenRemoteUserIsMissing() {
+        when(httpServletRequest.getRemoteUser()).thenReturn(null);
+        when(httpServletRequest.getRequestURI()).thenReturn("/dolphin/cloudzero/sendmail");
+
+        assertThatThrownBy(() -> resource.sendCloudZeroMail())
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> assertThat(((WebApplicationException) ex).getResponse().getStatus()).isEqualTo(401));
+
+        verify(auditTrailService).record(auditCaptor.capture());
+        Map<String, Object> details = auditCaptor.getValue().getDetails();
+        assertThat(details.get("deniedReason")).isEqualTo("remote_user_missing");
     }
 
     @Test

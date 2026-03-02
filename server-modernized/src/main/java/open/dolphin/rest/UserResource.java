@@ -1,7 +1,9 @@
 package open.dolphin.rest;
 
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import jakarta.inject.Inject;
@@ -9,6 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import open.dolphin.converter.UserListConverter;
 import open.dolphin.converter.UserModelConverter;
 import open.dolphin.infomodel.RoleModel;
@@ -62,7 +65,7 @@ public class UserResource extends AbstractResource {
         // 管理者権限かチェック
         HttpServletRequest req = (HttpServletRequest)servletReq;
         String remoteUser = req.getRemoteUser();
-        if(remoteUser == null || !userServiceBean.isAdmin(remoteUser, null)) {
+        if(remoteUser == null || !userServiceBean.isAdmin(remoteUser)) {
             Logger.getLogger("open.dolphin").log(Level.WARNING, "Not an administrator authority:{0}", new Object[]{remoteUser});
             return null;
         }
@@ -90,7 +93,7 @@ public class UserResource extends AbstractResource {
         // 管理者権限かチェック
         HttpServletRequest req = (HttpServletRequest)servletReq;
         String remoteUser = req.getRemoteUser();
-        if(remoteUser == null || !userServiceBean.isAdmin(remoteUser, null)) {
+        if(remoteUser == null || !userServiceBean.isAdmin(remoteUser)) {
             Logger.getLogger("open.dolphin").log(Level.WARNING, "Not an administrator authority:{0}", new Object[]{remoteUser});
             return "0";
         }
@@ -133,29 +136,33 @@ public class UserResource extends AbstractResource {
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         UserModel model = mapper.readValue(json, UserModel.class);
-        
-//s.oh^ 脆弱性対応
-        // 管理者権限かチェック
+
         HttpServletRequest req = (HttpServletRequest)servletReq;
-        if(!userServiceBean.isAdmin(req.getHeader("userName"), req.getHeader("password"))) {
-            // ログインユーザと同一ユーザIDかチェック
-            if(!req.getHeader("userName").equals(model.getUserId())) {
-                Logger.getLogger("open.dolphin").log(Level.WARNING, "User ID is different:{0},{1}", new Object[]{req.getHeader("userName"), model.getUserId()});
-                return "0";
+        String remoteUser = req.getRemoteUser();
+        if (remoteUser == null || remoteUser.isBlank()) {
+            throw restError(req, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
+        }
+
+        boolean admin = userServiceBean.isAdmin(remoteUser);
+        if (!admin) {
+            if (!remoteUser.equals(model.getUserId())) {
+                Logger.getLogger("open.dolphin").log(Level.WARNING, "User ID is different:{0},{1}",
+                        new Object[]{remoteUser, model.getUserId()});
+                throw restError(req, Response.Status.FORBIDDEN, "forbidden", "You can update only your own profile.");
             }
-            // ログインユーザの権限チェック
-            if(userServiceBean.checkAuthority(req.getHeader("userName"), req.getHeader("password"), model.getRoles())) {
-                Logger.getLogger("open.dolphin").log(Level.WARNING, "Illegal authority:{0}", new Object[]{req.getHeader("userName")});
-                return "0";
+            UserModel current = userServiceBean.getUser(model.getUserId());
+            if (hasRoleChange(current.getRoles(), model.getRoles())) {
+                Logger.getLogger("open.dolphin").log(Level.WARNING, "Role update is forbidden for non-admin:{0}",
+                        new Object[]{remoteUser});
+                throw restError(req, Response.Status.FORBIDDEN, "forbidden", "Role update requires administrator privilege.");
             }
         }
-//s.oh$
         
         // 関係を構築する
         List<RoleModel> roles = model.getRoles();
-        roles.stream().forEach((role) -> {
-            role.setUserModel(model);
-        });
+        if (roles != null) {
+            roles.forEach(role -> role.setUserModel(model));
+        }
 
         int result = userServiceBean.updateUser(model);
         String cntStr = String.valueOf(result);
@@ -168,14 +175,16 @@ public class UserResource extends AbstractResource {
     @Path("/{userId}")
     public void deleteUser(@Context HttpServletRequest servletReq, @PathParam("userId") String userId) {
         
-//s.oh^ 脆弱性対応
-        // 管理者権限かチェック
         HttpServletRequest req = (HttpServletRequest)servletReq;
-        if(!userServiceBean.isAdmin(req.getHeader("userName"), req.getHeader("password"))) {
-            Logger.getLogger("open.dolphin").log(Level.WARNING, "Not an administrator authority:{0}", new Object[]{req.getHeader("userName")});
-            return;
+        String remoteUser = req.getRemoteUser();
+        if (remoteUser == null || remoteUser.isBlank()) {
+            throw restError(req, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
         }
-//s.oh$
+        if (!userServiceBean.isAdmin(remoteUser)) {
+            Logger.getLogger("open.dolphin").log(Level.WARNING, "Not an administrator authority:{0}",
+                    new Object[]{remoteUser});
+            throw restError(req, Response.Status.FORBIDDEN, "forbidden", "Delete requires administrator privilege.");
+        }
 
         int result = userServiceBean.removeUser(userId);
 
@@ -208,4 +217,25 @@ public class UserResource extends AbstractResource {
         return userServiceBean.getUserName(userId);
     }
 //s.oh$
+
+    private boolean hasRoleChange(List<RoleModel> currentRoles, List<RoleModel> requestedRoles) {
+        return !normalizeRoles(currentRoles).equals(normalizeRoles(requestedRoles));
+    }
+
+    private Set<String> normalizeRoles(List<RoleModel> roles) {
+        Set<String> normalized = new HashSet<>();
+        if (roles == null) {
+            return normalized;
+        }
+        for (RoleModel role : roles) {
+            if (role == null || role.getRole() == null) {
+                continue;
+            }
+            String value = role.getRole().trim().toLowerCase(java.util.Locale.ROOT);
+            if (!value.isEmpty()) {
+                normalized.add(value);
+            }
+        }
+        return normalized;
+    }
 }

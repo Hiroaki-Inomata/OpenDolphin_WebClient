@@ -23,6 +23,7 @@ import open.dolphin.adm20.export.PhrExportConfig;
 import open.dolphin.adm20.export.PhrExportJobManager;
 import open.dolphin.adm20.export.PhrExportStorage;
 import open.dolphin.adm20.export.PhrExportStorageFactory;
+import open.dolphin.adm20.mbean.IdentityService;
 import open.dolphin.adm20.export.SignedUrlService;
 import open.dolphin.adm20.rest.PHRResource;
 import open.dolphin.adm20.rest.support.PhrAuditHelper;
@@ -50,6 +51,9 @@ class PHRResourceTest extends RuntimeDelegateTestSupport {
 
     @Mock
     private PhrDataAssembler dataAssembler;
+
+    @Mock
+    private IdentityService identityService;
 
     @Mock
     private PhrExportJobManager exportJobManager;
@@ -172,6 +176,33 @@ class PHRResourceTest extends RuntimeDelegateTestSupport {
                 .isInstanceOf(WebApplicationException.class)
                 .extracting(ex -> ((WebApplicationException) ex).getResponse().getStatus())
                 .isEqualTo(400);
+    }
+
+    @Test
+    void getIdentityToken_usesRemoteUserAndReturnsToken() {
+        when(identityService.getIdentityToken("nonce-123", REMOTE_USER)).thenReturn("identity-token");
+
+        String token = resource.getIdentityToken("""
+                {"nonce":"nonce-123","user":"F001:user01"}
+                """);
+
+        assertThat(token).isEqualTo("identity-token");
+        verify(identityService).getIdentityToken("nonce-123", REMOTE_USER);
+        verify(auditHelper).recordSuccess(isNull(), eq("PHR_IDENTITY_TOKEN"), eq(REMOTE_USER), anyMap());
+    }
+
+    @Test
+    void getIdentityToken_rejectsWhenBodyUserMismatchesRemoteUser() {
+        assertThatThrownBy(() -> resource.getIdentityToken("""
+                {"nonce":"nonce-123","user":"F001:other"}
+                """))
+                .isInstanceOf(WebApplicationException.class)
+                .extracting(ex -> ((WebApplicationException) ex).getResponse().getStatus())
+                .isEqualTo(403);
+
+        verify(identityService, never()).getIdentityToken(anyString(), anyString());
+        verify(auditHelper).recordFailure(isNull(), eq("PHR_IDENTITY_TOKEN"), eq(REMOTE_USER),
+                eq("identity_user_mismatch"), anyMap());
     }
 
     @Test
