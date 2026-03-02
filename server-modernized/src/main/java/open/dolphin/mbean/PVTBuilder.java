@@ -16,11 +16,11 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import open.dolphin.infomodel.*;
+import open.dolphin.security.xml.SecureXml;
 import org.jdom.Attribute;
 import org.jdom.Document;
 import org.jdom.Element;
 import org.jdom.Namespace;
-import org.jdom.input.SAXBuilder;
 
 /**
  * PVTBuilder
@@ -28,6 +28,8 @@ import org.jdom.input.SAXBuilder;
  * @author Kazushi Minagawa, Digital Globe, Inc.
  */
 public final class PVTBuilder {
+
+    private static final Logger LOGGER = Logger.getLogger(PVTBuilder.class.getName());
 
     private static final Namespace mmlCm = Namespace.getNamespace("mmlCm","http://www.medxml.net/MML/SharedComponent/Common/1.0");
     private static final Namespace mmlNm = Namespace.getNamespace("mmlNm","http://www.medxml.net/MML/SharedComponent/Name/1.0");
@@ -143,14 +145,14 @@ public final class PVTBuilder {
     public void parse(BufferedReader reader) {
         
         try {
-            SAXBuilder docBuilder = new SAXBuilder();
+            var docBuilder = SecureXml.newSaxBuilder();
             Document doc = docBuilder.build(reader);
             Element root = doc.getRootElement();
             parseBody(root.getChild(MmlBody));
             reader.close();
             
         } catch (Exception e) {
-            e.printStackTrace(System.err);
+            LOGGER.log(Level.SEVERE, "Failed to parse PVT XML", e);
         }
     }
     
@@ -248,9 +250,9 @@ public final class PVTBuilder {
             
 //s.oh^ 2014/03/13 ORCA患者登録対応
             if(pvtClaim.getClaimStatus() != null && pvtClaim.getClaimStatus().trim().equals("regist")) {
-                Logger.getLogger("open.dolphin").info("受付登録情報受信");
+                LOGGER.info("受付登録情報受信");
             }else{
-                Logger.getLogger("open.dolphin").info("受付登録ではないため受信した情報を破棄");
+                LOGGER.info("受付登録ではないため受信した情報を破棄");
                 return null;
             }
 //s.oh$
@@ -317,7 +319,7 @@ public final class PVTBuilder {
                 // 患者モジュールをパースする
                 //-----------------------
                 if (DEBUG) {
-                    System.err.println("patientInfo　をパース中");
+                    LOGGER.fine("Parsing patientInfo module");
                 }
                 patientModel = new PatientModel();
                 parsePatientInfo(docInfoEle, contentEle);
@@ -329,8 +331,7 @@ public final class PVTBuilder {
                 //------------------------------
                 String uuid = docInfoEle.getChild(docId).getChildTextTrim(uid);
                 if (DEBUG) {
-                    System.err.println("healthInsurance　をパース中");
-                    System.err.println("HealthInsurance UUID = " + uuid);
+                    LOGGER.fine("Parsing healthInsurance module");
                 }
 
                 if (pvtInsurnaces == null) {
@@ -346,7 +347,7 @@ public final class PVTBuilder {
                 // 受付情報をパースする
                 //------------------------------
                 if (DEBUG) {
-                    System.err.println("claim　をパース中");
+                    LOGGER.fine("Parsing claim module");
                 }
                 pvtClaim = new PVTClaim();
                 parseClaim(docInfoEle, contentEle);
@@ -357,7 +358,7 @@ public final class PVTBuilder {
 //s.oh$
                 
             } else {
-                System.err.println("Unknown attribute value : " + attr);
+                LOGGER.warning("Unknown contentModuleType: " + attr);
             }
         }
     }
@@ -383,7 +384,7 @@ public final class PVTBuilder {
                 String pid = child.getTextTrim();
                 patientModel.setPatientId(pid);
                 if (DEBUG) {
-                    System.err.println("patientId = " + pid);
+                    LOGGER.fine("Parsed patient identifier");
                 }
                 
             } else if (qname.equals(mmlNm_Name)) {
@@ -393,11 +394,11 @@ public final class PVTBuilder {
                     if (attr.getName().equals(repCode)) {
                         curRepCode = attr.getValue();
                         if (DEBUG) {
-                            System.err.println("curRepCode = " + attr.getValue());
+                            LOGGER.fine("Parsed name representation code");
                         }
                     } else if (attr.getName().equals(tableId)) {
                         if (DEBUG) {
-                            System.err.println("tableId = " + attr.getValue());
+                            LOGGER.fine("Parsed name tableId");
                         }
                     }
                 }
@@ -411,7 +412,7 @@ public final class PVTBuilder {
                     patientModel.setRomanFamilyName(child.getTextTrim());
                 }
                 if (DEBUG) {
-                    System.err.println("family = " + child.getTextTrim());
+                    LOGGER.fine("Parsed family name element");
                 }
                 
             } else if (qname.equals(mmlNm_given)) {
@@ -423,7 +424,7 @@ public final class PVTBuilder {
                     patientModel.setRomanGivenName(child.getTextTrim());
                 }
                 if (DEBUG) {
-                    System.err.println("given = " + child.getTextTrim());
+                    LOGGER.fine("Parsed given name element");
                 }
                 
             } else if (qname.equals(mmlNm_fullname)) {
@@ -435,19 +436,19 @@ public final class PVTBuilder {
                     patientModel.setRomanName(child.getTextTrim());
                 }
                 if (DEBUG) {
-                    System.err.println("fullName = " + child.getTextTrim());
+                    LOGGER.fine("Parsed full name element");
                 }
                 
             } else if (qname.equals(mmlPi_birthday)) {
                 patientModel.setBirthday(child.getTextTrim());
                 if (DEBUG) {
-                    System.err.println("birthday = " + child.getTextTrim());
+                    LOGGER.fine("Parsed birthday element");
                 }
                 
             } else if (qname.equals(mmlPi_sex)) {
                 patientModel.setGender(child.getTextTrim());
                 if (DEBUG) {
-                    System.err.println("gender = " + child.getTextTrim());
+                    LOGGER.fine("Parsed gender element");
                 }
                 
             } else if (qname.equals(mmlAd_Address)) {
@@ -461,12 +462,12 @@ public final class PVTBuilder {
                         curRepCode = attr.getValue();
                         curAddress.setAddressType(attr.getValue());
                         if (DEBUG) {
-                            System.err.println("addressClass = " + attr.getValue());
+                            LOGGER.fine("Parsed addressClass");
                         }
                     } else if (attr.getName().equals(tableId)) {
                         curAddress.setAddressTypeCodeSys(attr.getValue());
                         if (DEBUG) {
-                            System.err.println("tableId = " + attr.getValue());
+                            LOGGER.fine("Parsed address tableId");
                         }
                     }
                 }
@@ -474,13 +475,13 @@ public final class PVTBuilder {
             } else if (qname.equals(mmlAd_full)) {
                 curAddress.setAddress(child.getTextTrim());
                 if (DEBUG) {
-                    System.err.println("address = " + child.getTextTrim());
+                    LOGGER.fine("Parsed address element");
                 }
                 
             } else if (qname.equals(mmlAd_zip)) {
                 curAddress.setZipCode(child.getTextTrim());
                 if (DEBUG) {
-                    System.err.println("zip = " + child.getTextTrim());
+                    LOGGER.fine("Parsed zip element");
                 }
                 
             } else if (qname.equals(mmlPh_Phone)) {
@@ -492,7 +493,7 @@ public final class PVTBuilder {
                 //val = ZenkakuUtils.utf8Replace(val);
                 curTelephone.setArea(val);
                 if (DEBUG) {
-                    System.err.println("area = " + val);
+                    LOGGER.fine("Parsed phone area element");
                 }
                 
             } else if (qname.equals(mmlPh_city)) {
@@ -500,7 +501,7 @@ public final class PVTBuilder {
                 //val = ZenkakuUtils.utf8Replace(val);
                 curTelephone.setCity(val);
                 if (DEBUG) {
-                    System.err.println("city = " + val);
+                    LOGGER.fine("Parsed phone city element");
                 }
                 
             } else if (qname.equals(mmlPh_number)) {
@@ -508,14 +509,14 @@ public final class PVTBuilder {
                 //val = ZenkakuUtils.utf8Replace(val);
                 curTelephone.setNumber(val);
                 if (DEBUG) {
-                    System.err.println("number = " + val);
+                    LOGGER.fine("Parsed phone number element");
                 }
                 
             } else if (qname.equals(mmlPh_memo)) {
                 // ORCA
                 curTelephone.setMemo(child.getTextTrim());
                 if (DEBUG) {
-                    System.err.println("memo = " + child.getTextTrim());
+                    LOGGER.fine("Parsed phone memo element");
                 }
             }
             
@@ -533,7 +534,7 @@ public final class PVTBuilder {
         // HealthInsuranceModule を得る
         Element hModule = content.getChild(HealthInsuranceModule, mmlHi);
         if (hModule == null) {
-            System.err.println("No HealthInsuranceModule");
+            LOGGER.warning("HealthInsuranceModule element not found");
             return;
         }
         
@@ -591,17 +592,7 @@ public final class PVTBuilder {
         }
 
         if (DEBUG) {
-            System.err.println("insuranceClass = " + curInsurance.getInsuranceClass());
-            System.err.println("insurance ClassCode = " + curInsurance.getInsuranceClassCode());
-            System.err.println("insurance tableId = " + curInsurance.getInsuranceClassCodeSys());
-            System.err.println("insuranceNumber = " + curInsurance.getInsuranceNumber());
-            System.err.println("group = " + curInsurance.getClientGroup());
-            System.err.println("number = " + curInsurance.getClientNumber());
-            System.err.println("familyClass = " + curInsurance.getFamilyClass());
-            System.err.println("startDate = " + curInsurance.getStartDate());
-            System.err.println("expiredDate = " + curInsurance.getExpiredDate());
-            System.err.println("paymentInRatio = " + curInsurance.getPayInRatio());
-            System.err.println("paymentOutRatio = " + curInsurance.getPayOutRatio());
+            LOGGER.fine("Parsed base healthInsurance fields");
         }
         
         //--------------------------------
@@ -660,14 +651,7 @@ public final class PVTBuilder {
                 }
 
                 if (DEBUG) {
-                    System.err.println("priority = " + curPublicItem.getPriority());
-                    System.err.println("providerName = " + curPublicItem.getProviderName());
-                    System.err.println("provider = " + curPublicItem.getProvider());
-                    System.err.println("recipient = " + curPublicItem.getRecipient());
-                    System.err.println("startDate = " + curPublicItem.getStartDate());
-                    System.err.println("expiredDate = " + curPublicItem.getExpiredDate());
-                    System.err.println("paymentRatio = " + curPublicItem.getPaymentRatio());
-                    System.err.println("paymentRatioType = " + curPublicItem.getPaymentRatioType());
+                    LOGGER.fine("Parsed public insurance item");
                 }
             }
         }
@@ -732,15 +716,7 @@ public final class PVTBuilder {
         
         // DEBUG 出力
         if (DEBUG) {
-            System.err.println("担当医ID = " + pvtClaim.getAssignedDoctorId());
-            System.err.println("担当医名 = " + pvtClaim.getAssignedDoctorName());
-            System.err.println("JMARI コード = " + pvtClaim.getJmariCode());
-            System.err.println("診療科名 = " + pvtClaim.getClaimDeptName());
-            System.err.println("診療科コード = " + pvtClaim.getClaimDeptCode());
-            System.err.println("status = " + pvtClaim.getClaimStatus());
-            System.err.println("registTime = " + pvtClaim.getClaimRegistTime());
-            System.err.println("admitFlag = " + pvtClaim.getClaimAdmitFlag());
-            System.err.println("insuranceUid = " + pvtClaim.getInsuranceUid());
+            LOGGER.fine("Parsed claim metadata");
         }
     }
     

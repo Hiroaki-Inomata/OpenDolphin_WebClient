@@ -4,10 +4,12 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import open.dolphin.security.xml.SecureXml;
 import org.jdom.Document;
 import org.jdom.Element;
 import org.jdom.JDOMException;
-import org.jdom.input.SAXBuilder;
 
 /**
  * Director of StampTree builder.
@@ -15,6 +17,7 @@ import org.jdom.input.SAXBuilder;
  * @author  Kazushi Minagawa, Digital Globe, Inc.
  */
 public final class StampTreeDirector {
+    private static final Logger LOGGER = Logger.getLogger(StampTreeDirector.class.getName());
     
     private final int TT_STAMP_INFO  	= 0;
     private final int TT_NODE  		= 1;
@@ -33,7 +36,7 @@ public final class StampTreeDirector {
     
     public String build(BufferedReader reader) {
         
-        SAXBuilder docBuilder = new SAXBuilder();
+        var docBuilder = SecureXml.newSaxBuilder();
         
         try {
             Document doc = docBuilder.build(reader);
@@ -45,11 +48,9 @@ public final class StampTreeDirector {
         }
         // indicates a well-formedness error
         catch (JDOMException e) {
-            e.printStackTrace(System.err);
-            System.err.println("Not well-formed.");
-            System.err.println(e.getMessage());
+            LOGGER.log(Level.SEVERE, "Stamp tree XML is not well-formed", e);
         } catch (IOException e) {
-            e.printStackTrace(System.err);
+            LOGGER.log(Level.SEVERE, "Failed to read stamp tree XML", e);
         }
         
         return builder.getProduct();

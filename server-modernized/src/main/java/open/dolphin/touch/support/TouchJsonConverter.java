@@ -3,16 +3,14 @@ package open.dolphin.touch.support;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.beans.XMLDecoder;
-import java.io.BufferedInputStream;
 import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import open.dolphin.infomodel.IStampTreeModel;
 import open.dolphin.infomodel.InfoModel;
 import open.dolphin.infomodel.StampModel;
+import open.dolphin.security.xml.SafeXmlDecoder;
 import open.dolphin.touch.JSONStampBuilder;
 import open.dolphin.touch.JSONStampTreeBuilder;
 import open.dolphin.touch.StampTreeDirector;
@@ -68,11 +66,9 @@ public class TouchJsonConverter {
         if (stampBytes == null) {
             return null;
         }
-        try (XMLDecoder decoder = new XMLDecoder(new BufferedInputStream(new ByteArrayInputStream(stampBytes)))) {
-            InfoModel model = (InfoModel) decoder.readObject();
-            JSONStampBuilder builder = new JSONStampBuilder();
-            return builder.build(model);
-        }
+        InfoModel model = SafeXmlDecoder.decode(stampBytes, InfoModel.class);
+        JSONStampBuilder builder = new JSONStampBuilder();
+        return builder.build(model);
     }
 
     public String convertStampTreeOrNull(IStampTreeModel treeModel) {
