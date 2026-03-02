@@ -65,12 +65,10 @@ const createSessionContext = async (browser) => {
       window.sessionStorage.setItem('devFacilityId', auth.facilityId);
       window.sessionStorage.setItem('devUserId', auth.userId);
       window.sessionStorage.setItem('devPasswordMd5', auth.passwordMd5);
-      window.sessionStorage.setItem('devPasswordPlain', auth.passwordPlain);
       window.sessionStorage.setItem('devClientUuid', auth.clientUuid);
       window.localStorage.setItem('devFacilityId', auth.facilityId);
       window.localStorage.setItem('devUserId', auth.userId);
       window.localStorage.setItem('devPasswordMd5', auth.passwordMd5);
-      window.localStorage.setItem('devPasswordPlain', auth.passwordPlain);
       window.localStorage.setItem('devClientUuid', auth.clientUuid);
     },
     [
