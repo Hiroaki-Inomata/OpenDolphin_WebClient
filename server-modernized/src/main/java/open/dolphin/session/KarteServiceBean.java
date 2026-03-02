@@ -4,12 +4,14 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.lang.reflect.InvocationTargetException;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Consumer;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import jakarta.persistence.EntityManager;
@@ -17,6 +19,9 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import open.dolphin.converter.ModuleModelConverter;
 import open.dolphin.infomodel.*;
 import open.dolphin.rest.dto.RoutineMedicationResponse;
@@ -44,6 +49,7 @@ public class KarteServiceBean {
     private static final Logger LOGGER = LoggerFactory.getLogger(KarteServiceBean.class);
     private static final DateTimeFormatter ISO_INSTANT_FORMATTER = DateTimeFormatter.ISO_INSTANT;
     private static final DateTimeFormatter ISO_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC);
+    private static final String FINALIZED_UPDATE_DENIED_ERROR_CODE = "karte.document.finalized_update_denied";
     
     // parameters
     private static final String PATIENT_PK = "patientPk";
@@ -126,6 +132,10 @@ public class KarteServiceBean {
 
     @Inject
     private DiagnosisAuditRecorder diagnosisAuditRecorder;
+
+    @Inject
+    @Named("documentIntegrityService")
+    private Instance<Object> documentIntegrityService;
 
 //s.oh^ 2014/02/21 Claim送信方法の変更
     //@Resource(mappedName = "java:/JmsXA")
@@ -487,6 +497,8 @@ public class KarteServiceBean {
             .getResultList();
             document.setAttachment(attachments);
 
+            verifyDocumentOnRead(document);
+
             ret.add(document);
         }
         
@@ -531,6 +543,7 @@ public class KarteServiceBean {
         LOGGER.info("addDocument assigned seq id={}", document.getId());
 
         document = em.merge(document);
+        sealDocument(document);
         attachmentStorageManager.persistExternalAssets(document.getAttachment());
 
         // ID
@@ -591,6 +604,12 @@ public class KarteServiceBean {
             throw new IllegalArgumentException("Document not found: " + document.getId());
         }
 
+        String currentStatus = normalizeStatus(current.getStatus());
+        String requestedStatus = resolveRequestedStatus(document);
+        if (IInfoModel.STATUS_FINAL.equals(currentStatus)) {
+            throw finalizedUpdateDenied(document.getId(), currentStatus, requestedStatus);
+        }
+
         removeMissingModules(current.getModules(), document.getModules());
         removeMissingSchemas(current.getSchema(), document.getSchema());
         removeMissingAttachments(current.getAttachment(), document.getAttachment());
@@ -604,6 +623,7 @@ public class KarteServiceBean {
         }
 
         DocumentModel merged = em.merge(document);
+        sealDocument(merged);
         attachmentStorageManager.persistExternalAssets(merged.getAttachment());
         return merged.getId();
     }
@@ -1744,6 +1764,85 @@ public class KarteServiceBean {
             responses.add(new UserPropertyResponse(seq++, "ユーザーメモ", user.getMemo().trim(), null, "メモ", updatedAt));
         }
         return responses;
+    }
+
+    private void sealDocument(DocumentModel document) {
+        invokeDocumentIntegrityHook("sealDocument", document);
+    }
+
+    private void verifyDocumentOnRead(DocumentModel document) {
+        invokeDocumentIntegrityHook("verifyDocumentOnRead", document);
+    }
+
+    private void invokeDocumentIntegrityHook(String methodName, DocumentModel document) {
+        Object integrityService = resolveDocumentIntegrityService();
+        if (integrityService == null || document == null) {
+            return;
+        }
+        try {
+            integrityService.getClass()
+                    .getMethod(methodName, DocumentModel.class)
+                    .invoke(integrityService, document);
+        } catch (NoSuchMethodException ex) {
+            throw new IllegalStateException("DocumentIntegrityService missing method: " + methodName, ex);
+        } catch (IllegalAccessException ex) {
+            throw new IllegalStateException("Cannot access DocumentIntegrityService#" + methodName, ex);
+        } catch (InvocationTargetException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new IllegalStateException("DocumentIntegrityService#" + methodName + " failed", cause);
+        }
+    }
+
+    private Object resolveDocumentIntegrityService() {
+        if (documentIntegrityService == null || documentIntegrityService.isUnsatisfied()) {
+            return null;
+        }
+        if (documentIntegrityService.isAmbiguous()) {
+            throw new IllegalStateException("documentIntegrityService is ambiguous");
+        }
+        return documentIntegrityService.get();
+    }
+
+    private String resolveRequestedStatus(DocumentModel document) {
+        if (document == null) {
+            return null;
+        }
+        String status = normalizeStatus(document.getStatus());
+        if (status != null) {
+            return status;
+        }
+        DocInfoModel info = document.getDocInfoModel();
+        return info != null ? normalizeStatus(info.getStatus()) : null;
+    }
+
+    private String normalizeStatus(String status) {
+        if (status == null) {
+            return null;
+        }
+        String trimmed = status.trim();
+        return trimmed.isEmpty() ? null : trimmed.toUpperCase(Locale.ROOT);
+    }
+
+    private WebApplicationException finalizedUpdateDenied(long documentId,
+                                                          String currentStatus,
+                                                          String requestedStatus) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("documentId", documentId);
+        details.put("currentStatus", currentStatus);
+        details.put("requestedStatus", requestedStatus);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("errorCode", FINALIZED_UPDATE_DENIED_ERROR_CODE);
+        body.put("details", details);
+
+        Response response = Response.status(Response.Status.CONFLICT)
+                .type(MediaType.APPLICATION_JSON_TYPE)
+                .entity(body)
+                .build();
+        return new WebApplicationException("Finalized document update is denied", response);
     }
 
     private void removeMissingModules(List<ModuleModel> existing, List<ModuleModel> incoming) {
