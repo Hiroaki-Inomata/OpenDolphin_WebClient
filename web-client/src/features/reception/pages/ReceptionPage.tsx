@@ -5980,78 +5980,67 @@ export function ReceptionPage({
                                     <strong>{patient.name ?? '氏名未登録'}</strong>
                                     <span className="reception-patient-search__item-id">ID: {patient.patientId ?? '—'}</span>
                                   </div>
-                                  <div className="reception-patient-search__item-actions" role="group" aria-label="患者操作">
-                                    <button
-                                      type="button"
-                                      className="reception-search__button ghost"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        openMedicalRecordsModal({ patientId: patient.patientId, name: patient.name }, 'search');
-                                      }}
-                                      onKeyDown={(event) => {
-                                        event.stopPropagation();
-                                      }}
-                                      disabled={!resolvedPatientId}
-                                      title={
-                                        resolvedPatientId
-                                          ? '過去カルテをモーダルで確認'
-                                          : '患者IDが未登録のため過去カルテを表示できません'
-                                      }
-                                    >
-                                      過去カルテ
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="reception-search__button primary"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        if (!resolvedPatientId) return;
-                                        if (matchedTodayEntry) {
-                                          handleOpenCharts(matchedTodayEntry);
-                                          return;
-                                        }
-                                        const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
-                                        if (guardRunId) bumpRunId(guardRunId);
-                                        const visitDate = patient.lastVisit?.trim() || undefined;
-                                        appNav.openCharts({
-                                          encounter: { patientId: resolvedPatientId, visitDate },
-                                          carryover: receptionCarryover,
-                                          runId: guardRunId,
-                                          navigate: {
-                                            state: {
-                                              runId: guardRunId,
-                                              patientId: resolvedPatientId,
-                                              visitDate,
-                                            },
-                                          },
-                                        });
-                                      }}
-                                      onKeyDown={(event) => {
-                                        event.stopPropagation();
-                                      }}
-                                      disabled={!resolvedPatientId}
-                                      title={
-                                        resolvedPatientId
-                                          ? matchedTodayEntry
-                                            ? '当日のカルテを開く'
-                                            : '直近来院日のカルテを開く'
-                                          : '患者IDが未登録のためカルテを開けません'
-                                      }
-                                    >
-                                      カルテを開く
-                                    </button>
-                                  </div>
                                   {isSelected ? (
-                                    <div className="reception-patient-search__item-details" aria-label="患者詳細">
-                                      <div className="reception-patient-search__item-meta">
-                                        <span>患者ID: {patient.patientId ?? '—'}</span>
-                                        {patient.kana ? <span>カナ: {patient.kana}</span> : null}
-                                        {patient.birthDate ? <span>生年月日: {patient.birthDate}</span> : null}
-                                        {patient.sex ? <span>性別: {patient.sex}</span> : null}
-                                        {patient.insurance ? <span>保険: {patient.insurance}</span> : null}
-                                        {patient.lastVisit ? <span>直近: {patient.lastVisit}</span> : null}
-                                        {matchedEntry?.status ? <span>今日: {matchedEntry.status}</span> : null}
-                                      </div>
+                                    <div className="reception-patient-search__item-actions" role="group" aria-label="患者操作">
+                                      <button
+                                        type="button"
+                                        className="reception-search__button ghost"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          openMedicalRecordsModal({ patientId: patient.patientId, name: patient.name }, 'search');
+                                        }}
+                                        onKeyDown={(event) => {
+                                          event.stopPropagation();
+                                        }}
+                                        disabled={!resolvedPatientId}
+                                        title={
+                                          resolvedPatientId
+                                            ? '過去カルテをモーダルで確認'
+                                            : '患者IDが未登録のため過去カルテを表示できません'
+                                        }
+                                      >
+                                        過去カルテ
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="reception-search__button primary"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          if (!resolvedPatientId) return;
+                                          if (matchedTodayEntry) {
+                                            handleOpenCharts(matchedTodayEntry);
+                                            return;
+                                          }
+                                          const guardRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
+                                          if (guardRunId) bumpRunId(guardRunId);
+                                          const visitDate = patient.lastVisit?.trim() || undefined;
+                                          appNav.openCharts({
+                                            encounter: { patientId: resolvedPatientId, visitDate },
+                                            carryover: receptionCarryover,
+                                            runId: guardRunId,
+                                            navigate: {
+                                              state: {
+                                                runId: guardRunId,
+                                                patientId: resolvedPatientId,
+                                                visitDate,
+                                              },
+                                            },
+                                          });
+                                        }}
+                                        onKeyDown={(event) => {
+                                          event.stopPropagation();
+                                        }}
+                                        disabled={!resolvedPatientId}
+                                        title={
+                                          resolvedPatientId
+                                            ? matchedTodayEntry
+                                              ? '当日のカルテを開く'
+                                              : '直近来院日のカルテを開く'
+                                            : '患者IDが未登録のためカルテを開けません'
+                                        }
+                                      >
+                                        カルテを開く
+                                      </button>
                                     </div>
                                   ) : null}
                                 </div>
