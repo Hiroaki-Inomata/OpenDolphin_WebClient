@@ -22,6 +22,7 @@ describe('buildApiFailureBanner', () => {
   it('maps 403 to relogin guidance', () => {
     const banner = buildApiFailureBanner('受付一覧', { httpStatus: 403 }, '取得');
     expect(banner.tone).toBe('warning');
+    expect(banner.message).toContain('施設境界違反');
     expect(banner.nextAction).toBe('再ログイン');
     expect(banner.forceNextAction).toBe(true);
     expect(banner.reloginReason).toBe('forbidden');

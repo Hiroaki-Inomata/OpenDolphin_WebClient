@@ -36,6 +36,11 @@ const resolveCompositeUserId = (context: TouchAdmPhrContext) =>
 const resolvePatientId = (context: TouchAdmPhrContext) => context.patientId?.trim() || '00002';
 const resolvePatientPk = (context: TouchAdmPhrContext) => context.patientPk?.trim() || '1';
 const resolveAccessKey = (context: TouchAdmPhrContext) => context.accessKey?.trim() || 'ACCESS-KEY';
+const resolveIdentityNonce = (context: TouchAdmPhrContext) => {
+  const facilityId = resolveFacilityId(context);
+  const userId = resolveUserId(context);
+  return `${facilityId}:${userId}:touch-adm-phr`;
+};
 const resolveTouchPassword = () => {
   if (typeof localStorage !== 'undefined') {
     const stored = localStorage.getItem('devPasswordMd5');
@@ -201,6 +206,17 @@ export const TOUCH_ADM_PHR_ENDPOINTS: readonly TouchAdmPhrEndpoint[] = [
     description: 'PHR 患者キー取得。',
     buildPath: (context) => `/20/adm/phr/patient/${resolvePatientId(context)}`,
     accept: 'application/octet-stream',
+  },
+  {
+    id: 'phr-identity-token',
+    group: 'phr',
+    label: '/20/adm/phr/identityToken',
+    method: 'POST',
+    description: 'PHR Identity トークン取得。',
+    buildPath: () => '/20/adm/phr/identityToken',
+    buildBody: (context) => JSON.stringify({ nonce: resolveIdentityNonce(context) }),
+    defaultContentType: 'text',
+    accept: 'text/plain',
   },
   {
     id: 'demo-user',

@@ -227,31 +227,39 @@ describe('httpFetch session expiry reasons', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
     const { httpClient } = await importSubjects();
 
+    const expectBasicAuthOnly = (headers: Headers) => {
+      expect(headers.get('Authorization')).toMatch(/^Basic\s+/);
+      expect(headers.has('userName')).toBe(false);
+      expect(headers.has('password')).toBe(false);
+      expect(headers.has('clientUUID')).toBe(false);
+    };
+
     await httpClient.httpFetch('/api/admin/orca/connection', { method: 'GET' });
-    const hasLegacyAuthHeaders = (headers: Headers) =>
-      headers.has('Authorization') || headers.has('userName') || headers.has('password');
     const adminHeaders = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expect(hasLegacyAuthHeaders(adminHeaders)).toBe(true);
+    expectBasicAuthOnly(adminHeaders);
 
     await httpClient.httpFetch('/orca/appointments/list', { method: 'GET' });
     const orcaHeaders = new Headers((fetchSpy.mock.calls[1]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expect(hasLegacyAuthHeaders(orcaHeaders)).toBe(true);
+    expectBasicAuthOnly(orcaHeaders);
 
     await httpClient.httpFetch('/api/chart-events', { method: 'GET' });
     const chartHeaders = new Headers((fetchSpy.mock.calls[2]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expect(hasLegacyAuthHeaders(chartHeaders)).toBe(true);
+    expectBasicAuthOnly(chartHeaders);
 
     await httpClient.httpFetch('/api/realtime/reception', { method: 'GET' });
     const realtimeHeaders = new Headers((fetchSpy.mock.calls[3]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expect(hasLegacyAuthHeaders(realtimeHeaders)).toBe(true);
+    expectBasicAuthOnly(realtimeHeaders);
 
     await httpClient.httpFetch('/karte/pid/00001,2000-01-01%2000%3A00%3A00', { method: 'GET' });
     const karteHeaders = new Headers((fetchSpy.mock.calls[4]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expect(hasLegacyAuthHeaders(karteHeaders)).toBe(true);
+    expectBasicAuthOnly(karteHeaders);
 
     await httpClient.httpFetch('/api/healthz', { method: 'GET' });
     const nonOrcaHeaders = new Headers((fetchSpy.mock.calls[5]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expect(hasLegacyAuthHeaders(nonOrcaHeaders)).toBe(false);
+    expect(nonOrcaHeaders.has('Authorization')).toBe(false);
+    expect(nonOrcaHeaders.has('userName')).toBe(false);
+    expect(nonOrcaHeaders.has('password')).toBe(false);
+    expect(nonOrcaHeaders.has('clientUUID')).toBe(false);
   });
 
   it('attaches auth headers for /api/orcaNN endpoints in DEV', async () => {
@@ -262,7 +270,10 @@ describe('httpFetch session expiry reasons', () => {
 
     await httpClient.httpFetch('/api/orca102/medicatonmodv2', { method: 'POST' });
     const headers = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expect(headers.has('Authorization') || headers.has('userName') || headers.has('password')).toBe(true);
+    expect(headers.get('Authorization')).toMatch(/^Basic\s+/);
+    expect(headers.has('userName')).toBe(false);
+    expect(headers.has('password')).toBe(false);
+    expect(headers.has('clientUUID')).toBe(false);
   });
 
   it('prefers tab-local auth after re-login when localStorage has stale credentials', async () => {
@@ -286,13 +297,12 @@ describe('httpFetch session expiry reasons', () => {
     await httpClient.httpFetch('/orca/appointments/list', { method: 'GET' });
     const headers = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
     const authorization = headers.get('Authorization');
-    if (authorization) {
-      const token = authorization.replace(/^Basic\s+/i, '');
-      expect(atob(token)).toBe('ormaster:change_me');
-    } else {
-      expect(headers.get('userName')).toBe('f001:ormaster');
-    }
-    expect(headers.get('X-Facility-Id')).toBe('f001');
+    expect(authorization).toMatch(/^Basic\s+/);
+    const token = (authorization ?? '').replace(/^Basic\s+/i, '');
+    expect(atob(token)).toBe('ormaster:change_me');
+    expect(headers.has('userName')).toBe(false);
+    expect(headers.has('password')).toBe(false);
+    expect(headers.has('clientUUID')).toBe(false);
   });
 
   it('does not notify for /api21 and /blobapi endpoints on 401/403', async () => {

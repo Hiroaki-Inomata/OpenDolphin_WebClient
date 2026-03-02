@@ -3,7 +3,6 @@ import { applyObservabilityHeaders, captureObservabilityFromResponse } from '../
 import { notifySessionExpired } from '../session/sessionExpiry';
 import { readStoredSession } from '../session/storedSession';
 
-export const isLegacyHeaderAuthEnabled = () => import.meta.env.VITE_ENABLE_LEGACY_HEADER_AUTH === '1';
 export const isFacilityHeaderEnabled = () => import.meta.env.VITE_ENABLE_FACILITY_HEADER === '1';
 
 type StoredAuth = {
@@ -84,18 +83,7 @@ function applyAuthHeaders(init?: RequestInit, pathname?: string | null): Request
 
   const headers = new Headers(init?.headers ?? {});
 
-  if (isLegacyHeaderAuthEnabled()) {
-    // 標準認証移行後はヘッダー認証を送らない。開発検証でのみ env で明示的に有効化する。
-    if (!headers.has('userName')) {
-      headers.set('userName', `${stored.facilityId}:${stored.userId}`);
-    }
-    if (!headers.has('password') && stored.passwordMd5) {
-      headers.set('password', stored.passwordMd5);
-    }
-    if (!headers.has('clientUUID') && stored.clientUuid) {
-      headers.set('clientUUID', stored.clientUuid);
-    }
-  } else if ((stored.passwordPlain || stored.passwordMd5) && !headers.has('Authorization')) {
+  if ((stored.passwordPlain || stored.passwordMd5) && !headers.has('Authorization')) {
     // Basic 認証は plain パスワードを優先し、存在しない場合は MD5 を使用する。
     const password = stored.passwordPlain ?? stored.passwordMd5 ?? '';
     const token = btoa(unescape(encodeURIComponent(`${stored.userId}:${password}`)));

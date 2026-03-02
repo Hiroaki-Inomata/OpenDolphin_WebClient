@@ -102,7 +102,7 @@ const resolveMessageBase = (subject: string, operation: string, kind: ApiErrorKi
     return `${subject}の${operation}に失敗しました。セッションが切れました。再ログインしてください。`;
   }
   if (kind === 'http' && status === 403) {
-    return `${subject}の${operation}に失敗しました。権限不足のためアクセスできません。権限を確認して再ログインしてください。`;
+    return `${subject}の${operation}に失敗しました。権限不足または施設境界違反の可能性があるためアクセスできません。権限と施設を確認して再ログインしてください。`;
   }
   if (kind === 'http' && typeof status === 'number' && status >= 500) {
     return `${subject}の${operation}に失敗しました。サーバー側で障害が発生しています。`;

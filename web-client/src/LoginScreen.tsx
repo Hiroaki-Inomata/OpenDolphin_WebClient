@@ -3,7 +3,7 @@ import type { ChangeEvent, FormEvent } from 'react';
 import CryptoJS from 'crypto-js';
 import { v4 as uuidv4 } from 'uuid';
 
-import { httpFetch, isLegacyHeaderAuthEnabled } from './libs/http/httpClient';
+import { httpFetch } from './libs/http/httpClient';
 import { generateRunId, updateObservabilityMeta } from './libs/observability/observability';
 import { consumeSessionExpiredNotice } from './libs/session/sessionExpiry';
 import { logAuditEvent } from './libs/audit/auditLogger';
@@ -364,10 +364,7 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
 };
 
 const performLogin = async (payload: LoginFormValues, runId: string): Promise<LoginResult> => {
-  const passwordMd5 = hashPasswordMd5(payload.password);
   const clientUuid = createClientUuid(payload.clientUuid);
-  const forceLegacyHeaderAuth = isLegacyHeaderAuthEnabled();
-  const allowLegacyFallback = import.meta.env.VITE_ALLOW_LEGACY_HEADER_AUTH_FALLBACK === '1';
 
   const buildStandardHeaders = (): HeadersInit => {
     // Basic 認証ユーザー名は userId（施設IDはリクエストパスから解決）、パスワードは平文を使用する。
@@ -380,29 +377,16 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
     };
   };
 
-  const buildLegacyHeaders = (): HeadersInit => {
-    const basicUser = payload.userId;
-    const token = btoa(unescape(encodeURIComponent(`${basicUser}:${payload.password}`)));
-    return {
-      Authorization: `Basic ${token}`,
-      'X-Run-Id': runId,
-      'X-Facility-Id': payload.facilityId,
-      userName: `${payload.facilityId}:${payload.userId}`,
-      password: passwordMd5,
-      clientUUID: clientUuid,
-    };
-  };
-
   const timeoutMs = resolveLoginTimeoutMs();
-  const sendLogin = async (legacy: boolean, signal?: AbortSignal) =>
+  const sendLogin = async (signal?: AbortSignal) =>
     httpFetch(formatEndpoint(payload.facilityId, payload.userId), {
       method: 'GET',
-      headers: legacy ? buildLegacyHeaders() : buildStandardHeaders(),
+      headers: buildStandardHeaders(),
       credentials: 'include',
       signal,
     });
 
-  const executeWithTimeout = async (legacy: boolean) => {
+  const executeWithTimeout = async () => {
     const endpoint = formatEndpoint(payload.facilityId, payload.userId);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -411,21 +395,18 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
         endpoint,
         protocol: typeof window !== 'undefined' ? window.location.protocol : 'unknown',
         attempt: 'pending',
-        legacy,
       });
     };
     controller.signal.addEventListener('abort', abortListener);
     console.info('[login][/api/user] request start', {
       endpoint,
-      legacy,
       timeoutMs,
       protocol: typeof window !== 'undefined' ? window.location.protocol : 'unknown',
     });
     try {
-      const response = await sendLogin(legacy, controller.signal);
+      const response = await sendLogin(controller.signal);
       console.info('[login][/api/user] request complete', {
         endpoint,
-        legacy,
         status: response.status,
         ok: response.ok,
       });
@@ -456,15 +437,7 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
   const maxAttempts = 2;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      if (forceLegacyHeaderAuth && !allowLegacyFallback) {
-        response = await executeWithTimeout(true);
-      } else {
-        response = await executeWithTimeout(false);
-        if (!response.ok && (forceLegacyHeaderAuth || allowLegacyFallback)) {
-          // 旧ヘッダ認証が必要な開発環境向けフォールバック
-          response = await executeWithTimeout(true);
-        }
-      }
+      response = await executeWithTimeout();
       break;
     } catch (error) {
       try {
