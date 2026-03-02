@@ -7,14 +7,17 @@ import static org.mockito.Mockito.*;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.WebApplicationException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import open.dolphin.infomodel.StampModel;
+import open.dolphin.infomodel.UserModel;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.StampServiceBean;
+import open.dolphin.session.UserServiceBean;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,8 +32,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class StampResourceTest {
 
+    private static final long ACTOR_USER_PK = 101L;
+
     @Mock
     StampServiceBean stampServiceBean;
+
+    @Mock
+    UserServiceBean userServiceBean;
 
     @Mock
     AuditTrailService auditTrailService;
@@ -51,6 +59,7 @@ class StampResourceTest {
     void setUp() {
         lenient().when(httpServletRequest.getHeader(anyString())).thenReturn(null);
         lenient().when(httpServletRequest.getRemoteUser()).thenReturn("FAC001:user01");
+        lenient().when(userServiceBean.getUser("FAC001:user01")).thenReturn(actorUser());
         lenient().when(httpServletRequest.getRemoteAddr()).thenReturn("127.0.0.1");
         lenient().when(httpServletRequest.getHeader("User-Agent")).thenReturn("JUnit");
         lenient().when(httpServletRequest.getHeader("X-Request-Id")).thenReturn("req-1");
@@ -61,7 +70,7 @@ class StampResourceTest {
     @Test
     void deleteStampRecordsAuditOnSuccess() {
         when(httpServletRequest.getRequestURI()).thenReturn("/stamp/id/1");
-        when(stampServiceBean.getStamp("1")).thenReturn(new StampModel());
+        when(stampServiceBean.getStamp("1")).thenReturn(stamp("1", ACTOR_USER_PK));
         when(stampServiceBean.removeStamp("1")).thenReturn(1);
         SessionTraceContext trace = new SessionTraceContext("trace-1", Instant.now(), "DELETE_STAMP", Map.of());
         when(sessionTraceManager.current()).thenReturn(trace);
@@ -102,7 +111,7 @@ class StampResourceTest {
             List<String> ids = invocation.getArgument(0);
             List<StampModel> models = new ArrayList<>();
             for (String id : ids) {
-                models.add(new StampModel());
+                models.add(stamp(id, ACTOR_USER_PK));
             }
             return models;
         });
@@ -126,7 +135,7 @@ class StampResourceTest {
             List<String> ids = invocation.getArgument(0);
             List<StampModel> models = new ArrayList<>();
             for (String id : ids) {
-                models.add("2".equals(id) ? null : new StampModel());
+                models.add("2".equals(id) ? null : stamp(id, ACTOR_USER_PK));
             }
             return models;
         });
@@ -138,6 +147,54 @@ class StampResourceTest {
         assertThat(details.get("status")).isEqualTo("failed");
         assertThat(details.get("reason")).isEqualTo("missing_ids:2");
         assertThat(stampIds(details)).containsExactly("1", "2");
+    }
+
+    @Test
+    void getStampTreeReturnsForbiddenWhenOtherUserPkSpecified() {
+        assertForbidden(() -> resource.getStampTree(String.valueOf(ACTOR_USER_PK + 1)));
+        verifyNoInteractions(stampServiceBean);
+    }
+
+    @Test
+    void getStampReturnsForbiddenWhenOwnerMismatchesActor() {
+        when(stampServiceBean.getStamp("other-stamp")).thenReturn(stamp("other-stamp", ACTOR_USER_PK + 1));
+
+        assertForbidden(() -> resource.getStamp("other-stamp"));
+    }
+
+    @Test
+    void putStampOverridesPayloadUserIdWithActorUserPk() throws Exception {
+        String json = "{\"id\":\"s-1\",\"userId\":999,\"entity\":\"med_order\",\"stampBytes\":\"AQ==\"}";
+        when(stampServiceBean.putStampForActor(any(StampModel.class), anyLong())).thenReturn("s-1");
+
+        resource.putStamp(json);
+
+        var stampCaptor = org.mockito.ArgumentCaptor.forClass(StampModel.class);
+        var userPkCaptor = org.mockito.ArgumentCaptor.forClass(Long.class);
+        verify(stampServiceBean).putStampForActor(stampCaptor.capture(), userPkCaptor.capture());
+        assertThat(userPkCaptor.getValue()).isEqualTo(ACTOR_USER_PK);
+        assertThat(stampCaptor.getValue().getUserId()).isEqualTo(ACTOR_USER_PK);
+    }
+
+    private static void assertForbidden(org.assertj.core.api.ThrowableAssert.ThrowingCallable callable) {
+        assertThatThrownBy(callable)
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> assertThat(((WebApplicationException) ex).getResponse().getStatus()).isEqualTo(403));
+    }
+
+    private static UserModel actorUser() {
+        UserModel actor = new UserModel();
+        actor.setId(ACTOR_USER_PK);
+        actor.setUserId("FAC001:user01");
+        actor.setCommonName("user01");
+        return actor;
+    }
+
+    private static StampModel stamp(String id, long userPk) {
+        StampModel model = new StampModel();
+        model.setId(id);
+        model.setUserId(userPk);
+        return model;
     }
 
     @SuppressWarnings("unchecked")
