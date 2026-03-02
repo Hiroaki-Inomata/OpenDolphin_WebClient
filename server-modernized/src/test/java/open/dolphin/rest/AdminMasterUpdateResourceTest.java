@@ -51,7 +51,7 @@ class AdminMasterUpdateResourceTest {
     @Test
     void listDatasetsRejectsWhenNotAdmin() {
         when(request.getRemoteUser()).thenReturn("FACILITY:testuser");
-        when(userServiceBean.isAdmin("FACILITY:testuser", null)).thenReturn(false);
+        when(userServiceBean.isAdmin("FACILITY:testuser")).thenReturn(false);
         try {
             resource.listDatasets(request);
             fail("Expected WebApplicationException");
@@ -64,7 +64,7 @@ class AdminMasterUpdateResourceTest {
     void listDatasetsReturnsBodyForAdmin() {
         when(request.getHeader("X-Run-Id")).thenReturn("RUN-MASTER");
         when(request.getRemoteUser()).thenReturn("FACILITY:admin");
-        when(userServiceBean.isAdmin("FACILITY:admin", null)).thenReturn(true);
+        when(userServiceBean.isAdmin("FACILITY:admin")).thenReturn(true);
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("runId", "RUN-MASTER");
@@ -83,7 +83,7 @@ class AdminMasterUpdateResourceTest {
     void runDatasetReturnsNotFoundWhenServiceThrows() {
         when(request.getHeader("X-Run-Id")).thenReturn("RUN-MASTER");
         when(request.getRemoteUser()).thenReturn("FACILITY:admin");
-        when(userServiceBean.isAdmin("FACILITY:admin", null)).thenReturn(true);
+        when(userServiceBean.isAdmin("FACILITY:admin")).thenReturn(true);
 
         when(masterUpdateService.runDataset("unknown", "MANUAL", "FACILITY:admin", "RUN-MASTER", false))
                 .thenThrow(new MasterUpdateService.MasterUpdateException(404, "dataset_not_found", "not found"));

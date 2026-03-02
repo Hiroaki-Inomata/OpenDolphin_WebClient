@@ -55,7 +55,7 @@ class AdminOrcaConnectionResourceTest {
     @Test
     void getConfigRejectsWhenNotAdmin() {
         when(request.getRemoteUser()).thenReturn("FACILITY:testuser");
-        when(userServiceBean.isAdmin("FACILITY:testuser", null)).thenReturn(false);
+        when(userServiceBean.isAdmin("FACILITY:testuser")).thenReturn(false);
 
         try {
             resource.getConfig(request);
@@ -69,7 +69,7 @@ class AdminOrcaConnectionResourceTest {
     void getConfigReturnsMaskedConfigForAdmin() {
         when(request.getHeader("X-Run-Id")).thenReturn("RUN-ORCA");
         when(request.getRemoteUser()).thenReturn("FACILITY:admin");
-        when(userServiceBean.isAdmin("FACILITY:admin", null)).thenReturn(true);
+        when(userServiceBean.isAdmin("FACILITY:admin")).thenReturn(true);
 
         OrcaConnectionConfigRecord record = new OrcaConnectionConfigRecord();
         record.setUseWeborca(Boolean.TRUE);

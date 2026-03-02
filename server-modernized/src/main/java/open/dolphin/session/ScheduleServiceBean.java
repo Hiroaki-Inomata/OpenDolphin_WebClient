@@ -1,8 +1,5 @@
 package open.dolphin.session;
 
-import java.beans.XMLDecoder;
-import java.io.BufferedInputStream;
-import java.io.ByteArrayInputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -40,6 +37,7 @@ import open.dolphin.session.framework.SessionTraceAttributes;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
 import open.dolphin.security.audit.SessionAuditDispatcher;
+import open.dolphin.security.xml.SafeXmlDecoder;
 import open.dolphin.touch.converter.IOSHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -204,10 +202,7 @@ public class ScheduleServiceBean {
             // 受け付けた保険をデコードする
             PVTHealthInsuranceModel pvtHealthInsurance=null;
             for (HealthInsuranceModel m : insurances) {
-                XMLDecoder d = new XMLDecoder(
-                    new BufferedInputStream(
-                    new ByteArrayInputStream(m.getBeanBytes())));
-                pvtHealthInsurance = (PVTHealthInsuranceModel)d.readObject();
+                pvtHealthInsurance = SafeXmlDecoder.decode(m.getBeanBytes(), PVTHealthInsuranceModel.class);
                 break;
             }
             
@@ -395,7 +390,6 @@ public class ScheduleServiceBean {
         } catch (Exception e) {
             failure = e;
             LOGGER.error("Failed to create schedule entry", e);
-            e.printStackTrace(System.err);
             return 0;
         } finally {
             writeScheduleAudit("SCHEDULE_CREATE", auditDetails, failure, auditPatientId);

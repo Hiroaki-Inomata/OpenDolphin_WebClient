@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Safe wrapper for XMLDecoder with input and class loading restrictions.
@@ -52,15 +53,17 @@ public final class SafeXmlDecoder {
             parent = SafeXmlDecoder.class.getClassLoader();
         }
         ClassLoader allowlistLoader = new AllowlistClassLoader(parent);
+        AtomicReference<Exception> listenerFailure = new AtomicReference<>();
         try (XMLDecoder decoder = new XMLDecoder(
                 new BufferedInputStream(new ByteArrayInputStream(bytes)),
                 null,
-                ex -> {
-                    throw new IllegalArgumentException("XML decode failed", ex);
-                },
+                listenerFailure::set,
                 allowlistLoader)) {
             Object decoded = decoder.readObject();
             assertAllowlistedDecodedObject(decoded);
+            if (decoded == null && listenerFailure.get() != null) {
+                throw new IllegalArgumentException("XML decode failed", listenerFailure.get());
+            }
             return decoded;
         } catch (RuntimeException ex) {
             throw new IllegalArgumentException("XML decode failed", ex);

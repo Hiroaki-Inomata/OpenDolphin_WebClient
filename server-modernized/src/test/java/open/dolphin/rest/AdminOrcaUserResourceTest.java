@@ -58,7 +58,7 @@ class AdminOrcaUserResourceTest {
     @Test
     void listOrcaUsersRejectsWhenNotAdmin() {
         when(request.getRemoteUser()).thenReturn("FACILITY:testuser");
-        when(userServiceBean.isAdmin("FACILITY:testuser", null)).thenReturn(false);
+        when(userServiceBean.isAdmin("FACILITY:testuser")).thenReturn(false);
 
         try {
             resource.listOrcaUsers(request);
@@ -72,7 +72,7 @@ class AdminOrcaUserResourceTest {
     void listOrcaUsersReturnsUsersForAdmin() {
         when(request.getHeader("X-Run-Id")).thenReturn("RUN-ORCA-USERS");
         when(request.getRemoteUser()).thenReturn("FACILITY:admin");
-        when(userServiceBean.isAdmin("FACILITY:admin", null)).thenReturn(true);
+        when(userServiceBean.isAdmin("FACILITY:admin")).thenReturn(true);
         when(orcaTransport.invokeDetailed(eq(OrcaEndpoint.MANAGE_USERS), any(OrcaTransportRequest.class)))
                 .thenReturn(okManageUsersResponse());
 
@@ -104,7 +104,7 @@ class AdminOrcaUserResourceTest {
     void syncOrcaUsersReturnsSyncedCountForAdmin() {
         when(request.getHeader("X-Run-Id")).thenReturn("RUN-ORCA-SYNC");
         when(request.getRemoteUser()).thenReturn("FACILITY:admin");
-        when(userServiceBean.isAdmin("FACILITY:admin", null)).thenReturn(true);
+        when(userServiceBean.isAdmin("FACILITY:admin")).thenReturn(true);
         when(orcaTransport.invokeDetailed(eq(OrcaEndpoint.MANAGE_USERS), any(OrcaTransportRequest.class)))
                 .thenReturn(okManageUsersResponse());
 
@@ -125,7 +125,7 @@ class AdminOrcaUserResourceTest {
     @Test
     void createOrcaUserRejectsInvalidUserId() {
         when(request.getRemoteUser()).thenReturn("FACILITY:admin");
-        when(userServiceBean.isAdmin("FACILITY:admin", null)).thenReturn(true);
+        when(userServiceBean.isAdmin("FACILITY:admin")).thenReturn(true);
 
         try {
             resource.createOrcaUser(

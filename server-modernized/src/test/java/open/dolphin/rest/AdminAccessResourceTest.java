@@ -52,7 +52,7 @@ class AdminAccessResourceTest {
     void listUsersRejectsWhenNotAdmin() {
         when(request.getHeader("X-Run-Id")).thenReturn("RUN-TEST");
         when(request.getRemoteUser()).thenReturn("FACILITY:testuser");
-        when(userServiceBean.isAdmin("FACILITY:testuser", null)).thenReturn(false);
+        when(userServiceBean.isAdmin("FACILITY:testuser")).thenReturn(false);
         try {
             resource.listUsers(request);
             fail("Expected WebApplicationException");
@@ -65,7 +65,7 @@ class AdminAccessResourceTest {
     void listUsersReturnsEmptyListForAdmin() {
         when(request.getHeader("X-Run-Id")).thenReturn("RUN-TEST");
         when(request.getRemoteUser()).thenReturn("FACILITY:admin");
-        when(userServiceBean.isAdmin("FACILITY:admin", null)).thenReturn(true);
+        when(userServiceBean.isAdmin("FACILITY:admin")).thenReturn(true);
         when(userServiceBean.getAllUser("FACILITY")).thenReturn(List.of());
 
         Response response = resource.listUsers(request);

@@ -1,9 +1,6 @@
 package open.dolphin.session;
 
-import java.beans.XMLDecoder;
-import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -34,6 +31,7 @@ import jakarta.transaction.Transactional;
 import open.dolphin.infomodel.*;
 import open.dolphin.mbean.KanaToAscii;
 import open.dolphin.mbean.ServletContextHolder;
+import open.dolphin.security.xml.SafeXmlDecoder;
 import open.dolphin.session.framework.SessionOperation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -531,15 +529,11 @@ public class PVTServiceBean {
         if (bytes == null || bytes.length == 0) {
             return null;
         }
-        try (XMLDecoder decoder = new XMLDecoder(new BufferedInputStream(new ByteArrayInputStream(bytes)))) {
-            Object decoded = decoder.readObject();
-            if (decoded instanceof PVTHealthInsuranceModel insurance) {
-                return insurance;
-            }
-        } catch (Exception ignore) {
+        try {
+            return SafeXmlDecoder.decode(bytes, PVTHealthInsuranceModel.class);
+        } catch (IllegalArgumentException ignore) {
             return null;
         }
-        return null;
     }
 
     private static String joinInsuranceKey(String... parts) {

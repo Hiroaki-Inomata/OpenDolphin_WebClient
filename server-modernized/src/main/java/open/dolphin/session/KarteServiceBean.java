@@ -891,7 +891,7 @@ public class KarteServiceBean {
             PatientVisitModel exist = (PatientVisitModel) em.find(PatientVisitModel.class, new Long(pvtPK));
             exist.setState(state);
         } catch (Throwable e) {
-            e.printStackTrace(System.err);
+            LOGGER.warn("Failed to update PVT state [pvtPK={}, state={}]", pvtPK, state, e);
         }
 
         return id;

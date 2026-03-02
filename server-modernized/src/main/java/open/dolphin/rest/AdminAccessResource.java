@@ -357,7 +357,7 @@ public class AdminAccessResource extends AbstractResource {
                     "unauthorized", "Authentication required");
             throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required");
         }
-        if (!userServiceBean.isAdmin(actor, null)) {
+        if (!userServiceBean.isAdmin(actor)) {
             recordAudit(request, "ADMIN_ACCESS_DENIED", AuditEventEnvelope.Outcome.FAILURE, runId,
                     Map.of("operation", "access", "actor", actor, "reason", "forbidden", "status", 403),
                     "forbidden", "Admin role required");

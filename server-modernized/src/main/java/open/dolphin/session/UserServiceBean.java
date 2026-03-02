@@ -312,11 +312,6 @@ public class UserServiceBean {
         return ret;
     }
 
-    @Deprecated
-    public boolean isAdmin(String userId, String password) {
-        return isAdmin(userId);
-    }
-    
     public boolean checkAuthority(String userId, String password, Collection<RoleModel> checkRoles) {
         boolean err = false;
         try {

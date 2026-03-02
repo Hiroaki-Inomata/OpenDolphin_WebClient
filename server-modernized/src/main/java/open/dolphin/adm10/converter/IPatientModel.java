@@ -1,8 +1,5 @@
 package open.dolphin.adm10.converter;
 
-import java.beans.XMLDecoder;
-import java.io.BufferedInputStream;
-import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.List;
 import open.dolphin.converter.IInfoModelConverter;
@@ -12,6 +9,7 @@ import open.dolphin.infomodel.HealthInsuranceModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.PVTHealthInsuranceModel;
 import open.dolphin.infomodel.PatientModel;
+import open.dolphin.security.xml.SafeXmlDecoder;
 
 /**
  *
@@ -157,6 +155,9 @@ public final class IPatientModel implements IInfoModelConverter {
         for (HealthInsuranceModel hm : list) {
             // PVTHealthInsuranceに戻す
             PVTHealthInsuranceModel hModel = (PVTHealthInsuranceModel)xmlDecode(hm.getBeanBytes());
+            if (hModel == null) {
+                continue;
+            }
             // そのコンバーターを作成し
             PVTHealthInsuranceModelConverter conv = new PVTHealthInsuranceModelConverter();
             conv.setModel(hModel);
@@ -173,11 +174,10 @@ public final class IPatientModel implements IInfoModelConverter {
     }
     
     private Object xmlDecode(byte[] bytes)  {
-
-        XMLDecoder d = new XMLDecoder(
-                new BufferedInputStream(
-                new ByteArrayInputStream(bytes)));
-
-        return d.readObject();
+        try {
+            return SafeXmlDecoder.decode(bytes);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
     }
 }

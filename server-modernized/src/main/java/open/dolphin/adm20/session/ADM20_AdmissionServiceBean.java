@@ -1,8 +1,5 @@
 package open.dolphin.adm20.session;
 
-import java.beans.XMLDecoder;
-import java.io.BufferedInputStream;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -36,6 +33,7 @@ import open.dolphin.infomodel.ProgressCourse;
 import open.dolphin.infomodel.RegisteredDiagnosisModel;
 import open.dolphin.infomodel.SchemaModel;
 import open.dolphin.infomodel.UserModel;
+import open.dolphin.security.xml.SafeXmlDecoder;
 import open.dolphin.session.audit.DiagnosisAuditRecorder;
 import open.dolphin.session.framework.SessionOperation;
 //import org.jboss.logging.Logger;
@@ -312,10 +310,7 @@ public class ADM20_AdmissionServiceBean {
         // 受け付けた保険をデコードする
         PVTHealthInsuranceModel pvtHealthInsurance=null;
         for (HealthInsuranceModel m : insurances) {
-            XMLDecoder d = new XMLDecoder(
-                new BufferedInputStream(
-                new ByteArrayInputStream(m.getBeanBytes())));
-            pvtHealthInsurance = (PVTHealthInsuranceModel)d.readObject();
+            pvtHealthInsurance = SafeXmlDecoder.decode(m.getBeanBytes(), PVTHealthInsuranceModel.class);
             break;
         }
         //--------------------------------------------------------------------------------

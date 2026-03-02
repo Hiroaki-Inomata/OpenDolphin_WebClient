@@ -413,7 +413,7 @@ public class AdminOrcaConnectionResource extends AbstractResource {
         if (actor == null || actor.isBlank()) {
             throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required");
         }
-        if (userServiceBean == null || !userServiceBean.isAdmin(actor, null)) {
+        if (userServiceBean == null || !userServiceBean.isAdmin(actor)) {
             throw restError(request, Response.Status.FORBIDDEN, "forbidden", "管理者権限が必要です。");
         }
         return actor;
