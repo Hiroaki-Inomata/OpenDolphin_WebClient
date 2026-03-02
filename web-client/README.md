@@ -72,7 +72,8 @@ src/
 
 ### 開発時のセキュリティ関連フラグ
 - `VITE_DEV_PROXY_INSECURE_TLS=1` は、自己署名証明書の接続が必要なローカル検証時にのみ利用してください。通常は `0` のまま運用します。
-- perf ログ保存は `VITE_ENABLE_PREVIEW_PERF_LOG_SINK=1` を付けて `npm run preview` した場合のみ有効です。`/__perf-log` は localhost（`127.0.0.1` / `::1` / `::ffff:127.0.0.1`）限定で、payload は 64KB 上限です。
+- `?perf=1` で web-vitals を `POST /__perf-log` へ送信しても、`VITE_ENABLE_PREVIEW_PERF_LOG_SINK=1` を付けて `npm run preview` しない限り保存されません。
+- `VITE_ENABLE_PREVIEW_PERF_LOG_SINK=1` 有効時でも `POST /__perf-log` は localhost（`127.0.0.1` / `::1` / `::ffff:127.0.0.1`）限定で、payload は 64KB 上限です。
 
 ### 本番/ステージ環境の分離
 - Stage: `web-client/.env.stage.example` を `.env.stage` として作成し、`npm run dev:stage`（`--env-file .env.stage`）で起動します。

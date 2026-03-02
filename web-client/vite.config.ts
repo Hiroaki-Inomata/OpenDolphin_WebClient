@@ -258,7 +258,7 @@ export default defineConfig(({ mode }) => {
               if (bodySize > PERF_LOG_MAX_PAYLOAD_BYTES) {
                 payloadTooLarge = true;
                 res.statusCode = 413;
-                res.end('Payload Too Large');
+                res.end();
                 req.destroy();
                 return;
               }
