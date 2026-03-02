@@ -70,6 +70,10 @@ src/
 ## 環境変数
 `.env.sample` を参照してください。最低限 `VITE_API_BASE_URL` を同一オリジンの `/api` に設定します（未指定時の既定値も `/api`）。
 
+### 開発時のセキュリティ関連フラグ
+- `VITE_DEV_PROXY_INSECURE_TLS=1` は、自己署名証明書の接続が必要なローカル検証時にのみ利用してください。通常は `0` のまま運用します。
+- perf ログ保存は `VITE_ENABLE_PREVIEW_PERF_LOG_SINK=1` を付けて `npm run preview` した場合のみ有効です。`/__perf-log` は localhost（`127.0.0.1` / `::1` / `::ffff:127.0.0.1`）限定で、payload は 64KB 上限です。
+
 ### 本番/ステージ環境の分離
 - Stage: `web-client/.env.stage.example` を `.env.stage` として作成し、`npm run dev:stage`（`--env-file .env.stage`）で起動します。
 - Prod: `web-client/.env.prod.example` を基にデプロイ先の環境変数（または `.env.prod`）を用意し、`VITE_DISABLE_MSW=1` を固定します。

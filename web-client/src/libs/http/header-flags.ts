@@ -120,6 +120,15 @@ export function resolveHeaderOverrides(): HeaderOverrideFlags {
   const envDelay =
     typeof delayRaw === 'string' && delayRaw.trim().length > 0 ? Number(delayRaw) : undefined;
 
+  if (!import.meta.env.DEV) {
+    return {
+      useMockOrcaQueue: envMock,
+      verifyAdminDelivery: envVerify,
+      mswFault: envFault,
+      mswDelayMs: Number.isFinite(envDelay as number) ? (envDelay as number) : undefined,
+    };
+  }
+
   const storedMock = readStoredFlag('useMockOrcaQueue');
   const storedVerify = readStoredFlag('verifyAdminDelivery');
   const storedFault = readStoredFlag('mswFault');
@@ -139,6 +148,16 @@ export function resolveHeaderOverrides(): HeaderOverrideFlags {
 export function resolveHeaderFlags(): HeaderFlags {
   // 優先度: env > localStorage > デフォルト false
   const envFlags = readHeaderFlagsFromEnv();
+
+  if (!import.meta.env.DEV) {
+    return {
+      useMockOrcaQueue: envFlags.useMockOrcaQueue,
+      verifyAdminDelivery: envFlags.verifyAdminDelivery,
+      mswFault: envFlags.mswFault,
+      mswDelayMs: envFlags.mswDelayMs,
+    };
+  }
+
   const storedMock = localStorage.getItem('useMockOrcaQueue');
   const storedVerify = localStorage.getItem('verifyAdminDelivery');
   const storedFault = localStorage.getItem('mswFault');
