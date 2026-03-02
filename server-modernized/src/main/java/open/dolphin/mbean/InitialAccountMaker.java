@@ -12,6 +12,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import jakarta.ejb.Singleton;
 import jakarta.ejb.Startup;
+import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import javax.sql.DataSource;
@@ -25,6 +26,7 @@ import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.TelephoneModel;
 import open.dolphin.infomodel.UserModel;
+import open.dolphin.security.auth.PasswordHashService;
 
 /**
  * Updator
@@ -39,7 +41,7 @@ public class InitialAccountMaker {
     private static final String DEFAULT_FACILITY_OID = "1.3.6.1.4.1.9414.70.1";
     private static final String DEFAULT_FACILITY_NAME = "クリニック";
     private static final String ADMIN_USER = "admin";
-    private static final String ADMIN_PASS_MD5 = "21232f297a57a5a743894a0e4a801fc3";    // admin
+    private static final String ADMIN_PASS_RAW = "admin";
     private static final String ADMIN_SIR_NAME = "オープン";
     private static final String ADMIN_GIVEN_NAME = "ドルフィン";
 
@@ -49,6 +51,9 @@ public class InitialAccountMaker {
     
     @PersistenceContext
     private EntityManager em;
+
+    @Inject
+    private PasswordHashService passwordHashService;
     
 //minagawa^ 2013/08/29
     //@Resource(mappedName="java:jboss/datasources/OrcaDS")
@@ -240,7 +245,7 @@ public class InitialAccountMaker {
         UserModel admin = new UserModel();
         admin.setFacilityModel(facility);
         admin.setUserId(DEFAULT_FACILITY_OID + IInfoModel.COMPOSITE_KEY_MAKER + ADMIN_USER);
-        admin.setPassword(ADMIN_PASS_MD5);
+        admin.setPassword(resolvePasswordHashService().hashRaw(ADMIN_PASS_RAW));
         admin.setSirName(ADMIN_SIR_NAME);
         admin.setGivenName(ADMIN_GIVEN_NAME);
         admin.setCommonName(admin.getSirName() + " " + admin.getGivenName());
@@ -272,6 +277,13 @@ public class InitialAccountMaker {
         
         // 永続化する
         em.persist(admin);
+    }
+
+    private PasswordHashService resolvePasswordHashService() {
+        if (passwordHashService == null) {
+            passwordHashService = new PasswordHashService();
+        }
+        return passwordHashService;
     }
     
     private void addDemoPatient() {

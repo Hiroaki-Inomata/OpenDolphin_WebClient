@@ -33,6 +33,7 @@ import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.session.AccountSummary;
 import open.dolphin.session.SystemServiceBean;
+import open.dolphin.session.UserServiceBean;
 import open.dolphin.session.framework.SessionOperation;
 import open.dolphin.session.framework.SessionTraceAttributes;
 import open.dolphin.session.framework.SessionTraceContext;
@@ -54,6 +55,9 @@ public class SystemResource extends AbstractResource {
 
     @Inject
     private SystemServiceBean systemServiceBean;
+
+    @Inject
+    private UserServiceBean userServiceBean;
 
     @Inject
     private AuditTrailService auditTrailService;
@@ -84,6 +88,7 @@ public class SystemResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String addFacilityAdmin(String json) throws IOException {
+        requireAdminOrThrow("SYSTEM_FACILITY_ADMIN_ADD", null);
         
         ObjectMapper mapper = new ObjectMapper();
         // 2013/06/24
@@ -200,6 +205,7 @@ public class SystemResource extends AbstractResource {
     public String checkLicense(@PathParam("scope") String scope, String uid) {
         
         Map<String, Object> base = licenseAuditBase(scope, uid);
+        requireAdminOrThrow("SYSTEM_LICENSE_CHECK", base);
 
         Properties config;
         try {
@@ -267,6 +273,7 @@ public class SystemResource extends AbstractResource {
     @GET
     @Path("/cloudzero/sendmail")
     public void sendCloudZeroMail() {
+        requireAdminOrThrow("SYSTEM_CLOUDZERO_SEND", null);
         GregorianCalendar gc = new GregorianCalendar();
         gc.add(Calendar.MONTH, -1);
         int year = gc.get(Calendar.YEAR);
@@ -304,6 +311,35 @@ public class SystemResource extends AbstractResource {
 
     Response r = target.request().post( Entity.entity(entity, MediaType.MULTIPART_FORM_DATA_TYPE));
      */
+
+    private void requireAdminOrThrow(String action, Map<String, Object> extras) {
+        String remoteUser = resolveRemoteUser();
+        Map<String, Object> details = new HashMap<>();
+        if (extras != null && !extras.isEmpty()) {
+            details.putAll(extras);
+        }
+
+        if (remoteUser == null || remoteUser.isBlank()) {
+            details.put("status", "failed");
+            details.put("reason", "admin_guard_denied");
+            details.put("deniedReason", "remote_user_missing");
+            recordAudit(action, details);
+            throw restError(httpServletRequest, Response.Status.UNAUTHORIZED, "remote_user_missing",
+                    "Authentication required.", details, null);
+        }
+
+        if (userServiceBean != null && userServiceBean.isAdmin(remoteUser)) {
+            return;
+        }
+
+        details.put("status", "failed");
+        details.put("reason", "admin_guard_denied");
+        details.put("deniedReason", "admin_privilege_required");
+        details.put("remoteUser", remoteUser);
+        recordAudit(action, details);
+        throw restError(httpServletRequest, Response.Status.FORBIDDEN, "admin_privilege_required",
+                "Administrator privilege required.", details, null);
+    }
 
     private ActivityQueryRequest parseActivityRequest(String rawParam) {
         if (rawParam == null || rawParam.isBlank()) {

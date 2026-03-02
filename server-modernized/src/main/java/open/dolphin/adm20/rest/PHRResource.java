@@ -488,54 +488,81 @@ public class PHRResource extends open.dolphin.rest.AbstractResource {
         requireTraceHeader("PHR_IDENTITY_TOKEN", traceId, null);
         Map<String, Object> details = new HashMap<>();
         details.put("traceId", traceId);
-        details.put("actorId", "unknown");
-        details.put("actorDisplayName", "unknown");
-        String user = null;
+        String remoteUser = request != null ? request.getRemoteUser() : null;
+        if (remoteUser == null || remoteUser.isBlank()) {
+            Map<String, Object> failure = failureDetails(details, null, Status.UNAUTHORIZED.getStatusCode());
+            failure.put("reason", "unauthenticated");
+            auditHelper.recordFailure(null, "PHR_IDENTITY_TOKEN", null, "unauthenticated", failure);
+            throw error(Status.UNAUTHORIZED,
+                    "error.phr.unauthenticated",
+                    "認証済みユーザー情報が取得できません。",
+                    traceId,
+                    null);
+        }
+        details.put("actorId", remoteUser);
+        details.put("actorDisplayName", remoteUser);
+        details.put("remoteUser", remoteUser);
+
+        if (json == null || json.isBlank()) {
+            details.put("missingBody", true);
+            Map<String, Object> failure = failureDetails(details, null, Status.SERVICE_UNAVAILABLE.getStatusCode());
+            auditHelper.recordFailure(null, "PHR_IDENTITY_TOKEN", remoteUser, "invalid_payload", failure);
+            throw error(Status.SERVICE_UNAVAILABLE,
+                    "error.phr.identityTokenUnavailable",
+                    "Identity トークンの署名鍵が利用できません。",
+                    traceId,
+                    null);
+        }
+
+        JsonObject jso;
         try {
-            if (json == null || json.isBlank()) {
-                details.put("missingBody", true);
-                throw error(Status.SERVICE_UNAVAILABLE,
-                        "error.phr.identityTokenUnavailable",
-                        "Identity トークンの署名鍵が利用できません。",
-                        traceId,
-                        null);
-            }
-            JsonObject jso = Json.createReader(new java.io.StringReader(json)).readObject();
-            String nonce = jso.getString("nonce", null);
-            user = jso.getString("user", null);
-            if (nonce == null || nonce.isBlank()) {
-                details.put("missingField", "nonce");
-                throw error(Status.SERVICE_UNAVAILABLE,
-                        "error.phr.identityTokenUnavailable",
-                        "Identity トークンの署名鍵が利用できません。",
-                        traceId,
-                        null);
-            }
-            if (user == null || user.isBlank()) {
-                details.put("missingField", "user");
-                throw error(Status.SERVICE_UNAVAILABLE,
-                        "error.phr.identityTokenUnavailable",
-                        "Identity トークンの署名鍵が利用できません。",
-                        traceId,
-                        null);
-            }
-            details.put("actorId", user);
-            details.put("actorDisplayName", user);
-            details.put("nonceLength", nonce.length());
-            String token = identityService.getIdentityToken(nonce, user);
-            if (token == null || token.isBlank()) {
-                throw new IllegalStateException("IdentityToken is empty.");
-            }
-            auditHelper.recordSuccess(null, "PHR_IDENTITY_TOKEN", user, details);
-            return token;
+            jso = Json.createReader(new java.io.StringReader(json)).readObject();
         } catch (JsonException ex) {
             Map<String, Object> failure = failureDetails(details, ex, Status.SERVICE_UNAVAILABLE.getStatusCode());
-            auditHelper.recordFailure(null, "PHR_IDENTITY_TOKEN", user, "invalid_payload", failure);
+            auditHelper.recordFailure(null, "PHR_IDENTITY_TOKEN", remoteUser, "invalid_payload", failure);
             throw error(Status.SERVICE_UNAVAILABLE,
                     "error.phr.identityTokenUnavailable",
                     "Identity トークンの署名鍵が利用できません。",
                     traceId,
                     ex);
+        }
+
+        String nonce = jso.getString("nonce", null);
+        String requestedUser = jso.getString("user", null);
+        if (nonce == null || nonce.isBlank()) {
+            details.put("missingField", "nonce");
+            Map<String, Object> failure = failureDetails(details, null, Status.SERVICE_UNAVAILABLE.getStatusCode());
+            auditHelper.recordFailure(null, "PHR_IDENTITY_TOKEN", remoteUser, "invalid_payload", failure);
+            throw error(Status.SERVICE_UNAVAILABLE,
+                    "error.phr.identityTokenUnavailable",
+                    "Identity トークンの署名鍵が利用できません。",
+                    traceId,
+                    null);
+        }
+        details.put("nonceLength", nonce.length());
+
+        if (requestedUser != null && !requestedUser.isBlank()) {
+            String normalizedRequested = requestedUser.trim();
+            details.put("requestedUser", normalizedRequested);
+            if (!remoteUser.equals(normalizedRequested)) {
+                details.put("reason", "identity_user_mismatch");
+                Map<String, Object> failure = failureDetails(details, null, Status.FORBIDDEN.getStatusCode());
+                auditHelper.recordFailure(null, "PHR_IDENTITY_TOKEN", remoteUser, "identity_user_mismatch", failure);
+                throw error(Status.FORBIDDEN,
+                        "error.phr.forbidden",
+                        "認証ユーザー以外の Identity トークンは取得できません。",
+                        traceId,
+                        null);
+            }
+        }
+
+        try {
+            String token = identityService.getIdentityToken(nonce, remoteUser);
+            if (token == null || token.isBlank()) {
+                throw new IllegalStateException("IdentityToken is empty.");
+            }
+            auditHelper.recordSuccess(null, "PHR_IDENTITY_TOKEN", remoteUser, details);
+            return token;
         } catch (IdentityTokenSecretsException ex) {
             Map<String, Object> failure = failureDetails(details, ex, Status.SERVICE_UNAVAILABLE.getStatusCode());
             if (ex.getReason() != null && !ex.getReason().isBlank()) {
@@ -547,16 +574,7 @@ public class PHRResource extends open.dolphin.rest.AbstractResource {
             String reason = ex.getReason() != null && !ex.getReason().isBlank()
                     ? ex.getReason()
                     : "identity_token_secret_missing";
-            auditHelper.recordFailure(null, "PHR_IDENTITY_TOKEN", user, reason, failure);
-            throw error(Status.SERVICE_UNAVAILABLE,
-                    "error.phr.identityTokenUnavailable",
-                    "Identity トークンの署名鍵が利用できません。",
-                    traceId,
-                    ex);
-        } catch (WebApplicationException ex) {
-            String reason = "identity_token_unavailable";
-            Map<String, Object> failure = failureDetails(details, ex, Status.SERVICE_UNAVAILABLE.getStatusCode());
-            auditHelper.recordFailure(null, "PHR_IDENTITY_TOKEN", user, reason, failure);
+            auditHelper.recordFailure(null, "PHR_IDENTITY_TOKEN", remoteUser, reason, failure);
             throw error(Status.SERVICE_UNAVAILABLE,
                     "error.phr.identityTokenUnavailable",
                     "Identity トークンの署名鍵が利用できません。",
@@ -564,7 +582,7 @@ public class PHRResource extends open.dolphin.rest.AbstractResource {
                     ex);
         } catch (Exception ex) {
             Map<String, Object> failure = failureDetails(details, ex, Status.SERVICE_UNAVAILABLE.getStatusCode());
-            auditHelper.recordFailure(null, "PHR_IDENTITY_TOKEN", user, "identity_token_unavailable", failure);
+            auditHelper.recordFailure(null, "PHR_IDENTITY_TOKEN", remoteUser, "identity_token_unavailable", failure);
             throw error(Status.SERVICE_UNAVAILABLE,
                     "error.phr.identityTokenUnavailable",
                     "Identity トークンの署名鍵が利用できません。",

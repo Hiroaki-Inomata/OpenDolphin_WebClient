@@ -59,10 +59,11 @@ class LogFilterTest {
     }
 
     @Test
-    void identityTokenRequestEchoesClientTraceId() throws Exception {
+    void unauthenticatedIdentityTokenRequestIsRejected() throws Exception {
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
         FilterChain chain = mock(FilterChain.class);
+        stubResponseOutput(response);
 
         Map<String, Object> attributes = new HashMap<>();
         doAnswer(invocation -> {
@@ -81,8 +82,38 @@ class LogFilterTest {
         filter.doFilter(request, response, chain);
 
         verify(response).setHeader(TRACE_ID_HEADER, "client-trace-id");
-        verify(chain).doFilter(any(ServletRequest.class), eq(response));
+        verify(response).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, never()).doFilter(any(ServletRequest.class), eq(response));
         assertEquals("client-trace-id", attributes.get(LogFilter.class.getName() + ".TRACE_ID"));
+    }
+
+    @Test
+    void authenticatedIdentityTokenRequestPassesThrough() throws Exception {
+        SecurityContext sc = mock(SecurityContext.class);
+        when(sc.getCallerPrincipal()).thenReturn(() -> "F001:user01");
+        setField("securityContext", sc);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+
+        Map<String, Object> attributes = new HashMap<>();
+        doAnswer(invocation -> {
+            attributes.put(invocation.getArgument(0, String.class), invocation.getArgument(1));
+            return null;
+        }).when(request).setAttribute(anyString(), any());
+        when(request.getAttribute(anyString())).thenAnswer(invocation -> attributes.get(invocation.getArgument(0, String.class)));
+
+        Map<String, String> headers = new HashMap<>();
+        headers.put(TRACE_ID_HEADER, "trace-authenticated");
+        when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/20/adm/phr/identityToken");
+        when(request.getMethod()).thenReturn("POST");
+        when(request.getRemoteAddr()).thenReturn("192.0.2.12");
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(any(ServletRequest.class), eq(response));
     }
 
     @Test
