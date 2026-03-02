@@ -14,6 +14,8 @@ const isTruthy = (value?: string) => {
   const normalized = value.trim().toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 };
+const PERF_LOG_MAX_PAYLOAD_BYTES = 64 * 1024;
+const LOOPBACK_REMOTE_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 const normalizePathPrefix = (raw?: string): string => {
   if (!raw) return '';
@@ -61,6 +63,8 @@ export default defineConfig(({ mode }) => {
   const apiProxyTarget = getEnv('VITE_DEV_PROXY_TARGET') ?? 'http://localhost:8080/openDolphin/resources';
   const disableProxy = getEnv('VITE_DISABLE_PROXY') === '1';
   const useHttps = isTruthy(getEnv('VITE_DEV_USE_HTTPS'));
+  const insecureProxyTls = isTruthy(getEnv('VITE_DEV_PROXY_INSECURE_TLS'));
+  const enablePreviewPerfLogSink = isTruthy(getEnv('VITE_ENABLE_PREVIEW_PERF_LOG_SINK'));
   const httpsOption = useHttps ? {} : false;
   const runId = getEnv('VITE_RUM_RUN_ID') ?? getEnv('RUN_ID') ?? '20251124T200000Z';
   const rumOutputDir = path.resolve(__dirname, `../artifacts/perf/orca-master/${runId}/rum`);
@@ -79,7 +83,7 @@ export default defineConfig(({ mode }) => {
     ? new https.Agent({
         pfx: fs.readFileSync(orcaCertPath as string),
         passphrase: orcaCertPass,
-        rejectUnauthorized: false,
+        rejectUnauthorized: !insecureProxyTls,
       })
     : undefined;
 
@@ -162,7 +166,7 @@ export default defineConfig(({ mode }) => {
   const createProxyConfig = (rewrite?: (p: string) => string) => ({
     target: apiProxyTarget,
     changeOrigin: true,
-    secure: false,
+    secure: !insecureProxyTls,
     agent: orcaClientAgent,
     ...(needsProxyConfigure
       ? {
@@ -229,7 +233,15 @@ export default defineConfig(({ mode }) => {
       {
         name: 'preview-perf-log-sink',
         configurePreviewServer(previewServer) {
+          if (!enablePreviewPerfLogSink) return;
+
           previewServer.middlewares.use('/__perf-log', (req, res) => {
+            if (!LOOPBACK_REMOTE_ADDRESSES.has(req.socket.remoteAddress ?? '')) {
+              res.statusCode = 404;
+              res.end('Not Found');
+              return;
+            }
+
             if (req.method !== 'POST') {
               res.statusCode = 405;
               res.end('Method Not Allowed');
@@ -237,11 +249,24 @@ export default defineConfig(({ mode }) => {
             }
 
             let body = '';
+            let bodySize = 0;
+            let payloadTooLarge = false;
             req.on('data', (chunk) => {
-              body += chunk.toString();
+              if (payloadTooLarge) return;
+              const chunkText = chunk.toString();
+              bodySize += Buffer.byteLength(chunkText);
+              if (bodySize > PERF_LOG_MAX_PAYLOAD_BYTES) {
+                payloadTooLarge = true;
+                res.statusCode = 413;
+                res.end();
+                req.destroy();
+                return;
+              }
+              body += chunkText;
             });
 
             req.on('end', () => {
+              if (payloadTooLarge) return;
               try {
                 fs.mkdirSync(rumOutputDir, { recursive: true });
                 const timestamp = new Date().toISOString().replace(/[:]/g, '').replace(/\..+/, 'Z');

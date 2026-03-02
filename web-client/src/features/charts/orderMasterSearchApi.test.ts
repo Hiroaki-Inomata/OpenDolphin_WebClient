@@ -36,10 +36,9 @@ describe('fetchOrderMasterSearch auth routing', () => {
     sessionStorage.clear();
     localStorage.setItem('devFacilityId', 'f001');
     localStorage.setItem('devUserId', 'user01');
-    localStorage.setItem('devPasswordPlain', 'plainpass');
   });
 
-  it('uses connected account authorization header (drug)', async () => {
+  it('routes drug search to /orca/master/drug and suppresses session-expiry notice', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ totalCount: 0, items: [] }), {
@@ -53,10 +52,6 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(result.ok).toBe(true);
     expect(vi.mocked(httpFetch).mock.calls[0]?.[0]).toContain('/orca/master/drug?');
     const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
-    const headers = new Headers(init?.headers);
-    const expectedToken = btoa(unescape(encodeURIComponent('user01:plainpass')));
-    expect(headers.get('Authorization')).toBe(`Basic ${expectedToken}`);
-    expect(headers.get('X-Facility-Id')).toBe('f001');
     expect(init?.notifySessionExpired).toBe(false);
   });
 
@@ -84,6 +79,8 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(requestUrl).toContain('scope=outer');
     expect(requestUrl).toContain('effective=20260219');
     expect(requestUrl).toContain('asOf=20260219');
+    const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
+    expect(init?.notifySessionExpired).toBe(false);
   });
 
   it('uses category as drug scope fallback and normalizes to in-hospital', async () => {
@@ -103,11 +100,14 @@ describe('fetchOrderMasterSearch auth routing', () => {
 
     expect(result.ok).toBe(true);
     const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    expect(requestUrl).toContain('/orca/master/drug?');
     expect(requestUrl).toContain('scope=in-hospital');
     expect(requestUrl).toContain('category=facility');
+    const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
+    expect(init?.notifySessionExpired).toBe(false);
   });
 
-  it('routes bodypart search to /orca/master/bodypart with the same master auth headers', async () => {
+  it('routes bodypart search to /orca/master/bodypart', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ totalCount: 0, items: [] }), {
@@ -123,12 +123,10 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(requestUrl).toContain('/orca/master/bodypart?');
     expect(requestUrl).not.toContain('category=2');
     const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
-    const headers = new Headers(init?.headers);
-    expect(headers.get('Authorization')).toMatch(/^Basic /);
-    expect(headers.get('X-Facility-Id')).toBe('f001');
+    expect(init?.notifySessionExpired).toBe(false);
   });
 
-  it('routes comment search to /orca/master/comment with master auth headers', async () => {
+  it('routes comment search to /orca/master/comment', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ totalCount: 0, items: [] }), {
@@ -144,12 +142,10 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(requestUrl).toContain('/orca/master/comment?');
     expect(requestUrl).not.toContain('category=8');
     const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
-    const headers = new Headers(init?.headers);
-    expect(headers.get('Authorization')).toMatch(/^Basic /);
-    expect(headers.get('X-Facility-Id')).toBe('f001');
+    expect(init?.notifySessionExpired).toBe(false);
   });
 
-  it('routes material search to /orca/master/material with master auth headers', async () => {
+  it('routes material search to /orca/master/material', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ totalCount: 0, items: [] }), {
@@ -164,12 +160,10 @@ describe('fetchOrderMasterSearch auth routing', () => {
     const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
     expect(requestUrl).toContain('/orca/master/material?');
     const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
-    const headers = new Headers(init?.headers);
-    expect(headers.get('Authorization')).toMatch(/^Basic /);
-    expect(headers.get('X-Facility-Id')).toBe('f001');
+    expect(init?.notifySessionExpired).toBe(false);
   });
 
-  it('routes kensa-sort search to /orca/master/kensa-sort with master auth headers', async () => {
+  it('routes kensa-sort search to /orca/master/kensa-sort', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ totalCount: 0, items: [] }), {
@@ -184,9 +178,7 @@ describe('fetchOrderMasterSearch auth routing', () => {
     const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
     expect(requestUrl).toContain('/orca/master/kensa-sort?');
     const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
-    const headers = new Headers(init?.headers);
-    expect(headers.get('Authorization')).toMatch(/^Basic /);
-    expect(headers.get('X-Facility-Id')).toBe('f001');
+    expect(init?.notifySessionExpired).toBe(false);
   });
 
   it('does not force default category for plain etensu search', async () => {
@@ -204,6 +196,8 @@ describe('fetchOrderMasterSearch auth routing', () => {
     const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
     expect(requestUrl).toContain('/orca/master/etensu?');
     expect(requestUrl).not.toContain('category=1');
+    const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
+    expect(init?.notifySessionExpired).toBe(false);
   });
 
   it('etensu 検索で page/size を明示した場合はクエリへ反映する', async () => {
@@ -222,6 +216,8 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(requestUrl).toContain('/orca/master/etensu?');
     expect(requestUrl).toContain('page=2');
     expect(requestUrl).toContain('size=500');
+    const init = vi.mocked(httpFetch).mock.calls[0]?.[1];
+    expect(init?.notifySessionExpired).toBe(false);
   });
 
   it('treats TENSU_NOT_FOUND as empty result for etensu family searches', async () => {

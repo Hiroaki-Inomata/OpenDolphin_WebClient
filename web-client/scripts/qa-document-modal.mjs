@@ -70,7 +70,6 @@ const run = async () => {
       window.sessionStorage.setItem('devFacilityId', devAuth.facilityId);
       window.sessionStorage.setItem('devUserId', devAuth.userId);
       window.sessionStorage.setItem('devPasswordMd5', devAuth.passwordMd5);
-      window.sessionStorage.setItem('devPasswordPlain', devAuth.passwordPlain);
       window.sessionStorage.setItem('devClientUuid', devAuth.clientUuid);
       window.sessionStorage.setItem(encounterKey, encounterPayload);
 
@@ -78,7 +77,6 @@ const run = async () => {
       window.localStorage.setItem('devFacilityId', devAuth.facilityId);
       window.localStorage.setItem('devUserId', devAuth.userId);
       window.localStorage.setItem('devPasswordMd5', devAuth.passwordMd5);
-      window.localStorage.setItem('devPasswordPlain', devAuth.passwordPlain);
       window.localStorage.setItem('devClientUuid', devAuth.clientUuid);
     },
     [

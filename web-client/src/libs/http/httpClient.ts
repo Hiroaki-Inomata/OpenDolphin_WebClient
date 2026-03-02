@@ -1,4 +1,5 @@
 import { applyHeaderFlagsToInit } from './header-flags';
+import { getDevVolatilePlainPassword } from './devAuthVolatile';
 import { applyObservabilityHeaders, captureObservabilityFromResponse } from '../observability/observability';
 import { notifySessionExpired } from '../session/sessionExpiry';
 import { readStoredSession } from '../session/storedSession';
@@ -19,23 +20,13 @@ const readAuthFromStorage = (storage: Storage | undefined): StoredAuth | null =>
     const facilityId = storage.getItem('devFacilityId');
     const userId = storage.getItem('devUserId');
     const passwordMd5 = storage.getItem('devPasswordMd5') ?? undefined;
-    const passwordPlain = storage.getItem('devPasswordPlain') ?? undefined;
     const clientUuid = storage.getItem('devClientUuid') ?? undefined;
     if (!facilityId || !userId) {
       return null;
     }
-    return { facilityId, userId, passwordMd5, passwordPlain, clientUuid };
+    return { facilityId, userId, passwordMd5, clientUuid };
   } catch {
     return null;
-  }
-};
-
-const readOptionalItem = (storage: Storage | undefined, key: string): string | undefined => {
-  if (!storage) return undefined;
-  try {
-    return storage.getItem(key) ?? undefined;
-  } catch {
-    return undefined;
   }
 };
 
@@ -48,7 +39,10 @@ function readStoredAuth(): StoredAuth | null {
   if (sessionAuth) {
     return {
       ...sessionAuth,
-      passwordPlain: sessionAuth.passwordPlain ?? localAuth?.passwordPlain,
+      passwordPlain: getDevVolatilePlainPassword({
+        facilityId: sessionAuth.facilityId,
+        userId: sessionAuth.userId,
+      }),
       passwordMd5: sessionAuth.passwordMd5 ?? localAuth?.passwordMd5,
       clientUuid: sessionAuth.clientUuid ?? localAuth?.clientUuid,
     };
@@ -58,14 +52,13 @@ function readStoredAuth(): StoredAuth | null {
     return null;
   }
 
-  const sessionPasswordPlain = readOptionalItem(
-    typeof sessionStorage === 'undefined' ? undefined : sessionStorage,
-    'devPasswordPlain',
-  );
-  if (sessionPasswordPlain && !localAuth.passwordPlain) {
-    return { ...localAuth, passwordPlain: sessionPasswordPlain };
-  }
-  return localAuth;
+  return {
+    ...localAuth,
+    passwordPlain: getDevVolatilePlainPassword({
+      facilityId: localAuth.facilityId,
+      userId: localAuth.userId,
+    }),
+  };
 }
 
 export function hasStoredAuth(): boolean {
