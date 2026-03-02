@@ -669,6 +669,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
         targetKey?: string;
       }
   >(null);
+  const suppressUrlContextSyncRef = useRef(false);
   const [reloadGuardOpen, setReloadGuardOpen] = useState(false);
   const showDebugUi = import.meta.env.VITE_ENABLE_DEBUG_UI === '1' && isSystemAdminRole(session.role);
   const showOperationalMeta = showDebugUi;
@@ -810,6 +811,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
       const visitDate = normalizedNext.visitDate ?? today;
       const name = options?.name?.trim() || undefined;
       const department = options?.department?.trim() || undefined;
+      suppressUrlContextSyncRef.current = true;
 
       setPatientTabsState((prev) =>
         applyEncounterTabState(prev, {
@@ -867,6 +869,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
 
       if (!wasActive) return;
       if (nextActive) {
+        suppressUrlContextSyncRef.current = true;
         setEncounterContext(normalizeEncounterContext({
           patientId: nextActive.patientId,
           appointmentId: nextActive.appointmentId,
@@ -877,6 +880,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
         return;
       }
 
+      suppressUrlContextSyncRef.current = true;
       setEncounterContext({});
       setContextAlert({ tone: 'info', message: '患者が未選択です。Reception から患者を選択してください。' });
       navigate({ pathname: chartsBasePath, search: '' }, { replace: true });
@@ -1352,6 +1356,13 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
   }, [bumpRunId, draftState.dirty, explicitRunId, flags.runId, lockState.locked]);
 
   useEffect(() => {
+    if (suppressUrlContextSyncRef.current) {
+      const urlHasContext = hasEncounterContext(urlContext);
+      const encounterHasContext = hasEncounterContext(encounterContext);
+      if (urlHasContext !== encounterHasContext) return;
+      if (urlHasContext && !sameEncounterContext(urlContext, encounterContext)) return;
+      suppressUrlContextSyncRef.current = false;
+    }
     if (!hasEncounterContext(urlContext)) return;
     if (sameEncounterContext(urlContext, encounterContext)) return;
     if (draftState.dirty || lockState.locked || tabLockReadOnlyRef.current) {
@@ -1471,12 +1482,20 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
   ]);
 
   useEffect(() => {
-    if (!hasEncounterContext(encounterContext)) return;
+    if (!hasEncounterContext(encounterContext)) {
+      if (!hasEncounterContext(urlContext)) {
+        suppressUrlContextSyncRef.current = false;
+      }
+      return;
+    }
     storeChartsEncounterContext(encounterContext, storageScope);
     const nextSearch = buildChartsEncounterSearch(encounterContext, receptionCarryover, { runId: runIdForUrl });
-    if (location.search === nextSearch) return;
+    if (location.search === nextSearch) {
+      suppressUrlContextSyncRef.current = false;
+      return;
+    }
     navigate({ pathname: chartsBasePath, search: nextSearch }, { replace: true });
-  }, [chartsBasePath, encounterContext, location.search, navigate, receptionCarryover, runIdForUrl, storageScope]);
+  }, [chartsBasePath, encounterContext, location.search, navigate, receptionCarryover, runIdForUrl, storageScope, urlContext]);
 
   const adminQueryKey = ['admin-effective-config'];
   const adminConfigQuery = useQuery({
@@ -2864,6 +2883,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
           previousContext: encounterContext,
         },
       });
+      suppressUrlContextSyncRef.current = true;
       setEncounterContext(normalizeEncounterContext({
         patientId: headPatientId,
         appointmentId: head.appointmentId,
@@ -2881,6 +2901,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
       visitDate: normalizeVisitDate(chosen.visitDate) ?? encounterContext.visitDate ?? today,
     });
     if (!sameEncounterContext(nextContext, encounterContext)) {
+      suppressUrlContextSyncRef.current = true;
       setEncounterContext(nextContext);
       setContextAlert(null);
     }
@@ -4020,6 +4041,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
             onDraftDirtyChange={(next) => setDraftState(next)}
             onSelectEncounter={(next) => {
               if (!next) return;
+              suppressUrlContextSyncRef.current = true;
               setEncounterContext((prev) => {
                 const merged = normalizeEncounterContext({
                   ...prev,
@@ -4552,6 +4574,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
                       todayIso={today}
                       onSelectEncounter={(next) => {
                         if (!next) return;
+                        suppressUrlContextSyncRef.current = true;
                         setEncounterContext((prev) => {
                           const merged = normalizeEncounterContext({
                             ...prev,
