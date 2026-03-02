@@ -17,14 +17,18 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Response;
 import open.dolphin.converter.ModuleModelConverter;
 import open.dolphin.infomodel.*;
+import open.dolphin.rest.AbstractResource;
 import open.dolphin.rest.dto.RoutineMedicationResponse;
 import open.dolphin.rest.dto.RpHistoryDrugResponse;
 import open.dolphin.rest.dto.RpHistoryEntryResponse;
 import open.dolphin.rest.dto.DiagnosisSummaryResponse;
 import open.dolphin.rest.dto.SafetySummaryResponse;
 import open.dolphin.rest.dto.UserPropertyResponse;
+import open.dolphin.security.integrity.DocumentIntegrityService;
 import open.dolphin.session.audit.DiagnosisAuditRecorder;
 import open.dolphin.session.framework.SessionOperation;
 import open.dolphin.storage.attachment.AttachmentStorageManager;
@@ -44,6 +48,7 @@ public class KarteServiceBean {
     private static final Logger LOGGER = LoggerFactory.getLogger(KarteServiceBean.class);
     private static final DateTimeFormatter ISO_INSTANT_FORMATTER = DateTimeFormatter.ISO_INSTANT;
     private static final DateTimeFormatter ISO_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC);
+    private static final String FINALIZED_UPDATE_DENIED_ERROR_CODE = "karte.document.finalized_update_denied";
     
     // parameters
     private static final String PATIENT_PK = "patientPk";
@@ -126,6 +131,9 @@ public class KarteServiceBean {
 
     @Inject
     private DiagnosisAuditRecorder diagnosisAuditRecorder;
+
+    @Inject
+    private DocumentIntegrityService documentIntegrityService;
 
 //s.oh^ 2014/02/21 Claim送信方法の変更
     //@Resource(mappedName = "java:/JmsXA")
@@ -487,6 +495,8 @@ public class KarteServiceBean {
             .getResultList();
             document.setAttachment(attachments);
 
+            verifyDocumentOnRead(document);
+
             ret.add(document);
         }
         
@@ -531,6 +541,7 @@ public class KarteServiceBean {
         LOGGER.info("addDocument assigned seq id={}", document.getId());
 
         document = em.merge(document);
+        sealDocument(document);
         attachmentStorageManager.persistExternalAssets(document.getAttachment());
 
         // ID
@@ -591,6 +602,17 @@ public class KarteServiceBean {
             throw new IllegalArgumentException("Document not found: " + document.getId());
         }
 
+        String currentStatus = normalizeStatus(current.getStatus());
+        String requestedStatus = resolveRequestedStatus(document);
+        if (!IInfoModel.STATUS_TMP.equals(currentStatus)) {
+            throw finalizedUpdateDenied(document.getId(), currentStatus, requestedStatus);
+        }
+        if (requestedStatus != null
+                && !IInfoModel.STATUS_TMP.equals(requestedStatus)
+                && !IInfoModel.STATUS_FINAL.equals(requestedStatus)) {
+            throw finalizedUpdateDenied(document.getId(), currentStatus, requestedStatus);
+        }
+
         removeMissingModules(current.getModules(), document.getModules());
         removeMissingSchemas(current.getSchema(), document.getSchema());
         removeMissingAttachments(current.getAttachment(), document.getAttachment());
@@ -604,6 +626,7 @@ public class KarteServiceBean {
         }
 
         DocumentModel merged = em.merge(document);
+        sealDocument(merged);
         attachmentStorageManager.persistExternalAssets(merged.getAttachment());
         return merged.getId();
     }
@@ -1744,6 +1767,58 @@ public class KarteServiceBean {
             responses.add(new UserPropertyResponse(seq++, "ユーザーメモ", user.getMemo().trim(), null, "メモ", updatedAt));
         }
         return responses;
+    }
+
+    private void sealDocument(DocumentModel document) {
+        if (documentIntegrityService == null || document == null) {
+            return;
+        }
+        documentIntegrityService.sealDocument(document);
+    }
+
+    private void verifyDocumentOnRead(DocumentModel document) {
+        if (documentIntegrityService == null || document == null) {
+            return;
+        }
+        documentIntegrityService.verifyDocumentOnRead(document);
+    }
+
+    private String resolveRequestedStatus(DocumentModel document) {
+        if (document == null) {
+            return null;
+        }
+        String status = normalizeStatus(document.getStatus());
+        if (status != null) {
+            return status;
+        }
+        DocInfoModel info = document.getDocInfoModel();
+        return info != null ? normalizeStatus(info.getStatus()) : null;
+    }
+
+    private String normalizeStatus(String status) {
+        if (status == null) {
+            return null;
+        }
+        String trimmed = status.trim();
+        return trimmed.isEmpty() ? null : trimmed.toUpperCase(Locale.ROOT);
+    }
+
+    private WebApplicationException finalizedUpdateDenied(long documentId,
+                                                          String currentStatus,
+                                                          String requestedStatus) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("documentId", documentId);
+        details.put("currentStatus", currentStatus);
+        details.put("requestedStatus", requestedStatus);
+
+        return AbstractResource.restError(
+                null,
+                Response.Status.CONFLICT,
+                FINALIZED_UPDATE_DENIED_ERROR_CODE,
+                "Finalized document update is denied.",
+                details,
+                null
+        );
     }
 
     private void removeMissingModules(List<ModuleModel> existing, List<ModuleModel> incoming) {
