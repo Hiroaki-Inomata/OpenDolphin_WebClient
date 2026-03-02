@@ -389,9 +389,9 @@ describe('ReceptionPage accept UX', () => {
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
     const acceptPanel = getAcceptRegisterPanel(workflowModal);
     expect(within(acceptPanel).queryByRole('button', { name: '受付する' })).toBeNull();
-    expect(within(acceptPanel).getByText(/左の患者検索結果で「選択する」を押すと/)).toBeInTheDocument();
+    expect(within(acceptPanel).getByText(/左の患者検索結果カードを選択すると/)).toBeInTheDocument();
 
-    await user.click(within(resultPanel).getAllByRole('button', { name: '選択する' })[0] as HTMLButtonElement);
+    await user.click(within(resultPanel).getAllByRole('listitem')[0]);
     expect(within(acceptPanel).getByText('選択患者: 山田太郎')).toBeInTheDocument();
     expect(within(acceptPanel).getByRole('button', { name: '受付する' })).toBeInTheDocument();
     const paymentSelect = within(acceptPanel).getByLabelText(/保険\/自費/);
@@ -443,7 +443,7 @@ describe('ReceptionPage accept UX', () => {
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
     const acceptPanel = getAcceptRegisterPanel(workflowModal);
 
-    await user.click(within(resultPanel).getByRole('button', { name: '選択する' }));
+    await user.click(within(resultPanel).getAllByRole('listitem')[0]);
     const departmentSelect = within(acceptPanel).getByLabelText(/診療科/) as HTMLSelectElement;
     const physicianSelect = within(acceptPanel).getByLabelText(/担当医/) as HTMLSelectElement;
     const registerButton = within(acceptPanel).getByRole('button', { name: '受付する' });
@@ -455,6 +455,62 @@ describe('ReceptionPage accept UX', () => {
     expect(paymentSelect).toHaveValue('insurance');
     await user.selectOptions(departmentSelect, departmentSelect.options[1]?.value ?? '01');
     await user.selectOptions(physicianSelect, physicianSelect.options[1]?.value ?? '10001');
+    expect(registerButton).toBeEnabled();
+  });
+
+  it('keeps 受付する disabled until 保険/自費 and 来院区分 are selected', async () => {
+    mockAppointmentData.entries = [
+      {
+        id: 'row-2',
+        patientId: 'P-011',
+        appointmentId: 'A-011',
+        name: '必須入力患者',
+        appointmentTime: '09:30',
+        department: '内科',
+        physician: '担当医A',
+        status: '予約',
+        insurance: '保険',
+        source: 'reservations',
+      },
+    ];
+    mockMutationQueue.push({
+      patients: [
+        {
+          patientId: 'P-011',
+          name: '必須入力患者',
+        },
+      ],
+      recordsReturned: 1,
+      runId: 'RUN-SEARCH-REQUIRED-PAYMENT',
+    });
+
+    const user = userEvent.setup();
+    renderReceptionPage();
+
+    const workflowModal = await openAcceptWorkflowModal(user);
+    const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
+    const form = within(patientSearch);
+    await waitFor(() => expect(form.getByLabelText('患者ID')).toHaveValue('P-011'));
+    await user.click(form.getByRole('button', { name: '検索' }));
+
+    const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
+    await user.click(within(resultPanel).getAllByRole('listitem')[0]);
+    const acceptPanel = getAcceptRegisterPanel(workflowModal);
+    const departmentSelect = within(acceptPanel).getByLabelText(/診療科/) as HTMLSelectElement;
+    const physicianSelect = within(acceptPanel).getByLabelText(/担当医/) as HTMLSelectElement;
+    const paymentSelect = within(acceptPanel).getByLabelText(/保険\/自費/) as HTMLSelectElement;
+    const visitKindSelect = within(acceptPanel).getByLabelText(/来院区分/) as HTMLSelectElement;
+    const registerButton = within(acceptPanel).getByRole('button', { name: '受付する' });
+
+    await user.selectOptions(departmentSelect, departmentSelect.options[1]?.value ?? '01');
+    await user.selectOptions(physicianSelect, physicianSelect.options[1]?.value ?? '10001');
+    await user.selectOptions(visitKindSelect, '');
+    expect(registerButton).toBeDisabled();
+
+    await user.selectOptions(paymentSelect, 'insurance');
+    expect(registerButton).toBeDisabled();
+
+    await user.selectOptions(visitKindSelect, '1');
     expect(registerButton).toBeEnabled();
   });
 
@@ -583,7 +639,7 @@ describe('ReceptionPage accept UX', () => {
     await user.type(form.getByLabelText('患者ID'), 'P-555');
     await user.click(form.getByRole('button', { name: '検索' }));
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
-    await user.click(within(resultPanel).getByRole('button', { name: '選択する' }));
+    await user.click(within(resultPanel).getAllByRole('listitem')[0]);
     const acceptPanel = getAcceptRegisterPanel(workflowModal);
     await user.selectOptions(within(acceptPanel).getByLabelText(/診療科/), '01');
     await user.selectOptions(within(acceptPanel).getByLabelText(/担当医/), '10001');
@@ -769,9 +825,9 @@ describe('ReceptionPage list and side pane guidance', () => {
 
     expect(within(workflowModal).queryByText('受付対象')).toBeNull();
     expect(within(resultPanel).queryByText('生年月日: 1980-01-01')).toBeNull();
-    expect(within(resultPanel).getAllByRole('button', { name: '選択する' }).length).toBeGreaterThan(0);
+    expect(within(resultPanel).getAllByRole('listitem').length).toBeGreaterThan(0);
 
-    await user.click(within(resultPanel).getAllByRole('button', { name: '選択する' })[0] as HTMLButtonElement);
+    await user.click(within(resultPanel).getAllByRole('listitem')[0]);
     expect(within(acceptPanel).getByRole('button', { name: '受付する' })).toBeInTheDocument();
     expect(within(acceptPanel).getByText('選択患者: 検索患者一')).toBeInTheDocument();
     expect(within(acceptPanel).getByLabelText(/診療科/)).toBeInTheDocument();
@@ -880,7 +936,7 @@ describe('ReceptionPage list and side pane guidance', () => {
     const acceptPanel = getAcceptRegisterPanel(workflowModal);
     expect(within(acceptPanel).queryByRole('button', { name: '受付する' })).toBeNull();
 
-    await user.click(within(resultPanel).getByRole('button', { name: '選択する' }));
+    await user.click(within(resultPanel).getAllByRole('listitem')[0]);
     expect(within(acceptPanel).getByRole('button', { name: '受付する' })).toBeInTheDocument();
   });
 
@@ -1054,7 +1110,7 @@ describe('ReceptionPage status/date/card action UX', () => {
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
     await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
-    await user.click(within(resultPanel).getByRole('button', { name: '選択する' }));
+    await user.click(within(resultPanel).getAllByRole('listitem')[0]);
     const acceptPanel = getAcceptRegisterPanel(workflowModal);
     const registerButton = within(acceptPanel).getByRole('button', { name: '受付する' });
     await waitFor(() => {

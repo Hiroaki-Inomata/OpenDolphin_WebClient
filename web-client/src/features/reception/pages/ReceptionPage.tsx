@@ -3187,13 +3187,14 @@ export function ReceptionPage({
         reason: '手入力患者IDと選択中患者が不一致のため、当日受付モーダルの確認導線を完了してください。',
       };
     }
-    if (!resolvedDepartmentCode || !resolvedPhysicianCode) {
-      const missingLabels = [
-        !resolvedDepartmentCode ? '診療科' : null,
-        !resolvedPhysicianCode ? '担当医' : null,
-      ]
-        .filter((value): value is string => Boolean(value))
-        .join(' / ');
+    const missingRequiredFields = [
+      !resolvedDepartmentCode ? '診療科' : null,
+      !acceptPaymentMode ? '保険/自費' : null,
+      !resolvedPhysicianCode ? '担当医' : null,
+      !acceptVisitKind.trim() ? '来院区分' : null,
+    ].filter((value): value is string => Boolean(value));
+    if (missingRequiredFields.length > 0) {
+      const missingLabels = missingRequiredFields.join(' / ');
       return {
         disabled: true,
         label: '受付する',
@@ -3221,11 +3222,13 @@ export function ReceptionPage({
   }, [
     acceptTargetPatientId,
     departmentCodeMap,
+    acceptPaymentMode,
     isManualMismatchConfirmed,
     isManualPatientMismatch,
     resolvedDepartmentCode,
     resolvedPhysicianCode,
     selectedPatientId,
+    acceptVisitKind,
     visibleAppointmentEntries,
   ]);
   const selectedPatientName = patientSearchSelected?.name?.trim() || acceptTarget.name || '未選択';
@@ -5957,7 +5960,22 @@ export function ReceptionPage({
                                 : undefined;
                               const matchedTodayEntry = matchedEntry && matchedEntry.status !== '予約' ? matchedEntry : undefined;
                               return (
-                                <div key={key} className={`reception-patient-search__item${isSelected ? ' is-selected' : ''}`} role="listitem">
+                                <div
+                                  key={key}
+                                  className={`reception-patient-search__item${isSelected ? ' is-selected' : ''}`}
+                                  role="listitem"
+                                  tabIndex={0}
+                                  aria-label={`${patient.name ?? '氏名未登録'} ${
+                                    resolvedPatientId ? `ID: ${resolvedPatientId}` : '（未登録ID）'
+                                  }`}
+                                  onClick={() => handleSelectPatientSearchResult(patient)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault();
+                                      handleSelectPatientSearchResult(patient);
+                                    }
+                                  }}
+                                >
                                   <div className="reception-patient-search__item-main">
                                     <strong>{patient.name ?? '氏名未登録'}</strong>
                                     <span className="reception-patient-search__item-id">ID: {patient.patientId ?? '—'}</span>
@@ -5965,18 +5983,14 @@ export function ReceptionPage({
                                   <div className="reception-patient-search__item-actions" role="group" aria-label="患者操作">
                                     <button
                                       type="button"
-                                      className={`reception-search__button ${isSelected ? 'primary' : 'ghost'}`}
-                                      onClick={() => handleSelectPatientSearchResult(patient)}
-                                      data-test-id={`reception-patient-search-select-${resolvedPatientId || index}`}
-                                    >
-                                      {isSelected ? '選択中' : '選択する'}
-                                    </button>
-                                    <button
-                                      type="button"
                                       className="reception-search__button ghost"
-                                      onClick={() =>
-                                        openMedicalRecordsModal({ patientId: patient.patientId, name: patient.name }, 'search')
-                                      }
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openMedicalRecordsModal({ patientId: patient.patientId, name: patient.name }, 'search');
+                                      }}
+                                      onKeyDown={(event) => {
+                                        event.stopPropagation();
+                                      }}
                                       disabled={!resolvedPatientId}
                                       title={
                                         resolvedPatientId
@@ -5989,7 +6003,8 @@ export function ReceptionPage({
                                     <button
                                       type="button"
                                       className="reception-search__button primary"
-                                      onClick={() => {
+                                      onClick={(event) => {
+                                        event.stopPropagation();
                                         if (!resolvedPatientId) return;
                                         if (matchedTodayEntry) {
                                           handleOpenCharts(matchedTodayEntry);
@@ -6010,6 +6025,9 @@ export function ReceptionPage({
                                             },
                                           },
                                         });
+                                      }}
+                                      onKeyDown={(event) => {
+                                        event.stopPropagation();
                                       }}
                                       disabled={!resolvedPatientId}
                                       title={
@@ -6111,7 +6129,7 @@ export function ReceptionPage({
                         </>
                       ) : (
                         <p className="reception-sidepane__empty">
-                          左の患者検索結果で「選択する」を押すと、受付設定と「受付する」ボタンが表示されます。
+                          左の患者検索結果カードを選択すると、受付設定と「受付する」ボタンが表示されます。
                         </p>
                       )}
                     </div>

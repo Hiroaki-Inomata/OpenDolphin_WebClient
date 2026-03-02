@@ -3266,10 +3266,17 @@ export const receptionStyles = css`
     background: #ffffff;
     padding: 0.75rem 0.85rem;
     text-align: left;
+    cursor: pointer;
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
     display: flex;
     flex-direction: column;
     gap: 0.55rem;
+  }
+
+  .reception-patient-search__item:focus-visible {
+    outline: 3px solid rgba(37, 99, 235, 0.45);
+    outline-offset: 2px;
+    border-radius: 14px;
   }
 
   .reception-patient-search__item-select {
