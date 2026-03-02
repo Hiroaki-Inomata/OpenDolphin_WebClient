@@ -4,14 +4,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.lang.reflect.InvocationTargetException;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Consumer;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import jakarta.persistence.EntityManager;
@@ -20,16 +18,17 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import open.dolphin.converter.ModuleModelConverter;
 import open.dolphin.infomodel.*;
+import open.dolphin.rest.AbstractResource;
 import open.dolphin.rest.dto.RoutineMedicationResponse;
 import open.dolphin.rest.dto.RpHistoryDrugResponse;
 import open.dolphin.rest.dto.RpHistoryEntryResponse;
 import open.dolphin.rest.dto.DiagnosisSummaryResponse;
 import open.dolphin.rest.dto.SafetySummaryResponse;
 import open.dolphin.rest.dto.UserPropertyResponse;
+import open.dolphin.security.integrity.DocumentIntegrityService;
 import open.dolphin.session.audit.DiagnosisAuditRecorder;
 import open.dolphin.session.framework.SessionOperation;
 import open.dolphin.storage.attachment.AttachmentStorageManager;
@@ -134,8 +133,7 @@ public class KarteServiceBean {
     private DiagnosisAuditRecorder diagnosisAuditRecorder;
 
     @Inject
-    @Named("documentIntegrityService")
-    private Instance<Object> documentIntegrityService;
+    private DocumentIntegrityService documentIntegrityService;
 
 //s.oh^ 2014/02/21 Claim送信方法の変更
     //@Resource(mappedName = "java:/JmsXA")
@@ -606,7 +604,12 @@ public class KarteServiceBean {
 
         String currentStatus = normalizeStatus(current.getStatus());
         String requestedStatus = resolveRequestedStatus(document);
-        if (IInfoModel.STATUS_FINAL.equals(currentStatus)) {
+        if (!IInfoModel.STATUS_TMP.equals(currentStatus)) {
+            throw finalizedUpdateDenied(document.getId(), currentStatus, requestedStatus);
+        }
+        if (requestedStatus != null
+                && !IInfoModel.STATUS_TMP.equals(requestedStatus)
+                && !IInfoModel.STATUS_FINAL.equals(requestedStatus)) {
             throw finalizedUpdateDenied(document.getId(), currentStatus, requestedStatus);
         }
 
@@ -1767,43 +1770,17 @@ public class KarteServiceBean {
     }
 
     private void sealDocument(DocumentModel document) {
-        invokeDocumentIntegrityHook("sealDocument", document);
+        if (documentIntegrityService == null || document == null) {
+            return;
+        }
+        documentIntegrityService.sealDocument(document);
     }
 
     private void verifyDocumentOnRead(DocumentModel document) {
-        invokeDocumentIntegrityHook("verifyDocumentOnRead", document);
-    }
-
-    private void invokeDocumentIntegrityHook(String methodName, DocumentModel document) {
-        Object integrityService = resolveDocumentIntegrityService();
-        if (integrityService == null || document == null) {
+        if (documentIntegrityService == null || document == null) {
             return;
         }
-        try {
-            integrityService.getClass()
-                    .getMethod(methodName, DocumentModel.class)
-                    .invoke(integrityService, document);
-        } catch (NoSuchMethodException ex) {
-            throw new IllegalStateException("DocumentIntegrityService missing method: " + methodName, ex);
-        } catch (IllegalAccessException ex) {
-            throw new IllegalStateException("Cannot access DocumentIntegrityService#" + methodName, ex);
-        } catch (InvocationTargetException ex) {
-            Throwable cause = ex.getCause();
-            if (cause instanceof RuntimeException runtimeException) {
-                throw runtimeException;
-            }
-            throw new IllegalStateException("DocumentIntegrityService#" + methodName + " failed", cause);
-        }
-    }
-
-    private Object resolveDocumentIntegrityService() {
-        if (documentIntegrityService == null || documentIntegrityService.isUnsatisfied()) {
-            return null;
-        }
-        if (documentIntegrityService.isAmbiguous()) {
-            throw new IllegalStateException("documentIntegrityService is ambiguous");
-        }
-        return documentIntegrityService.get();
+        documentIntegrityService.verifyDocumentOnRead(document);
     }
 
     private String resolveRequestedStatus(DocumentModel document) {
@@ -1834,15 +1811,14 @@ public class KarteServiceBean {
         details.put("currentStatus", currentStatus);
         details.put("requestedStatus", requestedStatus);
 
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("errorCode", FINALIZED_UPDATE_DENIED_ERROR_CODE);
-        body.put("details", details);
-
-        Response response = Response.status(Response.Status.CONFLICT)
-                .type(MediaType.APPLICATION_JSON_TYPE)
-                .entity(body)
-                .build();
-        return new WebApplicationException("Finalized document update is denied", response);
+        return AbstractResource.restError(
+                null,
+                Response.Status.CONFLICT,
+                FINALIZED_UPDATE_DENIED_ERROR_CODE,
+                "Finalized document update is denied.",
+                details,
+                null
+        );
     }
 
     private void removeMissingModules(List<ModuleModel> existing, List<ModuleModel> incoming) {

@@ -75,6 +75,7 @@ class KarteServiceBeanDocPkTest {
 
         DocumentModel current = buildDocumentWithModule();
         current.setId(200L);
+        current.setStatus(IInfoModel.STATUS_TMP);
         when(em.find(DocumentModel.class, 200L)).thenReturn(current);
 
         DocumentModel incoming = buildDocumentWithModule();
@@ -85,6 +86,7 @@ class KarteServiceBeanDocPkTest {
 
         // simulate client re-using returned PK
         incoming.setId(added);
+        incoming.setStatus(IInfoModel.STATUS_TMP);
         long updated = service.updateDocument(incoming);
 
         assertThat(updated).isEqualTo(200L);
@@ -124,6 +126,7 @@ class KarteServiceBeanDocPkTest {
         DocInfoModel info = new DocInfoModel();
         info.setDocId("TESTDOC");
         document.setDocInfoModel(info);
+        document.setStatus(IInfoModel.STATUS_TMP);
 
         ModuleModel module = new ModuleModel();
         module.setModel(new DummyModel()); // jsonEncode target
