@@ -32,7 +32,9 @@ import open.dolphin.session.UserServiceBean;
 import open.dolphin.touch.converter.IOSHelper;
 
 /**
- * Spec-based stub for `/orca25/subjectivesv2`.
+ * Handles subjective POST requests.
+ * REAL mode records subjectives to the local medical record database.
+ * STUB mode skips persistence and returns a stub response.
  */
 @Path("/orca/chart")
 public class OrcaSubjectiveResource extends AbstractOrcaRestResource {
