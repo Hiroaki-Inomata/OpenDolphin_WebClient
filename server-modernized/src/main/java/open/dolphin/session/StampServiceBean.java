@@ -52,6 +52,11 @@ public class StampServiceBean {
         StampTreeModel saved = persistPersonalTree(model);
         return saved.getId();
     }
+
+    public long putTreeForActor(StampTreeModel model, long actorUserPk) {
+        StampTreeModel normalized = bindTreeOwner(model, actorUserPk);
+        return putTree(normalized);
+    }
     
     // pk,versionNumber
     public String syncTree(StampTreeModel model) {
@@ -60,11 +65,29 @@ public class StampServiceBean {
         sb.append(String.valueOf(saved.getId())).append(",").append(saved.getVersionNumber());
         return sb.toString();
     }
+
+    public String syncTreeForActor(StampTreeModel model, long actorUserPk) {
+        StampTreeModel normalized = bindTreeOwner(model, actorUserPk);
+        return syncTree(normalized);
+    }
     
     // pk,versionNumber
     public void forceSyncTree(StampTreeModel model) {
         ensureTreeBytes(model);
         em.merge(model);
+    }
+
+    public void forceSyncTreeForActor(StampTreeModel model, long actorUserPk) {
+        StampTreeModel normalized = bindTreeOwner(model, actorUserPk);
+        StampTreeModel existing = findPersonalTree(actorUserPk, true);
+        if (existing == null) {
+            normalized.setId(0L);
+            normalized.setVersionNumber(sanitizeInitialVersion(normalized.getVersionNumber()));
+            em.merge(normalized);
+            return;
+        }
+        copyIdentity(existing, normalized);
+        em.merge(normalized);
     }
 
     private StampTreeModel persistPersonalTree(StampTreeModel model) {
@@ -73,6 +96,7 @@ public class StampServiceBean {
 
         StampTreeModel existing = findPersonalTree(model.getUserModel().getId(), true);
         if (existing == null) {
+            model.setId(0L);
             model.setVersionNumber(sanitizeInitialVersion(model.getVersionNumber()));
             return em.merge(model);
         }
@@ -112,6 +136,20 @@ public class StampServiceBean {
     private void copyIdentity(StampTreeModel existing, StampTreeModel target) {
         target.setId(existing.getId());
         target.setUserModel(existing.getUserModel());
+    }
+
+    private StampTreeModel bindTreeOwner(StampTreeModel model, long actorUserPk) {
+        if (actorUserPk <= 0) {
+            throw new IllegalArgumentException("actorUserPk is required");
+        }
+        if (model == null) {
+            throw new IllegalArgumentException("StampTreeModel is required");
+        }
+        UserModel actorRef = new UserModel();
+        actorRef.setId(actorUserPk);
+        model.setUserModel(actorRef);
+        ensureTreeBytes(model);
+        return model;
     }
 
     private void requireUser(StampTreeModel model) {
@@ -239,15 +277,34 @@ public class StampServiceBean {
         PublishedTreeModel published = (PublishedTreeModel) h.getSubscribedList().get(0);
 
         StampTreeModel saved = persistPersonalTree(personal);
-
-        if (published.getId() == 0L) {
-            published.setId(saved.getId());
+        published.setId(saved.getId());
+        published.setUserModel(saved.getUserModel());
+        PublishedTreeModel existingPublished = em.find(PublishedTreeModel.class, saved.getId());
+        if (existingPublished == null) {
             em.persist(published);
         } else {
             em.merge(published);
         }
 
         return saved.getVersionNumber();
+    }
+
+    public String updatePublishedTreeForActor(StampTreeHolder holder, long actorUserPk) {
+        if (holder == null || holder.getPersonalTree() == null) {
+            throw new IllegalArgumentException("StampTreeHolder.personalTree is required");
+        }
+        StampTreeModel personal = bindTreeOwner((StampTreeModel) holder.getPersonalTree(), actorUserPk);
+        holder.setPersonalTree(personal);
+        if (holder.getSubscribedList() != null) {
+            for (IStampTreeModel model : holder.getSubscribedList()) {
+                if (model instanceof PublishedTreeModel published) {
+                    UserModel actorRef = new UserModel();
+                    actorRef.setId(actorUserPk);
+                    published.setUserModel(actorRef);
+                }
+            }
+        }
+        return updatePublishedTree(holder);
     }
 
     /**
@@ -267,6 +324,11 @@ public class StampServiceBean {
         }
 
         return saved.getVersionNumber();
+    }
+
+    public String cancelPublishedTreeForActor(StampTreeModel model, long actorUserPk) {
+        StampTreeModel normalized = bindTreeOwner(model, actorUserPk);
+        return cancelPublishedTree(normalized);
     }
 
     /**
@@ -321,6 +383,24 @@ public class StampServiceBean {
         return ret;
     }
 
+    public List<Long> subscribeTreesForActor(List<SubscribedTreeModel> addList, long actorUserPk) {
+        if (actorUserPk <= 0) {
+            throw new IllegalArgumentException("actorUserPk is required");
+        }
+        if (addList == null) {
+            return new ArrayList<>();
+        }
+        UserModel actorRef = new UserModel();
+        actorRef.setId(actorUserPk);
+        for (SubscribedTreeModel model : addList) {
+            if (model == null) {
+                continue;
+            }
+            model.setUserModel(actorRef);
+        }
+        return subscribeTrees(addList);
+    }
+
     /**
      * 公開Treeにアンサブスクライブする。
      * @param ids アンサブスクライブするTreeのIdリスト
@@ -350,6 +430,25 @@ public class StampServiceBean {
         return cnt;
     }
 
+    public int unsubscribeTreesForActor(List<Long> list, long actorUserPk) {
+        if (actorUserPk <= 0) {
+            throw new IllegalArgumentException("actorUserPk is required");
+        }
+        if (list == null || list.isEmpty()) {
+            return 0;
+        }
+        if (list.size() % 2 != 0) {
+            throw new IllegalArgumentException("idPks must be paired as treeId,userPK");
+        }
+        for (int i = 0; i < list.size(); i += 2) {
+            Long userPk = list.get(i + 1);
+            if (userPk == null || userPk.longValue() != actorUserPk) {
+                throw new SecurityException("Cross-user unsubscribe is not allowed");
+            }
+        }
+        return unsubscribeTrees(list);
+    }
+
     /**
      * Stampを保存する。
      * @param model StampModel
@@ -365,6 +464,21 @@ public class StampServiceBean {
         return ret;
     }
 
+    public List<String> putStampForActor(List<StampModel> list, long actorUserPk) {
+        if (actorUserPk <= 0) {
+            throw new IllegalArgumentException("actorUserPk is required");
+        }
+        if (list == null) {
+            return new ArrayList<>();
+        }
+        for (StampModel model : list) {
+            if (model != null) {
+                model.setUserId(actorUserPk);
+            }
+        }
+        return putStamp(list);
+    }
+
     /**
      * Stampを保存する。
      * @param model StampModel
@@ -375,6 +489,17 @@ public class StampServiceBean {
         //em.persist(model);
         em.merge(model);
         return model.getId();
+    }
+
+    public String putStampForActor(StampModel model, long actorUserPk) {
+        if (actorUserPk <= 0) {
+            throw new IllegalArgumentException("actorUserPk is required");
+        }
+        if (model == null) {
+            throw new IllegalArgumentException("StampModel is required");
+        }
+        model.setUserId(actorUserPk);
+        return putStamp(model);
     }
 
     /**

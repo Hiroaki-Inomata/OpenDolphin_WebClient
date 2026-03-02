@@ -69,6 +69,10 @@ public class KarteServiceBean {
     private static final String QUERY_DOC_INFO = "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and (d.status='F' or d.status='T')";
     private static final String QUERY_PATIENT_MEMO = "from PatientMemoModel p where p.karte.id=:karteId";
     private static final String QUERY_USER_BY_USER_ID = "from UserModel u where u.userId=:userId";
+    private static final String QUERY_FACILITY_BY_PATIENT_PK = "select p.facilityId from PatientModel p where p.id=:id";
+    private static final String QUERY_FACILITY_BY_KARTE_ID = "select k.patient.facilityId from KarteBean k where k.id=:id";
+    private static final String QUERY_FACILITY_BY_DOC_ID = "select d.karte.patient.facilityId from DocumentModel d where d.id=:id";
+    private static final String QUERY_FACILITY_BY_ATTACHMENT_ID = "select a.document.karte.patient.facilityId from AttachmentModel a where a.id=:id";
 
     private static final String QUERY_DOCUMENT_INCLUDE_MODIFIED = "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and d.status !='D'";
     private static final String QUERY_DOCUMENT = "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and (d.status='F' or d.status='T')";
@@ -459,6 +463,35 @@ public class KarteServiceBean {
             result.add(doc.getDocInfoModel());
         }
         return result;
+    }
+
+    public String findFacilityIdByPatientPk(long patientPk) {
+        return findFacilityIdById(QUERY_FACILITY_BY_PATIENT_PK, patientPk);
+    }
+
+    public String findFacilityIdByKarteId(long karteId) {
+        return findFacilityIdById(QUERY_FACILITY_BY_KARTE_ID, karteId);
+    }
+
+    public String findFacilityIdByDocId(long docId) {
+        return findFacilityIdById(QUERY_FACILITY_BY_DOC_ID, docId);
+    }
+
+    public String findFacilityIdByAttachmentId(long attachmentId) {
+        return findFacilityIdById(QUERY_FACILITY_BY_ATTACHMENT_ID, attachmentId);
+    }
+
+    private String findFacilityIdById(String query, long idValue) {
+        if (idValue <= 0) {
+            return null;
+        }
+        try {
+            return em.createQuery(query, String.class)
+                    .setParameter(ID, idValue)
+                    .getSingleResult();
+        } catch (NoResultException ex) {
+            return null;
+        }
     }
 
     /**

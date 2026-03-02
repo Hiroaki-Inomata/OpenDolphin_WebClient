@@ -8,9 +8,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -45,8 +47,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class KarteResource extends AbstractResource {
 
     private static final Logger LOGGER = Logger.getLogger(KarteResource.class.getName());
-    private static final String HEADER_FACILITY = "X-Facility-Id";
-    private static final String HEADER_FACILITY_LEGACY = "facilityId";
 
     @Inject
     private KarteServiceBean karteServiceBean;
@@ -94,6 +94,7 @@ public class KarteResource extends AbstractResource {
         String[] params = param.split(CAMMA);
         long patientPK = Long.parseLong(params[0]);
         Date fromDate = parseDate(params[1]);
+        ensurePatientFacilityAccess(patientPK, servletReq);
         
         KarteBean bean = karteServiceBean.getKarte(patientPK, fromDate);
         return toConverter(servletReq, bean, "patient_lookup");
@@ -119,6 +120,7 @@ public class KarteResource extends AbstractResource {
 
         List<DocInfoModel> result = new ArrayList<>();
         if (karteId != null) {
+            ensureKarteFacilityAccess(karteId, servletReq);
             List<DocInfoModel> fetched = karteServiceBean.getDocumentList(karteId, fromDate, includeModified);
             if (fetched != null) {
                 result.addAll(fetched);
@@ -188,7 +190,9 @@ public class KarteResource extends AbstractResource {
         String[] params = param.split(CAMMA);
         List<Long> list = new ArrayList<>(params.length);
         for (String s : params) {
-            list.add(Long.parseLong(s));
+            long docId = Long.parseLong(s);
+            ensureDocumentFacilityAccess(docId, null);
+            list.add(docId);
         }
 
         List<DocumentModel> result = karteServiceBean.getDocuments(list);
@@ -224,6 +228,7 @@ public class KarteResource extends AbstractResource {
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         DocumentModel document = mapper.readValue(json, DocumentModel.class);
+        ensureDocumentPayloadFacility(document, null);
         populateDocumentRelations(document);
 
         long result = karteServiceBean.addDocument(document);
@@ -242,6 +247,7 @@ public class KarteResource extends AbstractResource {
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         DocumentModel document = mapper.readValue(json, DocumentModel.class);
+        ensureDocumentPayloadFacility(document, null);
         populateDocumentRelations(document);
 
         long result = karteServiceBean.updateDocument(document);
@@ -261,6 +267,7 @@ public class KarteResource extends AbstractResource {
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         DocumentModel document = mapper.readValue(json, DocumentModel.class);
+        ensureDocumentPayloadFacility(document, null);
         populateDocumentRelations(document);
 
         long result = karteServiceBean.addDocument(document);
@@ -289,6 +296,7 @@ public class KarteResource extends AbstractResource {
     public String putTitle(@PathParam("id") String idStr, String title) {
 
         long id = Long.parseLong(idStr);
+        ensureDocumentFacilityAccess(id, null);
 
         int result = karteServiceBean.updateTitle(id, title);
 
@@ -301,6 +309,7 @@ public class KarteResource extends AbstractResource {
     public StringListConverter deleteDocument(@PathParam("id") String idStr) {
 
         long id = Long.parseLong(idStr);
+        ensureDocumentFacilityAccess(id, null);
         DocumentModel document = null;
         try {
             List<DocumentModel> documents = karteServiceBean.getDocuments(List.of(id));
@@ -335,6 +344,7 @@ public class KarteResource extends AbstractResource {
     public List<RoutineMedicationResponse> getRoutineMedications(@PathParam("karteId") long karteId,
                                                                  @DefaultValue("0") @QueryParam("firstResult") int firstResult,
                                                                  @DefaultValue("50") @QueryParam("maxResults") int maxResults) {
+        ensureKarteFacilityAccess(karteId, null);
         int safeFirst = Math.max(firstResult, 0);
         int safeMax = maxResults > 0 ? Math.min(maxResults, 200) : 50;
         return karteServiceBean.getRoutineMedications(karteId, safeFirst, safeMax);
@@ -349,6 +359,7 @@ public class KarteResource extends AbstractResource {
         if (karteId == null || karteId <= 0) {
             return Collections.emptyList();
         }
+        ensureKarteFacilityAccess(karteId, null);
         int safeFirst = Math.max(firstResult, 0);
         int safeMax = maxResults > 0 ? Math.min(maxResults, 200) : 50;
         return karteServiceBean.getRoutineMedications(karteId, safeFirst, safeMax);
@@ -358,6 +369,7 @@ public class KarteResource extends AbstractResource {
     @Path("/safety/{karteId}")
     @Produces(MediaType.APPLICATION_JSON)
     public SafetySummaryResponse getSafetySummary(@PathParam("karteId") long karteId) {
+        ensureKarteFacilityAccess(karteId, null);
         return karteServiceBean.getSafetySummary(karteId);
     }
 
@@ -368,6 +380,7 @@ public class KarteResource extends AbstractResource {
                                                      @QueryParam("fromDate") String fromDate,
                                                      @QueryParam("toDate") String toDate,
                                                      @DefaultValue("false") @QueryParam("lastOnly") boolean lastOnly) {
+        ensureKarteFacilityAccess(karteId, null);
         Date from = parseDateAtStart(fromDate);
         Date toExclusive = parseDateExclusiveEnd(toDate);
         return karteServiceBean.getRpHistory(karteId, from, toExclusive, lastOnly);
@@ -383,6 +396,7 @@ public class KarteResource extends AbstractResource {
         if (karteId == null || karteId <= 0) {
             return Collections.emptyList();
         }
+        ensureKarteFacilityAccess(karteId, null);
         Date from = parseDateAtStart(fromDate);
         Date toExclusive = parseDateExclusiveEnd(toDate);
         return karteServiceBean.getRpHistory(karteId, from, toExclusive, lastOnly);
@@ -406,6 +420,7 @@ public class KarteResource extends AbstractResource {
         String[] params = param.split(CAMMA);
         long karteId = Long.parseLong(params[0]);
         String entity = params[1];
+        ensureKarteFacilityAccess(karteId, null);
 
         List<Date> fromList = new ArrayList<>();
         List<Date> toList = new ArrayList<>();
@@ -442,6 +457,7 @@ public class KarteResource extends AbstractResource {
         debug(param);
         String[] params = param.split(CAMMA);
         long karteId = Long.parseLong(params[0]);
+        ensureKarteFacilityAccess(karteId, null);
 
         List<Date> fromList = new ArrayList<>();
         List<Date> toList = new ArrayList<>();
@@ -493,6 +509,7 @@ public class KarteResource extends AbstractResource {
         if (params.length==3) {
             activeOnly = Boolean.parseBoolean(params[2]);
         }
+        ensureKarteFacilityAccess(karteId, null);
 
         List<RegisteredDiagnosisModel> result = karteServiceBean.getDiagnosis(karteId, fromDate, activeOnly);
         RegisteredDiagnosisList list = new RegisteredDiagnosisList();
@@ -514,6 +531,7 @@ public class KarteResource extends AbstractResource {
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         RegisteredDiagnosisList list = mapper.readValue(json, RegisteredDiagnosisList.class);
+        ensureDiagnosisFacilityAccess(list != null ? list.getList() : null, null);
 
         List<Long> result = karteServiceBean.addDiagnosis(list.getList());
 
@@ -538,6 +556,7 @@ public class KarteResource extends AbstractResource {
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         RegisteredDiagnosisList list = mapper.readValue(json, RegisteredDiagnosisList.class);
+        ensureDiagnosisFacilityAccess(list != null ? list.getList() : null, null);
 
         int result = karteServiceBean.updateDiagnosis(list.getList());
         String text = String.valueOf(result);
@@ -578,6 +597,7 @@ public class KarteResource extends AbstractResource {
         if (params.length==4) {
             firstConfirmed = parseDate(params[3]);
         }
+        ensureKarteFacilityAccess(karteId, null);
 
         List<ObservationModel> result = karteServiceBean.getObservations(karteId, observation, phenomenon, firstConfirmed);
         ObservationList list = new ObservationList();
@@ -599,6 +619,7 @@ public class KarteResource extends AbstractResource {
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         ObservationList list = mapper.readValue(json, ObservationList.class);
+        ensureObservationFacilityAccess(list != null ? list.getList() : null, null);
 
         List<Long> result = karteServiceBean.addObservations(list.getList());
 
@@ -623,6 +644,7 @@ public class KarteResource extends AbstractResource {
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         ObservationList list = mapper.readValue(json, ObservationList.class);
+        ensureObservationFacilityAccess(list != null ? list.getList() : null, null);
         
         int result = karteServiceBean.updateObservations(list.getList());
 
@@ -660,6 +682,7 @@ public class KarteResource extends AbstractResource {
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         PatientMemoModel memo = mapper.readValue(json, PatientMemoModel.class);
+        ensurePatientMemoFacilityAccess(memo, null);
 
         int result = karteServiceBean.updatePatientMemo(memo);
         String text = String.valueOf(result);
@@ -719,6 +742,7 @@ public class KarteResource extends AbstractResource {
         debug(param);
         String[] params = param.split(CAMMA);
         long karteId = Long.parseLong(params[0]);
+        ensureKarteFacilityAccess(karteId, null);
 
         List<Date> fromList = new ArrayList<Date>();
         List<Date> toList = new ArrayList<Date>();
@@ -760,6 +784,7 @@ public class KarteResource extends AbstractResource {
         
         String[] params = param.split(CAMMA);
         long karteId = Long.parseLong(params[0]);
+        ensureKarteFacilityAccess(karteId, servletReq);
         Date fromDate = parseDate(params[1]+" 00:00:00");
         Date toDate = parseDate(params[2]+" 00:00:00");
         List<String> entities = new ArrayList<String>();
@@ -785,6 +810,7 @@ public class KarteResource extends AbstractResource {
     public DocumentListConverter getAllDocument(@PathParam("param") String param) {
 
         long pk = Long.parseLong(param);
+        ensurePatientFacilityAccess(pk, null);
 
         List<DocumentModel> result = karteServiceBean.getAllDocument(pk);
         
@@ -816,6 +842,7 @@ public class KarteResource extends AbstractResource {
     public AttachmentModelConverter getAttachment(@PathParam("param") String param) {
 
         long id = Long.parseLong(param);
+        ensureAttachmentFacilityAccess(id, null);
 
         AttachmentModel result = karteServiceBean.getAttachment(id);
         
@@ -840,47 +867,125 @@ public class KarteResource extends AbstractResource {
 
     private String resolveFacilityId(HttpServletRequest request) {
         String remoteUser = request != null ? request.getRemoteUser() : null;
-        boolean hasSeparator = remoteUser != null && remoteUser.indexOf(IInfoModel.COMPOSITE_KEY_MAKER) >= 0;
-        String facility = hasSeparator ? getRemoteFacility(remoteUser) : null;
-        String headerFacility = headerFacility(request);
-        if (facility == null || facility.isBlank()) {
-            facility = firstNonBlank(facility, headerFacility);
-        }
+        String facility = getRemoteFacility(remoteUser);
         if (facility == null || facility.isBlank()) {
             Map<String, Object> extras = new HashMap<>();
             extras.put("remoteUser", remoteUser);
-            extras.put("headerFacility", headerFacility);
             throw AbstractResource.restError(request, Response.Status.UNAUTHORIZED, "facility_missing",
                     "Facility identifier is not available", extras, null);
         }
-        return facility;
+        return facility.trim();
     }
 
-    private String headerFacility(HttpServletRequest request) {
-        if (request == null) {
-            return null;
-        }
-        String override = request.getHeader(HEADER_FACILITY);
-        if (override != null && !override.trim().isEmpty()) {
-            return override.trim();
-        }
-        String legacy = request.getHeader(HEADER_FACILITY_LEGACY);
-        if (legacy != null && !legacy.trim().isEmpty()) {
-            return legacy.trim();
-        }
-        return null;
+    private HttpServletRequest resolveRequest(HttpServletRequest explicit) {
+        return explicit != null ? explicit : httpServletRequest;
     }
 
-    private String firstNonBlank(String... candidates) {
-        if (candidates == null) {
-            return null;
+    private void ensurePatientFacilityAccess(long patientPk, HttpServletRequest request) {
+        if (patientPk <= 0) {
+            return;
         }
-        for (String candidate : candidates) {
-            if (candidate != null && !candidate.trim().isEmpty()) {
-                return candidate.trim();
+        HttpServletRequest effectiveRequest = resolveRequest(request);
+        String actorFacility = resolveFacilityId(effectiveRequest);
+        String targetFacility = karteServiceBean.findFacilityIdByPatientPk(patientPk);
+        ensureFacilityMatch(actorFacility, targetFacility, "patientPk", patientPk, effectiveRequest);
+    }
+
+    private void ensureKarteFacilityAccess(long karteId, HttpServletRequest request) {
+        if (karteId <= 0) {
+            return;
+        }
+        HttpServletRequest effectiveRequest = resolveRequest(request);
+        String actorFacility = resolveFacilityId(effectiveRequest);
+        String targetFacility = karteServiceBean.findFacilityIdByKarteId(karteId);
+        ensureFacilityMatch(actorFacility, targetFacility, "karteId", karteId, effectiveRequest);
+    }
+
+    private void ensureDocumentFacilityAccess(long docId, HttpServletRequest request) {
+        if (docId <= 0) {
+            return;
+        }
+        HttpServletRequest effectiveRequest = resolveRequest(request);
+        String actorFacility = resolveFacilityId(effectiveRequest);
+        String targetFacility = karteServiceBean.findFacilityIdByDocId(docId);
+        ensureFacilityMatch(actorFacility, targetFacility, "docId", docId, effectiveRequest);
+    }
+
+    private void ensureAttachmentFacilityAccess(long attachmentId, HttpServletRequest request) {
+        if (attachmentId <= 0) {
+            return;
+        }
+        HttpServletRequest effectiveRequest = resolveRequest(request);
+        String actorFacility = resolveFacilityId(effectiveRequest);
+        String targetFacility = karteServiceBean.findFacilityIdByAttachmentId(attachmentId);
+        ensureFacilityMatch(actorFacility, targetFacility, "attachmentId", attachmentId, effectiveRequest);
+    }
+
+    private void ensureDocumentPayloadFacility(DocumentModel document, HttpServletRequest request) {
+        if (document == null) {
+            return;
+        }
+        if (document.getId() > 0) {
+            ensureDocumentFacilityAccess(document.getId(), request);
+        }
+        if (document.getKarteBean() != null && document.getKarteBean().getId() > 0) {
+            ensureKarteFacilityAccess(document.getKarteBean().getId(), request);
+        }
+    }
+
+    private void ensureDiagnosisFacilityAccess(List<RegisteredDiagnosisModel> diagnoses, HttpServletRequest request) {
+        if (diagnoses == null || diagnoses.isEmpty()) {
+            return;
+        }
+        Set<Long> karteIds = new LinkedHashSet<>();
+        for (RegisteredDiagnosisModel diagnosis : diagnoses) {
+            if (diagnosis != null && diagnosis.getKarteBean() != null && diagnosis.getKarteBean().getId() > 0) {
+                karteIds.add(diagnosis.getKarteBean().getId());
             }
         }
-        return null;
+        for (Long karteId : karteIds) {
+            ensureKarteFacilityAccess(karteId, request);
+        }
+    }
+
+    private void ensureObservationFacilityAccess(List<ObservationModel> observations, HttpServletRequest request) {
+        if (observations == null || observations.isEmpty()) {
+            return;
+        }
+        Set<Long> karteIds = new LinkedHashSet<>();
+        for (ObservationModel observation : observations) {
+            if (observation != null && observation.getKarteBean() != null && observation.getKarteBean().getId() > 0) {
+                karteIds.add(observation.getKarteBean().getId());
+            }
+        }
+        for (Long karteId : karteIds) {
+            ensureKarteFacilityAccess(karteId, request);
+        }
+    }
+
+    private void ensurePatientMemoFacilityAccess(PatientMemoModel memo, HttpServletRequest request) {
+        if (memo == null || memo.getKarteBean() == null || memo.getKarteBean().getId() <= 0) {
+            return;
+        }
+        ensureKarteFacilityAccess(memo.getKarteBean().getId(), request);
+    }
+
+    private void ensureFacilityMatch(String actorFacility,
+                                     String targetFacility,
+                                     String idName,
+                                     long idValue,
+                                     HttpServletRequest request) {
+        if (targetFacility == null || targetFacility.isBlank()) {
+            return;
+        }
+        String normalizedTarget = targetFacility.trim();
+        if (!actorFacility.equals(normalizedTarget)) {
+            throw AbstractResource.restError(request, Response.Status.FORBIDDEN, "forbidden", "Access denied",
+                    Map.of("actorFacilityId", actorFacility,
+                            "targetFacilityId", normalizedTarget,
+                            idName, idValue),
+                    null);
+        }
     }
 
     private Date parseDateAtStart(String value) {

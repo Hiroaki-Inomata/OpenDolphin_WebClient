@@ -27,6 +27,7 @@ import open.dolphin.infomodel.*;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.StampServiceBean;
+import open.dolphin.session.UserServiceBean;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -44,6 +45,9 @@ public class StampResource extends AbstractResource {
 
     @Inject
     private StampServiceBean stampServiceBean;
+
+    @Inject
+    private UserServiceBean userServiceBean;
 
     @Inject
     private AuditTrailService auditTrailService;
@@ -69,8 +73,12 @@ public class StampResource extends AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public StampTreeHolderConverter getStampTree(@PathParam("userPK") String userPK) {
 
+        long requestedUserPk = Long.parseLong(userPK);
+        long actorUserPk = resolveActorUserPk();
+        ensureActorOwnsUserPk(requestedUserPk, actorUserPk, "userPK");
+
         // IStampTreeModel=interface
-        StampTreeHolder result = stampServiceBean.getTrees(Long.parseLong(userPK));
+        StampTreeHolder result = stampServiceBean.getTrees(actorUserPk);
         
         // Converter
         StampTreeHolderConverter conv = new StampTreeHolderConverter();
@@ -106,8 +114,10 @@ public class StampResource extends AbstractResource {
     @Produces(MediaType.TEXT_PLAIN)
     public String putTree(String json) throws IOException {
         StampTreeModel model = deserializeStampTree(json);
+        UserModel actorUser = resolveActorUser();
+        applyActorToTree(model, actorUser);
         try {
-            long pk = stampServiceBean.putTree(model);
+            long pk = stampServiceBean.putTreeForActor(model, actorUser.getId());
             String pkStr = String.valueOf(pk);
             recordStampTreeAudit("STAMP_TREE_PUT", model, "success", pkStr, null, null, null);
             debug(pkStr);
@@ -124,8 +134,10 @@ public class StampResource extends AbstractResource {
     @Produces(MediaType.TEXT_PLAIN)
     public String syncTree(String json) throws IOException {
         StampTreeModel model = deserializeStampTree(json);
+        UserModel actorUser = resolveActorUser();
+        applyActorToTree(model, actorUser);
         try {
-            String pkAndVersion = stampServiceBean.syncTree(model);
+            String pkAndVersion = stampServiceBean.syncTreeForActor(model, actorUser.getId());
             String[] parsed = splitPkAndVersion(pkAndVersion);
             recordStampTreeAudit("STAMP_TREE_SYNC", model, "success", parsed[0], parsed[1], null, null);
             debug(pkAndVersion);
@@ -142,8 +154,10 @@ public class StampResource extends AbstractResource {
     @Produces(MediaType.TEXT_PLAIN)
     public void forceSyncTree(String json) throws IOException {
         StampTreeModel model = deserializeStampTree(json);
+        UserModel actorUser = resolveActorUser();
+        applyActorToTree(model, actorUser);
         try {
-            stampServiceBean.forceSyncTree(model);
+            stampServiceBean.forceSyncTreeForActor(model, actorUser.getId());
             recordStampTreeAudit("STAMP_TREE_FORCE_SYNC", model, "success",
                     model != null ? String.valueOf(model.getId()) : null, null, null, null);
         } catch (RuntimeException e) {
@@ -179,8 +193,10 @@ public class StampResource extends AbstractResource {
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         StampTreeHolder h = mapper.readValue(json, StampTreeHolder.class);
+        UserModel actorUser = resolveActorUser();
+        applyActorToTreeHolder(h, actorUser);
 
-        String version = stampServiceBean.updatePublishedTree(h);
+        String version = stampServiceBean.updatePublishedTreeForActor(h, actorUser.getId());
         debug(version);
 
         return version;
@@ -195,8 +211,10 @@ public class StampResource extends AbstractResource {
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         StampTreeModel model = mapper.readValue(json, StampTreeModel.class);
+        UserModel actorUser = resolveActorUser();
+        applyActorToTree(model, actorUser);
         
-        String version = stampServiceBean.cancelPublishedTree(model);
+        String version = stampServiceBean.cancelPublishedTreeForActor(model, actorUser.getId());
         debug(version);
         
         return version;
@@ -228,8 +246,10 @@ public class StampResource extends AbstractResource {
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         SubscribedTreeList list = mapper.readValue(json, SubscribedTreeList.class);
+        UserModel actorUser = resolveActorUser();
+        applyActorToSubscribedTrees(list != null ? list.getList() : null, actorUser);
         
-        List<Long> result = stampServiceBean.subscribeTrees(list.getList());
+        List<Long> result = stampServiceBean.subscribeTreesForActor(list.getList(), actorUser.getId());
 
         StringBuilder sb = new StringBuilder();
         for (Long l : result) {
@@ -248,11 +268,13 @@ public class StampResource extends AbstractResource {
 
         String[] params = idPks.split(CAMMA);
         List<Long> list = new ArrayList<Long>();
+        long actorUserPk = resolveActorUserPk();
         for (String s : params) {
             list.add(Long.parseLong(s));
         }
+        ensureUnsubscribeOwnership(list, actorUserPk);
 
-        int cnt = stampServiceBean.unsubscribeTrees(list);
+        int cnt = stampServiceBean.unsubscribeTreesForActor(list, actorUserPk);
         
         String cntStr = String.valueOf(cnt);
         debug(cntStr);
@@ -264,7 +286,9 @@ public class StampResource extends AbstractResource {
     @Path("/id/{param}")
     @Produces(MediaType.APPLICATION_JSON)
     public StampModelConverter getStamp(@PathParam("param") String param) {
+        long actorUserPk = resolveActorUserPk();
         StampModel stamp = stampServiceBean.getStamp(param);
+        ensureStampOwnership(stamp, actorUserPk, param);
         StampModelConverter conv = new StampModelConverter();
         conv.setModel(stamp);
         return conv;
@@ -275,11 +299,13 @@ public class StampResource extends AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public StampListConverter getStamps(@PathParam("param") String param) {
         
+        long actorUserPk = resolveActorUserPk();
         String[] params = param.split(CAMMA);
         List<String> list = new ArrayList<String>();
         list.addAll(Arrays.asList(params));
 
         List<StampModel> result = stampServiceBean.getStamp(list);
+        ensureStampOwnership(result, list, actorUserPk);
         
         StampList list2 = new StampList();
         list2.setList(result);
@@ -300,8 +326,10 @@ public class StampResource extends AbstractResource {
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         StampModel model = mapper.readValue(json, StampModel.class);
+        long actorUserPk = resolveActorUserPk();
+        applyActorToStamp(model, actorUserPk);
 
-        String ret = stampServiceBean.putStamp(model);
+        String ret = stampServiceBean.putStampForActor(model, actorUserPk);
         debug(ret);
 
         return ret;
@@ -317,8 +345,10 @@ public class StampResource extends AbstractResource {
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         StampList list = mapper.readValue(json, StampList.class);
+        long actorUserPk = resolveActorUserPk();
+        applyActorToStamps(list != null ? list.getList() : null, actorUserPk);
 
-        List<String> ret = stampServiceBean.putStamp(list.getList());
+        List<String> ret = stampServiceBean.putStampForActor(list.getList(), actorUserPk);
 
         StringBuilder sb = new StringBuilder();
         for (String str : ret) {
@@ -338,7 +368,9 @@ public class StampResource extends AbstractResource {
     public void deleteStamp(@PathParam("param") String param) {
 
         List<String> targetIds = List.of(param);
+        long actorUserPk = resolveActorUserPk();
         StampModel existing = stampServiceBean.getStamp(param);
+        ensureStampOwnership(existing, actorUserPk, param);
         if (existing == null) {
             String message = "Stamp not found: " + param;
             recordStampDeletionAudit("STAMP_DELETE_SINGLE", targetIds, "failed", null, "stamp_not_found", message);
@@ -364,11 +396,13 @@ public class StampResource extends AbstractResource {
     @Path("/list/{param}")
     public void deleteStamps(@PathParam("param") String param) {
 
+        long actorUserPk = resolveActorUserPk();
         String[] params = param.split(CAMMA);
         List<String> list = new ArrayList<String>();
         list.addAll(Arrays.asList(params));
 
         List<StampModel> resolved = stampServiceBean.getStamp(list);
+        ensureStampOwnership(resolved, list, actorUserPk);
         List<String> missing = new ArrayList<>();
         for (int i = 0; i < list.size(); i++) {
             StampModel model = (resolved != null && resolved.size() > i) ? resolved.get(i) : null;
@@ -606,6 +640,135 @@ public class StampResource extends AbstractResource {
         }
         if ((model.getTreeBytes() == null || model.getTreeBytes().length == 0) && model.getTreeXml() != null) {
             model.setTreeBytes(model.getTreeXml().getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private UserModel resolveActorUser() {
+        String remoteUser = resolveRemoteUser();
+        if (remoteUser == null || remoteUser.isBlank()) {
+            throw restError(httpServletRequest, Response.Status.UNAUTHORIZED, "unauthorized",
+                    "Remote user is not authenticated", null, null);
+        }
+        try {
+            UserModel actor = userServiceBean.getUser(remoteUser);
+            if (actor == null || actor.getId() <= 0) {
+                throw restError(httpServletRequest, Response.Status.UNAUTHORIZED, "unauthorized",
+                        "Authenticated actor is invalid", Map.of("remoteUser", remoteUser), null);
+            }
+            return actor;
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (RuntimeException ex) {
+            throw restError(httpServletRequest, Response.Status.UNAUTHORIZED, "unauthorized",
+                    "Authenticated actor is invalid", Map.of("remoteUser", remoteUser), ex);
+        }
+    }
+
+    private long resolveActorUserPk() {
+        return resolveActorUser().getId();
+    }
+
+    private void ensureActorOwnsUserPk(long requestedUserPk, long actorUserPk, String fieldName) {
+        if (requestedUserPk == actorUserPk) {
+            return;
+        }
+        throw restError(httpServletRequest, Response.Status.FORBIDDEN, "forbidden", "Access denied",
+                Map.of("requestedUserPk", requestedUserPk,
+                        "actorUserPk", actorUserPk,
+                        "field", fieldName),
+                null);
+    }
+
+    private void applyActorToTree(StampTreeModel model, UserModel actorUser) {
+        if (model == null || actorUser == null) {
+            return;
+        }
+        model.setUserModel(actorUser);
+    }
+
+    private void applyActorToTreeHolder(StampTreeHolder holder, UserModel actorUser) {
+        if (holder == null || actorUser == null) {
+            return;
+        }
+        StampTreeModel personal = holder.getPersonalTree();
+        if (personal != null) {
+            applyActorToTree(personal, actorUser);
+        }
+        if (holder.getSubscribedList() == null) {
+            return;
+        }
+        for (IStampTreeModel tree : holder.getSubscribedList()) {
+            if (tree instanceof PublishedTreeModel published) {
+                published.setUserModel(actorUser);
+            }
+        }
+    }
+
+    private void applyActorToSubscribedTrees(List<SubscribedTreeModel> models, UserModel actorUser) {
+        if (models == null || actorUser == null) {
+            return;
+        }
+        for (SubscribedTreeModel model : models) {
+            if (model != null) {
+                model.setUserModel(actorUser);
+            }
+        }
+    }
+
+    private void ensureUnsubscribeOwnership(List<Long> idPairs, long actorUserPk) {
+        if (idPairs == null || idPairs.isEmpty()) {
+            return;
+        }
+        if (idPairs.size() % 2 != 0) {
+            throw restError(httpServletRequest, Response.Status.BAD_REQUEST, "invalid_request",
+                    "idPks must be paired as treeId,userPK", Map.of("idPks", idPairs), null);
+        }
+        for (int i = 0; i < idPairs.size(); i += 2) {
+            long requestedUserPk = idPairs.get(i + 1);
+            ensureActorOwnsUserPk(requestedUserPk, actorUserPk, "unsubscribe.userPK");
+        }
+    }
+
+    private void applyActorToStamp(StampModel stamp, long actorUserPk) {
+        if (stamp != null) {
+            stamp.setUserId(actorUserPk);
+        }
+    }
+
+    private void applyActorToStamps(List<StampModel> stamps, long actorUserPk) {
+        if (stamps == null) {
+            return;
+        }
+        for (StampModel stamp : stamps) {
+            applyActorToStamp(stamp, actorUserPk);
+        }
+    }
+
+    private void ensureStampOwnership(StampModel stamp, long actorUserPk, String stampId) {
+        if (stamp == null) {
+            return;
+        }
+        if (stamp.getUserId() == actorUserPk) {
+            return;
+        }
+        throw restError(httpServletRequest, Response.Status.FORBIDDEN, "forbidden", "Access denied",
+                Map.of("stampId", stampId,
+                        "requestedUserPk", stamp.getUserId(),
+                        "actorUserPk", actorUserPk),
+                null);
+    }
+
+    private void ensureStampOwnership(List<StampModel> stamps, List<String> ids, long actorUserPk) {
+        if (stamps == null || ids == null) {
+            return;
+        }
+        int upper = Math.min(stamps.size(), ids.size());
+        for (int i = 0; i < upper; i++) {
+            StampModel stamp = stamps.get(i);
+            if (stamp == null) {
+                continue;
+            }
+            ensureStampOwnership(stamp, actorUserPk, ids.get(i));
         }
     }
 

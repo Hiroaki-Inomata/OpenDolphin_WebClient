@@ -66,6 +66,14 @@ public class KarteRevisionServiceBean {
     @Inject
     private KarteServiceBean karteServiceBean;
 
+    public String findFacilityIdByKarteId(long karteId) {
+        return karteServiceBean.findFacilityIdByKarteId(karteId);
+    }
+
+    public String findFacilityIdByRevisionId(long revisionId) {
+        return karteServiceBean.findFacilityIdByDocId(revisionId);
+    }
+
     public KarteRevisionHistoryResponse getRevisionHistory(long karteId, LocalDate visitDate) {
         Objects.requireNonNull(visitDate, "visitDate");
 

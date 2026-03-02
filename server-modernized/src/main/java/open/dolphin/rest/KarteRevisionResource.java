@@ -73,6 +73,7 @@ public class KarteRevisionResource extends AbstractResource {
         if (karteId == null || karteId <= 0) {
             throw validationError("REVISION_VALIDATION_ERROR", "karteId is required", Map.of("karteId", karteId));
         }
+        ensureKarteFacilityAccess(karteId);
         LocalDate day = parseLocalDateOrThrow(effectiveVisitDate, "visitDate");
 
         KarteRevisionHistoryResponse response = karteRevisionServiceBean.getRevisionHistory(karteId, day);
@@ -92,6 +93,7 @@ public class KarteRevisionResource extends AbstractResource {
             throw validationError("REVISION_VALIDATION_ERROR", "revisionId is required",
                     Map.of("revisionId", revisionId));
         }
+        ensureRevisionFacilityAccess(revisionId);
 
         DocumentModel doc = karteRevisionServiceBean.getRevisionSnapshot(revisionId);
         if (doc == null) {
@@ -129,6 +131,8 @@ public class KarteRevisionResource extends AbstractResource {
                     "fromRevisionId/toRevisionId are required",
                     Map.of("fromRevisionId", fromRevisionId, "toRevisionId", toRevisionId));
         }
+        ensureRevisionFacilityAccess(fromRevisionId);
+        ensureRevisionFacilityAccess(toRevisionId);
 
         KarteRevisionDiffResponse response = karteRevisionServiceBean.diffRevisions(fromRevisionId, toRevisionId);
         if (response == null) {
@@ -194,6 +198,8 @@ public class KarteRevisionResource extends AbstractResource {
                     Map.of("baseRevisionId", request != null ? request.getBaseRevisionId() : null,
                             "ifMatch", ifMatch));
         }
+        ensureRevisionFacilityAccess(sourceRevisionId);
+        ensureRevisionFacilityAccess(baseRevisionId);
 
         DocumentModel source = karteRevisionServiceBean.getRevisionSnapshot(sourceRevisionId);
         if (source == null) {
@@ -301,6 +307,48 @@ public class KarteRevisionResource extends AbstractResource {
                     image.setJpegByte(null);
                 }
             }
+        }
+    }
+
+    private void ensureKarteFacilityAccess(long karteId) {
+        String actorFacilityId = resolveActorFacilityId();
+        String targetFacilityId = karteRevisionServiceBean.findFacilityIdByKarteId(karteId);
+        ensureFacilityMatch(actorFacilityId, targetFacilityId, "karteId", karteId);
+    }
+
+    private void ensureRevisionFacilityAccess(long revisionId) {
+        String actorFacilityId = resolveActorFacilityId();
+        String targetFacilityId = karteRevisionServiceBean.findFacilityIdByRevisionId(revisionId);
+        ensureFacilityMatch(actorFacilityId, targetFacilityId, "revisionId", revisionId);
+    }
+
+    private String resolveActorFacilityId() {
+        String remoteUser = resolveRemoteUser();
+        String facilityId = getRemoteFacility(remoteUser);
+        if (facilityId == null || facilityId.isBlank()) {
+            throw restError(httpServletRequest, jakarta.ws.rs.core.Response.Status.UNAUTHORIZED,
+                    "unauthorized", "Remote user facility is required",
+                    Map.of("remoteUser", remoteUser), null);
+        }
+        return facilityId.trim();
+    }
+
+    private String resolveRemoteUser() {
+        return httpServletRequest != null ? httpServletRequest.getRemoteUser() : null;
+    }
+
+    private void ensureFacilityMatch(String actorFacilityId, String targetFacilityId, String idType, long idValue) {
+        if (targetFacilityId == null || targetFacilityId.isBlank()) {
+            return;
+        }
+        String normalizedTarget = targetFacilityId.trim();
+        if (!actorFacilityId.equals(normalizedTarget)) {
+            throw restError(httpServletRequest, jakarta.ws.rs.core.Response.Status.FORBIDDEN,
+                    "forbidden", "Access denied",
+                    Map.of("actorFacilityId", actorFacilityId,
+                            "targetFacilityId", normalizedTarget,
+                            idType, idValue),
+                    null);
         }
     }
 
