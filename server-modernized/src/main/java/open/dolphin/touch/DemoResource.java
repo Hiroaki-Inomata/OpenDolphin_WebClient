@@ -8,8 +8,14 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Response;
 import open.dolphin.infomodel.*;
+import open.dolphin.rest.config.DemoApiSettings;
+import open.dolphin.rest.config.DemoApiSettingsLoader;
 import open.dolphin.touch.session.IPhoneServiceBean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * REST Web Service
@@ -19,6 +25,8 @@ import open.dolphin.touch.session.IPhoneServiceBean;
 
 @Path("/demo")
 public class DemoResource extends AbstractResource {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(DemoResource.class);
 
     private static final String ELEMENT_PATIENT_VISIT_START = "<patientVisit>";
     private static final String ELEMENT_PATIENT_VISIT_END = "</patientVisit>";
@@ -125,15 +133,23 @@ public class DemoResource extends AbstractResource {
     @Inject
     private IPhoneServiceBean iPhoneServiceBean;
 
+    private final DemoApiSettings settings;
+
 
     /** Creates a new instance of DolphinResource */
     public DemoResource() {
+        this(new DemoApiSettingsLoader().load());
+    }
+
+    DemoResource(DemoApiSettings settings) {
+        this.settings = settings;
     }
 
     @GET
     @Path("/user/{param}")
     @Produces("application/xml")
     public String getUser(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getUser");
 
         String [] params = param.split(",");
 
@@ -145,9 +161,7 @@ public class DemoResource extends AbstractResource {
         String userId = params[0];
         String facilityId = params[1];
         String password = params[2];
-        System.err.println(userId);
-        System.err.println(facilityId);
-        System.err.println(password);
+        LOGGER.debug("Demo user lookup request received.");
         boolean pad = params.length == 4 && params[3].equals("pad") ? true : false;
 
         String retXML;
@@ -162,7 +176,7 @@ public class DemoResource extends AbstractResource {
 
             sb.append(RESOURCE_END);
             retXML = sb.toString();
-            System.err.println(retXML);
+            LOGGER.debug("Demo user lookup failed due to credential mismatch.");
             return retXML;
         }
 
@@ -186,7 +200,7 @@ public class DemoResource extends AbstractResource {
         sb.append(RESOURCE_END);
 
         retXML = sb.toString();
-        System.err.println(retXML);
+        LOGGER.debug("Demo user lookup succeeded.");
 
         return retXML;
     }
@@ -195,6 +209,7 @@ public class DemoResource extends AbstractResource {
     @Path("/patient/firstVisitors/{param}")
     @Produces("application/xml")
     public String getFirstVisitors(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getFirstVisitors");
 
         String [] params = param.split(",");
 
@@ -307,6 +322,7 @@ public class DemoResource extends AbstractResource {
     @Path("/patient/visit/{param}")
     @Produces("application/xml")
     public String getPatientVisit(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getPatientVisit");
 
         String [] params = param.split(",");
 
@@ -384,6 +400,7 @@ public class DemoResource extends AbstractResource {
     @Path("/patient/visitRange/{param}")
     @Produces("application/xml")
     public String getPatientVisitRange(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getPatientVisitRange");
 
         String [] params = param.split(",");
 
@@ -550,6 +567,7 @@ public class DemoResource extends AbstractResource {
     @Path("/patient/visitLast/{param}")
     @Produces("application/xml")
     public String getPatientVisitLast(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getPatientVisitLast");
 
         String [] params = param.split(",");
 
@@ -711,6 +729,7 @@ public class DemoResource extends AbstractResource {
     @Path("/patient/{pk}")
     @Produces("application/xml")
     public String getPatientById(@PathParam("pk") String pk) {
+        ensureDemoApiEnabled("getPatientById");
 
         Long id = Long.parseLong(pk);
 
@@ -779,6 +798,7 @@ public class DemoResource extends AbstractResource {
     @Path("/patients/name/{param}")
     @Produces("application/xml")
     public String getPatientsByName(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getPatientsByName");
 
         String [] params = param.split(",");
         if (params.length < 4) {
@@ -894,6 +914,7 @@ public class DemoResource extends AbstractResource {
     @Path("/module/rp/{param}")
     @Produces("application/xml")
     public String getRp(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getRp");
 
         String [] params = param.split(",");
 
@@ -981,6 +1002,7 @@ public class DemoResource extends AbstractResource {
     @Path("/module/laboTest/{param}")
     @Produces("application/xml")
     public String getLaboTest(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getLaboTest");
 
         String [] params = param.split(",");
 
@@ -1084,6 +1106,7 @@ public class DemoResource extends AbstractResource {
     @Path("/item/laboItem/{param}")
     @Produces("application/xml")
     public String getLaboGraph(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getLaboGraph");
 
         String [] params = param.split(",");
 
@@ -1175,6 +1198,7 @@ public class DemoResource extends AbstractResource {
     @Path("/module/diagnosis/{param}")
     @Produces("application/xml")
     public String getDiagnosis(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getDiagnosis");
 
         String [] params = param.split(",");
 
@@ -1266,6 +1290,7 @@ public class DemoResource extends AbstractResource {
     @Path("/module/schema/{param}")
     @Produces("application/xml")
     public String getSchema(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getSchema");
 
         String [] params = param.split(",");
 
@@ -1314,7 +1339,8 @@ public class DemoResource extends AbstractResource {
             debug(retXML);
 
         } catch (Exception e) {
-
+            LOGGER.warn("Failed to build demo schema response in {} due to {}", "getSchema",
+                    e.getClass().getSimpleName());
         }
 
         return retXML;
@@ -1324,6 +1350,7 @@ public class DemoResource extends AbstractResource {
     @Path("/patientPackage/{pk}")
     @Produces("application/xml")
     public String getPatientPackage(@PathParam("pk") String pk) {
+        ensureDemoApiEnabled("getPatientPackage");
 
         // PK
         Long id = Long.parseLong(pk);
@@ -1410,7 +1437,8 @@ public class DemoResource extends AbstractResource {
                 sb.append("</healthInsurance>");
 
             } catch (Exception e) {
-                e.printStackTrace(System.err);
+                LOGGER.warn("Failed to decode health insurance entry in {} due to {}", "getPatientPackage",
+                        e.getClass().getSimpleName());
             }
         }
 
@@ -1440,6 +1468,7 @@ public class DemoResource extends AbstractResource {
     @Path("/module/{param}")
     @Produces("application/xml")
     public String getModule(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getModule");
 
         String [] params = param.split(",");
 
@@ -1525,6 +1554,7 @@ public class DemoResource extends AbstractResource {
     @Path("/document/progressCourse/{param}")
     @Produces("application/xml")
     public String getProgressCource(@PathParam("param") String param) {
+        ensureDemoApiEnabled("getProgressCource");
 
         String [] params = param.split(",");
 
@@ -1658,7 +1688,8 @@ public class DemoResource extends AbstractResource {
                 }
 
             } catch (Exception e) {
-
+                LOGGER.warn("Failed to encode schema image in {} due to {}", "getProgressCource",
+                        e.getClass().getSimpleName());
             }
 
 //            if (pSpec != null) {
@@ -1718,5 +1749,12 @@ public class DemoResource extends AbstractResource {
         debug(retXML);
 
         return retXML;
+    }
+
+    private void ensureDemoApiEnabled(String endpoint) {
+        if (settings != null && !settings.enabled()) {
+            LOGGER.debug("Demo API is disabled: endpoint={}", endpoint);
+            throw new WebApplicationException(Response.Status.NOT_FOUND);
+        }
     }
 }
