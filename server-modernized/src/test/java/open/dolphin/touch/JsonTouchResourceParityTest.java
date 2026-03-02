@@ -15,6 +15,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
@@ -313,18 +314,27 @@ class JsonTouchResourceParityTest {
     @Test
     void interactionStreamSuccess() throws Exception {
         auditHandler.clear();
-        setInteractionExecutor(sql -> List.of(new DrugInteractionModel("111", "222", "SYM", "desc")));
+        AtomicReference<String> capturedSql = new AtomicReference<>();
+        setInteractionExecutor((sql, codes1, codes2) -> {
+            capturedSql.set(sql);
+            assertEquals(List.of("111"), codes1);
+            assertEquals(List.of("222"), codes2);
+            return List.of(new DrugInteractionModel("111", "222", "SYM", "desc"));
+        });
         String payload = "{\"codes1\":[\"111\"],\"codes2\":[\"222\"]}";
 
         String body = readOutput(adm10Resource.checkInteraction(payload));
 
         assertTrue(body.contains("drugcd"));
+        assertTrue(capturedSql.get().contains("drugcd in (?)"));
+        assertTrue(capturedSql.get().contains("drugcd2 in (?)"));
+        assertFalse(capturedSql.get().contains("111"));
         assertTrue(auditHandler.containsSuccess("PUT /10/adm/jtouch/interaction"));
     }
 
     @Test
     void interactionStreamFailure() throws Exception {
-        setInteractionExecutor(sql -> {
+        setInteractionExecutor((sql, codes1, codes2) -> {
             throw new java.sql.SQLException("simulated");
         });
         auditHandler.clear();
@@ -332,6 +342,20 @@ class JsonTouchResourceParityTest {
 
         assertThrows(WebApplicationException.class, () -> readOutput(adm10Resource.checkInteraction(payload)));
         assertTrue(auditHandler.containsFailure("PUT /10/adm/jtouch/interaction"));
+    }
+
+    @Test
+    void interactionStreamRejectsInvalidCodeWithBadRequest() throws Exception {
+        setInteractionExecutor((sql, codes1, codes2) -> {
+            fail("interaction executor should not be invoked for invalid payload");
+            return List.of();
+        });
+        String payload = "{\"codes1\":[\"111' OR '1'='1\"],\"codes2\":[\"222\"]}";
+
+        WebApplicationException ex = assertThrows(WebApplicationException.class,
+                () -> readOutput(adm10Resource.checkInteraction(payload)));
+
+        assertEquals(400, ex.getResponse().getStatus());
     }
 
     @Test
@@ -424,7 +448,7 @@ class JsonTouchResourceParityTest {
                 new Class[]{executorType},
                 (proxyInstance, method, args) -> {
                     if ("execute".equals(method.getName())) {
-                        return executor.execute((String) args[0]);
+                        return executor.execute((String) args[0], (List<String>) args[1], (List<String>) args[2]);
                     }
                     throw new UnsupportedOperationException(method.getName());
                 });
@@ -433,7 +457,7 @@ class JsonTouchResourceParityTest {
 
     @FunctionalInterface
     private interface SqlExecutor {
-        List<DrugInteractionModel> execute(String sql) throws Exception;
+        List<DrugInteractionModel> execute(String sql, List<String> codes1, List<String> codes2) throws Exception;
     }
 
     private String createDocumentPayload() throws IOException {

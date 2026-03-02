@@ -4,10 +4,7 @@
  */
 package open.dolphin.adm20.rest;
 
-import java.beans.XMLDecoder;
-import java.io.BufferedInputStream;
 import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -21,7 +18,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -36,6 +32,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.Consumes;
@@ -49,6 +46,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.StreamingOutput;
 import open.dolphin.infomodel.AllergyModel;
 import open.dolphin.infomodel.AttachmentModel;
@@ -98,6 +96,8 @@ import open.dolphin.infomodel.PatientVisitModel;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.security.audit.SessionAuditDispatcher;
+import open.dolphin.security.sql.SqlPlaceholders;
+import open.dolphin.security.xml.SafeXmlDecoder;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
@@ -119,6 +119,15 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
     private static final String JMARI_PREFIX = "JPN";
     private static final int SUCCESS_RESPONSE = 0x00;
     private static final int FALLBACK_RESPONSE = 0x01;
+    private static final int MAX_INTERACTION_CODES = 200;
+    private static final int MAX_INTERACTION_CODE_LENGTH = 64;
+    private static final Pattern INTERACTION_CODE_PATTERN = Pattern.compile("^[A-Za-z0-9._-]+$");
+    private static final String INTERACTION_SQL_PREFIX =
+            "select drugcd, drugcd2, TI.syojyoucd, syojyou "
+            + "from tbl_interact TI inner join tbl_sskijyo TS on TI.syojyoucd = TS.syojyoucd "
+            + "where (drugcd in ";
+    private static final String INTERACTION_SQL_MIDDLE = " and drugcd2 in ";
+    private static final String INTERACTION_SQL_SUFFIX = ")";
     
     private static final String QUERY_FACILITYID_BY_1001
             ="select kanritbl from tbl_syskanri where kanricd='1001'";
@@ -751,12 +760,6 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                             mm.getModuleInfoBean().getStampRole().equals(IInfoModel.ROLE_SOA_SPEC)) {
                     
                         // documentは取得している (ManyToOneなので）
-                        /*if (mm.getDocumentModel()!=null) {
-                            System.err.println("docPK =" + mm.getDocumentModel().getId());
-                        }
-                        else {
-                            System.err.println("docPK = 0L");
-                        }*/
                         IProgressCourseModule30 ip = new IProgressCourseModule30();
                         ip.fromModel(mm);
                         ret.add(ip);
@@ -970,13 +973,6 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 long docPK = Long.parseLong(param);
                 DocumentModel doc = ehtService.getDocumentByPk(docPK);
                 doc.toDetuch();
-//                if (doc.getUserModel()!=null) {
-//                    System.err.println("doc.getUserModel()!=null");
-//                    System.err.println(doc.getUserModel().getCommonName());
-//                }
-//                else {
-//                    System.err.println("doc.getUserModel()==null");
-//                }
                 IDocument idoc = new IDocument();
                 idoc.fromModel(doc);
                 ObjectMapper mapper = getSerializeMapper();
@@ -1174,18 +1170,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 ObjectMapper mapper = new ObjectMapper();
                 InteractionCodeList input = mapper.readValue(json, InteractionCodeList.class);
                 
-//                if (input.getCodes1()!=null)
-//                {
-//                    for (String code : input.getCodes1()) {
-//                        System.err.println(code);
-//                    }
-//                }
-//                if (input.getCodes2()!=null)
-//                {
-//                    for (String code : input.getCodes2()) {
-//                        System.err.println(code);
-//                    }
-//                }
+                // code lists are validated by normalizeInteractionCodes().
 
                 // 相互作用モデルのリスト
                 List<DrugInteractionModel> ret = new ArrayList<>();
@@ -1196,39 +1181,43 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                         input.getCodes2().isEmpty()) {
                     mapper = getSerializeMapper();
                     mapper.writeValue(os, ret);
+                    return;
                 }
 
-                // SQL文を作成
-                StringBuilder sb = new StringBuilder();
-                sb.append("select drugcd, drugcd2, TI.syojyoucd, syojyou ");
-                sb.append("from tbl_interact TI inner join tbl_sskijyo TS on TI.syojyoucd = TS.syojyoucd ");
-                sb.append("where (drugcd in (");
-                sb.append(getCodes(input.getCodes1()));
-                sb.append(") and drugcd2 in (");
-                sb.append(getCodes(input.getCodes2()));
-                sb.append("))");
-                String sql = sb.toString();
+                List<String> codes1 = normalizeInteractionCodes(input.getCodes1(), "codes1");
+                List<String> codes2 = normalizeInteractionCodes(input.getCodes2(), "codes2");
+                String sql = buildInteractionSql(codes1.size(), codes2.size());
 
                 Connection con = null;
-                Statement st = null;
+                PreparedStatement ps = null;
 
                 try {
                     con = getConnection();
-                    st = con.createStatement();
-                    ResultSet rs = st.executeQuery(sql);
-
-                    while (rs.next()) {
-                        ret.add(new DrugInteractionModel(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)));
+                    ps = con.prepareStatement(sql);
+                    int index = 1;
+                    for (String code : codes1) {
+                        ps.setString(index++, code);
                     }
-                    rs.close();
-                    closeStatement(st);
+                    for (String code : codes2) {
+                        ps.setString(index++, code);
+                    }
+                    ResultSet rs = ps.executeQuery();
+                    try {
+                        while (rs.next()) {
+                            ret.add(new DrugInteractionModel(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)));
+                        }
+                    } finally {
+                        rs.close();
+                    }
+                    closeStatement(ps);
                     closeConnection(con);
                     mapper = getSerializeMapper();
                     mapper.writeValue(os, ret);
-                    
+                } catch (WebApplicationException e) {
+                    throw e;
                 } catch (Exception e) {
                     processError(e);
-                    closeStatement(st);
+                    closeStatement(ps);
                     closeConnection(con);
                     throw new WebApplicationException(e);
                 }
@@ -1265,9 +1254,9 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             reader.close();
             return json;
         } catch (UnsupportedEncodingException ex) {
-            //System.err.println("getTreeJson:" + ex.getMessage());
+            LOGGER.log(Level.WARNING, "Unsupported encoding while reading stamp tree", ex);
         } catch (IOException ex) {
-            //System.err.println("getTreeJson:" + ex.getMessage());
+            LOGGER.log(Level.WARNING, "Failed to read stamp tree", ex);
         }
         return null;
     }
@@ -1283,10 +1272,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
 
                 StampModel stampModel = ehtService.getStamp(param);
                 if (stampModel!=null) {
-                    XMLDecoder d = new XMLDecoder(
-                        new BufferedInputStream(
-                        new ByteArrayInputStream(stampModel.getStampBytes())));
-                    InfoModel model = (InfoModel)d.readObject();
+                    InfoModel model = SafeXmlDecoder.decode(stampModel.getStampBytes(), InfoModel.class);
                     JSONStampBuilder builder = new JSONStampBuilder();
                     String json = builder.build(model);
                     os.write(json.getBytes(StandardCharsets.UTF_8));
@@ -1563,7 +1549,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             config.load(isr);
             isr.close();
         } catch (IOException ex) {
-            ex.printStackTrace(System.err);
+            LOGGER.log(Level.WARNING, "Failed to read custom.properties", ex);
         }
         return config.getProperty(item, "");
     }
@@ -1734,26 +1720,43 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
         return builder.length() == 0 ? null : builder.toString();
     }
      
-    // srycdのListからカンマ区切りの文字列を作る
-    private String getCodes(Collection<String> srycdList){
-
-        StringBuilder sb = new StringBuilder();
-        boolean first = true;
-        for (String srycd : srycdList){
-            if (!first){
-                sb.append(",");
-            } else {
-                first = false;
-            }
-            sb.append(addSingleQuote(srycd));
-        }
-        return sb.toString();
+    private static String buildInteractionSql(int codes1Size, int codes2Size) {
+        return INTERACTION_SQL_PREFIX
+                + SqlPlaceholders.inClause(codes1Size)
+                + INTERACTION_SQL_MIDDLE
+                + SqlPlaceholders.inClause(codes2Size)
+                + INTERACTION_SQL_SUFFIX;
     }
-    
-    private String addSingleQuote(String str) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("'").append(str).append("'");
-        return sb.toString();
+
+    private static List<String> normalizeInteractionCodes(Collection<String> rawCodes, String fieldName) {
+        if (rawCodes == null || rawCodes.isEmpty()) {
+            return List.of();
+        }
+        if (rawCodes.size() > MAX_INTERACTION_CODES) {
+            throw badRequest(fieldName + " must contain at most " + MAX_INTERACTION_CODES + " items");
+        }
+        List<String> normalized = new ArrayList<>(rawCodes.size());
+        for (String code : rawCodes) {
+            if (code == null) {
+                throw badRequest(fieldName + " contains null entry");
+            }
+            String trimmed = code.trim();
+            if (trimmed.isEmpty()) {
+                throw badRequest(fieldName + " contains blank entry");
+            }
+            if (trimmed.length() > MAX_INTERACTION_CODE_LENGTH) {
+                throw badRequest(fieldName + " contains an over-length code");
+            }
+            if (!INTERACTION_CODE_PATTERN.matcher(trimmed).matches()) {
+                throw badRequest(fieldName + " contains unsupported characters");
+            }
+            normalized.add(trimmed);
+        }
+        return normalized;
+    }
+
+    private static WebApplicationException badRequest(String message) {
+        return new WebApplicationException(message, Response.Status.BAD_REQUEST);
     }
     
     private Connection getConnection() throws SQLException {
@@ -1766,7 +1769,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 st.close();
             }
             catch (SQLException e) {
-            	e.printStackTrace(System.err);
+                LOGGER.log(Level.WARNING, "Failed to close statement", e);
             }
         }
     }
@@ -1775,11 +1778,11 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
         try {
             c.close();
         } catch (Exception e) {
-            e.printStackTrace(System.err);
+            LOGGER.log(Level.WARNING, "Failed to close connection", e);
         }
     }
     
     private void processError(Throwable e) {
-        e.printStackTrace(System.err);
+        LOGGER.log(Level.SEVERE, "ADM20 EHT interaction processing failed", e);
     }
 }

@@ -6,10 +6,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import open.dolphin.security.xml.SecureXml;
 import org.jdom.Document;
 import org.jdom.Element;
 import org.jdom.JDOMException;
-import org.jdom.input.SAXBuilder;
 
 /**
  * Director of StampTree builder.
@@ -37,7 +37,7 @@ public final class StampTreeDirector {
     
     public String build(BufferedReader reader) throws IOException {
 
-        SAXBuilder docBuilder = new SAXBuilder();
+        var docBuilder = SecureXml.newSaxBuilder();
 
         try {
             Document doc = docBuilder.build(reader);

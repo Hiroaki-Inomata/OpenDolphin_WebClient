@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import jakarta.ejb.Singleton;
@@ -27,6 +28,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -34,6 +36,7 @@ import jakarta.ws.rs.core.UriInfo;
 import open.dolphin.common.OrcaConnect;
 import open.dolphin.converter.*;
 import open.dolphin.infomodel.*;
+import open.dolphin.security.sql.SqlPlaceholders;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
@@ -43,8 +46,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Singleton
 @Path("/orca")
 public class OrcaResource {
+    private static final Logger LOGGER = Logger.getLogger(OrcaResource.class.getName());
     
     private static final String RP_KBN_START = "2";
+    private static final int MAX_INTERACTION_CODES = 200;
+    private static final int MAX_INTERACTION_CODE_LENGTH = 64;
+    private static final Pattern INTERACTION_CODE_PATTERN = Pattern.compile("^[A-Za-z0-9._-]+$");
+    private static final String INTERACTION_SQL_PREFIX =
+            "select drugcd, drugcd2, TI.syojyoucd, syojyou "
+            + "from tbl_interact TI inner join tbl_sskijyo TS on TI.syojyoucd = TS.syojyoucd "
+            + "where (drugcd in ";
+    private static final String INTERACTION_SQL_MIDDLE = " and drugcd2 in ";
+    private static final String INTERACTION_SQL_SUFFIX = ")";
 
     @Inject
     OrcaMasterResource orcaMasterResource;
@@ -217,7 +230,7 @@ public class OrcaResource {
             log("ORCA Version="+DB_VERSION);
             
         } catch (Exception e) {
-            e.printStackTrace(System.err);
+            LOGGER.log(Level.SEVERE, "Failed to initialize ORCA setup parameters", e);
             
         } finally {
             closeConnection(con1);
@@ -300,7 +313,7 @@ public class OrcaResource {
             ps.close();
 
         } catch (Exception e) {
-            e.printStackTrace(System.err);
+            LOGGER.log(Level.SEVERE, "Failed to resolve facility identifiers", e);
             processError(e);
 
         } finally {
@@ -327,8 +340,6 @@ public class OrcaResource {
         if (!shinku.startsWith("^")) {
             shinku = "^" + shinku;
         }
-        //System.err.println(shinku);
-        
         // 結果を格納するリスト
         ArrayList<TensuMaster> list = new ArrayList<TensuMaster>();
 
@@ -614,8 +625,6 @@ public class OrcaResource {
                 ps.setString(3, now);
             }
             
-            //System.err.println(ps);
-
             ResultSet rs = ps.executeQuery();
 
             while (rs.next()) {
@@ -799,7 +808,7 @@ public class OrcaResource {
             rs.close();
             ps.close();
         } catch (Exception e) {
-            e.printStackTrace(System.err);
+            LOGGER.log(Level.SEVERE, "Failed to get ORCA patient ID", e);
             processError(e);
             closeConnection(con);
         } finally {
@@ -836,34 +845,38 @@ public class OrcaResource {
             return conv;
         }
 
-        // SQL文を作成
-        StringBuilder sb = new StringBuilder();
-        sb.append("select drugcd, drugcd2, TI.syojyoucd, syojyou ");
-        sb.append("from tbl_interact TI inner join tbl_sskijyo TS on TI.syojyoucd = TS.syojyoucd ");
-        sb.append("where (drugcd in (");
-        sb.append(getCodes(input.getCodes1()));
-        sb.append(") and drugcd2 in (");
-        sb.append(getCodes(input.getCodes2()));
-        sb.append("))");
-        String sql = sb.toString();
+        List<String> codes1 = normalizeInteractionCodes(input.getCodes1(), "codes1");
+        List<String> codes2 = normalizeInteractionCodes(input.getCodes2(), "codes2");
+        String sql = buildInteractionSql(codes1.size(), codes2.size());
 
         Connection con = null;
-        Statement st = null;
+        PreparedStatement ps = null;
 
         try {
             con = getConnection();
-            st = con.createStatement();
-            ResultSet rs = st.executeQuery(sql);
-
-            while (rs.next()) {
-                ret.add(new DrugInteractionModel(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)));
+            ps = con.prepareStatement(sql);
+            int index = 1;
+            for (String code : codes1) {
+                ps.setString(index++, code);
             }
-            rs.close();
-            closeStatement(st);
+            for (String code : codes2) {
+                ps.setString(index++, code);
+            }
+            ResultSet rs = ps.executeQuery();
+            try {
+                while (rs.next()) {
+                    ret.add(new DrugInteractionModel(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)));
+                }
+            } finally {
+                rs.close();
+            }
+            closeStatement(ps);
             closeConnection(con);
+        } catch (WebApplicationException e) {
+            throw e;
         } catch (Exception e) {
             processError(e);
-            closeStatement(st);
+            closeStatement(ps);
             closeConnection(con);
         }
 
@@ -907,7 +920,7 @@ public class OrcaResource {
             return conv;
             
         } catch (Exception e) {
-            e.printStackTrace(System.err);
+            LOGGER.log(Level.SEVERE, "Failed to resolve general name", e);
             processError(e);
             closeConnection(con);
         } finally {
@@ -1544,7 +1557,7 @@ public class OrcaResource {
             }
             
         } catch (Exception e) {
-            e.printStackTrace(System.err);
+            LOGGER.log(Level.WARNING, "Failed to classify ORCA entity", e);
         }
         
         return null;
@@ -2016,26 +2029,43 @@ public class OrcaResource {
         return bo.toByteArray();
     }
     
-    // srycdのListからカンマ区切りの文字列を作る
-    private String getCodes(Collection<String> srycdList){
-
-        StringBuilder sb = new StringBuilder();
-        boolean first = true;
-        for (String srycd : srycdList){
-            if (!first){
-                sb.append(",");
-            } else {
-                first = false;
-            }
-            sb.append(addSingleQuote(srycd));
-        }
-        return sb.toString();
+    static String buildInteractionSql(int codes1Size, int codes2Size) {
+        return INTERACTION_SQL_PREFIX
+                + SqlPlaceholders.inClause(codes1Size)
+                + INTERACTION_SQL_MIDDLE
+                + SqlPlaceholders.inClause(codes2Size)
+                + INTERACTION_SQL_SUFFIX;
     }
-    
-    private String addSingleQuote(String str) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("'").append(str).append("'");
-        return sb.toString();
+
+    static List<String> normalizeInteractionCodes(Collection<String> rawCodes, String fieldName) {
+        if (rawCodes == null || rawCodes.isEmpty()) {
+            return List.of();
+        }
+        if (rawCodes.size() > MAX_INTERACTION_CODES) {
+            throw badRequest(fieldName + " must contain at most " + MAX_INTERACTION_CODES + " items");
+        }
+        List<String> normalized = new ArrayList<>(rawCodes.size());
+        for (String code : rawCodes) {
+            if (code == null) {
+                throw badRequest(fieldName + " contains null entry");
+            }
+            String trimmed = code.trim();
+            if (trimmed.isEmpty()) {
+                throw badRequest(fieldName + " contains blank entry");
+            }
+            if (trimmed.length() > MAX_INTERACTION_CODE_LENGTH) {
+                throw badRequest(fieldName + " contains an over-length code");
+            }
+            if (!INTERACTION_CODE_PATTERN.matcher(trimmed).matches()) {
+                throw badRequest(fieldName + " contains unsupported characters");
+            }
+            normalized.add(trimmed);
+        }
+        return normalized;
+    }
+
+    private static WebApplicationException badRequest(String message) {
+        return new WebApplicationException(message, Response.Status.BAD_REQUEST);
     }
     
     private Connection getConnection() throws SQLException {
@@ -2060,13 +2090,13 @@ public class OrcaResource {
                 st.close();
             }
             catch (SQLException e) {
-            	e.printStackTrace(System.err);
+                LOGGER.log(Level.WARNING, "Failed to close statement", e);
             }
         }
     }
     
     private void processError(Throwable e) {
-        e.printStackTrace(System.err);
+        LOGGER.log(Level.SEVERE, "OrcaResource processing failed", e);
     }
     
     private void log(String msg) {

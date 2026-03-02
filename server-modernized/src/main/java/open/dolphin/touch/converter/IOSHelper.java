@@ -1,10 +1,7 @@
 package open.dolphin.touch.converter;
 
-import java.beans.XMLDecoder;
 import java.beans.XMLEncoder;
-import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -15,14 +12,17 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Date;
+import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import open.dolphin.security.xml.SafeXmlDecoder;
 
 /**
  *
  * @author kazushi
  */
 public class IOSHelper {
+    private static final Logger LOGGER = Logger.getLogger(IOSHelper.class.getName());
     
     // IOS5 JSON DATE
     //private static final String IOS_DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
@@ -42,12 +42,7 @@ public class IOSHelper {
     }
     
     public static Object xmlDecode(byte[] bytes)  {
-
-        XMLDecoder d = new XMLDecoder(
-                new BufferedInputStream(
-                new ByteArrayInputStream(bytes)));
-
-        return d.readObject();
+        return SafeXmlDecoder.decode(bytes);
     }
     
     public static Date toDate(String dateStr) {
@@ -114,9 +109,17 @@ public class IOSHelper {
     }
     
     public static void printProperty(String key, Object value) {
-        String valStr = value!=null ? value.toString() : "NULL";
-        StringBuilder sb = new StringBuilder();
-        sb.append(key).append("=").append(valStr);
-        System.err.println(sb.toString());
+        String redacted = isSensitiveKey(key) ? "<redacted>" : (value != null ? value.toString() : "NULL");
+        LOGGER.fine(() -> key + "=" + redacted);
+    }
+
+    private static boolean isSensitiveKey(String key) {
+        if (key == null) {
+            return false;
+        }
+        String lower = key.toLowerCase(Locale.ROOT);
+        return lower.contains("password")
+                || lower.contains("token")
+                || lower.contains("secret");
     }
 }

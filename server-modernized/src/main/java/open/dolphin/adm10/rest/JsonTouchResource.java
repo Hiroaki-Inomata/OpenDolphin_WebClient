@@ -1,17 +1,14 @@
 package open.dolphin.adm10.rest;
 
-import java.beans.XMLDecoder;
-import java.io.BufferedInputStream;
 import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -19,11 +16,13 @@ import java.util.Date;
 import java.util.List;
 import java.util.function.Function;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.StreamingOutput;
 import open.dolphin.adm10.converter.IBundleModule;
 import open.dolphin.adm10.converter.IDocument;
@@ -53,6 +52,8 @@ import open.dolphin.infomodel.InfoModel;
 import open.dolphin.infomodel.InteractionCodeList;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.StampModel;
+import open.dolphin.security.sql.SqlPlaceholders;
+import open.dolphin.security.xml.SafeXmlDecoder;
 import open.dolphin.touch.JsonTouchSharedService;
 import open.dolphin.touch.JsonTouchAuditLogger;
 import open.dolphin.touch.support.TouchJsonConverter;
@@ -67,6 +68,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class JsonTouchResource extends open.dolphin.rest.AbstractResource {
 
     private static final Logger LOGGER = Logger.getLogger(JsonTouchResource.class.getName());
+    private static final int MAX_INTERACTION_CODES = 200;
+    private static final int MAX_INTERACTION_CODE_LENGTH = 64;
+    private static final Pattern INTERACTION_CODE_PATTERN = Pattern.compile("^[A-Za-z0-9._-]+$");
+    private static final String INTERACTION_SQL_PREFIX =
+            "select drugcd, drugcd2, TI.syojyoucd, syojyou "
+            + "from tbl_interact TI inner join tbl_sskijyo TS on TI.syojyoucd = TS.syojyoucd "
+            + "where (drugcd in ";
+    private static final String INTERACTION_SQL_MIDDLE = " and drugcd2 in ";
+    private static final String INTERACTION_SQL_SUFFIX = ")";
 
     @Inject
     private JsonTouchSharedService sharedService;
@@ -111,13 +121,10 @@ public class JsonTouchResource extends open.dolphin.rest.AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public IPatientList getPatientsByNameOrId(@Context HttpServletRequest servletReq, @PathParam("param") String param) {
 
-        //System.err.println("getPatientsByNameOrId");
-        
         String [] params = param.split(",");
         
         String fid = getRemoteFacility(servletReq.getRemoteUser());
         String name = params[0];
-        //System.err.println(name);
         int firstResult = params.length==3 ? Integer.parseInt(params[1]) : 0;
         int maxResult = params.length==3 ? Integer.parseInt(params[2]) :100;
 
@@ -348,21 +355,17 @@ public class JsonTouchResource extends open.dolphin.rest.AbstractResource {
                 return;
                 }
 
-                StringBuilder sb = new StringBuilder();
-                sb.append("select drugcd, drugcd2, TI.syojyoucd, syojyou ");
-                sb.append("from tbl_interact TI inner join tbl_sskijyo TS on TI.syojyoucd = TS.syojyoucd ");
-                sb.append("where (drugcd in (");
-                sb.append(getCodes(input.getCodes1()));
-                sb.append(") and drugcd2 in (");
-                sb.append(getCodes(input.getCodes2()));
-                sb.append("))");
-                String sql = sb.toString();
+                List<String> codes1 = normalizeInteractionCodes(input.getCodes1(), "codes1");
+                List<String> codes2 = normalizeInteractionCodes(input.getCodes2(), "codes2");
+                String sql = buildInteractionSql(codes1.size(), codes2.size());
 
-                ret = interactionExecutor.execute(sql);
+                ret = interactionExecutor.execute(sql, codes1, codes2);
                 List<InteractionRow> payload = toInteractionRows(ret);
                 ObjectMapper mapper = getSerializeMapper();
                 mapper.writeValue(os, payload);
                 JsonTouchAuditLogger.success(endpoint, traceId, () -> "interactionCount=" + payload.size());
+            } catch (WebApplicationException e) {
+                throw e;
             } catch (IOException | SQLException | RuntimeException e) {
                 throw JsonTouchAuditLogger.failure(LOGGER, endpoint, traceId, e);
             }
@@ -421,17 +424,15 @@ public class JsonTouchResource extends open.dolphin.rest.AbstractResource {
             try {
                 StampModel stampModel = ehtService.getStamp(param);
                 if (stampModel != null) {
-                    try (XMLDecoder decoder = new XMLDecoder(new BufferedInputStream(new ByteArrayInputStream(stampModel.getStampBytes())))) {
-                        InfoModel model = (InfoModel) decoder.readObject();
-                        JSONStampBuilder builder = new JSONStampBuilder();
-                        String json = builder.build(model);
-                        if (json != null) {
-                            os.write(json.getBytes(StandardCharsets.UTF_8));
-                            JsonTouchAuditLogger.success(endpoint, traceId, () -> "payloadSize=" + json.length());
-                        } else {
-                            os.write(new byte[0]);
-                            JsonTouchAuditLogger.success(endpoint, traceId, () -> "payloadSize=0");
-                        }
+                    InfoModel model = SafeXmlDecoder.decode(stampModel.getStampBytes(), InfoModel.class);
+                    JSONStampBuilder builder = new JSONStampBuilder();
+                    String json = builder.build(model);
+                    if (json != null) {
+                        os.write(json.getBytes(StandardCharsets.UTF_8));
+                        JsonTouchAuditLogger.success(endpoint, traceId, () -> "payloadSize=" + json.length());
+                    } else {
+                        os.write(new byte[0]);
+                        JsonTouchAuditLogger.success(endpoint, traceId, () -> "payloadSize=0");
                     }
                 } else {
                     os.write(new byte[0]);
@@ -470,26 +471,43 @@ public class JsonTouchResource extends open.dolphin.rest.AbstractResource {
         return id > 0L ? id : 0L;
     }
 
-    // srycdのListからカンマ区切りの文字列を作る
-    private String getCodes(Collection<String> srycdList){
-
-        StringBuilder sb = new StringBuilder();
-        boolean first = true;
-        for (String srycd : srycdList){
-            if (!first){
-                sb.append(",");
-            } else {
-                first = false;
-            }
-            sb.append(addSingleQuote(srycd));
-        }
-        return sb.toString();
+    private static String buildInteractionSql(int codes1Size, int codes2Size) {
+        return INTERACTION_SQL_PREFIX
+                + SqlPlaceholders.inClause(codes1Size)
+                + INTERACTION_SQL_MIDDLE
+                + SqlPlaceholders.inClause(codes2Size)
+                + INTERACTION_SQL_SUFFIX;
     }
 
-    private String addSingleQuote(String str) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("'").append(str).append("'");
-        return sb.toString();
+    private static List<String> normalizeInteractionCodes(Collection<String> rawCodes, String fieldName) {
+        if (rawCodes == null || rawCodes.isEmpty()) {
+            return Collections.emptyList();
+        }
+        if (rawCodes.size() > MAX_INTERACTION_CODES) {
+            throw badRequest(fieldName + " must contain at most " + MAX_INTERACTION_CODES + " items");
+        }
+        List<String> normalized = new ArrayList<>(rawCodes.size());
+        for (String code : rawCodes) {
+            if (code == null) {
+                throw badRequest(fieldName + " contains null entry");
+            }
+            String trimmed = code.trim();
+            if (trimmed.isEmpty()) {
+                throw badRequest(fieldName + " contains blank entry");
+            }
+            if (trimmed.length() > MAX_INTERACTION_CODE_LENGTH) {
+                throw badRequest(fieldName + " contains an over-length code");
+            }
+            if (!INTERACTION_CODE_PATTERN.matcher(trimmed).matches()) {
+                throw badRequest(fieldName + " contains unsupported characters");
+            }
+            normalized.add(trimmed);
+        }
+        return normalized;
+    }
+
+    private static WebApplicationException badRequest(String message) {
+        return new WebApplicationException(message, Response.Status.BAD_REQUEST);
     }
 
     void setInteractionExecutor(InteractionExecutor interactionExecutor) {
@@ -498,7 +516,7 @@ public class JsonTouchResource extends open.dolphin.rest.AbstractResource {
 
     @FunctionalInterface
     interface InteractionExecutor {
-        List<DrugInteractionModel> execute(String sql) throws SQLException;
+        List<DrugInteractionModel> execute(String sql, List<String> codes1, List<String> codes2) throws SQLException;
     }
 
     private static List<InteractionRow> toInteractionRows(List<DrugInteractionModel> rows) {
@@ -552,19 +570,27 @@ public class JsonTouchResource extends open.dolphin.rest.AbstractResource {
     private static final class DatabaseInteractionExecutor implements InteractionExecutor {
 
         @Override
-        public List<DrugInteractionModel> execute(String sql) throws SQLException {
+        public List<DrugInteractionModel> execute(String sql, List<String> codes1, List<String> codes2) throws SQLException {
             try (Connection con = ORCAConnection.getInstance().getConnection();
-                 Statement st = con.createStatement();
-                 ResultSet rs = st.executeQuery(sql)) {
-                List<DrugInteractionModel> result = new ArrayList<>();
-                while (rs.next()) {
-                    result.add(new DrugInteractionModel(
-                            rs.getString(1),
-                            rs.getString(2),
-                            rs.getString(3),
-                            rs.getString(4)));
+                 PreparedStatement ps = con.prepareStatement(sql)) {
+                int index = 1;
+                for (String code : codes1) {
+                    ps.setString(index++, code);
                 }
-                return result;
+                for (String code : codes2) {
+                    ps.setString(index++, code);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    List<DrugInteractionModel> result = new ArrayList<>();
+                    while (rs.next()) {
+                        result.add(new DrugInteractionModel(
+                                rs.getString(1),
+                                rs.getString(2),
+                                rs.getString(3),
+                                rs.getString(4)));
+                    }
+                    return result;
+                }
             }
         }
     }

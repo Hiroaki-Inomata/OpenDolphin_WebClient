@@ -1,20 +1,23 @@
 package open.dolphin.touch;
 
-import java.beans.XMLDecoder;
 import java.io.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Iterator;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import open.dolphin.security.xml.SafeXmlDecoder;
+import open.dolphin.security.xml.SecureXml;
 import org.jdom.Document;
 import org.jdom.JDOMException;
-import org.jdom.input.SAXBuilder;
 
 /**
  *
  * @author kazushi Minagawa, Digital Globe, Inc.
  */
 public class AbstractResource {
+    private static final Logger LOGGER = Logger.getLogger(AbstractResource.class.getName());
     
     protected static final String XML = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
     protected static final String RESOURCE_START = "<" + "mml" + "Touch version=\"1.0\">";
@@ -158,7 +161,7 @@ public class AbstractResource {
         try {
             return (Date) new SimpleDateFormat("yyyy-MM-dd").parse(dateStr);
         } catch (ParseException ex) {
-            ex.printStackTrace(System.err);
+            LOGGER.log(Level.WARNING, "Failed to parse date (yyyy-MM-dd)", ex);
         }
         return null;
     }
@@ -167,7 +170,7 @@ public class AbstractResource {
         try {
             return (Date) new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").parse(dateStr);
         } catch (ParseException ex) {
-            ex.printStackTrace(System.err);
+            LOGGER.log(Level.WARNING, "Failed to parse datetime (yyyy-MM-dd HH:mm:ss)", ex);
         }
         return null;
     }
@@ -176,7 +179,7 @@ public class AbstractResource {
         try {
             return (Date) new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").parse(dateStr);
         } catch (ParseException ex) {
-            ex.printStackTrace(System.err);
+            LOGGER.log(Level.WARNING, "Failed to parse MML datetime", ex);
         }
         return null;
     }
@@ -251,18 +254,13 @@ public class AbstractResource {
 
     protected void debug(String str) {
         if (DEBUG) {
-            System.err.println(str);
-            System.err.println("----------------------------");
+            LOGGER.fine(str);
+            LOGGER.fine("----------------------------");
         }
     }
 
     protected static Object xmlDecode(byte[] bytes)  {
-
-        XMLDecoder d = new XMLDecoder(
-                new BufferedInputStream(
-                new ByteArrayInputStream(bytes)));
-
-        return d.readObject();
+        return SafeXmlDecoder.decode(bytes);
     }
 
     protected static String sexValueToDesc(String code) {
@@ -291,7 +289,7 @@ public class AbstractResource {
 
         debug(xml);
 
-        SAXBuilder docBuilder = new SAXBuilder();
+        var docBuilder = SecureXml.newSaxBuilder();
 
         try {
             StringReader sr = new StringReader(xml);
@@ -301,9 +299,9 @@ public class AbstractResource {
             writeChildren(sb, root);
 
         } catch (JDOMException e) {
-            e.printStackTrace(System.err);
+            LOGGER.log(Level.WARNING, "Failed to parse text pane XML", e);
         } catch (IOException e) {
-            e.printStackTrace(System.err);
+            LOGGER.log(Level.WARNING, "Failed to read text pane XML", e);
         }
     }
 
