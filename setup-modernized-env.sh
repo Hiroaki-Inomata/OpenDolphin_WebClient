@@ -208,23 +208,6 @@ resolve_proxy_auth_env() {
   ORCA_PROXY_BASIC_PASSWORD="${ORCA_BASIC_PASSWORD:-${ORCA_BASIC_KEY:-${ORCA_PROD_BASIC_KEY:-${ORCA_API_PASSWORD:-}}}}"
 }
 
-normalize_base_path() {
-  local raw="${1:-/}"
-  if [[ -z "$raw" ]]; then
-    raw="/"
-  fi
-  if [[ "$raw" != /* ]]; then
-    raw="/$raw"
-  fi
-  while [[ "$raw" != "/" && "${raw: -1}" == "/" ]]; do
-    raw="${raw%/}"
-  done
-  if [[ -z "$raw" ]]; then
-    raw="/"
-  fi
-  printf '%s' "$raw"
-}
-
 has_modernized_table() {
   local table_name="$1"
   docker exec "${POSTGRES_CONTAINER_NAME}" \
