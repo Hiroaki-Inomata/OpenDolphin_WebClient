@@ -91,6 +91,8 @@
                 open.dolphin.touch.JsonTouchResource,
                 open.dolphin.touch.DolphinResource,
                 open.dolphin.touch.DolphinResourceASP,
+                <!-- DemoResource / DemoResourceASP are intentionally not listed.
+                     Demo endpoints must never be auto-discovered in production. -->
                 open.dolphin.touch.patient.TouchPatientResource,
                 open.dolphin.touch.stamp.TouchStampResource,
                 open.dolphin.touch.user.TouchUserResource,
@@ -114,7 +116,7 @@
 
     <context-param>
         <param-name>resteasy.scan</param-name>
-        <param-value>true</param-value>
+        <param-value>false</param-value>
     </context-param>
 
     <context-param>
@@ -143,7 +145,7 @@
         </init-param>
         <init-param>
             <param-name>resteasy.scan</param-name>
-            <param-value>true</param-value>
+            <param-value>false</param-value>
         </init-param>
     </servlet>
 
@@ -157,7 +159,7 @@
         </init-param>
         <init-param>
             <param-name>resteasy.scan</param-name>
-            <param-value>true</param-value>
+            <param-value>false</param-value>
         </init-param>
     </servlet>
 
