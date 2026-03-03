@@ -2,7 +2,7 @@ import { describe, beforeEach, it, expect, vi } from 'vitest';
 import { act, render, waitFor } from '@testing-library/react';
 import { applyObservabilityHeaders, updateObservabilityMeta } from '../../observability/observability';
 import { AuthServiceProvider } from '../../../features/charts/authService';
-import { clearSharedAuthFlags, persistSharedAuthFlags } from '../authSync';
+import { clearSharedAuthFlags, persistSharedAuthFlags, persistSharedSession, restoreSharedAuthToSessionStorage } from '../authSync';
 import { AUTH_FLAGS_STORAGE_KEY, AUTH_SESSION_STORAGE_KEY } from '../authStorage';
 
 class FakeBroadcastChannel {
@@ -41,8 +41,54 @@ class FakeBroadcastChannel {
   }
 }
 
+class StorageMock implements Storage {
+  private data = new Map<string, string>();
+
+  get length() {
+    return this.data.size;
+  }
+
+  clear(): void {
+    this.data.clear();
+  }
+
+  getItem(key: string): string | null {
+    return this.data.has(key) ? this.data.get(key)! : null;
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.data.keys())[index] ?? null;
+  }
+
+  removeItem(key: string): void {
+    this.data.delete(key);
+  }
+
+  setItem(key: string, value: string): void {
+    this.data.set(key, value);
+  }
+}
+
+const ensureWebStorage = () => {
+  if (typeof localStorage === 'undefined') {
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: new StorageMock(),
+      configurable: true,
+      writable: true,
+    });
+  }
+  if (typeof sessionStorage === 'undefined') {
+    Object.defineProperty(globalThis, 'sessionStorage', {
+      value: new StorageMock(),
+      configurable: true,
+      writable: true,
+    });
+  }
+};
+
 describe('auth sync / runId propagation', () => {
   beforeEach(() => {
+    ensureWebStorage();
     vi.restoreAllMocks();
     localStorage.clear();
     sessionStorage.clear();
@@ -172,5 +218,50 @@ describe('auth sync / runId propagation', () => {
 
     const headers = applyObservabilityHeaders();
     expect((headers.headers as Record<string, string>)['X-Run-Id']).toBe(newRunId);
+  });
+
+  it('stores only minimal shared session payload in localStorage', () => {
+    persistSharedSession({
+      facilityId: '0001',
+      userId: 'user1',
+      role: 'doctor',
+      clientUuid: 'client-1',
+      runId: 'RUN-1',
+    });
+
+    const raw = localStorage.getItem('opendolphin:web-client:auth:shared-session:v1');
+    expect(raw).toBeTruthy();
+    const parsed = JSON.parse(raw ?? '{}') as { payload?: Record<string, unknown> };
+    expect(parsed.payload).toMatchObject({
+      facilityId: '0001',
+      userId: 'user1',
+      role: 'doctor',
+      clientUuid: 'client-1',
+      runId: 'RUN-1',
+    });
+    expect(parsed.payload).not.toHaveProperty('displayName');
+    expect(parsed.payload).not.toHaveProperty('commonName');
+    expect(parsed.payload).not.toHaveProperty('roles');
+  });
+
+  it('expires shared auth session after 1 hour TTL', () => {
+    localStorage.setItem(
+      'opendolphin:web-client:auth:shared-session:v1',
+      JSON.stringify({
+        version: 1,
+        sessionKey: '0001:user1',
+        updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        payload: {
+          facilityId: '0001',
+          userId: 'user1',
+          role: 'doctor',
+          runId: 'RUN-OLD',
+        },
+      }),
+    );
+
+    const restored = restoreSharedAuthToSessionStorage({ sessionKey: '0001:user1' });
+    expect(restored.session).toBeNull();
+    expect(localStorage.getItem('opendolphin:web-client:auth:shared-session:v1')).toBeNull();
   });
 });

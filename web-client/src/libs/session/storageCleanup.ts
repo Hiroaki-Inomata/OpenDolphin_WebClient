@@ -12,6 +12,7 @@ const SESSION_BASE_KEYS = [
   'opendolphin:web-client:tab-session-id',
   'opendolphin:web-client:auth',
   'opendolphin:web-client:auth-flags',
+  'opendolphin:web-client:reception-daily-state',
 ];
 
 const LOCAL_BASE_KEYS = [
@@ -22,7 +23,15 @@ const LOCAL_BASE_KEYS = [
   'opendolphin:web-client:auth:shared-flags',
 ];
 
-const LOCAL_DIRECT_KEYS = ['patients-filter-state', 'reception-filter-state'];
+const LOCAL_DIRECT_KEYS = [
+  'patients-filter-state',
+  'reception-filter-state',
+  'order-sets:v1',
+  'useMockOrcaQueue',
+  'verifyAdminDelivery',
+  'mswFault',
+  'mswDelayMs',
+];
 
 const VERSIONS = ['v2', 'v1'];
 

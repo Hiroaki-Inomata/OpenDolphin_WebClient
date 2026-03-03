@@ -103,6 +103,8 @@ const normalizeHeaderFlag = (value: unknown): boolean | undefined => {
   return undefined;
 };
 
+export const isLocalOverrideAllowed = (): boolean => import.meta.env.DEV;
+
 const readStoredFlag = (key: string): string | null => {
   if (typeof localStorage === 'undefined') return null;
   try {
@@ -112,15 +114,34 @@ const readStoredFlag = (key: string): string | null => {
   }
 };
 
-export function resolveHeaderOverrides(): HeaderOverrideFlags {
+const writeStoredFlag = (key: string, value: string) => {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const removeStoredFlag = (key: string) => {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore storage errors
+  }
+};
+
+export function resolveHeaderOverrides(options?: { localOverrideAllowed?: boolean }): HeaderOverrideFlags {
   const envMock = normalizeHeaderFlag(import.meta.env.VITE_USE_MOCK_ORCA_QUEUE);
   const envVerify = normalizeHeaderFlag(import.meta.env.VITE_VERIFY_ADMIN_DELIVERY);
   const envFault = typeof import.meta.env.VITE_MSW_FAULT === 'string' ? import.meta.env.VITE_MSW_FAULT : undefined;
   const delayRaw = import.meta.env.VITE_MSW_DELAY_MS;
   const envDelay =
     typeof delayRaw === 'string' && delayRaw.trim().length > 0 ? Number(delayRaw) : undefined;
+  const allowLocal = options?.localOverrideAllowed ?? isLocalOverrideAllowed();
 
-  if (!import.meta.env.DEV) {
+  if (!allowLocal) {
     return {
       useMockOrcaQueue: envMock,
       verifyAdminDelivery: envVerify,
@@ -145,11 +166,12 @@ export function resolveHeaderOverrides(): HeaderOverrideFlags {
   };
 }
 
-export function resolveHeaderFlags(): HeaderFlags {
+export function resolveHeaderFlags(options?: { localOverrideAllowed?: boolean }): HeaderFlags {
   // 優先度: env > localStorage > デフォルト false
   const envFlags = readHeaderFlagsFromEnv();
+  const allowLocal = options?.localOverrideAllowed ?? isLocalOverrideAllowed();
 
-  if (!import.meta.env.DEV) {
+  if (!allowLocal) {
     return {
       useMockOrcaQueue: envFlags.useMockOrcaQueue,
       verifyAdminDelivery: envFlags.verifyAdminDelivery,
@@ -158,10 +180,10 @@ export function resolveHeaderFlags(): HeaderFlags {
     };
   }
 
-  const storedMock = localStorage.getItem('useMockOrcaQueue');
-  const storedVerify = localStorage.getItem('verifyAdminDelivery');
-  const storedFault = localStorage.getItem('mswFault');
-  const storedDelay = localStorage.getItem('mswDelayMs');
+  const storedMock = readStoredFlag('useMockOrcaQueue');
+  const storedVerify = readStoredFlag('verifyAdminDelivery');
+  const storedFault = readStoredFlag('mswFault');
+  const storedDelay = readStoredFlag('mswDelayMs');
   const parsedDelay = storedDelay ? Number(storedDelay) : undefined;
 
   return {
@@ -178,27 +200,28 @@ export function resolveHeaderFlags(): HeaderFlags {
   };
 }
 
-export function persistHeaderFlags(partial: Partial<HeaderFlags>) {
-  if (typeof localStorage === 'undefined') return;
+export function persistHeaderFlags(partial: Partial<HeaderFlags>, options?: { localOverrideAllowed?: boolean }) {
+  const allowLocal = options?.localOverrideAllowed ?? isLocalOverrideAllowed();
+  if (!allowLocal) return;
   if (partial.useMockOrcaQueue !== undefined) {
-    localStorage.setItem('useMockOrcaQueue', partial.useMockOrcaQueue ? '1' : '0');
+    writeStoredFlag('useMockOrcaQueue', partial.useMockOrcaQueue ? '1' : '0');
   }
   if (partial.verifyAdminDelivery !== undefined) {
-    localStorage.setItem('verifyAdminDelivery', partial.verifyAdminDelivery ? '1' : '0');
+    writeStoredFlag('verifyAdminDelivery', partial.verifyAdminDelivery ? '1' : '0');
   }
   if (partial.mswFault !== undefined) {
     const value = partial.mswFault?.trim() ?? '';
     if (value.length === 0) {
-      localStorage.removeItem('mswFault');
+      removeStoredFlag('mswFault');
     } else {
-      localStorage.setItem('mswFault', value);
+      writeStoredFlag('mswFault', value);
     }
   }
   if (partial.mswDelayMs !== undefined) {
     if (typeof partial.mswDelayMs !== 'number' || !Number.isFinite(partial.mswDelayMs) || partial.mswDelayMs <= 0) {
-      localStorage.removeItem('mswDelayMs');
+      removeStoredFlag('mswDelayMs');
     } else {
-      localStorage.setItem('mswDelayMs', String(Math.floor(partial.mswDelayMs)));
+      writeStoredFlag('mswDelayMs', String(Math.floor(partial.mswDelayMs)));
     }
   }
 }
