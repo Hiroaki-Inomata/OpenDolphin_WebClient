@@ -165,7 +165,7 @@ public class PatientResource extends AbstractResource {
     @Produces(MediaType.TEXT_PLAIN)
     public String putPatient(@Context HttpServletRequest servletReq, String json) throws IOException {
 
-        String fid = getRemoteFacility(servletReq.getRemoteUser());
+        String fid = requireActorFacility(servletReq);
         
         ObjectMapper mapper = new ObjectMapper();
         // 2013/06/24
@@ -174,7 +174,10 @@ public class PatientResource extends AbstractResource {
 
         patient.setFacilityId(fid);
 
-        int cnt = patientServiceBean.update(patient);
+        int cnt = patientServiceBean.updateForFacility(fid, patient);
+        if (cnt == 0) {
+            throw new NotFoundException();
+        }
         String pkStr = String.valueOf(cnt);
         debug(pkStr);
 

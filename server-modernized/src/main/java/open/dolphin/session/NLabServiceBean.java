@@ -295,7 +295,43 @@ public class NLabServiceBean {
         }
     }
    
-    // ラボデータの削除 2013/06/24
+   // ラボデータの削除 2013/06/24
+    public int deleteLabTestForFacility(String fid, long id) {
+        if (fid == null || fid.isBlank()) {
+            return 0;
+        }
+        final String action = "LAB_TEST_DELETE";
+        NLaboModule target = em.find(NLaboModule.class, id);
+        String fidPid = target != null ? target.getPatientId() : null;
+        String previousPatientContext = setPatientContext(extractPatientId(fidPid));
+        try {
+            if (target == null) {
+                return 0;
+            }
+            String targetFacility = extractFacilityId(fidPid);
+            if (targetFacility == null || !targetFacility.equals(fid)) {
+                return 0;
+            }
+            em.remove(target);
+            LOGGER.info("Lab module deleted {}", id);
+            recordLabAudit(action, fidPid, target.getLaboCenterCode(),
+                    target.getItems() != null ? target.getItems().size() : 0,
+                    null, moduleIdDetails(id));
+            return 1;
+        } catch (RuntimeException ex) {
+            recordLabAudit(action, fidPid, target != null ? target.getLaboCenterCode() : null,
+                    target != null && target.getItems() != null ? target.getItems().size() : 0,
+                    ex, moduleIdDetails(id));
+            throw ex;
+        } finally {
+            restorePatientContext(previousPatientContext);
+        }
+    }
+
+    /**
+     * @deprecated facility境界付きの {@link #deleteLabTestForFacility(String, long)} を使用すること。
+     */
+    @Deprecated
     public int deleteLabTest(long id) {
         final String action = "LAB_TEST_DELETE";
         NLaboModule target = em.find(NLaboModule.class,id);
