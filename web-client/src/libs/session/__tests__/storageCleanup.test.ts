@@ -59,7 +59,7 @@ describe('storageCleanup', () => {
     local.setItem('opendolphin:web-client:charts:lock:v2:fac-1:user-1:facility:fac-1:patient:123:patient:123', 'x');
     local.setItem('opendolphin:web-client:auth:shared-session:v1', 'x');
     local.setItem('opendolphin:web-client:auth:shared-flags:v1', 'x');
-    local.setItem('order-sets:v1', 'x');
+    local.setItem('opendolphin:web-client:charts:order-sets:v1', 'x');
     local.setItem('useMockOrcaQueue', '1');
     local.setItem('verifyAdminDelivery', '1');
     local.setItem('mswFault', 'timeout');
@@ -103,7 +103,7 @@ describe('storageCleanup', () => {
 
     // localStorage entries cleared for target scope
     expect(local.getItem('opendolphin:web-client:charts:lock:v2:fac-1:user-1:facility:fac-1:patient:123:patient:123')).toBeNull();
-    expect(local.getItem('order-sets:v1')).toBeNull();
+    expect(local.getItem('opendolphin:web-client:charts:order-sets:v1')).toBeNull();
     expect(local.getItem('useMockOrcaQueue')).toBeNull();
     expect(local.getItem('verifyAdminDelivery')).toBeNull();
     expect(local.getItem('mswFault')).toBeNull();

@@ -9,6 +9,7 @@ import {
   getChartOrderSet,
   listChartOrderSets,
   saveChartOrderSet,
+  type ChartOrderSetTemplateSnapshot,
 } from '../chartOrderSetStorage';
 
 afterEach(() => {
@@ -69,59 +70,61 @@ describe('chartOrderSetStorage', () => {
   });
 
   it('save後のlocalStorage JSONに禁止フィールドを保存しない', () => {
+    const snapshotWithForbiddenFields = {
+      sourcePatientId: 'P-SECRET',
+      sourceVisitDate: '2026-02-11',
+      capturedAt: '2026-02-11T11:00:00.000Z',
+      diagnoses: [
+        {
+          diagnosisId: 1,
+          diagnosisName: '高血圧症',
+          diagnosisCode: 'I10',
+          departmentCode: '01',
+          insuranceCombinationNumber: '0001',
+          startDate: '2026-02-01',
+        },
+      ],
+      soapDraft: {
+        free: '自由記載',
+        subjective: '主訴',
+        objective: '所見',
+        assessment: '評価',
+        plan: '計画',
+      },
+      soapHistory: [
+        {
+          id: 'soap-1',
+          section: 'subjective',
+          body: '本文',
+          authoredAt: '2026-02-11T10:00:00.000Z',
+          authorRole: 'doctor',
+          action: 'add',
+          patientId: 'P-SECRET',
+        },
+      ],
+      orderBundles: [
+        {
+          documentId: 100,
+          moduleId: 200,
+          entity: 'medOrder',
+          bundleName: '降圧薬',
+          bundleNumber: '14',
+          classCode: '212',
+          className: '内服',
+          admin: '1日1回 朝',
+          memo: 'メモ',
+          started: '2026-02-11',
+          items: [{ code: 'A100', name: 'アムロジピン', quantity: '1', unit: '錠' }],
+        },
+      ],
+      imageAttachments: [{ id: 10, title: '胸部X線', fileName: 'cxr.png' }],
+    };
+
     saveChartOrderSet({
       facilityId: 'facility-A',
       userId: 'doctor-1',
       name: 'PHI除外確認',
-      snapshot: {
-        sourcePatientId: 'P-SECRET',
-        sourceVisitDate: '2026-02-11',
-        capturedAt: '2026-02-11T11:00:00.000Z',
-        diagnoses: [
-          {
-            diagnosisId: 1,
-            diagnosisName: '高血圧症',
-            diagnosisCode: 'I10',
-            departmentCode: '01',
-            insuranceCombinationNumber: '0001',
-            startDate: '2026-02-01',
-          },
-        ],
-        soapDraft: {
-          free: '自由記載',
-          subjective: '主訴',
-          objective: '所見',
-          assessment: '評価',
-          plan: '計画',
-        },
-        soapHistory: [
-          {
-            id: 'soap-1',
-            section: 'subjective',
-            body: '本文',
-            authoredAt: '2026-02-11T10:00:00.000Z',
-            authorRole: 'doctor',
-            action: 'add',
-            patientId: 'P-SECRET',
-          },
-        ],
-        orderBundles: [
-          {
-            documentId: 100,
-            moduleId: 200,
-            entity: 'medOrder',
-            bundleName: '降圧薬',
-            bundleNumber: '14',
-            classCode: '212',
-            className: '内服',
-            admin: '1日1回 朝',
-            memo: 'メモ',
-            started: '2026-02-11',
-            items: [{ code: 'A100', name: 'アムロジピン', quantity: '1', unit: '錠' }],
-          },
-        ],
-        imageAttachments: [{ id: 10, title: '胸部X線', fileName: 'cxr.png' }],
-      },
+      snapshot: snapshotWithForbiddenFields as unknown as ChartOrderSetTemplateSnapshot,
     });
 
     const scopedKey = buildScopedStorageKey(CHART_ORDER_SET_STORAGE_BASE, CHART_ORDER_SET_STORAGE_VERSION, {
@@ -209,15 +212,12 @@ describe('chartOrderSetStorage', () => {
 
     const migrated = listChartOrderSets('facility-A', 'doctor-1');
     expect(migrated).toHaveLength(1);
-    expect(migrated[0].snapshot.soapDraft).toEqual({
-      free: '',
-      subjective: '',
-      objective: '',
-      assessment: '',
-      plan: '',
-    });
-    expect(migrated[0].snapshot.soapHistory).toEqual([]);
+    expect(migrated[0].snapshot.diagnoses).toEqual([{ diagnosisName: '高血圧症', diagnosisCode: 'I10' }]);
+    expect(migrated[0].snapshot.orderBundles).toHaveLength(1);
     expect(migrated[0].snapshot.orderBundles[0]).not.toHaveProperty('documentId');
+    const migratedSnapshotTyped = migrated[0].snapshot as unknown as Record<string, unknown>;
+    expect(migratedSnapshotTyped).not.toHaveProperty('soapDraft');
+    expect(migratedSnapshotTyped).not.toHaveProperty('imageAttachments');
     expect(localStorage.getItem(legacyKey)).toBeNull();
 
     const scopedKey = buildScopedStorageKey(CHART_ORDER_SET_STORAGE_BASE, CHART_ORDER_SET_STORAGE_VERSION, {

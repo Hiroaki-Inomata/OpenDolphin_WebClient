@@ -1,9 +1,7 @@
 import { buildScopedStorageKey } from '../../libs/session/storageScope';
 
 import type { DiseaseEntry } from './diseaseApi';
-import type { ChartImageAttachment } from './documentImageAttach';
 import type { OrderBundle, OrderBundleItem } from './orderBundleApi';
-import type { SoapDraft, SoapEntry } from './soapNote';
 
 export type ChartOrderSetDiagnosis = Pick<DiseaseEntry, 'diagnosisName' | 'diagnosisCode'>;
 
@@ -11,15 +9,9 @@ export type ChartOrderSetBundle = Pick<OrderBundle, 'entity' | 'bundleName' | 'c
   items: OrderBundleItem[];
 };
 
-export type ChartOrderSetSnapshot = {
+export type ChartOrderSetTemplateSnapshot = {
   diagnoses: ChartOrderSetDiagnosis[];
   orderBundles: ChartOrderSetBundle[];
-  sourcePatientId?: string;
-  sourceVisitDate?: string;
-  capturedAt?: string;
-  soapDraft?: SoapDraft;
-  soapHistory?: SoapEntry[];
-  imageAttachments?: ChartImageAttachment[];
 };
 
 export type ChartOrderSetEntry = {
@@ -29,7 +21,7 @@ export type ChartOrderSetEntry = {
   name: string;
   createdAt: string;
   updatedAt: string;
-  snapshot: ChartOrderSetSnapshot;
+  snapshot: ChartOrderSetTemplateSnapshot;
 };
 
 type ChartOrderSetStorage = {
@@ -93,28 +85,15 @@ const sanitizeDisease = (entry: Partial<DiseaseEntry> | null | undefined): Chart
   };
 };
 
-const sanitizeSnapshot = (snapshot: Partial<ChartOrderSetSnapshot> | null | undefined): ChartOrderSetSnapshot => ({
+const sanitizeSnapshot = (
+  snapshot: Partial<ChartOrderSetTemplateSnapshot> | null | undefined,
+): ChartOrderSetTemplateSnapshot => ({
   diagnoses: (Array.isArray(snapshot?.diagnoses) ? snapshot.diagnoses : [])
     .map((item) => sanitizeDisease(item ?? {}))
     .filter((item): item is ChartOrderSetDiagnosis => item !== null),
   orderBundles: (Array.isArray(snapshot?.orderBundles) ? snapshot.orderBundles : [])
     .map((item) => sanitizeOrderBundle(item ?? {}))
     .filter((item): item is ChartOrderSetBundle => item !== null),
-});
-
-const createEmptySoapDraft = (): SoapDraft => ({
-  free: '',
-  subjective: '',
-  objective: '',
-  assessment: '',
-  plan: '',
-});
-
-const hydrateSnapshot = (snapshot: Partial<ChartOrderSetSnapshot> | null | undefined): ChartOrderSetSnapshot => ({
-  ...sanitizeSnapshot(snapshot),
-  soapDraft: createEmptySoapDraft(),
-  soapHistory: [],
-  imageAttachments: [],
 });
 
 const sanitizeEntry = (raw: unknown): ChartOrderSetEntry | null => {
@@ -131,7 +110,7 @@ const sanitizeEntry = (raw: unknown): ChartOrderSetEntry | null => {
     name,
     createdAt,
     updatedAt,
-    snapshot: sanitizeSnapshot(isRecord(raw.snapshot) ? (raw.snapshot as Partial<ChartOrderSetSnapshot>) : undefined),
+    snapshot: sanitizeSnapshot(isRecord(raw.snapshot) ? (raw.snapshot as Partial<ChartOrderSetTemplateSnapshot>) : undefined),
   };
 };
 
@@ -286,7 +265,7 @@ export const listChartOrderSets = (facilityId?: string, userId?: string): ChartO
     .map((item) => ({
       ...item,
       name: normalizeText(item.name) || '名称未設定',
-      snapshot: hydrateSnapshot(item.snapshot),
+      snapshot: sanitizeSnapshot(item.snapshot),
     }))
     .sort(sortByUpdatedAtDesc);
 };
@@ -303,7 +282,7 @@ export const saveChartOrderSet = (params: {
   facilityId?: string;
   userId?: string;
   name?: string;
-  snapshot: ChartOrderSetSnapshot;
+  snapshot: ChartOrderSetTemplateSnapshot;
   id?: string;
 }) => {
   const facilityId = normalizeText(params.facilityId);
@@ -342,7 +321,7 @@ export const saveChartOrderSet = (params: {
   writeStorageByKey(scopedKey, storage);
   return {
     ...nextEntry,
-    snapshot: hydrateSnapshot(nextEntry.snapshot),
+    snapshot: sanitizeSnapshot(nextEntry.snapshot),
   };
 };
 

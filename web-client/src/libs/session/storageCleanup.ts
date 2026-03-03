@@ -26,7 +26,7 @@ const LOCAL_BASE_KEYS = [
 const LOCAL_DIRECT_KEYS = [
   'patients-filter-state',
   'reception-filter-state',
-  'order-sets:v1',
+  'opendolphin:web-client:charts:order-sets:v1',
   'useMockOrcaQueue',
   'verifyAdminDelivery',
   'mswFault',

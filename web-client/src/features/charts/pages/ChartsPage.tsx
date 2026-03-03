@@ -29,7 +29,7 @@ import { SOAP_SECTION_LABELS, SOAP_SECTIONS } from '../soapNote';
 import { chartsStyles } from '../styles';
 import { FocusTrapDialog } from '../../../components/modals/FocusTrapDialog';
 import { ImageDockedPanel } from '../../images/components';
-import { fetchKarteImageList, type KarteImageListItem } from '../../images/api';
+import { type KarteImageListItem } from '../../images/api';
 import type { ChartImageAttachment } from '../documentImageAttach';
 import { receptionStyles } from '../../reception/styles';
 import { fetchAppointmentOutpatients, fetchClaimFlags, type AppointmentPayload, type ReceptionEntry } from '../../reception/api';
@@ -90,7 +90,7 @@ import {
   listChartOrderSets,
   saveChartOrderSet,
   type ChartOrderSetEntry,
-  type ChartOrderSetSnapshot,
+  type ChartOrderSetTemplateSnapshot,
 } from '../chartOrderSetStorage';
 import {
   applyEncounterTabState,
@@ -768,10 +768,10 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
     source: 'past-hub';
   } | null>(null);
   const [orderSetEntries, setOrderSetEntries] = useState<ChartOrderSetEntry[]>(() =>
-    listChartOrderSets(session.facilityId),
+    listChartOrderSets(session.facilityId, session.userId),
   );
   const [selectedOrderSetId, setSelectedOrderSetId] = useState<string>(() =>
-    listChartOrderSets(session.facilityId)[0]?.id ?? '',
+    listChartOrderSets(session.facilityId, session.userId)[0]?.id ?? '',
   );
   const [orderSetName, setOrderSetName] = useState('');
   const [orderSetNotice, setOrderSetNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
@@ -2267,17 +2267,13 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
     diagnosisSummaryQuery.data && diagnosisSummaryQuery.data.ok
       ? (diagnosisSummaryQuery.data.diseases ?? []).length
       : undefined;
-  const todaySoapHistoryForSet = useMemo(
-    () => filterSameDaySoapHistory(soapHistory, actionVisitDate),
-    [actionVisitDate, soapHistory],
-  );
   const todayOrderBundlesForSet = useMemo(
     () => filterSameDayOrderBundles(orderBundles, actionVisitDate),
     [actionVisitDate, orderBundles],
   );
 
   const refreshOrderSetEntries = useCallback(() => {
-    const next = listChartOrderSets(session.facilityId);
+    const next = listChartOrderSets(session.facilityId, session.userId);
     setOrderSetEntries(next);
     if (next.length === 0) {
       setSelectedOrderSetId('');
@@ -2285,7 +2281,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
     }
     setSelectedOrderSetId((prev) => (next.some((item) => item.id === prev) ? prev : next[0].id));
     return next;
-  }, [session.facilityId]);
+  }, [session.facilityId, session.userId]);
 
   const selectedOrderSet = useMemo(
     () => orderSetEntries.find((item) => item.id === selectedOrderSetId) ?? null,
@@ -3155,39 +3151,13 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
         from: actionVisitDate,
         to: actionVisitDate,
       });
-      const imageResult = await fetchKarteImageList({
-        chartId: patientId,
-        allowTypoFallback: true,
-      });
-      const todayImages: ChartImageAttachment[] = imageResult.ok
-        ? (imageResult.list ?? [])
-            .filter((item) => {
-              const recordedAt = toDateOnly(item.recordedAt);
-              if (!recordedAt) return true;
-              return recordedAt === actionVisitDate;
-            })
-            .map((item) => normalizeAttachment(item))
-        : [];
-
-      const snapshot: ChartOrderSetSnapshot = {
-        sourcePatientId: patientId,
-        sourceVisitDate: actionVisitDate,
-        capturedAt: new Date().toISOString(),
+      const snapshot: ChartOrderSetTemplateSnapshot = {
         diagnoses: diseaseResult.diseases ?? [],
-        soapDraft: soapDraftSnapshot,
-        soapHistory: todaySoapHistoryForSet,
         orderBundles: todayOrderBundlesForSet,
-        imageAttachments: todayImages,
       };
-      const hasSoap = SOAP_SECTIONS.some((section) => (snapshot.soapDraft[section] ?? '').trim().length > 0);
-      const hasPayload =
-        snapshot.diagnoses.length > 0 ||
-        snapshot.soapHistory.length > 0 ||
-        hasSoap ||
-        snapshot.orderBundles.length > 0 ||
-        snapshot.imageAttachments.length > 0;
+      const hasPayload = snapshot.diagnoses.length > 0 || snapshot.orderBundles.length > 0;
       if (!hasPayload) {
-        throw new Error('本日の病名・SOAP・オーダー・画像に保存対象がありません。');
+        throw new Error('本日の病名・オーダーに保存対象がありません。');
       }
 
       const saved = saveChartOrderSet({
@@ -3200,20 +3170,16 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
       return {
         saved,
         diseaseOk: diseaseResult.ok !== false && (diseaseResult.apiResult ? /^0+$/.test(diseaseResult.apiResult) : true),
-        imageOk: imageResult.ok,
       };
     },
     onSuccess: (result) => {
       refreshOrderSetEntries();
       setSelectedOrderSetId(result.saved.id);
       const snapshot = result.saved.snapshot;
-      const warning =
-        !result.diseaseOk || !result.imageOk
-          ? '（一部データ取得失敗あり）'
-          : '';
+      const warning = !result.diseaseOk ? '（病名取得で一部失敗あり）' : '';
       setOrderSetNotice({
         tone: 'success',
-        message: `オーダーセットを保存しました${warning}。病名${snapshot.diagnoses.length}件 / SOAP履歴${snapshot.soapHistory.length}件 / オーダー${snapshot.orderBundles.length}件 / 画像${snapshot.imageAttachments.length}件`,
+        message: `オーダーセットを保存しました${warning}。病名${snapshot.diagnoses.length}件 / オーダー${snapshot.orderBundles.length}件`,
       });
     },
     onError: (error) => {
@@ -3225,10 +3191,10 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
   const applyOrderSetMutation = useMutation({
     mutationFn: async (entry: ChartOrderSetEntry) => {
       if (!patientId) {
-        throw new Error('患者未選択のためオーダーセットを登録できません。');
+        throw new Error('患者未選択のためオーダーセットを適用できません。');
       }
       if (sidePanelMeta.readOnly) {
-        throw new Error(sidePanelMeta.readOnlyReason ?? '読み取り専用のためオーダーセットを登録できません。');
+        throw new Error(sidePanelMeta.readOnlyReason ?? '読み取り専用のためオーダーセットを適用できません。');
       }
 
       const snapshot = entry.snapshot;
@@ -3238,14 +3204,9 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
           operation: 'create' as const,
           entity: bundle.entity,
           bundleName: bundle.bundleName,
-          bundleNumber: bundle.bundleNumber,
           classCode: bundle.classCode,
-          classCodeSystem: bundle.classCodeSystem,
           className: bundle.className,
-          admin: bundle.admin,
-          adminMemo: bundle.adminMemo,
-          memo: bundle.memo,
-          startDate: bundle.started ?? actionVisitDate,
+          startDate: actionVisitDate,
           items: (bundle.items ?? []).filter((item) => item.name?.trim()),
         }));
 
@@ -3282,11 +3243,6 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
           operation: 'create' as const,
           diagnosisName: disease.diagnosisName,
           diagnosisCode: disease.diagnosisCode,
-          startDate: disease.startDate,
-          endDate: disease.endDate,
-          outcome: disease.outcome,
-          category: disease.category,
-          suspectedFlag: disease.suspectedFlag,
         }));
 
       if (diseaseOperations.length > 0) {
@@ -3300,29 +3256,22 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
       }
 
       return {
-        entry,
         orderCount: orderOperations.length,
         diseaseCount: diseaseOperations.length,
       };
     },
-    onSuccess: ({ entry, orderCount, diseaseCount }) => {
-      setReplaceSoapDraftRequest({
-        token: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        draft: entry.snapshot.soapDraft,
-        note: `オーダーセット「${entry.name}」のSOAPドラフトを反映しました。`,
-      });
-      setDocumentImageAttachments(entry.snapshot.imageAttachments);
+    onSuccess: ({ orderCount, diseaseCount }) => {
       queryClient.invalidateQueries({ queryKey: ['charts-order-bundles'] });
       queryClient.invalidateQueries({ queryKey: ['charts-prescription-bundles'] });
       queryClient.invalidateQueries({ queryKey: ['charts-diagnosis'] });
       setOrderSetNotice({
         tone: 'success',
-        message: `オーダーセットを登録しました。病名${diseaseCount}件 / オーダー${orderCount}件 / SOAPドラフト反映 / 画像添付${entry.snapshot.imageAttachments.length}件`,
+        message: `オーダーセットを適用しました。病名${diseaseCount}件 / オーダー${orderCount}件`,
       });
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : String(error);
-      setOrderSetNotice({ tone: 'error', message: `オーダーセットの登録に失敗しました: ${message}` });
+      setOrderSetNotice({ tone: 'error', message: `オーダーセットの適用に失敗しました: ${message}` });
     },
   });
 
@@ -4926,7 +4875,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
                                 />
                               </div>
                               <p className="charts-side-panel__help">
-                                対象: 病名 / SOAP / オーダー / 画像（{actionVisitDate}）
+                                対象: 病名 / オーダー（{actionVisitDate}）
                               </p>
                               <div className="charts-side-panel__actions">
                                 <button
@@ -4954,14 +4903,14 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
                                   <option value="">選択してください</option>
                                   {orderSetEntries.map((entry) => (
                                     <option key={entry.id} value={entry.id}>
-                                      {entry.name} / {entry.snapshot.sourceVisitDate || '日付未設定'} / 患者ID {entry.snapshot.sourcePatientId || '未設定'}
+                                      {entry.name} / 病名{entry.snapshot.diagnoses.length}件 / オーダー{entry.snapshot.orderBundles.length}件
                                     </option>
                                   ))}
                                 </select>
                               </div>
                               {selectedOrderSet ? (
                                 <p className="charts-side-panel__help">
-                                  内容: 病名{selectedOrderSet.snapshot.diagnoses.length}件 / SOAP履歴{selectedOrderSet.snapshot.soapHistory.length}件 / オーダー{selectedOrderSet.snapshot.orderBundles.length}件 / 画像{selectedOrderSet.snapshot.imageAttachments.length}件
+                                  内容: 病名{selectedOrderSet.snapshot.diagnoses.length}件 / オーダー{selectedOrderSet.snapshot.orderBundles.length}件
                                 </p>
                               ) : null}
                               <div className="charts-side-panel__actions">
@@ -4970,7 +4919,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
                                   onClick={() => selectedOrderSet && applyOrderSetMutation.mutate(selectedOrderSet)}
                                   disabled={!selectedOrderSet || applyOrderSetMutation.isPending || !patientId || sidePanelMeta.readOnly}
                                 >
-                                  {applyOrderSetMutation.isPending ? '登録中...' : 'セット登録（現在患者へ適用）'}
+                                  {applyOrderSetMutation.isPending ? '適用中...' : 'セット適用（現在患者へ反映）'}
                                 </button>
                                 <button type="button" onClick={() => appNav.openOrderSets()}>
                                   セット編集画面を開く
