@@ -51,33 +51,23 @@ describe('header-flags local override control', () => {
   });
 
   it('reads localStorage overrides only when local override is allowed', () => {
-    localStorage.setItem('useMockOrcaQueue', '1');
-    localStorage.setItem('verifyAdminDelivery', '0');
     localStorage.setItem('mswFault', 'network_error');
     localStorage.setItem('mswDelayMs', '1200');
 
     const resolved = resolveHeaderOverrides({ localOverrideAllowed: true });
-    expect(resolved.useMockOrcaQueue).toBe(true);
-    expect(resolved.verifyAdminDelivery).toBe(false);
     expect(resolved.mswFault).toBe('network_error');
     expect(resolved.mswDelayMs).toBe(1200);
   });
 
   it('ignores localStorage overrides when local override is disabled', () => {
-    vi.stubEnv('VITE_USE_MOCK_ORCA_QUEUE', '0');
-    vi.stubEnv('VITE_VERIFY_ADMIN_DELIVERY', '1');
     vi.stubEnv('VITE_MSW_FAULT', 'env_fault');
     vi.stubEnv('VITE_MSW_DELAY_MS', '250');
 
-    localStorage.setItem('useMockOrcaQueue', '1');
-    localStorage.setItem('verifyAdminDelivery', '0');
     localStorage.setItem('mswFault', 'network_error');
     localStorage.setItem('mswDelayMs', '1200');
 
     const resolved = resolveHeaderOverrides({ localOverrideAllowed: false });
     expect(resolved).toEqual({
-      useMockOrcaQueue: false,
-      verifyAdminDelivery: true,
       mswFault: 'env_fault',
       mswDelayMs: 250,
     });
@@ -86,16 +76,12 @@ describe('header-flags local override control', () => {
   it('does not write localStorage flags when local override is disabled', () => {
     persistHeaderFlags(
       {
-        useMockOrcaQueue: true,
-        verifyAdminDelivery: true,
         mswFault: 'timeout',
         mswDelayMs: 1500,
       },
       { localOverrideAllowed: false },
     );
 
-    expect(localStorage.getItem('useMockOrcaQueue')).toBeNull();
-    expect(localStorage.getItem('verifyAdminDelivery')).toBeNull();
     expect(localStorage.getItem('mswFault')).toBeNull();
     expect(localStorage.getItem('mswDelayMs')).toBeNull();
   });

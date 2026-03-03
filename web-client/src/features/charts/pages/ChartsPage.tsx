@@ -446,18 +446,6 @@ const toDateOnly = (value?: string) => {
   return parsed.toISOString().slice(0, 10);
 };
 
-const filterSameDaySoapHistory = (entries: SoapEntry[], visitDate?: string) => {
-  const day = toDateOnly(visitDate);
-  if (!day) return entries;
-  return entries.filter((entry) => {
-    const authoredDay = toDateOnly(entry.authoredAt);
-    const visitDay = toDateOnly(entry.visitDate);
-    if (authoredDay && authoredDay === day) return true;
-    if (visitDay && visitDay === day) return true;
-    return false;
-  });
-};
-
 const filterSameDayOrderBundles = (bundles: OrderBundle[], visitDate?: string) => {
   const day = toDateOnly(visitDate);
   if (!day) return bundles;
@@ -671,7 +659,8 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
   >(null);
   const suppressUrlContextSyncRef = useRef(false);
   const [reloadGuardOpen, setReloadGuardOpen] = useState(false);
-  const showDebugUi = import.meta.env.VITE_ENABLE_DEBUG_UI === '1' && isSystemAdminRole(session.role);
+  const isSystemAdmin = isSystemAdminRole(session.role);
+  const showDebugUi = import.meta.env.VITE_ENABLE_DEBUG_UI === '1' && isSystemAdmin;
   const showOperationalMeta = showDebugUi;
   const [approvalState, setApprovalState] = useState<{
     status: 'none' | 'approved';
@@ -1687,12 +1676,13 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
     },
   });
 
-  const orcaQueueQueryKey = ['orca-queue'];
+  const orcaQueueQueryKey = ['orca-queue', isSystemAdmin ? 'system-admin' : 'non-admin'] as const;
   const orcaQueueQuery = useQuery({
     queryKey: orcaQueueQueryKey,
-    queryFn: () => fetchOrcaQueue(),
-    refetchInterval: 30_000,
-    staleTime: 30_000,
+    queryFn: () => fetchOrcaQueue(undefined, { enabled: isSystemAdmin }),
+    enabled: isSystemAdmin,
+    refetchInterval: isSystemAdmin ? 30_000 : false,
+    staleTime: isSystemAdmin ? 30_000 : Infinity,
     retry: 1,
     meta: {
       servedFromCache: !!queryClient.getQueryState(orcaQueueQueryKey)?.dataUpdatedAt,

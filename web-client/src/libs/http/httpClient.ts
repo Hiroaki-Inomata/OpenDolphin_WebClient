@@ -4,12 +4,9 @@ import { applyObservabilityHeaders, captureObservabilityFromResponse } from '../
 import { notifySessionExpired } from '../session/sessionExpiry';
 import { readStoredSession } from '../session/storedSession';
 
-export const isFacilityHeaderEnabled = () => import.meta.env.VITE_ENABLE_FACILITY_HEADER === '1';
-
 type StoredAuth = {
   facilityId: string;
   userId: string;
-  passwordMd5?: string;
   passwordPlain?: string;
   clientUuid?: string;
 };
@@ -19,12 +16,11 @@ const readAuthFromStorage = (storage: Storage | undefined): StoredAuth | null =>
   try {
     const facilityId = storage.getItem('devFacilityId');
     const userId = storage.getItem('devUserId');
-    const passwordMd5 = storage.getItem('devPasswordMd5') ?? undefined;
     const clientUuid = storage.getItem('devClientUuid') ?? undefined;
     if (!facilityId || !userId) {
       return null;
     }
-    return { facilityId, userId, passwordMd5, clientUuid };
+    return { facilityId, userId, clientUuid };
   } catch {
     return null;
   }
@@ -43,7 +39,6 @@ function readStoredAuth(): StoredAuth | null {
         facilityId: sessionAuth.facilityId,
         userId: sessionAuth.userId,
       }),
-      passwordMd5: sessionAuth.passwordMd5 ?? localAuth?.passwordMd5,
       clientUuid: sessionAuth.clientUuid ?? localAuth?.clientUuid,
     };
   }
@@ -76,15 +71,10 @@ function applyAuthHeaders(init?: RequestInit, pathname?: string | null): Request
 
   const headers = new Headers(init?.headers ?? {});
 
-  if ((stored.passwordPlain || stored.passwordMd5) && !headers.has('Authorization')) {
-    // Basic 認証は plain パスワードを優先し、存在しない場合は MD5 を使用する。
-    const password = stored.passwordPlain ?? stored.passwordMd5 ?? '';
-    const token = btoa(unescape(encodeURIComponent(`${stored.userId}:${password}`)));
+  if (stored.passwordPlain && !headers.has('Authorization')) {
+    const username = `${stored.facilityId}:${stored.userId}`;
+    const token = btoa(unescape(encodeURIComponent(`${username}:${stored.passwordPlain}`)));
     headers.set('Authorization', `Basic ${token}`);
-  }
-
-  if (isFacilityHeaderEnabled() && !headers.has('X-Facility-Id')) {
-    headers.set('X-Facility-Id', stored.facilityId);
   }
 
   return { ...(init ?? {}), headers };

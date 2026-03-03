@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { getObservabilityMeta, resolveAriaLive } from '../../libs/observability/observability';
 import {
+  TOUCH_ADM_PHR_DISABLED_MESSAGE,
   TOUCH_ADM_PHR_ENDPOINTS,
   requestTouchAdmPhr,
   type TouchAdmPhrContext,
@@ -53,7 +54,8 @@ const resolveStatusTone = (status?: number) => {
   return 'info';
 };
 
-const resolveStatusLabel = (status?: number) => {
+const resolveStatusLabel = (status?: number, disabled?: boolean) => {
+  if (disabled) return '無効化済み (HTTP 404)';
   if (status === undefined) return '未送信';
   const group = Math.floor(status / 100);
   const groupLabel = Number.isFinite(group) ? `${group}xx` : 'unknown';
@@ -68,9 +70,14 @@ const resolveStatusLabel = (status?: number) => {
   return `HTTP ${status} (${groupLabel} ${groupText})`;
 };
 
-const buildResultSummary = (status?: TouchAdmPhrStatus) => {
-  if (!status) return '未送信';
-  const parts = [resolveStatusLabel(status.status)];
+const buildResultSummary = (status?: TouchAdmPhrStatus, disabledReason?: string) => {
+  if (!status) {
+    if (disabledReason) {
+      return `HTTP 404 (4xx client error) / disabled / ${disabledReason}`;
+    }
+    return '未送信';
+  }
+  const parts = [resolveStatusLabel(status.status, Boolean(disabledReason))];
   if (status.mode) parts.push(`mode=${status.mode}`);
   if (status.mode === 'binary') {
     parts.push(`bytes=${status.binarySize ?? 'unknown'}`);
@@ -78,6 +85,9 @@ const buildResultSummary = (status?: TouchAdmPhrStatus) => {
   if (status.contentType) parts.push(`ct=${status.contentType}`);
   if (status.stubExpected) {
     parts.push(`stub=${status.stubHint ?? 'possible'}`);
+  }
+  if (disabledReason) {
+    parts.push(`disabled=${disabledReason}`);
   }
   return parts.join(' / ');
 };
@@ -129,8 +139,12 @@ export function TouchAdmPhrPanel(props: TouchAdmPhrPanelProps) {
       endpoints: list,
     }));
   }, [endpoints]);
+  const allEndpointsDisabled = endpoints.length === 0 || endpoints.every((endpoint) => Boolean(endpoint.disabledReason));
 
   const handleRequest = async (endpoint: TouchAdmPhrEndpoint) => {
+    if (allEndpointsDisabled || endpoint.disabledReason) {
+      return;
+    }
     if (!isSystemAdmin) {
       onGuarded?.(`touch-adm-phr:${endpoint.id}`);
       return;
@@ -265,8 +279,11 @@ export function TouchAdmPhrPanel(props: TouchAdmPhrPanelProps) {
         <span className="admin-touch-panel__badge">Touch/ADM/PHR</span>
       </div>
       <p className="admin-quiet">
-        system_admin 専用の疎通確認。主要 endpoint を 200/4xx で確認し、監査ログと UI メトリクスを記録します。
+        サーバー側で無効化済みのため、Touch/ADM/PHR/Demo API への送信は実行されません。
       </p>
+      <div className="status-message is-warning" role="status" aria-live={resolveAriaLive('warning')}>
+        {TOUCH_ADM_PHR_DISABLED_MESSAGE}
+      </div>
 
       {!isSystemAdmin ? (
         <div className="status-message is-error" role="status" aria-live={resolveAriaLive('error')}>
@@ -341,7 +358,9 @@ export function TouchAdmPhrPanel(props: TouchAdmPhrPanelProps) {
           <div className="admin-touch-panel__list" role="list">
             {group.endpoints.map((endpoint) => {
               const status = results[endpoint.id];
-              const tone = resolveStatusTone(status?.status);
+              const endpointDisabled = allEndpointsDisabled || Boolean(endpoint.disabledReason);
+              const disabledReason = endpoint.disabledReason ?? (allEndpointsDisabled ? TOUCH_ADM_PHR_DISABLED_MESSAGE : undefined);
+              const tone = endpointDisabled ? 'warning' : resolveStatusTone(status?.status);
               const statusClass = tone === 'success' ? 'is-success' : tone === 'error' ? 'is-error' : undefined;
               const summaryClass = statusClass ? `admin-touch-panel__summary ${statusClass}` : 'admin-touch-panel__summary';
               const resolvedPath = endpoint.buildPath(context);
@@ -353,12 +372,15 @@ export function TouchAdmPhrPanel(props: TouchAdmPhrPanelProps) {
                     <div className="admin-touch-panel__title">
                       <strong>{queryLabel}</strong>
                       <span className="admin-touch-panel__method">{endpoint.method}</span>
+                      {endpointDisabled ? (
+                        <span className="admin-touch-panel__stub">disabled</span>
+                      ) : null}
                       {endpoint.stub ? (
                         <span className="admin-touch-panel__stub">stub</span>
                       ) : null}
                     </div>
                     <p className="admin-touch-panel__description">{endpoint.description}</p>
-                    <p className={summaryClass}>{buildResultSummary(status)}</p>
+                    <p className={summaryClass}>{buildResultSummary(status, disabledReason)}</p>
                     {status?.updatedAt ? (
                       <p className="admin-touch-panel__timestamp">{new Date(status.updatedAt).toLocaleString()}</p>
                     ) : null}
@@ -368,21 +390,24 @@ export function TouchAdmPhrPanel(props: TouchAdmPhrPanelProps) {
                     {status?.stubExpected && status.stubHint ? (
                       <p className="admin-touch-panel__timestamp">stub hint: {status.stubHint}</p>
                     ) : null}
+                    {endpointDisabled && disabledReason ? (
+                      <p className="admin-touch-panel__timestamp">reason: {disabledReason}</p>
+                    ) : null}
                   </div>
                   <div className="admin-touch-panel__actions">
                     <button
                       type="button"
                       className="admin-button admin-button--secondary"
                       onClick={() => handleRequest(endpoint)}
-                      disabled={!isSystemAdmin || loadingId === endpoint.id}
-                      aria-disabled={!isSystemAdmin || loadingId === endpoint.id}
+                      disabled={!isSystemAdmin || endpointDisabled || loadingId === endpoint.id}
+                      aria-disabled={!isSystemAdmin || endpointDisabled || loadingId === endpoint.id}
                       data-guarded={!isSystemAdmin}
                       aria-busy={loadingId === endpoint.id}
                     >
-                      {loadingId === endpoint.id ? '送信中…' : '疎通確認'}
+                      {endpointDisabled ? '無効化済み' : loadingId === endpoint.id ? '送信中…' : '疎通確認'}
                     </button>
                     <div className={`status-message ${statusClass ?? ''}`} role="status" aria-live={resolveAriaLive(tone)}>
-                      {resolveStatusLabel(status?.status)}
+                      {resolveStatusLabel(status?.status, endpointDisabled)}
                     </div>
                   </div>
                 </div>
@@ -391,6 +416,7 @@ export function TouchAdmPhrPanel(props: TouchAdmPhrPanelProps) {
           </div>
         </div>
       ))}
+      {grouped.length === 0 ? <p className="admin-touch-panel__description">利用可能な endpoint はありません（無効化済み）。</p> : null}
     </section>
   );
 }

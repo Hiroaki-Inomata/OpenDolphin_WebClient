@@ -59,6 +59,9 @@ const ORCA_PUSH_EVENT_ENDPOINT = '/orca/pusheventgetv2';
 const isOrcaPollingDisabled = () => import.meta.env.VITE_DISABLE_ORCA_POLLING === '1';
 let orcaQueueUnavailable = false;
 let orcaPushEventUnavailable = false;
+type OrcaQueueRequestOptions = {
+  enabled?: boolean;
+};
 
 const buildUnavailableQueueResponse = (): OrcaQueueResponse => ({
   runId: getObservabilityMeta().runId,
@@ -77,11 +80,6 @@ const buildUnavailablePushEventResponse = (status = 0, warning?: string): OrcaPu
   events: [],
   warning,
 });
-
-const normalizeBooleanHeader = (value: string | null) => {
-  if (value === null) return undefined;
-  return value === 'enabled' || value === '1' || value === 'true';
-};
 
 const getString = (value: unknown) => (typeof value === 'string' ? value : undefined);
 const getBoolean = (value: unknown) => (typeof value === 'boolean' ? value : undefined);
@@ -124,11 +122,8 @@ const normalizeQueue = (json: unknown, headers: Headers): OrcaQueueResponse => {
     runId,
     traceId,
     fetchedAt: new Date().toISOString(),
-    source:
-      (getString(body.source) as 'mock' | 'live' | undefined) ??
-      (headers.get('x-orca-queue-mode') === 'mock' ? 'mock' : 'live'),
-    verifyAdminDelivery:
-      normalizeBooleanHeader(headers.get('x-admin-delivery-verification')) ?? getBoolean(body.verifyAdminDelivery),
+    source: (getString(body.source) as 'mock' | 'live' | undefined) ?? 'live',
+    verifyAdminDelivery: getBoolean(body.verifyAdminDelivery),
     queue,
   };
 };
@@ -227,10 +222,16 @@ const normalizePushEventResponse = (json: unknown, headers: Headers, status: num
   };
 };
 
-export async function fetchOrcaQueue(patientId?: string): Promise<OrcaQueueResponse> {
-  if (isOrcaPollingDisabled() || orcaQueueUnavailable) return buildUnavailableQueueResponse();
+const isQueueRequestDisabled = (options?: OrcaQueueRequestOptions) =>
+  options?.enabled === false || isOrcaPollingDisabled() || orcaQueueUnavailable;
+
+export async function fetchOrcaQueue(patientId?: string, options?: OrcaQueueRequestOptions): Promise<OrcaQueueResponse> {
+  if (isQueueRequestDisabled(options)) return buildUnavailableQueueResponse();
   const endpoint = patientId ? `${ORCA_QUEUE_ENDPOINT}?patientId=${encodeURIComponent(patientId)}` : ORCA_QUEUE_ENDPOINT;
   const response = await httpFetch(endpoint, { method: 'GET', notifySessionExpired: false });
+  if (response.status === 403) {
+    return buildUnavailableQueueResponse();
+  }
   if (response.status === 404) {
     orcaQueueUnavailable = true;
     return buildUnavailableQueueResponse();
@@ -239,10 +240,13 @@ export async function fetchOrcaQueue(patientId?: string): Promise<OrcaQueueRespo
   return normalizeQueue(json, response.headers);
 }
 
-export async function retryOrcaQueue(patientId: string): Promise<OrcaQueueResponse> {
-  if (isOrcaPollingDisabled() || orcaQueueUnavailable) return buildUnavailableQueueResponse();
+export async function retryOrcaQueue(patientId: string, options?: OrcaQueueRequestOptions): Promise<OrcaQueueResponse> {
+  if (isQueueRequestDisabled(options)) return buildUnavailableQueueResponse();
   const endpoint = `${ORCA_QUEUE_ENDPOINT}?patientId=${encodeURIComponent(patientId)}&retry=1`;
   const response = await httpFetch(endpoint, { method: 'GET', notifySessionExpired: false });
+  if (response.status === 403) {
+    return buildUnavailableQueueResponse();
+  }
   if (response.status === 404) {
     orcaQueueUnavailable = true;
     return buildUnavailableQueueResponse();
@@ -251,14 +255,21 @@ export async function retryOrcaQueue(patientId: string): Promise<OrcaQueueRespon
   return normalizeQueue(json, response.headers);
 }
 
-export async function discardOrcaQueue(patientId: string): Promise<OrcaQueueResponse> {
-  if (isOrcaPollingDisabled() || orcaQueueUnavailable) return buildUnavailableQueueResponse();
+export async function discardOrcaQueue(patientId: string, options?: OrcaQueueRequestOptions): Promise<OrcaQueueResponse> {
+  if (isQueueRequestDisabled(options)) return buildUnavailableQueueResponse();
   const endpoint = `${ORCA_QUEUE_ENDPOINT}?patientId=${encodeURIComponent(patientId)}`;
   const response = await httpFetch(endpoint, { method: 'DELETE', notifySessionExpired: false });
+  if (response.status === 403) {
+    return buildUnavailableQueueResponse();
+  }
+  if (response.status === 404) {
+    orcaQueueUnavailable = true;
+    return buildUnavailableQueueResponse();
+  }
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
     // DELETE 未対応環境では 404/405 が返る可能性があるため、GET で再取得してフォールバックする。
-    return fetchOrcaQueue();
+    return fetchOrcaQueue(undefined, options);
   }
   return normalizeQueue(json, response.headers);
 }

@@ -55,6 +55,7 @@ import {
   type ReceptionCarryoverParams,
 } from '../../charts/encounterContext';
 import { useSession } from '../../../AppRouter';
+import { isSystemAdminRole } from '../../../libs/auth/roles';
 import { buildFacilityPath } from '../../../routes/facilityRoutes';
 import { applyExternalParams, isSafeReturnTo, pickExternalParams } from '../../../routes/appNavigation';
 import { useAppNavigation } from '../../../routes/useAppNavigation';
@@ -937,8 +938,8 @@ export function ReceptionPage({
   const selectedDateRef = useRef(selectedDate);
   const storageScopeRef = useRef(storageScope);
 
-  const debugUiEnabled =
-    (import.meta.env.DEV && searchParams.get('debug') === '1') || session.role === 'system_admin';
+  const isSystemAdmin = isSystemAdminRole(session.role);
+  const debugUiEnabled = (import.meta.env.DEV && searchParams.get('debug') === '1') || isSystemAdmin;
 
   const [statusListLayout, setStatusListLayout] = useState<StatusListLayout>(() => {
     const fromQuery = searchParams.get('receptionList');
@@ -1068,16 +1069,21 @@ export function ReceptionPage({
   });
   const refetchClaim = claimQuery.refetch;
 
+  const orcaQueueQueryKey = useMemo(
+    () => [...ORCA_QUEUE_QUERY_KEY, isSystemAdmin ? 'system-admin' : 'non-admin'] as const,
+    [isSystemAdmin],
+  );
   const orcaQueueQuery = useQuery({
-    queryKey: ORCA_QUEUE_QUERY_KEY,
-    queryFn: () => fetchOrcaQueue(),
-    refetchInterval: ORCA_QUEUE_REFRESH_INTERVAL_MS,
-    staleTime: ORCA_QUEUE_REFRESH_INTERVAL_MS,
+    queryKey: orcaQueueQueryKey,
+    queryFn: () => fetchOrcaQueue(undefined, { enabled: isSystemAdmin }),
+    enabled: isSystemAdmin,
+    refetchInterval: isSystemAdmin ? ORCA_QUEUE_REFRESH_INTERVAL_MS : false,
+    staleTime: isSystemAdmin ? ORCA_QUEUE_REFRESH_INTERVAL_MS : Infinity,
     refetchOnWindowFocus: false,
     retry: 1,
     meta: {
-      servedFromCache: !!queryClient.getQueryState(ORCA_QUEUE_QUERY_KEY)?.dataUpdatedAt,
-      retryCount: queryClient.getQueryState(ORCA_QUEUE_QUERY_KEY)?.fetchFailureCount ?? 0,
+      servedFromCache: !!queryClient.getQueryState(orcaQueueQueryKey)?.dataUpdatedAt,
+      retryCount: queryClient.getQueryState(orcaQueueQueryKey)?.fetchFailureCount ?? 0,
     },
   });
 
@@ -3590,14 +3596,21 @@ export function ReceptionPage({
 
   const handleRetryQueue = useCallback(
     async (entry: ReceptionEntry) => {
+      if (!isSystemAdmin) {
+        enqueue({
+          tone: 'warning',
+          message: 'ORCAキュー再送は system_admin のみ実行できます。',
+        });
+        return;
+      }
       const patientId = entry.patientId;
       if (!patientId) return;
       const baseRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
       setRetryingPatientId(patientId);
       const started = performance.now();
       try {
-        const data = await retryOrcaQueue(patientId);
-        queryClient.setQueryData(ORCA_QUEUE_QUERY_KEY, data);
+        const data = await retryOrcaQueue(patientId, { enabled: isSystemAdmin });
+        queryClient.setQueryData(orcaQueueQueryKey, data);
         const durationMs = Math.round(performance.now() - started);
         const detailParts = [
           data.source ? `source=${data.source}` : undefined,
@@ -3659,10 +3672,12 @@ export function ReceptionPage({
       enqueue,
       flags.runId,
       initialRunId,
+      isSystemAdmin,
       mergedMeta.cacheHit,
       mergedMeta.dataSourceTransition,
       mergedMeta.missingMaster,
       mergedMeta.runId,
+      orcaQueueQueryKey,
       queryClient,
     ],
   );

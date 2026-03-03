@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
-import CryptoJS from 'crypto-js';
 import { v4 as uuidv4 } from 'uuid';
 
 import { httpFetch } from './libs/http/httpClient';
@@ -23,13 +22,6 @@ const resolveApiBaseUrl = () => {
 };
 const API_BASE_URL = resolveApiBaseUrl();
 const SYSTEM_ICON_URL = `${import.meta.env.BASE_URL}LogoImage/MainLogo.png`;
-
-
-
-const hashPasswordMd5 = (password: string): string => {
-  // Web Crypto API (SubtleCrypto) は MD5 をサポートしていないため、CryptoJS を使用
-  return CryptoJS.MD5(password).toString(CryptoJS.enc.Hex);
-};
 
 const createClientUuid = (seed?: string) => {
   if (seed?.trim()) {
@@ -222,7 +214,6 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
       if (import.meta.env.DEV) {
         const urlFacilityId = normalize(initialFacilityId ?? '');
         const storedFacilityId = urlFacilityId || normalizedValues.facilityId;
-        const passwordMd5 = hashPasswordMd5(normalizedValues.password);
         setDevVolatilePlainPassword({
           facilityId: storedFacilityId,
           userId: normalizedValues.userId,
@@ -235,7 +226,6 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
           // facilityId は URL 由来の値を優先して保存し、遷移先と整合させる。
           localStorage.setItem('devFacilityId', storedFacilityId);
           localStorage.setItem('devUserId', normalizedValues.userId);
-          localStorage.setItem('devPasswordMd5', passwordMd5);
           localStorage.setItem('devClientUuid', result.clientUuid);
         } catch {
           // keep login flow unchanged if local storage is unavailable
@@ -246,7 +236,6 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
             // 現在タブは最新ログイン情報を優先して使えるよう sessionStorage を常に更新する。
             sessionStorage.setItem('devFacilityId', storedFacilityId);
             sessionStorage.setItem('devUserId', normalizedValues.userId);
-            sessionStorage.setItem('devPasswordMd5', passwordMd5);
             sessionStorage.setItem('devClientUuid', result.clientUuid);
           }
         } catch {
@@ -372,13 +361,12 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
   const clientUuid = createClientUuid(payload.clientUuid);
 
   const buildStandardHeaders = (): HeadersInit => {
-    // Basic 認証ユーザー名は userId（施設IDはリクエストパスから解決）、パスワードは平文を使用する。
-    const basicUser = payload.userId;
+    // Basic 認証ユーザー名は常に facilityId:userId を使用し、パスワードは平文を送る。
+    const basicUser = `${payload.facilityId}:${payload.userId}`;
     const token = btoa(unescape(encodeURIComponent(`${basicUser}:${payload.password}`)));
     return {
       Authorization: `Basic ${token}`,
       'X-Run-Id': runId,
-      'X-Facility-Id': payload.facilityId,
     };
   };
 

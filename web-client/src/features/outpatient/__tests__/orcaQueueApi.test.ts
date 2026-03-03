@@ -25,7 +25,7 @@ vi.mock('../../../libs/observability/observability', () => ({
 }));
 
 import { httpFetch } from '../../../libs/http/httpClient';
-import { fetchOrcaPushEvents } from '../orcaQueueApi';
+import { fetchOrcaPushEvents, fetchOrcaQueue } from '../orcaQueueApi';
 
 const mockHttpFetch = vi.mocked(httpFetch);
 
@@ -136,5 +136,48 @@ describe('orcaQueueApi fetchOrcaPushEvents', () => {
       timestamp: '2026-02-22T09:00:00+09:00',
       patientId: '000001',
     });
+  });
+});
+
+describe('orcaQueueApi fetchOrcaQueue', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv('VITE_DISABLE_ORCA_POLLING', '0');
+    shared.state.meta = {
+      runId: 'RUN-OLD',
+      traceId: 'TRACE-OLD',
+    };
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('enabled=false のとき queue API を呼ばず空レスポンスを返す', async () => {
+    const result = await fetchOrcaQueue(undefined, { enabled: false });
+
+    expect(mockHttpFetch).not.toHaveBeenCalled();
+    expect(result.queue).toEqual([]);
+    expect(result.runId).toBe('RUN-OLD');
+    expect(result.traceId).toBe('TRACE-OLD');
+  });
+
+  it('403 は未利用扱いとして空レスポンスを返す', async () => {
+    mockHttpFetch.mockResolvedValueOnce(new Response('{}', { status: 403, headers: { 'x-run-id': 'RUN-403' } }));
+
+    const result = await fetchOrcaQueue();
+
+    expect(mockHttpFetch).toHaveBeenCalledTimes(1);
+    expect(result.queue).toEqual([]);
+    expect(result.runId).toBe('RUN-OLD');
+  });
+
+  it('404 は未提供扱いとして空レスポンスを返す', async () => {
+    mockHttpFetch.mockResolvedValueOnce(new Response('{}', { status: 404 }));
+
+    const result = await fetchOrcaQueue();
+
+    expect(mockHttpFetch).toHaveBeenCalledTimes(1);
+    expect(result.queue).toEqual([]);
   });
 });
