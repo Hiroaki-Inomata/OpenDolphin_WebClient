@@ -20,6 +20,7 @@ import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.TreeSet;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
@@ -37,7 +38,9 @@ import open.dolphin.infomodel.SimpleAddressModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.infomodel.VisitPackage;
 import open.dolphin.rest.jackson.LegacyObjectMapperProducer;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -50,6 +53,10 @@ class AdmConverterSnapshotTest {
     private static final Path SNAPSHOT_BASE = resolveSnapshotBase();
     private static final Path ARTIFACT_BASE = resolveSnapshotOutputBase();
     private static final boolean UPDATE_SNAPSHOTS = Boolean.getBoolean("adm.snapshot.update");
+    private static final ZoneId SNAPSHOT_ZONE = ZoneId.of("Asia/Tokyo");
+    private static final TimeZone SNAPSHOT_TIME_ZONE = TimeZone.getTimeZone(SNAPSHOT_ZONE);
+    private static final TimeZone SERIALIZATION_TIME_ZONE = TimeZone.getTimeZone("UTC");
+    private static TimeZone originalDefaultTimeZone;
     private static final DateTimeFormatter TIMESTAMP_FORMAT = new DateTimeFormatterBuilder()
             .appendValue(ChronoField.YEAR, 4)
             .appendValue(ChronoField.MONTH_OF_YEAR, 2)
@@ -62,8 +69,21 @@ class AdmConverterSnapshotTest {
             .toFormatter()
             .withZone(ZoneId.of("UTC"));
 
-    private final ObjectMapper mapper = new LegacyObjectMapperProducer().provideLegacyAwareMapper();
+    private final ObjectMapper mapper = createSnapshotMapper();
     private final String timestamp = TIMESTAMP_FORMAT.format(Instant.now());
+
+    @BeforeAll
+    static void pinDefaultTimezone() {
+        originalDefaultTimeZone = TimeZone.getDefault();
+        TimeZone.setDefault(SNAPSHOT_TIME_ZONE);
+    }
+
+    @AfterAll
+    static void restoreDefaultTimezone() {
+        if (originalDefaultTimeZone != null) {
+            TimeZone.setDefault(originalDefaultTimeZone);
+        }
+    }
 
     @Test
     void patientModelSnapshot() throws Exception {
@@ -105,6 +125,12 @@ class AdmConverterSnapshotTest {
             return Path.of(configured);
         }
         return Path.of("target", "adm-snapshots");
+    }
+
+    private static ObjectMapper createSnapshotMapper() {
+        ObjectMapper snapshotMapper = new LegacyObjectMapperProducer().provideLegacyAwareMapper();
+        snapshotMapper.setTimeZone(SERIALIZATION_TIME_ZONE);
+        return snapshotMapper;
     }
 
     private void assertSnapshotMatches(ConverterScenario scenario, SnapshotTarget target) throws Exception {

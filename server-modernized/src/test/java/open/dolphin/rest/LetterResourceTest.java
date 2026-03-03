@@ -1,10 +1,8 @@
 package open.dolphin.rest;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
-import jakarta.persistence.NoResultException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.NotFoundException;
 import java.time.Instant;
@@ -48,26 +46,21 @@ class LetterResourceTest {
 
     @BeforeEach
     void setUp() {
-        lenient().when(httpServletRequest.getHeader(anyString())).thenReturn(null);
-        lenient().when(httpServletRequest.getRemoteUser()).thenReturn("FAC001:user01");
-        lenient().when(httpServletRequest.getRemoteAddr()).thenReturn("127.0.0.1");
-        lenient().when(httpServletRequest.getHeader("User-Agent")).thenReturn("JUnit");
-        lenient().when(httpServletRequest.getHeader("X-Request-Id")).thenReturn("req-2");
-        lenient().when(httpServletRequest.isUserInRole("ADMIN")).thenReturn(false);
-        lenient().when(sessionTraceManager.current()).thenReturn(null);
+        when(httpServletRequest.getRemoteUser()).thenReturn("FAC001:user01");
     }
 
     @Test
     void deleteRecordsAuditOnSuccess() {
         when(httpServletRequest.getRequestURI()).thenReturn("/odletter/letter/10");
         LetterModule module = createLetterModule(10L, "PAT001", 20L);
-        when(letterServiceBean.getLetter(10L)).thenReturn(module);
+        when(letterServiceBean.getLetterForFacility("FAC001", 10L)).thenReturn(module);
+        when(letterServiceBean.deleteLetterForFacility("FAC001", 10L)).thenReturn(1);
         SessionTraceContext trace = new SessionTraceContext("trace-letter", Instant.now(), "DELETE_LETTER", Map.of());
         when(sessionTraceManager.current()).thenReturn(trace);
 
         resource.delete("10");
 
-        verify(letterServiceBean).delete(10L);
+        verify(letterServiceBean).deleteLetterForFacility("FAC001", 10L);
         verify(auditTrailService).record(auditCaptor.capture());
         AuditEventPayload payload = auditCaptor.getValue();
         assertThat(payload.getAction()).isEqualTo("LETTER_DELETE");
@@ -84,7 +77,7 @@ class LetterResourceTest {
     @Test
     void deleteThrowsNotFoundAndAuditsWhenMissing() {
         when(httpServletRequest.getRequestURI()).thenReturn("/odletter/letter/99");
-        when(letterServiceBean.getLetter(99L)).thenThrow(new NoResultException("missing"));
+        when(letterServiceBean.getLetterForFacility("FAC001", 99L)).thenReturn(null);
 
         assertThatThrownBy(() -> resource.delete("99")).isInstanceOf(NotFoundException.class);
 
@@ -99,9 +92,9 @@ class LetterResourceTest {
     void deleteRecordsFailureAuditWhenDeleteThrows() {
         when(httpServletRequest.getRequestURI()).thenReturn("/odletter/letter/11");
         LetterModule module = createLetterModule(11L, "PAT002", 21L);
-        when(letterServiceBean.getLetter(11L)).thenReturn(module);
+        when(letterServiceBean.getLetterForFacility("FAC001", 11L)).thenReturn(module);
         doThrow(new RuntimeException("db"))
-                .when(letterServiceBean).delete(11L);
+                .when(letterServiceBean).deleteLetterForFacility("FAC001", 11L);
 
         assertThatThrownBy(() -> resource.delete("11")).isInstanceOf(RuntimeException.class);
 
@@ -116,7 +109,7 @@ class LetterResourceTest {
     void getLetterReturnsConverter() {
         LetterModule module = createLetterModule(12L, "PAT003", 22L);
         module.setTitle("紹介状");
-        when(letterServiceBean.getLetter(12L)).thenReturn(module);
+        when(letterServiceBean.getLetterForFacility("FAC001", 12L)).thenReturn(module);
 
         var converter = resource.getLetter("12");
 
@@ -126,7 +119,7 @@ class LetterResourceTest {
 
     @Test
     void getLetterThrowsNotFoundWhenMissing() {
-        when(letterServiceBean.getLetter(13L)).thenThrow(new NoResultException("missing"));
+        when(letterServiceBean.getLetterForFacility("FAC001", 13L)).thenReturn(null);
 
         assertThatThrownBy(() -> resource.getLetter("13")).isInstanceOf(NotFoundException.class);
     }

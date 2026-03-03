@@ -1,10 +1,12 @@
 package open.dolphin.msg;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.lang.reflect.Constructor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.DateFormat;
@@ -47,21 +49,31 @@ class MessagingDefensiveCopyTest {
         System.setProperty("jboss.home.dir", tempDir.toString());
 
         try {
-            ORCAConnection connection = ORCAConnection.getInstance();
+            ORCAConnection connection = newIsolatedOrcaConnection();
             Properties props = connection.getProperties();
             props.setProperty("new", "value");
 
             assertEquals("127.0.0.1", connection.getProperty("orca.orcaapi.ip"));
             assertEquals("facility01", connection.getProperties().getProperty("dolphin.facilityId"));
-            assertEquals(null, connection.getProperty("orca.password"));
-            assertEquals(null, connection.getProperties().getProperty("orca.jdbc.url"));
-            assertEquals(null, connection.getProperties().getProperty("new"));
+            assertNull(connection.getProperty("orca.password"));
+            assertNull(connection.getProperties().getProperty("orca.jdbc.url"));
+            assertNull(connection.getProperties().getProperty("new"));
         } finally {
             if (originalJbossHome == null) {
                 System.clearProperty("jboss.home.dir");
             } else {
                 System.setProperty("jboss.home.dir", originalJbossHome);
             }
+        }
+    }
+
+    private ORCAConnection newIsolatedOrcaConnection() {
+        try {
+            Constructor<ORCAConnection> constructor = ORCAConnection.class.getDeclaredConstructor();
+            constructor.setAccessible(true);
+            return constructor.newInstance();
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to instantiate ORCAConnection for test", e);
         }
     }
 
