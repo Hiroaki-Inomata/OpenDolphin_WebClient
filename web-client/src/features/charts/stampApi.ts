@@ -64,6 +64,9 @@ export type StampDetailResult = {
   message?: string;
 };
 
+const STAMP_TOUCH_DISABLED_MESSAGE =
+  'スタンプ参照API（/touch）はサーバー側で無効化されています。ローカルスタンプを利用してください。';
+
 const parseJson = async (response: Response): Promise<unknown> => {
   try {
     return await response.json();
@@ -92,32 +95,27 @@ export async function fetchUserProfile(userName: string): Promise<UserProfileRes
   };
 }
 
-export async function fetchStampTree(userPk: number): Promise<StampTreeResult> {
+export async function fetchStampTree(_userPk: number): Promise<StampTreeResult> {
   const runId = getObservabilityMeta().runId ?? generateRunId();
   updateObservabilityMeta({ runId });
-  const response = await httpFetch(`/touch/stampTree/${encodeURIComponent(String(userPk))}`);
-  const json = (await parseJson(response)) as Record<string, unknown>;
-  const treeList = Array.isArray(json.stampTreeList) ? (json.stampTreeList as StampTree[]) : [];
   return {
-    ok: response.ok,
+    ok: false,
     runId,
-    status: response.status,
-    trees: treeList,
-    message: response.ok ? undefined : (json.message as string | undefined),
+    status: 404,
+    trees: [],
+    message: STAMP_TOUCH_DISABLED_MESSAGE,
   };
 }
 
 export async function fetchStampDetail(stampId: string): Promise<StampDetailResult> {
   const runId = getObservabilityMeta().runId ?? generateRunId();
   updateObservabilityMeta({ runId });
-  const response = await httpFetch(`/touch/stamp/${encodeURIComponent(stampId)}`);
-  const json = (await parseJson(response)) as Record<string, unknown>;
   return {
-    ok: response.ok,
+    ok: false,
     runId,
-    status: response.status,
+    status: 404,
     stampId,
-    stamp: response.ok ? (json as StampBundleJson) : undefined,
-    message: response.ok ? undefined : (json.message as string | undefined),
+    stamp: undefined,
+    message: STAMP_TOUCH_DISABLED_MESSAGE,
   };
 }
