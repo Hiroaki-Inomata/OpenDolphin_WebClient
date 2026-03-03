@@ -27,12 +27,14 @@ import open.dolphin.infomodel.DiagnosisSendWrapper;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.DrugInteractionModel;
 import open.dolphin.infomodel.IStampTreeModel;
+import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.StampModel;
 import open.dolphin.infomodel.StampTreeModel;
 import open.dolphin.infomodel.TextStampModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.infomodel.VisitPackage;
+import open.dolphin.session.KarteServiceBean;
 import open.dolphin.touch.converter.IPatientList;
 import open.dolphin.touch.converter.IPatientModel;
 import open.dolphin.rest.jackson.LegacyObjectMapperProducer;
@@ -56,6 +58,7 @@ class JsonTouchResourceParityTest {
     private HttpServletRequest servletRequest;
     private TestLogHandler auditHandler;
     private StubAdm10EhtService ehtService;
+    private StubKarteServiceBean karteServiceBean;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -87,10 +90,14 @@ class JsonTouchResourceParityTest {
         touchResource = new JsonTouchResource();
         adm10Resource = new open.dolphin.adm10.rest.JsonTouchResource();
         adm20Resource = new open.dolphin.adm20.rest.JsonTouchResource();
+        karteServiceBean = new StubKarteServiceBean("F001");
 
         injectField(touchResource, "sharedService", sharedService);
         injectField(adm10Resource, "sharedService", sharedService);
         injectField(adm20Resource, "sharedService", sharedService);
+        injectField(touchResource, "karteServiceBean", karteServiceBean);
+        injectField(adm10Resource, "karteServiceBean", karteServiceBean);
+        injectField(adm20Resource, "karteServiceBean", karteServiceBean);
 
         ehtService = new StubAdm10EhtService();
         injectField(adm10Resource, "ehtService", ehtService);
@@ -107,6 +114,7 @@ class JsonTouchResourceParityTest {
                 getClass().getClassLoader(),
                 new Class[]{HttpServletRequest.class},
                 (proxy, method, args) -> "getRemoteUser".equals(method.getName()) ? REMOTE_USER : null);
+        injectField(touchResource, "servletRequest", servletRequest);
 
         auditHandler = new TestLogHandler();
         Logger auditLogger = Logger.getLogger("open.dolphin.audit.JsonTouch");
@@ -175,9 +183,9 @@ class JsonTouchResourceParityTest {
 
     @Test
     void visitPackageParity() {
-        open.dolphin.touch.converter.IVisitPackage touchVisit = touchResource.getVisitPackage("1,2,3,1");
-        open.dolphin.adm10.converter.IVisitPackage adm10Visit = adm10Resource.getVisitPackage("1,2,3,1");
-        open.dolphin.adm20.converter.IVisitPackage adm20Visit = adm20Resource.getVisitPackage("1,2,3,1");
+        open.dolphin.touch.converter.IVisitPackage touchVisit = touchResource.getVisitPackage(servletRequest, "1,2,3,1");
+        open.dolphin.adm10.converter.IVisitPackage adm10Visit = adm10Resource.getVisitPackage(servletRequest, "1,2,3,1");
+        open.dolphin.adm20.converter.IVisitPackage adm20Visit = adm20Resource.getVisitPackage(servletRequest, "1,2,3,1");
 
         assertEquals(touchVisit.getNumber(), adm10Visit.getNumber());
         assertEquals(touchVisit.getNumber(), adm20Visit.getNumber());
@@ -581,6 +589,8 @@ class JsonTouchResourceParityTest {
         private List<String> kanaList = Collections.emptyList();
         private VisitPackage visitPackage = new VisitPackage();
         private UserModelConverter userConverter = new UserModelConverter();
+        private UserModel actorUserModel = new UserModel();
+        private KarteBean actorKarte = new KarteBean();
         private long nextDocumentPk = 99L;
         private boolean failOnSaveDocument;
         private DocumentModel lastSavedDocument;
@@ -608,6 +618,16 @@ class JsonTouchResourceParityTest {
         @Override
         public UserModelConverter getUserById(String uid) {
             return userConverter;
+        }
+
+        @Override
+        public UserModel findUserModel(String userId) {
+            return actorUserModel;
+        }
+
+        @Override
+        public KarteBean findKarteByPatient(String facilityId, String patientId) {
+            return actorKarte;
         }
 
         @Override
@@ -704,6 +724,34 @@ class JsonTouchResourceParityTest {
                 throw new IllegalStateException("stamp failure");
             }
             return stampModel;
+        }
+    }
+
+    private static class StubKarteServiceBean extends KarteServiceBean {
+        private final String facilityId;
+
+        private StubKarteServiceBean(String facilityId) {
+            this.facilityId = facilityId;
+        }
+
+        @Override
+        public String findFacilityIdByPvtId(long pvtId) {
+            return facilityId;
+        }
+
+        @Override
+        public String findFacilityIdByPatientPk(long patientPk) {
+            return facilityId;
+        }
+
+        @Override
+        public String findFacilityIdByDocId(long docId) {
+            return facilityId;
+        }
+
+        @Override
+        public String findFacilityIdByDiagnosisId(long diagnosisId) {
+            return facilityId;
         }
     }
 
