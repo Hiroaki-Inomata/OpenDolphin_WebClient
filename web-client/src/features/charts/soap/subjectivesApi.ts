@@ -1,6 +1,13 @@
 import { httpFetch } from '../../../libs/http/httpClient';
 import { getObservabilityMeta } from '../../../libs/observability/observability';
-import { checkRequiredTags, extractOrcaXmlMeta, parseXmlDocument, readXmlText, readXmlTexts } from '../../../libs/xml/xmlUtils';
+import {
+  checkRequiredTags,
+  escapeXml,
+  extractOrcaXmlMeta,
+  parseXmlDocument,
+  readXmlText,
+  readXmlTexts,
+} from '../../../libs/xml/xmlUtils';
 
 export type SubjectivesListItem = {
   inOut?: string;
@@ -52,6 +59,7 @@ export type SubjectivesModResponse = {
 // Use the canonical ORCA XML endpoint path instead.
 const SUBJECTIVES_LIST_PATH = '/api01rv2/subjectiveslstv2';
 const SUBJECTIVES_MOD_PATH = '/orca25/subjectivesv2';
+const escapeXmlValue = (value?: string | null) => escapeXml(value ?? '');
 
 export const buildSubjectivesListRequestXml = (params: {
   patientId: string;
@@ -67,15 +75,15 @@ export const buildSubjectivesListRequestXml = (params: {
   return [
     '<data>',
     '  <subjectiveslstreq type="record">',
-    `    <Request_Number type="string">${params.requestNumber ?? '01'}</Request_Number>`,
-    `    <Patient_ID type="string">${params.patientId}</Patient_ID>`,
-    `    <Perform_Date type="string">${params.performMonth ?? ''}</Perform_Date>`,
-    `    <InOut type="string">${params.inOut ?? 'O'}</InOut>`,
-    `    <Department_Code type="string">${params.departmentCode ?? ''}</Department_Code>`,
-    `    <Insurance_Combination_Number type="string">${params.insuranceCombinationNumber ?? ''}</Insurance_Combination_Number>`,
-    `    <Perform_Day type="string">${params.performDay ?? ''}</Perform_Day>`,
-    `    <Subjectives_Detail_Record type="string">${params.subjectivesDetailRecord ?? ''}</Subjectives_Detail_Record>`,
-    `    <Subjectives_Number type="string">${params.subjectivesNumber ?? ''}</Subjectives_Number>`,
+    `    <Request_Number type="string">${escapeXmlValue(params.requestNumber ?? '01')}</Request_Number>`,
+    `    <Patient_ID type="string">${escapeXmlValue(params.patientId)}</Patient_ID>`,
+    `    <Perform_Date type="string">${escapeXmlValue(params.performMonth ?? '')}</Perform_Date>`,
+    `    <InOut type="string">${escapeXmlValue(params.inOut ?? 'O')}</InOut>`,
+    `    <Department_Code type="string">${escapeXmlValue(params.departmentCode ?? '')}</Department_Code>`,
+    `    <Insurance_Combination_Number type="string">${escapeXmlValue(params.insuranceCombinationNumber ?? '')}</Insurance_Combination_Number>`,
+    `    <Perform_Day type="string">${escapeXmlValue(params.performDay ?? '')}</Perform_Day>`,
+    `    <Subjectives_Detail_Record type="string">${escapeXmlValue(params.subjectivesDetailRecord ?? '')}</Subjectives_Detail_Record>`,
+    `    <Subjectives_Number type="string">${escapeXmlValue(params.subjectivesNumber ?? '')}</Subjectives_Number>`,
     '  </subjectiveslstreq>',
     '</data>',
   ].join('\n');
@@ -93,13 +101,13 @@ export const buildSubjectivesModRequestXml = (params: {
   return [
     '<data>',
     '  <subjectivesmodreq type="record">',
-    `    <InOut type="string">${params.inOut ?? 'O'}</InOut>`,
-    `    <Patient_ID type="string">${params.patientId}</Patient_ID>`,
-    `    <Perform_Date type="string">${params.performDate ?? ''}</Perform_Date>`,
-    `    <Department_Code type="string">${params.departmentCode ?? ''}</Department_Code>`,
-    `    <Insurance_Combination_Number type="string">${params.insuranceCombinationNumber ?? ''}</Insurance_Combination_Number>`,
-    `    <Subjectives_Detail_Record type="string">${params.detailRecord ?? '07'}</Subjectives_Detail_Record>`,
-    `    <Subjectives_Code type="string">${params.subjectivesCode}</Subjectives_Code>`,
+    `    <InOut type="string">${escapeXmlValue(params.inOut ?? 'O')}</InOut>`,
+    `    <Patient_ID type="string">${escapeXmlValue(params.patientId)}</Patient_ID>`,
+    `    <Perform_Date type="string">${escapeXmlValue(params.performDate ?? '')}</Perform_Date>`,
+    `    <Department_Code type="string">${escapeXmlValue(params.departmentCode ?? '')}</Department_Code>`,
+    `    <Insurance_Combination_Number type="string">${escapeXmlValue(params.insuranceCombinationNumber ?? '')}</Insurance_Combination_Number>`,
+    `    <Subjectives_Detail_Record type="string">${escapeXmlValue(params.detailRecord ?? '07')}</Subjectives_Detail_Record>`,
+    `    <Subjectives_Code type="string">${escapeXmlValue(params.subjectivesCode)}</Subjectives_Code>`,
     '  </subjectivesmodreq>',
     '</data>',
   ].join('\n');

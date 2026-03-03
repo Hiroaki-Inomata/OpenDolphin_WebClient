@@ -4,7 +4,7 @@ import { httpFetch } from '../../libs/http/httpClient';
 import { getAuditEventLog, logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { getObservabilityMeta, resolveAriaLive } from '../../libs/observability/observability';
 import { AuditSummaryInline } from '../shared/AuditSummaryInline';
-import { checkRequiredTags, extractOrcaXmlMeta, parseXmlDocument } from '../../libs/xml/xmlUtils';
+import { checkRequiredTags, escapeXml, extractOrcaXmlMeta, parseXmlDocument } from '../../libs/xml/xmlUtils';
 import './orcaApiConsole.css';
 
 type OrcaApiDefinition = {
@@ -46,7 +46,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
         '  <patientlst7req type="record">',
         '    <Request_Number type="string">01</Request_Number>',
         '    <Patient_ID type="string">00002</Patient_ID>',
-        `    <Base_Date type="string">${today}</Base_Date>`,
+        `    <Base_Date type="string">${escapeXml(today)}</Base_Date>`,
         '    <Department_Code type="string"></Department_Code>',
         '    <Memo_Class type="string"></Memo_Class>',
         '  </patientlst7req>',
@@ -64,7 +64,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
         '  <patient_memomodreq type="record">',
         '    <Request_Number type="string">01</Request_Number>',
         '    <Patient_ID type="string">00002</Patient_ID>',
-        `    <Perform_Date type="string">${today}</Perform_Date>`,
+        `    <Perform_Date type="string">${escapeXml(today)}</Perform_Date>`,
         '    <Department_Code type="string">01</Department_Code>',
         '    <Memo_Class type="string">2</Memo_Class>',
         '    <Patient_Memo type="string">テストメモ</Patient_Memo>',
@@ -82,7 +82,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
         '<data>',
         '  <insuranceinfreq type="record">',
         '    <Request_Number type="string">01</Request_Number>',
-        `    <Base_Date type="string">${today}</Base_Date>`,
+        `    <Base_Date type="string">${escapeXml(today)}</Base_Date>`,
         '  </insuranceinfreq>',
         '</data>',
       ].join('\n'),
@@ -97,7 +97,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
         '<data>',
         '  <disease_inforeq type="record">',
         '    <Patient_ID type="string">00002</Patient_ID>',
-        `    <Base_Date type="string">${baseMonth}</Base_Date>`,
+        `    <Base_Date type="string">${escapeXml(baseMonth)}</Base_Date>`,
         '  </disease_inforeq>',
         '</data>',
       ].join('\n'),
@@ -113,7 +113,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
         '  <diseasereq type="record">',
         '    <Patient_ID type="string">00002</Patient_ID>',
         '    <Base_Month type="string"></Base_Month>',
-        `    <Perform_Date type="string">${today}</Perform_Date>`,
+        `    <Perform_Date type="string">${escapeXml(today)}</Perform_Date>`,
         '    <Perform_Time type="string"></Perform_Time>',
         '    <Diagnosis_Information type="record">',
         '      <Department_Code type="string">01</Department_Code>',
@@ -122,7 +122,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
         '      <Disease_Information_child type="record">',
         '        <Disease_Code type="string">0000999</Disease_Code>',
         '        <Disease_Name type="string">テスト病名</Disease_Name>',
-        `        <Disease_StartDate type="string">${today}</Disease_StartDate>`,
+        `        <Disease_StartDate type="string">${escapeXml(today)}</Disease_StartDate>`,
         '        <Disease_EndDate type="string"></Disease_EndDate>',
         '      </Disease_Information_child>',
         '    </Disease_Information>',
@@ -141,7 +141,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
         '  <medicalgetreq type="record">',
         '    <InOut type="string">O</InOut>',
         '    <Patient_ID type="string">00002</Patient_ID>',
-        `    <Perform_Date type="string">${today}</Perform_Date>`,
+        `    <Perform_Date type="string">${escapeXml(today)}</Perform_Date>`,
         '    <For_Months type="string">12</For_Months>',
         '    <Medical_Information type="record">',
         '      <Insurance_Combination_Number type="string">0001</Insurance_Combination_Number>',
@@ -162,7 +162,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
         '<data>',
         '  <medicalreq type="record">',
         '    <Patient_ID type="string">00002</Patient_ID>',
-        `    <Perform_Date type="string">${today}</Perform_Date>`,
+        `    <Perform_Date type="string">${escapeXml(today)}</Perform_Date>`,
         '    <Diagnosis_Information type="record">',
         '      <Department_Code type="string">01</Department_Code>',
         '      <Physician_Code type="string">10001</Physician_Code>',

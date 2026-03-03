@@ -413,13 +413,11 @@ const buildSystemInfoRequestXml = () => {
 };
 
 const buildSystemDailyRequestXml = (baseDate: string, requestNumber?: string) => {
-  const safeBaseDate = escapeXml(baseDate);
-  const request = escapeXml(requestNumber ?? '01');
   return [
     '<data>',
     '  <system01_dailyreq type="record">',
-    `    <Request_Number type="string">${request}</Request_Number>`,
-    `    <Base_Date type="string">${safeBaseDate}</Base_Date>`,
+    `    <Request_Number type="string">${escapeXml(requestNumber ?? '01')}</Request_Number>`,
+    `    <Base_Date type="string">${escapeXml(baseDate)}</Base_Date>`,
     '  </system01_dailyreq>',
     '</data>',
   ].join('\n');

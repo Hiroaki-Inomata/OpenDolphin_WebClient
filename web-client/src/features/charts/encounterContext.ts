@@ -134,10 +134,14 @@ export const stripChartsEncounterParams = (search: string): string => {
   return query ? `?${query}` : '';
 };
 
-export const persistChartsEncounterContextFromSearch = (search: string, scope?: StorageScope) => {
+export const persistChartsEncounterContextFromSearch = (
+  search: string,
+  scope?: StorageScope,
+): OutpatientEncounterContext | null => {
   const context = parseChartsEncounterContext(search);
-  if (!context.patientId) return;
+  if (!context.patientId) return null;
   storeChartsEncounterContext(context, scope);
+  return context;
 };
 
 export const parseChartsNavigationMeta = (search: string): ChartsNavigationMeta => {

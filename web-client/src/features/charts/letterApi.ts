@@ -111,14 +111,10 @@ const parseJson = async (response: Response): Promise<unknown> => {
 };
 
 const resolveErrorMessage = (status: number): string => {
-  if (status === 400) return 'リクエスト形式が不正です。入力内容を確認してください。';
-  if (status === 401) return '認証に失敗しました。再ログインして再試行してください。';
-  if (status === 403) return 'この操作を実行する権限がありません。';
-  if (status === 404) return '対象データが見つかりませんでした。';
-  if (status === 409) return '同時更新が発生しました。最新状態を再読込して再試行してください。';
-  if (status === 422) return '入力値が不正です。内容を確認してください。';
-  if (status >= 500) return 'サーバーでエラーが発生しました。時間をおいて再試行してください。';
-  return `リクエストに失敗しました（HTTP ${status}）。`;
+  if (status >= 500) return 'サーバーエラーが発生しました。時間をおいて再試行してください。';
+  if (status === 401 || status === 403) return '権限がありません。再ログインしてください。';
+  if (status >= 400) return 'リクエストに失敗しました。入力内容を確認してください。';
+  return '通信に失敗しました。';
 };
 
 const parseNumeric = (value: unknown): number | undefined => {
