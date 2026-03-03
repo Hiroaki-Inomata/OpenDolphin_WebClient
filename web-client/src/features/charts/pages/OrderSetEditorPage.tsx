@@ -11,21 +11,17 @@ import {
   listChartOrderSets,
   saveChartOrderSet,
   type ChartOrderSetEntry,
-  type ChartOrderSetSnapshot,
+  type ChartOrderSetTemplateSnapshot,
 } from '../chartOrderSetStorage';
-import { SOAP_SECTIONS, SOAP_SECTION_LABELS } from '../soapNote';
 
-const cloneSnapshot = (snapshot: ChartOrderSetSnapshot): ChartOrderSetSnapshot => {
+const cloneSnapshot = (snapshot: ChartOrderSetTemplateSnapshot): ChartOrderSetTemplateSnapshot => {
   return {
     ...snapshot,
     diagnoses: snapshot.diagnoses.map((item) => ({ ...item })),
-    soapDraft: { ...snapshot.soapDraft },
-    soapHistory: snapshot.soapHistory.map((entry) => ({ ...entry })),
     orderBundles: snapshot.orderBundles.map((bundle) => ({
       ...bundle,
       items: (bundle.items ?? []).map((item) => ({ ...item })),
     })),
-    imageAttachments: snapshot.imageAttachments.map((item) => ({ ...item })),
   };
 };
 
@@ -34,10 +30,10 @@ export function OrderSetEditorPage() {
   const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
   const { registerDirty } = useNavigationGuard();
   const fallbackUrl = useMemo(() => buildFacilityPath(session.facilityId, '/charts'), [session.facilityId]);
-  const [sets, setSets] = useState<ChartOrderSetEntry[]>(() => listChartOrderSets(session.facilityId));
-  const [selectedId, setSelectedId] = useState<string>(() => listChartOrderSets(session.facilityId)[0]?.id ?? '');
+  const [sets, setSets] = useState<ChartOrderSetEntry[]>(() => listChartOrderSets(session.facilityId, session.userId));
+  const [selectedId, setSelectedId] = useState<string>(() => listChartOrderSets(session.facilityId, session.userId)[0]?.id ?? '');
   const [name, setName] = useState('');
-  const [snapshot, setSnapshot] = useState<ChartOrderSetSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<ChartOrderSetTemplateSnapshot | null>(null);
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
   const [pendingSetId, setPendingSetId] = useState<string | null>(null);
   const [switchDialogOpen, setSwitchDialogOpen] = useState(false);
@@ -81,7 +77,7 @@ export function OrderSetEditorPage() {
   }, [registerDirty]);
 
   const refreshSets = (preferredId?: string) => {
-    const next = listChartOrderSets(session.facilityId);
+    const next = listChartOrderSets(session.facilityId, session.userId);
     setSets(next);
     if (next.length === 0) {
       setSelectedId('');
@@ -177,7 +173,7 @@ export function OrderSetEditorPage() {
   const handleConfirmDelete = () => {
     if (!selectedSet) return;
     setDeleteDialogOpen(false);
-    const deleted = deleteChartOrderSet({ facilityId: session.facilityId, id: selectedSet.id });
+    const deleted = deleteChartOrderSet({ facilityId: session.facilityId, userId: session.userId, id: selectedSet.id });
     if (!deleted) {
       setNotice({ tone: 'error', message: '削除対象のオーダーセットが見つかりませんでした。' });
       return;
@@ -198,7 +194,7 @@ export function OrderSetEditorPage() {
         <div>
           <h1 style={{ marginBottom: '0.5rem' }}>オーダーセット編集</h1>
           <p style={{ margin: 0, color: '#555' }}>
-            セットの名称と内訳（病名/SOAP/オーダー/画像）を編集します。
+            セットの名称と内訳（病名/オーダー）を編集します。
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -243,7 +239,7 @@ export function OrderSetEditorPage() {
             </div>
             <div>
               <dt>未保存対象</dt>
-              <dd>名称 / 病名 / SOAP / オーダー / 画像</dd>
+              <dd>名称 / 病名 / オーダー</dd>
             </div>
             <div>
               <dt>影響範囲</dt>
@@ -279,8 +275,8 @@ export function OrderSetEditorPage() {
               <dd>{selectedSet?.name ?? '—'}</dd>
             </div>
             <div>
-              <dt>患者ID</dt>
-              <dd>{selectedSet?.snapshot.sourcePatientId || '—'}</dd>
+              <dt>内容</dt>
+              <dd>病名 {selectedSet?.snapshot.diagnoses.length ?? 0}件 / オーダー {selectedSet?.snapshot.orderBundles.length ?? 0}件</dd>
             </div>
             <div>
               <dt>影響範囲</dt>
@@ -318,7 +314,7 @@ export function OrderSetEditorPage() {
                 }}
               >
                 <strong style={{ display: 'block' }}>{item.name}</strong>
-                <small>{item.snapshot.sourceVisitDate || '日付未設定'} / {item.snapshot.sourcePatientId || '患者未設定'}</small>
+                <small>病名 {item.snapshot.diagnoses.length}件 / オーダー {item.snapshot.orderBundles.length}件</small>
               </button>
             ))}
           </div>
@@ -334,9 +330,6 @@ export function OrderSetEditorPage() {
                   <span>セット名称</span>
                   <input value={name} onChange={(event) => setName(event.target.value)} placeholder="例: 定期フォローセット" />
                 </label>
-                <p style={{ margin: 0, color: '#555' }}>
-                  元データ: {snapshot.sourceVisitDate} / 患者ID {snapshot.sourcePatientId} / 取得日時 {snapshot.capturedAt}
-                </p>
               </div>
 
               <details open style={{ marginTop: '1rem' }}>
@@ -369,34 +362,6 @@ export function OrderSetEditorPage() {
               </details>
 
               <details open style={{ marginTop: '0.75rem' }}>
-                <summary>SOAPドラフト</summary>
-                <div style={{ display: 'grid', gap: '0.5rem', marginTop: '0.5rem' }}>
-                  {SOAP_SECTIONS.map((section) => (
-                    <label key={section} style={{ display: 'grid', gap: '0.25rem' }}>
-                      <span>{SOAP_SECTION_LABELS[section]}</span>
-                      <textarea
-                        value={snapshot.soapDraft[section] ?? ''}
-                        onChange={(event) =>
-                          setSnapshot((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  soapDraft: {
-                                    ...prev.soapDraft,
-                                    [section]: event.target.value,
-                                  },
-                                }
-                              : prev,
-                          )
-                        }
-                        rows={3}
-                      />
-                    </label>
-                  ))}
-                </div>
-              </details>
-
-              <details open style={{ marginTop: '0.75rem' }}>
                 <summary>オーダー ({snapshot.orderBundles.length}件)</summary>
                 {snapshot.orderBundles.length === 0 ? <p>オーダーはありません。</p> : null}
                 <ul>
@@ -411,34 +376,6 @@ export function OrderSetEditorPage() {
                               ? {
                                   ...prev,
                                   orderBundles: prev.orderBundles.filter((_, idx) => idx !== index),
-                                }
-                              : prev,
-                          )
-                        }
-                        style={{ marginLeft: '0.5rem' }}
-                      >
-                        削除
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-
-              <details open style={{ marginTop: '0.75rem' }}>
-                <summary>画像 ({snapshot.imageAttachments.length}件)</summary>
-                {snapshot.imageAttachments.length === 0 ? <p>画像はありません。</p> : null}
-                <ul>
-                  {snapshot.imageAttachments.map((item, index) => (
-                    <li key={`${item.id}-${index}`}>
-                      {item.title || item.fileName || `画像ID:${item.id}`}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSnapshot((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  imageAttachments: prev.imageAttachments.filter((_, idx) => idx !== index),
                                 }
                               : prev,
                           )

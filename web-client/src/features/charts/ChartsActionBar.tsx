@@ -1558,9 +1558,12 @@ export const ChartsActionBar = forwardRef<ChartsActionBarHandle, ChartsActionBar
           } else {
             if (resolvedPatientId) {
               try {
-                const retryResponse = await httpFetch(`/api/orca/queue?patientId=${resolvedPatientId}&retry=1`, {
-                  method: 'GET',
-                });
+                const retryResponse = await httpFetch(
+                  `/api/orca/queue?patientId=${encodeURIComponent(resolvedPatientId)}&retry=1`,
+                  {
+                    method: 'GET',
+                  },
+                );
                 const retryJson = (await retryResponse.json().catch(() => ({}))) as Record<string, unknown>;
                 retryMeta = {
                   retryRequested: true,
@@ -2059,9 +2062,12 @@ export const ChartsActionBar = forwardRef<ChartsActionBarHandle, ChartsActionBar
           {};
         if (action === 'send' && resolvedPatientId) {
           try {
-            const retryResponse = await httpFetch(`/api/orca/queue?patientId=${resolvedPatientId}&retry=1`, {
-              method: 'GET',
-            });
+            const retryResponse = await httpFetch(
+              `/api/orca/queue?patientId=${encodeURIComponent(resolvedPatientId)}&retry=1`,
+              {
+                method: 'GET',
+              },
+            );
             const retryJson = (await retryResponse.json().catch(() => ({}))) as Record<string, unknown>;
             const retryApplied = Boolean(retryJson.retryApplied);
             const retryReason = typeof retryJson.retryReason === 'string' ? retryJson.retryReason : undefined;

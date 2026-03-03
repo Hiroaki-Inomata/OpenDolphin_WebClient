@@ -4,7 +4,12 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
 import { OrderSetEditorPage } from '../pages/OrderSetEditorPage';
-import { clearChartOrderSetStorage, listChartOrderSets, saveChartOrderSet, type ChartOrderSetSnapshot } from '../chartOrderSetStorage';
+import {
+  clearChartOrderSetStorage,
+  listChartOrderSets,
+  saveChartOrderSet,
+  type ChartOrderSetTemplateSnapshot,
+} from '../chartOrderSetStorage';
 
 vi.mock('../../../AppRouter', () => ({
   useSession: () => ({ facilityId: 'FAC-1', userId: 'U-1', role: 'doctor' }),
@@ -25,21 +30,9 @@ vi.mock('../../shared/ReturnToBar', () => ({
   ReturnToBar: () => null,
 }));
 
-const makeSnapshot = (sourcePatientId: string, sourceVisitDate: string): ChartOrderSetSnapshot => ({
-  sourcePatientId,
-  sourceVisitDate,
-  capturedAt: '2026-02-21T00:00:00Z',
+const makeSnapshot = (): ChartOrderSetTemplateSnapshot => ({
   diagnoses: [],
-  soapDraft: {
-    free: '',
-    subjective: '',
-    objective: '',
-    assessment: '',
-    plan: '',
-  },
-  soapHistory: [],
   orderBundles: [],
-  imageAttachments: [],
 });
 
 describe('OrderSetEditorPage', () => {
@@ -52,13 +45,13 @@ describe('OrderSetEditorPage', () => {
       facilityId: 'FAC-1',
       userId: 'U-1',
       name: 'セットB',
-      snapshot: makeSnapshot('P-2', '2026-02-21'),
+      snapshot: makeSnapshot(),
     });
     const setA = saveChartOrderSet({
       facilityId: 'FAC-1',
       userId: 'U-1',
       name: 'セットA',
-      snapshot: makeSnapshot('P-1', '2026-02-20'),
+      snapshot: makeSnapshot(),
     });
 
     const user = userEvent.setup();
@@ -86,7 +79,7 @@ describe('OrderSetEditorPage', () => {
 
     expect(screen.getByRole('button', { name: /セットB/ })).toHaveAttribute('aria-pressed', 'true');
 
-    const stored = listChartOrderSets('FAC-1');
+    const stored = listChartOrderSets('FAC-1', 'U-1');
     expect(stored.find((entry) => entry.id === setA.id)?.name).toBe('セットA');
     expect(stored.find((entry) => entry.id === setB.id)?.name).toBe('セットB');
   });
@@ -96,13 +89,13 @@ describe('OrderSetEditorPage', () => {
       facilityId: 'FAC-1',
       userId: 'U-1',
       name: 'セットB',
-      snapshot: makeSnapshot('P-2', '2026-02-21'),
+      snapshot: makeSnapshot(),
     });
     const setA = saveChartOrderSet({
       facilityId: 'FAC-1',
       userId: 'U-1',
       name: 'セットA',
-      snapshot: makeSnapshot('P-1', '2026-02-20'),
+      snapshot: makeSnapshot(),
     });
 
     const user = userEvent.setup();
@@ -123,7 +116,7 @@ describe('OrderSetEditorPage', () => {
     expect(screen.getByRole('button', { name: /セットB/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText(/保存して「セットB」へ切替えました/)).toBeInTheDocument();
 
-    const stored = listChartOrderSets('FAC-1');
+    const stored = listChartOrderSets('FAC-1', 'U-1');
     expect(stored.find((entry) => entry.id === setA.id)?.name).toBe('セットA-更新');
     expect(stored.find((entry) => entry.id === setB.id)?.name).toBe('セットB');
   });

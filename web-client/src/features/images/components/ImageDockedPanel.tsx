@@ -14,6 +14,7 @@ import { buildAttachmentPayload, buildImageDocumentPayload, formatBytes } from '
 import { logAuditEvent } from '../../../libs/audit/auditLogger';
 import { recordOutpatientFunnel } from '../../../libs/telemetry/telemetryClient';
 import { ensureObservabilityMeta, resolveAriaLive, resolveRunId } from '../../../libs/observability/observability';
+import { safeSameOriginHttpUrl } from '../../../libs/security/safeUrl';
 import { ImageCameraCapture } from './ImageCameraCapture';
 import { ImageDropzone } from './ImageDropzone';
 
@@ -552,53 +553,56 @@ export function ImageDockedPanel({
           </p>
         ) : (
           <ul className="charts-image-panel__grid" data-test-id="image-thumbnail-list">
-            {listItems.map((item: KarteImageListItem) => (
-              <li key={item.id} className="charts-image-panel__card">
-                <div className="charts-image-panel__thumb">
-                  {item.thumbnailUrl && !brokenThumbnails.has(item.id) ? (
-                    <img
-                      src={item.thumbnailUrl}
-                      alt={item.title ?? item.fileName ?? 'image'}
-                      onError={() => markThumbnailBroken(item.id)}
-                    />
-                  ) : null}
-                </div>
-                <div className="charts-image-panel__card-body">
-                  <strong>{item.title ?? item.fileName ?? '画像'}</strong>
-                  <span>{formatBytes(item.contentSize)}</span>
-                  <span>{formatRecordedAt(item.recordedAt)}</span>
-                </div>
-                <div className="charts-image-panel__card-actions">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onToggleDocumentAttachment?.(item);
-                      const nextActive = !selectedIdSet.has(item.id);
-                      setStatusMessage({
-                        tone: 'info',
-                        message: nextActive ? '文書への貼付候補に追加しました。' : '文書への貼付候補から外しました。',
-                      });
-                    }}
-                    data-active={selectedIdSet.has(item.id) ? 'true' : 'false'}
-                    disabled={!patientId}
-                    data-test-id="image-attach-document"
-                  >
-                    {selectedIdSet.has(item.id) ? '文書添付を解除' : '文書に添付'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onInsertSoapAttachment?.(item);
-                      setStatusMessage({ tone: 'success', message: 'SOAP に画像リンクを挿入しました。' });
-                    }}
-                    disabled={!patientId}
-                    data-test-id="image-attach-soap"
-                  >
-                    SOAPに挿入
-                  </button>
-                </div>
-              </li>
-            ))}
+            {listItems.map((item: KarteImageListItem) => {
+              const safeThumbnailUrl = safeSameOriginHttpUrl(item.thumbnailUrl);
+              return (
+                <li key={item.id} className="charts-image-panel__card">
+                  <div className="charts-image-panel__thumb">
+                    {safeThumbnailUrl && !brokenThumbnails.has(item.id) ? (
+                      <img
+                        src={safeThumbnailUrl}
+                        alt={item.title ?? item.fileName ?? 'image'}
+                        onError={() => markThumbnailBroken(item.id)}
+                      />
+                    ) : null}
+                  </div>
+                  <div className="charts-image-panel__card-body">
+                    <strong>{item.title ?? item.fileName ?? '画像'}</strong>
+                    <span>{formatBytes(item.contentSize)}</span>
+                    <span>{formatRecordedAt(item.recordedAt)}</span>
+                  </div>
+                  <div className="charts-image-panel__card-actions">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onToggleDocumentAttachment?.(item);
+                        const nextActive = !selectedIdSet.has(item.id);
+                        setStatusMessage({
+                          tone: 'info',
+                          message: nextActive ? '文書への貼付候補に追加しました。' : '文書への貼付候補から外しました。',
+                        });
+                      }}
+                      data-active={selectedIdSet.has(item.id) ? 'true' : 'false'}
+                      disabled={!patientId}
+                      data-test-id="image-attach-document"
+                    >
+                      {selectedIdSet.has(item.id) ? '文書添付を解除' : '文書に添付'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onInsertSoapAttachment?.(item);
+                        setStatusMessage({ tone: 'success', message: 'SOAP に画像リンクを挿入しました。' });
+                      }}
+                      disabled={!patientId}
+                      data-test-id="image-attach-soap"
+                    >
+                      SOAPに挿入
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

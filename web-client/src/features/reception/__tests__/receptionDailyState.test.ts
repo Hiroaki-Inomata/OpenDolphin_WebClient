@@ -29,9 +29,60 @@ const buildEntry = (overrides: Partial<ReceptionEntry> = {}): ReceptionEntry => 
   note: overrides.note,
 });
 
+const scope = { facilityId: 'fac-1', userId: 'user-1' };
+const scopedStorageKey = 'opendolphin:web-client:reception-daily-state:v1:fac-1:user-1';
+const legacyStorageKey = 'opendolphin:web-client:reception-daily-state:v1';
+
+class StorageMock implements Storage {
+  private data = new Map<string, string>();
+
+  get length() {
+    return this.data.size;
+  }
+
+  clear(): void {
+    this.data.clear();
+  }
+
+  getItem(key: string): string | null {
+    return this.data.has(key) ? this.data.get(key)! : null;
+  }
+
+  key(index: number): string | null {
+    return Array.from(this.data.keys())[index] ?? null;
+  }
+
+  removeItem(key: string): void {
+    this.data.delete(key);
+  }
+
+  setItem(key: string, value: string): void {
+    this.data.set(key, value);
+  }
+}
+
+const ensureWebStorage = () => {
+  if (typeof localStorage === 'undefined') {
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: new StorageMock(),
+      configurable: true,
+      writable: true,
+    });
+  }
+  if (typeof sessionStorage === 'undefined') {
+    Object.defineProperty(globalThis, 'sessionStorage', {
+      value: new StorageMock(),
+      configurable: true,
+      writable: true,
+    });
+  }
+};
+
 describe('receptionDailyState', () => {
   beforeEach(() => {
+    ensureWebStorage();
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   it('stores daily entries and restores them when incoming entries are empty', () => {
@@ -39,6 +90,7 @@ describe('receptionDailyState', () => {
     const first = resolveReceptionEntriesForDate({
       date,
       incomingEntries: [buildEntry()],
+      scope,
     });
     expect(first.source).toBe('live');
     expect(first.entries).toHaveLength(1);
@@ -46,6 +98,7 @@ describe('receptionDailyState', () => {
     const restored = resolveReceptionEntriesForDate({
       date,
       incomingEntries: [],
+      scope,
     });
     expect(restored.source).toBe('snapshot');
     expect(restored.entries).toHaveLength(1);
@@ -57,6 +110,7 @@ describe('receptionDailyState', () => {
     resolveReceptionEntriesForDate({
       date,
       incomingEntries: [buildEntry({ status: '受付中' })],
+      scope,
     });
 
     upsertReceptionStatusOverride({
@@ -64,17 +118,20 @@ describe('receptionDailyState', () => {
       patientId: 'P-001',
       status: '診療中',
       source: 'charts_open',
+      scope,
     });
     upsertReceptionStatusOverride({
       date,
       patientId: 'P-001',
       status: '受付中',
       source: 'manual',
+      scope,
     });
 
     const resolved = resolveReceptionEntriesForDate({
       date,
       incomingEntries: [],
+      scope,
     });
     expect(resolved.entries[0]?.status).toBe('診療中');
   });
@@ -83,13 +140,15 @@ describe('receptionDailyState', () => {
     resolveReceptionEntriesForDate({
       date: '2026-02-10',
       incomingEntries: [buildEntry({ id: 'row-a', patientId: 'P-A', visitDate: '2026-02-10' })],
+      scope,
     });
     resolveReceptionEntriesForDate({
       date: '2026-02-11',
       incomingEntries: [buildEntry({ id: 'row-b', patientId: 'P-B', visitDate: '2026-02-11' })],
+      scope,
     });
 
-    expect(listReceptionSnapshotDates(undefined, 10).slice(0, 2)).toEqual(['2026-02-11', '2026-02-10']);
+    expect(listReceptionSnapshotDates(scope, 10).slice(0, 2)).toEqual(['2026-02-11', '2026-02-10']);
   });
 
   it('clears status override for the specified patient', () => {
@@ -97,23 +156,75 @@ describe('receptionDailyState', () => {
     resolveReceptionEntriesForDate({
       date,
       incomingEntries: [buildEntry({ status: '受付中' })],
+      scope,
     });
     upsertReceptionStatusOverride({
       date,
       patientId: 'P-001',
       status: '診療中',
       source: 'manual',
+      scope,
     });
 
     clearReceptionStatusOverridesForDate({
       date,
       patientId: 'P-001',
+      scope,
     });
 
     const resolved = resolveReceptionEntriesForDate({
       date,
       incomingEntries: [buildEntry({ status: '受付中' })],
+      scope,
     });
     expect(resolved.entries[0]?.status).toBe('受付中');
+  });
+
+  it('migrates legacy localStorage snapshot to sessionStorage on first read', () => {
+    const date = '2026-02-11';
+    localStorage.setItem(
+      legacyStorageKey,
+      JSON.stringify({
+        version: 1,
+        updatedAt: '2026-02-11T00:00:00.000Z',
+        days: {
+          [date]: {
+            updatedAt: '2026-02-11T00:00:00.000Z',
+            entries: [buildEntry({ id: 'legacy-1', visitDate: date })],
+            statusByPatientId: {},
+          },
+        },
+      }),
+    );
+
+    const restored = resolveReceptionEntriesForDate({
+      date,
+      incomingEntries: [],
+      scope,
+    });
+
+    expect(restored.source).toBe('snapshot');
+    expect(restored.entries[0]?.id).toBe('legacy-1');
+    expect(sessionStorage.getItem(scopedStorageKey)).toBeTruthy();
+    expect(localStorage.getItem(legacyStorageKey)).toBeNull();
+  });
+
+  it('returns empty snapshot and does not persist when scope is missing', () => {
+    const date = '2026-02-11';
+    const first = resolveReceptionEntriesForDate({
+      date,
+      incomingEntries: [buildEntry({ id: 'no-scope-1' })],
+    });
+    expect(first.source).toBe('live');
+    expect(first.entries).toHaveLength(1);
+
+    const restored = resolveReceptionEntriesForDate({
+      date,
+      incomingEntries: [],
+    });
+    expect(restored.source).toBe('empty');
+    expect(restored.entries).toHaveLength(0);
+    expect(sessionStorage.getItem(scopedStorageKey)).toBeNull();
+    expect(localStorage.getItem(legacyStorageKey)).toBeNull();
   });
 });

@@ -2,7 +2,6 @@ import type { DataSourceTransition } from '../observability/types';
 import {
   AUTH_BROADCAST_CHANNEL,
   AUTH_FLAGS_STORAGE_KEY,
-  AUTH_FLAGS_TTL_MS,
   AUTH_SESSION_STORAGE_KEY,
 } from './authStorage';
 
@@ -17,10 +16,7 @@ export type SharedAuthFlags = {
 export type SharedAuthSession = {
   facilityId: string;
   userId: string;
-  displayName?: string;
-  commonName?: string;
   role?: string;
-  roles?: string[];
   clientUuid?: string;
   runId: string;
 };
@@ -40,7 +36,7 @@ type AuthBroadcastMessage =
 
 const SHARED_SESSION_KEY = 'opendolphin:web-client:auth:shared-session:v1';
 const SHARED_FLAGS_KEY = 'opendolphin:web-client:auth:shared-flags:v1';
-const SHARED_SESSION_TTL_MS = AUTH_FLAGS_TTL_MS;
+const SHARED_AUTH_TTL_MS = 60 * 60 * 1000;
 
 const TAB_ORIGIN =
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -68,6 +64,14 @@ const buildSessionKey = (session: { facilityId?: string; userId?: string } | nul
   if (!session?.facilityId || !session?.userId) return undefined;
   return `${session.facilityId}:${session.userId}`;
 };
+
+const toSharedSessionPayload = (session: SharedAuthSession): SharedAuthSession => ({
+  facilityId: session.facilityId,
+  userId: session.userId,
+  role: session.role,
+  clientUuid: session.clientUuid,
+  runId: session.runId,
+});
 
 const validateSharedSession = (session: SharedAuthSession | null | undefined): session is SharedAuthSession => {
   if (!session) return false;
@@ -118,7 +122,7 @@ const readSharedSessionEnvelope = (): SharedEnvelope<SharedAuthSession> | null =
   if (typeof localStorage === 'undefined') return null;
   const parsed = safeJsonParse<SharedEnvelope<SharedAuthSession>>(localStorage.getItem(SHARED_SESSION_KEY));
   if (!parsed || parsed.version !== 1 || !parsed.payload || typeof parsed.updatedAt !== 'string') return null;
-  if (isExpired(parsed.updatedAt, SHARED_SESSION_TTL_MS)) {
+  if (isExpired(parsed.updatedAt, SHARED_AUTH_TTL_MS)) {
     removeLocalStorage(SHARED_SESSION_KEY);
     return null;
   }
@@ -130,7 +134,7 @@ const readSharedFlagsEnvelope = (): SharedEnvelope<SharedAuthFlags> | null => {
   if (typeof localStorage === 'undefined') return null;
   const parsed = safeJsonParse<SharedEnvelope<SharedAuthFlags>>(localStorage.getItem(SHARED_FLAGS_KEY));
   if (!parsed || parsed.version !== 1 || !parsed.payload || typeof parsed.updatedAt !== 'string') return null;
-  if (isExpired(parsed.updatedAt, AUTH_FLAGS_TTL_MS)) {
+  if (isExpired(parsed.updatedAt, SHARED_AUTH_TTL_MS)) {
     removeLocalStorage(SHARED_FLAGS_KEY);
     return null;
   }
@@ -139,10 +143,11 @@ const readSharedFlagsEnvelope = (): SharedEnvelope<SharedAuthFlags> | null => {
 };
 
 export function persistSharedSession(session: SharedAuthSession, origin = TAB_ORIGIN) {
+  const payload = toSharedSessionPayload(session);
   const envelope: SharedEnvelope<SharedAuthSession> = {
     version: 1,
-    sessionKey: buildSessionKey(session),
-    payload: session,
+    sessionKey: buildSessionKey(payload),
+    payload,
     updatedAt: nowIso(),
   };
   writeLocalStorage(SHARED_SESSION_KEY, envelope);

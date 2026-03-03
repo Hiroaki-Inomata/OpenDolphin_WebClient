@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import { resolveAriaLive, resolveRunId } from '../../../libs/observability/observability';
+import { safeSameOriginHttpUrl } from '../../../libs/security/safeUrl';
 import { useOptionalSession } from '../../../AppRouter';
 import { buildFacilityPath } from '../../../routes/facilityRoutes';
 import { useAuthService } from '../../charts/authService';
@@ -396,50 +397,54 @@ export function MobileImagesUploadPage() {
           <p style={{ margin: 0, fontSize: '0.95rem', opacity: 0.85 }}>画像はまだありません。</p>
         ) : (
           <ul data-test-id="mobile-images-list" style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.6rem' }}>
-            {listItems.slice(0, 6).map((item) => (
-              <li
-                key={item.id}
-                style={{
-                  border: '1px solid rgba(0,0,0,0.08)',
-                  borderRadius: 14,
-                  padding: '0.7rem',
-                  display: 'grid',
-                  gap: '0.35rem',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem' }}>
-                  <strong style={{ fontSize: '0.95rem' }}>{item.fileName ?? item.id}</strong>
-                  <span style={{ fontSize: '0.85rem', opacity: 0.75 }}>{formatBytes(item.contentSize)}</span>
-                </div>
-                {item.thumbnailUrl ? (
-                  <img
-                    src={item.thumbnailUrl}
-                    alt={item.fileName ?? 'thumbnail'}
-                    style={{
-                      width: '100%',
-                      maxHeight: 150,
-                      objectFit: 'contain',
-                      background: '#f8fafc',
-                      borderRadius: 12,
-                      border: '1px solid rgba(0,0,0,0.06)',
-                    }}
-                  />
-                ) : null}
-                {item.downloadUrl ? (
-                  <a
-                    data-test-id="mobile-images-download-link"
-                    href={item.downloadUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    style={{ fontSize: '0.95rem' }}
-                  >
-                    参照リンクを開く
-                  </a>
-                ) : (
-                  <span style={{ fontSize: '0.9rem', opacity: 0.8 }}>参照リンク: (未提供)</span>
-                )}
-              </li>
-            ))}
+            {listItems.slice(0, 6).map((item) => {
+              const safeThumbnailUrl = safeSameOriginHttpUrl(item.thumbnailUrl);
+              const safeDownloadUrl = safeSameOriginHttpUrl(item.downloadUrl);
+              return (
+                <li
+                  key={item.id}
+                  style={{
+                    border: '1px solid rgba(0,0,0,0.08)',
+                    borderRadius: 14,
+                    padding: '0.7rem',
+                    display: 'grid',
+                    gap: '0.35rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem' }}>
+                    <strong style={{ fontSize: '0.95rem' }}>{item.fileName ?? item.id}</strong>
+                    <span style={{ fontSize: '0.85rem', opacity: 0.75 }}>{formatBytes(item.contentSize)}</span>
+                  </div>
+                  {safeThumbnailUrl ? (
+                    <img
+                      src={safeThumbnailUrl}
+                      alt={item.fileName ?? 'thumbnail'}
+                      style={{
+                        width: '100%',
+                        maxHeight: 150,
+                        objectFit: 'contain',
+                        background: '#f8fafc',
+                        borderRadius: 12,
+                        border: '1px solid rgba(0,0,0,0.06)',
+                      }}
+                    />
+                  ) : null}
+                  {safeDownloadUrl ? (
+                    <a
+                      data-test-id="mobile-images-download-link"
+                      href={safeDownloadUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      style={{ fontSize: '0.95rem' }}
+                    >
+                      参照リンクを開く
+                    </a>
+                  ) : (
+                    <span style={{ fontSize: '0.9rem', opacity: 0.8 }}>参照リンク: (未提供)</span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
