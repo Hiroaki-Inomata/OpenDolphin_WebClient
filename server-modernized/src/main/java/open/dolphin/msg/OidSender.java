@@ -38,16 +38,21 @@ public class OidSender {
     private static final String ASP_MEMBER = "ASP_MEMBER";
 
     private static final String SMTP_HOST_PROP = "opendolphin.smtp.host";
+    private static final String SMTP_HOST_ENV_PRIMARY = "OPENDOLPHIN_MAIL_SMTP_HOST";
     private static final String SMTP_HOST_ENV = "OPENDOLPHIN_SMTP_HOST";
     private static final String SMTP_PORT_PROP = "opendolphin.smtp.port";
+    private static final String SMTP_PORT_ENV_PRIMARY = "OPENDOLPHIN_MAIL_SMTP_PORT";
     private static final String SMTP_PORT_ENV = "OPENDOLPHIN_SMTP_PORT";
     private static final String SMTP_AUTH_PROP = "opendolphin.smtp.auth";
     private static final String SMTP_AUTH_ENV = "OPENDOLPHIN_SMTP_AUTH";
     private static final String SMTP_USERNAME_PROP = "opendolphin.smtp.username";
+    private static final String SMTP_USERNAME_ENV_PRIMARY = "OPENDOLPHIN_MAIL_SMTP_USER";
     private static final String SMTP_USERNAME_ENV = "OPENDOLPHIN_SMTP_USERNAME";
     private static final String SMTP_PASSWORD_PROP = "opendolphin.smtp.password";
+    private static final String SMTP_PASSWORD_ENV_PRIMARY = "OPENDOLPHIN_MAIL_SMTP_PASSWORD";
     private static final String SMTP_PASSWORD_ENV = "OPENDOLPHIN_SMTP_PASSWORD";
     private static final String SMTP_FROM_PROP = "opendolphin.smtp.from";
+    private static final String SMTP_FROM_ENV_PRIMARY = "OPENDOLPHIN_MAIL_FROM";
     private static final String SMTP_FROM_ENV = "OPENDOLPHIN_SMTP_FROM";
     private static final String SMTP_BCC_PROP = "opendolphin.smtp.bcc";
     private static final String SMTP_BCC_ENV = "OPENDOLPHIN_SMTP_BCC";
@@ -189,17 +194,20 @@ public class OidSender {
 
     private SmtpSettings resolveSmtpSettings() {
         String host = firstNonBlank(
+                readEnv(SMTP_HOST_ENV_PRIMARY),
                 readSystem(SMTP_HOST_PROP),
                 readEnv(SMTP_HOST_ENV),
                 readSystem(LEGACY_SMTP_HOST_PROP),
                 readEnv("CLOUD_ZERO_MAIL_HOST"));
         String port = firstNonBlank(
+                readEnv(SMTP_PORT_ENV_PRIMARY),
                 readSystem(SMTP_PORT_PROP),
                 readEnv(SMTP_PORT_ENV),
                 readSystem(LEGACY_SMTP_PORT_PROP),
                 readEnv("CLOUD_ZERO_MAIL_PORT"),
                 "25");
         String from = firstNonBlank(
+                readEnv(SMTP_FROM_ENV_PRIMARY),
                 readSystem(SMTP_FROM_PROP),
                 readEnv(SMTP_FROM_ENV),
                 readSystem(LEGACY_SMTP_FROM_PROP),
@@ -210,11 +218,13 @@ public class OidSender {
                 readSystem(LEGACY_SMTP_AUTH_PROP),
                 readEnv("CLOUD_ZERO_MAIL_AUTH"));
         String username = firstNonBlank(
+                readEnv(SMTP_USERNAME_ENV_PRIMARY),
                 readSystem(SMTP_USERNAME_PROP),
                 readEnv(SMTP_USERNAME_ENV),
                 readSystem(LEGACY_SMTP_ACCOUNT_PROP),
                 readEnv("CLOUD_ZERO_MAIL_ACCOUNT"));
         String password = firstNonBlank(
+                readEnv(SMTP_PASSWORD_ENV_PRIMARY),
                 readSystem(SMTP_PASSWORD_PROP),
                 readEnv(SMTP_PASSWORD_ENV),
                 readSystem(LEGACY_SMTP_PASSWORD_PROP),

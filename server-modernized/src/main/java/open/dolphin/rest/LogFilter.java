@@ -49,7 +49,7 @@ public class LogFilter implements Filter {
     private static final String AUTH_CHALLENGE = "Basic realm=\"OpenDolphin\"";
     private static final String ERROR_AUDIT_RECORDED_ATTR = LogFilter.class.getName() + ".ERROR_AUDIT_RECORDED";
     private static final String PRINCIPAL_FACILITY_DETAILS_KEY = "facilityId";
-    private static final Pattern SAFE_TOKEN = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$");
+    private static final Pattern SAFE_TOKEN = Pattern.compile("^[A-Za-z0-9._-]{1,64}$");
 
     @Inject
     private SecurityContext securityContext;
@@ -74,7 +74,7 @@ public class LogFilter implements Filter {
 
         String traceId = resolveTraceId(req);
         String requestId = resolveRequestId(req, traceId);
-        String runId = isOrcaRequest(req) ? AbstractOrcaRestResource.resolveRunIdValue(req) : null;
+        String runId = resolveRunId(req);
         req.setAttribute(TRACE_ID_ATTRIBUTE, traceId);
         req.setAttribute(REQUEST_ID_ATTRIBUTE, requestId);
         if (runId != null && !runId.isBlank()) {
@@ -186,38 +186,58 @@ public class LogFilter implements Filter {
     }
 
     private String resolveTraceId(HttpServletRequest req) {
-        String fromHeader = safeHeader(req, TRACE_ID_HEADER);
-        if (fromHeader != null) {
-            return normalizeToken(fromHeader, null);
+        String traceHeader = safeHeader(req, TRACE_ID_HEADER);
+        String normalizedTrace = normalizeToken(traceHeader);
+        if (normalizedTrace != null) {
+            return normalizedTrace;
         }
-        String requestId = safeHeader(req, REQUEST_ID_HEADER);
-        if (requestId != null) {
-            return normalizeToken(requestId, null);
+        if (normalize(traceHeader) != null) {
+            return UUID.randomUUID().toString();
+        }
+
+        String requestHeader = safeHeader(req, REQUEST_ID_HEADER);
+        String normalizedRequest = normalizeToken(requestHeader);
+        if (normalizedRequest != null) {
+            return normalizedRequest;
+        }
+        if (normalize(requestHeader) != null) {
+            return UUID.randomUUID().toString();
         }
         return UUID.randomUUID().toString();
     }
 
     private String resolveRequestId(HttpServletRequest req, String traceId) {
-        String requestId = safeHeader(req, REQUEST_ID_HEADER);
-        if (requestId != null) {
-            return normalizeToken(requestId, null);
+        String requestHeader = safeHeader(req, REQUEST_ID_HEADER);
+        String normalizedRequest = normalizeToken(requestHeader);
+        if (normalizedRequest != null) {
+            return normalizedRequest;
         }
-        return normalizeToken(traceId, null);
-    }
-
-    private String normalizeToken(String token, String fallback) {
-        String normalized = normalize(token);
-        if (normalized != null) {
-            if (SAFE_TOKEN.matcher(normalized).matches()) {
-                return normalized;
-            }
+        if (normalize(requestHeader) != null) {
             return UUID.randomUUID().toString();
         }
-        String normalizedFallback = normalize(fallback);
-        if (normalizedFallback != null && SAFE_TOKEN.matcher(normalizedFallback).matches()) {
-            return normalizedFallback;
+
+        String normalizedTrace = normalizeToken(traceId);
+        return normalizedTrace != null ? normalizedTrace : UUID.randomUUID().toString();
+    }
+
+    private String resolveRunId(HttpServletRequest req) {
+        if (!isOrcaRequest(req)) {
+            return null;
         }
-        return UUID.randomUUID().toString();
+        String normalizedRunId = normalizeToken(AbstractOrcaRestResource.resolveRunIdValue(req));
+        if (normalizedRunId != null) {
+            return normalizedRunId;
+        }
+        String generatedRunId = normalizeToken(AbstractOrcaRestResource.resolveRunIdValue((String) null));
+        return generatedRunId != null ? generatedRunId : UUID.randomUUID().toString();
+    }
+
+    private String normalizeToken(String candidate) {
+        String normalized = normalize(candidate);
+        if (normalized == null) {
+            return null;
+        }
+        return SAFE_TOKEN.matcher(normalized).matches() ? normalized : null;
     }
 
     private boolean isOrcaRequest(HttpServletRequest request) {

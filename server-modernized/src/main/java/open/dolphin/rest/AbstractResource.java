@@ -80,7 +80,7 @@ public class AbstractResource {
         return sb.toString();
     }
 
-    String requireRemoteUser(HttpServletRequest request) {
+    protected String requireRemoteUser(HttpServletRequest request) {
         String remoteUser = request != null ? request.getRemoteUser() : null;
         if (remoteUser == null || remoteUser.isBlank()) {
             throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
@@ -92,9 +92,7 @@ public class AbstractResource {
         return remoteUser;
     }
 
-    String requireActorFacility(HttpServletRequest... requestCandidates) {
-        HttpServletRequest request = requestCandidates != null && requestCandidates.length > 0
-                ? requestCandidates[0] : null;
+    protected String requireActorFacility(HttpServletRequest request) {
         String actor = requireRemoteUser(request);
         String facilityId = getRemoteFacility(actor);
         if (facilityId == null || facilityId.isBlank()) {
@@ -104,7 +102,7 @@ public class AbstractResource {
         return facilityId;
     }
 
-    String requireAdmin(HttpServletRequest request, UserServiceBean userServiceBean) {
+    protected String requireAdmin(HttpServletRequest request, UserServiceBean userServiceBean) {
         String actor = requireRemoteUser(request);
         if (userServiceBean == null || !userServiceBean.isAdmin(actor)) {
             throw restError(request, Response.Status.FORBIDDEN, "forbidden",
@@ -113,12 +111,17 @@ public class AbstractResource {
         return actor;
     }
 
-    void ensureFacilityMatchOr404(HttpServletRequest request, String actorFacilityId, String targetFacilityId) {
-        if (targetFacilityId == null || targetFacilityId.isBlank()) {
-            throw restError(request, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
-        }
-        if (actorFacilityId == null || actorFacilityId.isBlank() || !actorFacilityId.equals(targetFacilityId)) {
-            throw restError(request, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
+    protected void ensureFacilityMatchOr404(String actorFacility, String targetFacility,
+            String idName, Object idValue, HttpServletRequest request) {
+        if (targetFacility == null || targetFacility.isBlank()
+                || actorFacility == null || actorFacility.isBlank()
+                || !actorFacility.equals(targetFacility)) {
+            Map<String, Object> details = new LinkedHashMap<>();
+            if (idName != null && !idName.isBlank() && idValue != null) {
+                details.put(idName, idValue);
+            }
+            throw restError(request, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.",
+                    details.isEmpty() ? null : details, null);
         }
     }
 
