@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query';
 
 import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { resolveAriaLive } from '../../libs/observability/observability';
+import { escapeXml } from '../../libs/xml/xmlUtils';
 import { buildDiseaseGetRequestXml, fetchOrcaDiseaseGetXml } from './orcaDiseaseGetApi';
 import { buildMedicalGetRequestXml, buildTMedicalGetRequestXml, fetchOrcaMedicalGetXml, fetchOrcaTMedicalGetXml } from './orcaMedicalGetApi';
 import { postOrcaDiseaseV3Xml } from './orcaDiseaseModApi';
@@ -16,13 +17,15 @@ type OrcaOriginalPanelProps = {
   runId?: string;
 };
 
+const escapeXmlValue = (value?: string | null) => escapeXml(value ?? '');
+
 const buildDiseaseModTemplate = (patientId?: string, performDate?: string) => {
   return [
     '<data>',
     '  <diseasereq type="record">',
-    `    <Patient_ID type="string">${patientId ?? ''}</Patient_ID>`,
+    `    <Patient_ID type="string">${escapeXmlValue(patientId)}</Patient_ID>`,
     '    <Base_Month type="string"></Base_Month>',
-    `    <Perform_Date type="string">${performDate ?? ''}</Perform_Date>`,
+    `    <Perform_Date type="string">${escapeXmlValue(performDate)}</Perform_Date>`,
     '    <Perform_Time type="string"></Perform_Time>',
     '    <Diagnosis_Information type="record">',
     '      <Department_Code type="string">01</Department_Code>',
@@ -31,7 +34,7 @@ const buildDiseaseModTemplate = (patientId?: string, performDate?: string) => {
     '      <Disease_Information_child type="record">',
     '        <Disease_Code type="string">0000999</Disease_Code>',
     '        <Disease_Name type="string">テスト病名</Disease_Name>',
-    `        <Disease_StartDate type="string">${performDate ?? ''}</Disease_StartDate>`,
+    `        <Disease_StartDate type="string">${escapeXmlValue(performDate)}</Disease_StartDate>`,
     '        <Disease_EndDate type="string"></Disease_EndDate>',
     '      </Disease_Information_child>',
     '    </Disease_Information>',
@@ -44,8 +47,8 @@ const buildMedicalModTemplate = (patientId?: string, performDate?: string) => {
   return [
     '<data>',
     '  <medicalreq type="record">',
-    `    <Patient_ID type="string">${patientId ?? ''}</Patient_ID>`,
-    `    <Perform_Date type="string">${performDate ?? ''}</Perform_Date>`,
+    `    <Patient_ID type="string">${escapeXmlValue(patientId)}</Patient_ID>`,
+    `    <Perform_Date type="string">${escapeXmlValue(performDate)}</Perform_Date>`,
     '    <Diagnosis_Information type="record">',
     '      <Department_Code type="string">01</Department_Code>',
     '      <Physician_Code type="string">10001</Physician_Code>',

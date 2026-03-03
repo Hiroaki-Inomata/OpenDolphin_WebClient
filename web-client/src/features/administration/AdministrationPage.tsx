@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAuditEventLog, logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { resolveAriaLive, resolveRunId } from '../../libs/observability/observability';
 import { copyTextToClipboard } from '../../libs/observability/runIdCopy';
+import { escapeXml } from '../../libs/xml/xmlUtils';
 import { isSystemAdminRole } from '../../libs/auth/roles';
 import { useAppToast } from '../../libs/ui/appToast';
 import { ToneBanner } from '../reception/components/ToneBanner';
@@ -468,7 +469,7 @@ const buildMedicationTemplateXml = (baseDate: string) =>
     '<data>',
     '  <medicatonmodreq type="record">',
     '    <Request_Number type="string">01</Request_Number>',
-    `    <Base_Date type="string">${baseDate}</Base_Date>`,
+    `    <Base_Date type="string">${escapeXml(baseDate)}</Base_Date>`,
     '  </medicatonmodreq>',
     '</data>',
   ].join('\n');

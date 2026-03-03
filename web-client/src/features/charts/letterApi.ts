@@ -110,10 +110,15 @@ const parseJson = async (response: Response): Promise<unknown> => {
   }
 };
 
-const resolveErrorMessage = (json: Record<string, unknown>, fallback: string): string => {
-  const message = typeof json.message === 'string' ? json.message : undefined;
-  const error = typeof json.error === 'string' ? json.error : undefined;
-  return message ?? error ?? fallback;
+const resolveErrorMessage = (status: number): string => {
+  if (status === 400) return 'リクエスト形式が不正です。入力内容を確認してください。';
+  if (status === 401) return '認証に失敗しました。再ログインして再試行してください。';
+  if (status === 403) return 'この操作を実行する権限がありません。';
+  if (status === 404) return '対象データが見つかりませんでした。';
+  if (status === 409) return '同時更新が発生しました。最新状態を再読込して再試行してください。';
+  if (status === 422) return '入力値が不正です。内容を確認してください。';
+  if (status >= 500) return 'サーバーでエラーが発生しました。時間をおいて再試行してください。';
+  return `リクエストに失敗しました（HTTP ${status}）。`;
 };
 
 const parseNumeric = (value: unknown): number | undefined => {
@@ -143,7 +148,7 @@ export async function fetchKarteIdByPatientId({
     status: response.status,
     endpoint,
     karteId: response.ok ? parseNumeric(json.id) : undefined,
-    error: response.ok ? undefined : resolveErrorMessage(json, response.statusText),
+    error: response.ok ? undefined : resolveErrorMessage(response.status),
   };
 }
 
@@ -159,7 +164,7 @@ export async function fetchLetterList({ karteId }: { karteId: number }): Promise
     status: response.status,
     endpoint,
     letters: response.ok ? list : [],
-    error: response.ok ? undefined : resolveErrorMessage(json, response.statusText),
+    error: response.ok ? undefined : resolveErrorMessage(response.status),
   };
 }
 
@@ -174,7 +179,7 @@ export async function fetchLetterDetail({ letterId }: { letterId: number }): Pro
     status: response.status,
     endpoint,
     letter: response.ok ? (json as LetterModulePayload) : undefined,
-    error: response.ok ? undefined : resolveErrorMessage(json, response.statusText),
+    error: response.ok ? undefined : resolveErrorMessage(response.status),
   };
 }
 
@@ -189,21 +194,13 @@ export async function saveLetterModule({ payload }: { payload: LetterModulePaylo
     body: JSON.stringify(payload),
   });
   const raw = await response.text();
-  let parsedJson: Record<string, unknown> = {};
-  if (!response.ok) {
-    try {
-      parsedJson = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    } catch {
-      parsedJson = {};
-    }
-  }
   return {
     ok: response.ok,
     runId,
     status: response.status,
     endpoint,
     letterId: response.ok ? parseNumeric(raw) : undefined,
-    error: response.ok ? undefined : resolveErrorMessage(parsedJson, raw || response.statusText),
+    error: response.ok ? undefined : resolveErrorMessage(response.status),
   };
 }
 
@@ -213,8 +210,7 @@ export async function deleteLetter({ letterId }: { letterId: number }): Promise<
   const response = await httpFetch(endpoint, { method: 'DELETE' });
   let error: string | undefined;
   if (!response.ok) {
-    const json = (await parseJson(response)) as Record<string, unknown>;
-    error = resolveErrorMessage(json, response.statusText);
+    error = resolveErrorMessage(response.status);
   }
   return {
     ok: response.ok,

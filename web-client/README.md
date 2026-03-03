@@ -9,6 +9,7 @@
 ## 初期設定
 ```bash
 npm install
+npm run verify:no-public-secrets # 必須: VITE_公開変数に秘密名が混入していないことを確認
 cp .env.sample .env.local # 環境に応じて API エンドポイント等を編集
 ```
 

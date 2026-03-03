@@ -1,6 +1,6 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { ensureObservabilityMeta, getObservabilityMeta } from '../../libs/observability/observability';
-import { checkRequiredTags, extractOrcaXmlMeta, parseXmlDocument } from '../../libs/xml/xmlUtils';
+import { checkRequiredTags, escapeXml, extractOrcaXmlMeta, parseXmlDocument } from '../../libs/xml/xmlUtils';
 
 export type OrcaXmlProxyEndpoint = 'acceptlstv2' | 'system01lstv2' | 'manageusersv2' | 'insprogetv2';
 
@@ -44,6 +44,7 @@ const ORCA_XML_PROXY_ENDPOINTS: Record<OrcaXmlProxyEndpoint, OrcaXmlProxyEndpoin
 };
 
 const REQUIRED_ORCA_TAGS = ['Api_Result'];
+const escapeXmlValue = (value?: string | null) => escapeXml(value ?? '');
 
 const formatDate = (date: Date) => {
   const year = date.getFullYear();
@@ -66,8 +67,8 @@ export const buildAcceptListRequestXml = (params?: { acceptanceDate?: string; ac
   return [
     '<data>',
     '  <acceptlstv2req type="record">',
-    `    <Acceptance_Date type="string">${acceptanceDate}</Acceptance_Date>`,
-    `    <Acceptance_Time type="string">${acceptanceTime}</Acceptance_Time>`,
+    `    <Acceptance_Date type="string">${escapeXmlValue(acceptanceDate)}</Acceptance_Date>`,
+    `    <Acceptance_Time type="string">${escapeXmlValue(acceptanceTime)}</Acceptance_Time>`,
     '  </acceptlstv2req>',
     '</data>',
   ].join('\n');
@@ -78,7 +79,7 @@ export const buildSystemListRequestXml = (classCode?: string) => {
   return [
     '<data>',
     '  <system01lstv2req type="record">',
-    `    <Request_Number type="string">${requestNumber}</Request_Number>`,
+    `    <Request_Number type="string">${escapeXmlValue(requestNumber)}</Request_Number>`,
     '  </system01lstv2req>',
     '</data>',
   ].join('\n');
@@ -89,7 +90,7 @@ export const buildManageUsersRequestXml = (requestNumber?: string) => {
   return [
     '<data>',
     '  <manageusersreq type="record">',
-    `    <Request_Number type="string">${request}</Request_Number>`,
+    `    <Request_Number type="string">${escapeXmlValue(request)}</Request_Number>`,
     '  </manageusersreq>',
     '</data>',
   ].join('\n');

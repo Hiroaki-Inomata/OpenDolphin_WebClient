@@ -1,5 +1,6 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { getObservabilityMeta } from '../../libs/observability/observability';
+import { escapeXml } from '../../libs/xml/xmlUtils';
 
 export type OrcaReportType =
   | 'prescription'
@@ -66,6 +67,8 @@ export type OrcaReportPdfResult = {
   error?: string;
 };
 
+const escapeXmlValue = (value?: string | null) => escapeXml(value ?? '');
+
 export function buildOrcaReportRequestXml(type: OrcaReportType, params: OrcaReportRequestParams): string {
   const base = ['<data>'];
   const end = ['</data>'];
@@ -77,10 +80,10 @@ export function buildOrcaReportRequestXml(type: OrcaReportType, params: OrcaRepo
       return [
         ...base,
         '  <prescriptionv2req type="record">',
-        `    <Request_Number type="string">${requestNumber}</Request_Number>`,
-        `    <Patient_ID type="string">${patientId}</Patient_ID>`,
-        `    <Invoice_Number type="string">${params.invoiceNumber ?? ''}</Invoice_Number>`,
-        `    <Outside_Class type="string">${params.outsideClass ?? 'False'}</Outside_Class>`,
+        `    <Request_Number type="string">${escapeXmlValue(requestNumber)}</Request_Number>`,
+        `    <Patient_ID type="string">${escapeXmlValue(patientId)}</Patient_ID>`,
+        `    <Invoice_Number type="string">${escapeXmlValue(params.invoiceNumber)}</Invoice_Number>`,
+        `    <Outside_Class type="string">${escapeXmlValue(params.outsideClass ?? 'False')}</Outside_Class>`,
         '  </prescriptionv2req>',
         ...end,
       ].join('\n');
@@ -88,10 +91,10 @@ export function buildOrcaReportRequestXml(type: OrcaReportType, params: OrcaRepo
       return [
         ...base,
         '  <medicine_notebookv2req type="record">',
-        `    <Request_Number type="string">${requestNumber}</Request_Number>`,
-        `    <Patient_ID type="string">${patientId}</Patient_ID>`,
-        `    <Invoice_Number type="string">${params.invoiceNumber ?? ''}</Invoice_Number>`,
-        `    <Outside_Class type="string">${params.outsideClass ?? 'False'}</Outside_Class>`,
+        `    <Request_Number type="string">${escapeXmlValue(requestNumber)}</Request_Number>`,
+        `    <Patient_ID type="string">${escapeXmlValue(patientId)}</Patient_ID>`,
+        `    <Invoice_Number type="string">${escapeXmlValue(params.invoiceNumber)}</Invoice_Number>`,
+        `    <Outside_Class type="string">${escapeXmlValue(params.outsideClass ?? 'False')}</Outside_Class>`,
         '  </medicine_notebookv2req>',
         ...end,
       ].join('\n');
@@ -99,11 +102,11 @@ export function buildOrcaReportRequestXml(type: OrcaReportType, params: OrcaRepo
       return [
         ...base,
         '  <karte_no1v2req type="record">',
-        `    <Request_Number type="string">${requestNumber}</Request_Number>`,
-        `    <Order_Class type="string">${params.orderClass ?? '1'}</Order_Class>`,
-        `    <Patient_ID type="string">${patientId}</Patient_ID>`,
-        `    <Department_Code type="string">${params.departmentCode ?? ''}</Department_Code>`,
-        `    <Insurance_Combination_Number type="string">${params.insuranceCombinationNumber ?? ''}</Insurance_Combination_Number>`,
+        `    <Request_Number type="string">${escapeXmlValue(requestNumber)}</Request_Number>`,
+        `    <Order_Class type="string">${escapeXmlValue(params.orderClass ?? '1')}</Order_Class>`,
+        `    <Patient_ID type="string">${escapeXmlValue(patientId)}</Patient_ID>`,
+        `    <Department_Code type="string">${escapeXmlValue(params.departmentCode)}</Department_Code>`,
+        `    <Insurance_Combination_Number type="string">${escapeXmlValue(params.insuranceCombinationNumber)}</Insurance_Combination_Number>`,
         '  </karte_no1v2req>',
         ...end,
       ].join('\n');
@@ -111,15 +114,15 @@ export function buildOrcaReportRequestXml(type: OrcaReportType, params: OrcaRepo
       return [
         ...base,
         '  <karte_no3v2req type="record">',
-        `    <Request_Number type="string">${requestNumber}</Request_Number>`,
-        `    <Order_Class type="string">${params.orderClass ?? '1'}</Order_Class>`,
-        `    <Patient_ID type="string">${patientId}</Patient_ID>`,
-        `    <Perform_Month type="string">${params.performMonth ?? ''}</Perform_Month>`,
-        `    <Department_Code type="string">${params.departmentCode ?? ''}</Department_Code>`,
-        `    <Insurance_Combination_Number type="string">${params.insuranceCombinationNumber ?? ''}</Insurance_Combination_Number>`,
-        `    <Start_Day type="string">${params.startDay ?? ''}</Start_Day>`,
-        `    <Last_Page_Number type="string">${params.lastPageNumber ?? ''}</Last_Page_Number>`,
-        `    <Last_Row_Number type="string">${params.lastRowNumber ?? ''}</Last_Row_Number>`,
+        `    <Request_Number type="string">${escapeXmlValue(requestNumber)}</Request_Number>`,
+        `    <Order_Class type="string">${escapeXmlValue(params.orderClass ?? '1')}</Order_Class>`,
+        `    <Patient_ID type="string">${escapeXmlValue(patientId)}</Patient_ID>`,
+        `    <Perform_Month type="string">${escapeXmlValue(params.performMonth)}</Perform_Month>`,
+        `    <Department_Code type="string">${escapeXmlValue(params.departmentCode)}</Department_Code>`,
+        `    <Insurance_Combination_Number type="string">${escapeXmlValue(params.insuranceCombinationNumber)}</Insurance_Combination_Number>`,
+        `    <Start_Day type="string">${escapeXmlValue(params.startDay)}</Start_Day>`,
+        `    <Last_Page_Number type="string">${escapeXmlValue(params.lastPageNumber)}</Last_Page_Number>`,
+        `    <Last_Row_Number type="string">${escapeXmlValue(params.lastRowNumber)}</Last_Row_Number>`,
         '  </karte_no3v2req>',
         ...end,
       ].join('\n');
@@ -127,9 +130,9 @@ export function buildOrcaReportRequestXml(type: OrcaReportType, params: OrcaRepo
       return [
         ...base,
         '  <invoice_receiptv2req type="record">',
-        `    <Request_Number type="string">${requestNumber}</Request_Number>`,
-        `    <Patient_ID type="string">${patientId}</Patient_ID>`,
-        `    <Invoice_Number type="string">${params.invoiceNumber ?? ''}</Invoice_Number>`,
+        `    <Request_Number type="string">${escapeXmlValue(requestNumber)}</Request_Number>`,
+        `    <Patient_ID type="string">${escapeXmlValue(patientId)}</Patient_ID>`,
+        `    <Invoice_Number type="string">${escapeXmlValue(params.invoiceNumber)}</Invoice_Number>`,
         '  </invoice_receiptv2req>',
         ...end,
       ].join('\n');
@@ -137,9 +140,9 @@ export function buildOrcaReportRequestXml(type: OrcaReportType, params: OrcaRepo
       return [
         ...base,
         '  <statementv2req type="record">',
-        `    <Request_Number type="string">${requestNumber}</Request_Number>`,
-        `    <Patient_ID type="string">${patientId}</Patient_ID>`,
-        `    <Invoice_Number type="string">${params.invoiceNumber ?? ''}</Invoice_Number>`,
+        `    <Request_Number type="string">${escapeXmlValue(requestNumber)}</Request_Number>`,
+        `    <Patient_ID type="string">${escapeXmlValue(patientId)}</Patient_ID>`,
+        `    <Invoice_Number type="string">${escapeXmlValue(params.invoiceNumber)}</Invoice_Number>`,
         '  </statementv2req>',
         ...end,
       ].join('\n');

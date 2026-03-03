@@ -1,6 +1,6 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { getObservabilityMeta } from '../../libs/observability/observability';
-import { checkRequiredTags, extractOrcaXmlMeta, parseXmlDocument } from '../../libs/xml/xmlUtils';
+import { checkRequiredTags, escapeXml, extractOrcaXmlMeta, parseXmlDocument } from '../../libs/xml/xmlUtils';
 
 export type OrcaXmlResponse = {
   ok: boolean;
@@ -19,6 +19,8 @@ export type OrcaXmlResponse = {
 export const ORCA_MEDICALGETV2_PATH = '/orca/medicalgetv2?class=01';
 export const ORCA_TMEDICALGETV2_PATH = '/orca/tmedicalgetv2';
 
+const escapeXmlValue = (value?: string | null) => escapeXml(value ?? '');
+
 export const buildMedicalGetRequestXml = (params: {
   patientId: string;
   inOut?: string;
@@ -31,14 +33,14 @@ export const buildMedicalGetRequestXml = (params: {
   return [
     '<data>',
     '  <medicalgetreq type="record">',
-    `    <InOut type="string">${params.inOut ?? ''}</InOut>`,
-    `    <Patient_ID type="string">${params.patientId}</Patient_ID>`,
-    `    <Perform_Date type="string">${params.performDate ?? ''}</Perform_Date>`,
-    `    <For_Months type="string">${params.forMonths ?? ''}</For_Months>`,
+    `    <InOut type="string">${escapeXmlValue(params.inOut)}</InOut>`,
+    `    <Patient_ID type="string">${escapeXmlValue(params.patientId)}</Patient_ID>`,
+    `    <Perform_Date type="string">${escapeXmlValue(params.performDate)}</Perform_Date>`,
+    `    <For_Months type="string">${escapeXmlValue(params.forMonths)}</For_Months>`,
     '    <Medical_Information type="record">',
-    `      <Insurance_Combination_Number type="string">${params.insuranceCombinationNumber ?? ''}</Insurance_Combination_Number>`,
-    `      <Department_Code type="string">${params.departmentCode ?? ''}</Department_Code>`,
-    `      <Sequential_Number type="string">${params.sequentialNumber ?? ''}</Sequential_Number>`,
+    `      <Insurance_Combination_Number type="string">${escapeXmlValue(params.insuranceCombinationNumber)}</Insurance_Combination_Number>`,
+    `      <Department_Code type="string">${escapeXmlValue(params.departmentCode)}</Department_Code>`,
+    `      <Sequential_Number type="string">${escapeXmlValue(params.sequentialNumber)}</Sequential_Number>`,
     '    </Medical_Information>',
     '  </medicalgetreq>',
     '</data>',
@@ -54,10 +56,10 @@ export const buildTMedicalGetRequestXml = (params: {
   return [
     '<data>',
     '  <tmedicalgetreq type="record">',
-    `    <Perform_Date type="string">${params.performDate ?? ''}</Perform_Date>`,
-    `    <InOut type="string">${params.inOut ?? ''}</InOut>`,
-    `    <Department_Code type="string">${params.departmentCode ?? ''}</Department_Code>`,
-    `    <Patient_ID type="string">${params.patientId}</Patient_ID>`,
+    `    <Perform_Date type="string">${escapeXmlValue(params.performDate)}</Perform_Date>`,
+    `    <InOut type="string">${escapeXmlValue(params.inOut)}</InOut>`,
+    `    <Department_Code type="string">${escapeXmlValue(params.departmentCode)}</Department_Code>`,
+    `    <Patient_ID type="string">${escapeXmlValue(params.patientId)}</Patient_ID>`,
     '  </tmedicalgetreq>',
     '</data>',
   ].join('\n');

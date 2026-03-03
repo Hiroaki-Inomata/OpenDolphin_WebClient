@@ -1,6 +1,6 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { generateRunId, getObservabilityMeta, updateObservabilityMeta } from '../../libs/observability/observability';
-import { checkRequiredTags, extractOrcaXmlMeta, parseXmlDocument, readXmlText } from '../../libs/xml/xmlUtils';
+import { checkRequiredTags, escapeXml, extractOrcaXmlMeta, parseXmlDocument, readXmlText } from '../../libs/xml/xmlUtils';
 
 export type HealthInsuranceEntry = {
   providerClass?: string;
@@ -31,13 +31,14 @@ export type InsuranceListResponse = {
 
 const DEFAULT_REQUEST_NUMBER = '01';
 const REQUIRED_TAGS = ['Api_Result', 'Api_Result_Message'];
+const escapeXmlValue = (value?: string | null) => escapeXml(value ?? '');
 
 const buildRequestXml = (baseDate: string, requestNumber?: string) => {
   return [
     '<data>',
     '  <insuranceinfreq type="record">',
-    `    <Request_Number type="string">${requestNumber ?? DEFAULT_REQUEST_NUMBER}</Request_Number>`,
-    `    <Base_Date type="string">${baseDate}</Base_Date>`,
+    `    <Request_Number type="string">${escapeXmlValue(requestNumber ?? DEFAULT_REQUEST_NUMBER)}</Request_Number>`,
+    `    <Base_Date type="string">${escapeXmlValue(baseDate)}</Base_Date>`,
     '  </insuranceinfreq>',
     '</data>',
   ].join('\n');

@@ -1,6 +1,6 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { getObservabilityMeta, updateObservabilityMeta } from '../../libs/observability/observability';
-import { checkRequiredTags, extractOrcaXmlMeta, parseXmlDocument, readXmlText } from '../../libs/xml/xmlUtils';
+import { checkRequiredTags, escapeXml, extractOrcaXmlMeta, parseXmlDocument, readXmlText } from '../../libs/xml/xmlUtils';
 
 export type PatientMemoEntry = {
   departmentCode?: string;
@@ -47,6 +47,7 @@ export type PatientMemoUpdateResult = {
 };
 
 const DEFAULT_REQUEST_NUMBER = '01';
+const escapeXmlValue = (value?: string | null) => escapeXml(value ?? '');
 
 const buildRequestXml = (payload: {
   patientId: string;
@@ -61,14 +62,14 @@ const buildRequestXml = (payload: {
   const lines = [
     '<data>',
     '  <patientlst7req type="record">',
-    `    <Request_Number type="string">${payload.requestNumber ?? DEFAULT_REQUEST_NUMBER}</Request_Number>`,
-    `    <Patient_ID type="string">${payload.patientId}</Patient_ID>`,
+    `    <Request_Number type="string">${escapeXmlValue(payload.requestNumber ?? DEFAULT_REQUEST_NUMBER)}</Request_Number>`,
+    `    <Patient_ID type="string">${escapeXmlValue(payload.patientId)}</Patient_ID>`,
   ];
   if (baseDate) {
-    lines.push(`    <Base_Date type="string">${baseDate}</Base_Date>`);
+    lines.push(`    <Base_Date type="string">${escapeXmlValue(baseDate)}</Base_Date>`);
   }
-  lines.push(`    <Department_Code type="string">${departmentCode}</Department_Code>`);
-  lines.push(`    <Memo_Class type="string">${memoClass}</Memo_Class>`);
+  lines.push(`    <Department_Code type="string">${escapeXmlValue(departmentCode)}</Department_Code>`);
+  lines.push(`    <Memo_Class type="string">${escapeXmlValue(memoClass)}</Memo_Class>`);
   lines.push('  </patientlst7req>', '</data>');
   return lines.join('\n');
 };
@@ -77,12 +78,12 @@ const buildUpdateXml = (payload: PatientMemoUpdatePayload) => {
   return [
     '<data>',
     '  <patient_memomodreq type="record">',
-    `    <Request_Number type="string">${payload.requestNumber ?? DEFAULT_REQUEST_NUMBER}</Request_Number>`,
-    `    <Patient_ID type="string">${payload.patientId}</Patient_ID>`,
-    `    <Perform_Date type="string">${payload.performDate}</Perform_Date>`,
-    `    <Department_Code type="string">${payload.departmentCode ?? ''}</Department_Code>`,
-    `    <Memo_Class type="string">${payload.memoClass ?? ''}</Memo_Class>`,
-    `    <Patient_Memo type="string">${payload.memo}</Patient_Memo>`,
+    `    <Request_Number type="string">${escapeXmlValue(payload.requestNumber ?? DEFAULT_REQUEST_NUMBER)}</Request_Number>`,
+    `    <Patient_ID type="string">${escapeXmlValue(payload.patientId)}</Patient_ID>`,
+    `    <Perform_Date type="string">${escapeXmlValue(payload.performDate)}</Perform_Date>`,
+    `    <Department_Code type="string">${escapeXmlValue(payload.departmentCode)}</Department_Code>`,
+    `    <Memo_Class type="string">${escapeXmlValue(payload.memoClass)}</Memo_Class>`,
+    `    <Patient_Memo type="string">${escapeXmlValue(payload.memo)}</Patient_Memo>`,
     '  </patient_memomodreq>',
     '</data>',
   ].join('\n');

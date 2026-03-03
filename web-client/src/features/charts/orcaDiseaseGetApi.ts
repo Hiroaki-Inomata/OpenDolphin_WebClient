@@ -1,6 +1,6 @@
 import { httpFetch } from '../../libs/http/httpClient';
 import { getObservabilityMeta } from '../../libs/observability/observability';
-import { checkRequiredTags, extractOrcaXmlMeta, parseXmlDocument } from '../../libs/xml/xmlUtils';
+import { checkRequiredTags, escapeXml, extractOrcaXmlMeta, parseXmlDocument } from '../../libs/xml/xmlUtils';
 
 export type OrcaXmlResponse = {
   ok: boolean;
@@ -18,12 +18,14 @@ export type OrcaXmlResponse = {
 
 export const ORCA_DISEASEGETV2_PATH = '/orca/diseasegetv2?class=01';
 
+const escapeXmlValue = (value?: string | null) => escapeXml(value ?? '');
+
 export const buildDiseaseGetRequestXml = (params: { patientId: string; baseDate?: string }) => {
   return [
     '<data>',
     '  <disease_inforeq type="record">',
-    `    <Patient_ID type="string">${params.patientId}</Patient_ID>`,
-    `    <Base_Date type="string">${params.baseDate ?? ''}</Base_Date>`,
+    `    <Patient_ID type="string">${escapeXmlValue(params.patientId)}</Patient_ID>`,
+    `    <Base_Date type="string">${escapeXmlValue(params.baseDate)}</Base_Date>`,
     '  </disease_inforeq>',
     '</data>',
   ].join('\n');
