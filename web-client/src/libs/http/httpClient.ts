@@ -3,6 +3,7 @@ import { getDevVolatilePlainPassword } from './devAuthVolatile';
 import { applyObservabilityHeaders, captureObservabilityFromResponse } from '../observability/observability';
 import { notifySessionExpired } from '../session/sessionExpiry';
 import { readStoredSession } from '../session/storedSession';
+import { readCsrfToken } from '../security/csrf';
 
 type StoredAuth = {
   facilityId: string;
@@ -60,8 +61,39 @@ export function hasStoredAuth(): boolean {
   return readStoredAuth() !== null;
 }
 
-function applyAuthHeaders(init?: RequestInit, pathname?: string | null): RequestInit {
-  if (!import.meta.env.DEV || !isOrcaEndpoint(pathname)) {
+const resolveBaseOrigin = (): string => {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+  return 'http://localhost';
+};
+
+const resolveUrl = (input?: string | URL | null): URL | null => {
+  if (!input) return null;
+  if (input instanceof URL) return input;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed, resolveBaseOrigin());
+  } catch {
+    return null;
+  }
+};
+
+const resolveRequestUrl = (input: RequestInfo | URL): URL | null => {
+  if (input instanceof URL) return input;
+  if (typeof input === 'string') return resolveUrl(input);
+  if (input instanceof Request) return resolveUrl(input.url);
+  return null;
+};
+
+const isSameOrigin = (url?: URL | null): boolean => {
+  if (!url) return false;
+  return url.origin === resolveBaseOrigin();
+};
+
+function applyAuthHeaders(init?: RequestInit, url?: URL | null): RequestInit {
+  if (!import.meta.env.DEV || !url || !isSameOrigin(url) || !isOrcaEndpoint(url)) {
     return init ?? {};
   }
   const stored = readStoredAuth();
@@ -99,9 +131,10 @@ const normalizeHeaders = (headers?: HeadersInit): Record<string, string> => {
 };
 
 export function buildHttpHeaders(init?: RequestInit, pathname?: string | null): Record<string, string> {
+  const url = resolveUrl(pathname);
   const withObservability = applyObservabilityHeaders(init);
   const withFlags = applyHeaderFlagsToInit(withObservability);
-  const withAuth = applyAuthHeaders(withFlags, pathname);
+  const withAuth = applyAuthHeaders(withFlags, url);
   return normalizeHeaders(withAuth.headers);
 }
 
@@ -250,17 +283,10 @@ export type HttpFetchInit = RequestInit & {
   notifySessionExpired?: boolean;
 };
 
-const resolveRequestPathname = (input: RequestInfo | URL): string | undefined => {
-  if (typeof input === 'string') return input;
-  if (input instanceof URL) return input.pathname;
-  if (input instanceof Request) return input.url;
-  return undefined;
-};
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-const isOrcaEndpoint = (pathname?: string | null): boolean => {
-  if (!pathname) return false;
-  const trimmed = pathname.trim();
-  if (!trimmed) return false;
+const isOrcaEndpoint = (url?: URL | null): boolean => {
+  if (!url) return false;
   // NOTE:
   // - `/orca*` / `/api01*` / `/api21` / `/blobapi` are ORCA-family endpoints.
   // - `/karte` / `/odletter` / `/touch` / `/user` are legacy resources that, in DEV,
@@ -269,14 +295,22 @@ const isOrcaEndpoint = (pathname?: string | null): boolean => {
   // they may fail for per-resource auth reasons while the app session is still valid.
   const pattern =
     /^\/(orca\d*|api\/orca(?:\d+)?|api01(rv2)?|api21|blobapi|karte|odletter|touch|user|api\/admin|api\/chart-events|chart-events|api\/realtime|realtime)(\/|$)/;
-  try {
-    const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
-    const url = new URL(trimmed, base);
-    const path = url.pathname;
-    return pattern.test(path);
-  } catch {
-    return pattern.test(trimmed);
-  }
+  return pattern.test(url.pathname);
+};
+
+const applyCsrfHeaders = (init?: RequestInit, url?: URL | null): RequestInit => {
+  if (!url || !isSameOrigin(url)) return init ?? {};
+  const method = (init?.method ?? 'GET').toUpperCase();
+  if (SAFE_METHODS.has(method)) return init ?? {};
+
+  const headers = new Headers(init?.headers ?? {});
+  if (headers.has('X-CSRF-Token')) return init ?? {};
+
+  const token = readCsrfToken();
+  if (!token) return init ?? {};
+
+  headers.set('X-CSRF-Token', token);
+  return { ...(init ?? {}), headers };
 };
 
 export const shouldNotifySessionExpired = (status: number, init?: HttpFetchInit) => {
@@ -288,17 +322,18 @@ export const shouldNotifySessionExpired = (status: number, init?: HttpFetchInit)
 };
 
 export async function httpFetch(input: RequestInfo | URL, init?: HttpFetchInit) {
-  const requestPathname = resolveRequestPathname(input);
+  const requestUrl = resolveRequestUrl(input);
   // Header flags are applied here to propagate Playwright extraHTTPHeaders.
   // 新しいフラグを追加する場合は header-flags.ts に追記し、この呼び出しで一括適用される前提。
-  const initWithFlags = applyHeaderFlagsToInit(applyAuthHeaders(init, requestPathname));
-  const initWithObservability = applyObservabilityHeaders(initWithFlags);
+  const initWithFlags = applyHeaderFlagsToInit(applyAuthHeaders(init, requestUrl));
+  const initWithCsrf = applyCsrfHeaders(initWithFlags, requestUrl);
+  const initWithObservability = applyObservabilityHeaders(initWithCsrf);
   // 認証クッキー（JSESSIONID 等）を常に送るため、デフォルトで include を付与する。
   const credentials = initWithObservability.credentials ?? 'include';
   const response = await fetch(input, { ...initWithObservability, credentials });
   captureObservabilityFromResponse(response);
   const resolvedInit =
-    init?.notifySessionExpired === undefined && isOrcaEndpoint(requestPathname)
+    init?.notifySessionExpired === undefined && isOrcaEndpoint(requestUrl)
       ? { ...init, notifySessionExpired: false }
       : init;
   if (shouldNotifySessionExpired(response.status, resolvedInit)) {

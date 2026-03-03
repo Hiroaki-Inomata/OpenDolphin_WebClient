@@ -124,6 +124,22 @@ export const parseChartsEncounterContext = (search: string): OutpatientEncounter
   return { patientId, appointmentId, receptionId, visitDate };
 };
 
+export const stripChartsEncounterParams = (search: string): string => {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  params.delete(CHARTS_CONTEXT_QUERY_KEYS.patientId);
+  params.delete(CHARTS_CONTEXT_QUERY_KEYS.appointmentId);
+  params.delete(CHARTS_CONTEXT_QUERY_KEYS.receptionId);
+  params.delete(CHARTS_CONTEXT_QUERY_KEYS.visitDate);
+  const query = params.toString();
+  return query ? `?${query}` : '';
+};
+
+export const persistChartsEncounterContextFromSearch = (search: string, scope?: StorageScope) => {
+  const context = parseChartsEncounterContext(search);
+  if (!context.patientId) return;
+  storeChartsEncounterContext(context, scope);
+};
+
 export const parseChartsNavigationMeta = (search: string): ChartsNavigationMeta => {
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
   const runId = normalizeRunId(params.get(CHARTS_META_QUERY_KEYS.runId) ?? undefined);

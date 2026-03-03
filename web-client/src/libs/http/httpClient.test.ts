@@ -31,6 +31,17 @@ const setDevAuth = (
   return { facilityId, userId, passwordPlain };
 };
 
+const setCsrfMetaToken = (content: string) => {
+  const existing = document.querySelector("meta[name='csrf-token']");
+  if (existing) {
+    existing.remove();
+  }
+  const meta = document.createElement('meta');
+  meta.setAttribute('name', 'csrf-token');
+  meta.setAttribute('content', content);
+  document.head.appendChild(meta);
+};
+
 const mockFetchSequence = (statuses: number[]) => {
   const queue = [...statuses];
   vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
@@ -154,10 +165,12 @@ describe('httpFetch session expiry reasons', () => {
     sessionStorage.clear();
     localStorage.clear();
     clearDevVolatilePlainPassword();
+    document.head.innerHTML = '';
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    document.head.innerHTML = '';
   });
 
   it('maps 403 to forbidden only when opted-in', async () => {
@@ -293,6 +306,48 @@ describe('httpFetch session expiry reasons', () => {
     expect(headers.has('password')).toBe(false);
     expect(headers.has('clientUUID')).toBe(false);
     expect(headers.has('X-Facility-Id')).toBe(false);
+  });
+
+  it('does not attach Authorization to cross-origin absolute ORCA URLs in DEV', async () => {
+    setSession();
+    const auth = setDevAuth();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+    const { httpClient, devAuthVolatile } = await importSubjects();
+    devAuthVolatile.setDevVolatilePlainPassword(auth);
+
+    await httpClient.httpFetch('https://evil.example/orca/appointments/list', { method: 'GET' });
+    const headers = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(headers.get('Authorization')).toBeNull();
+  });
+
+  it('adds X-CSRF-Token for same-origin unsafe methods when meta token exists', async () => {
+    setCsrfMetaToken('  csrf-token-123  ');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+    const { httpClient } = await importSubjects();
+
+    await httpClient.httpFetch('/api/admin/orca/connection', { method: 'PUT' });
+    const headers = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(headers.get('X-CSRF-Token')).toBe('csrf-token-123');
+  });
+
+  it('does not add X-CSRF-Token for GET requests', async () => {
+    setCsrfMetaToken('csrf-token-123');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+    const { httpClient } = await importSubjects();
+
+    await httpClient.httpFetch('/api/admin/orca/connection', { method: 'GET' });
+    const headers = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(headers.get('X-CSRF-Token')).toBeNull();
+  });
+
+  it('does not add X-CSRF-Token for cross-origin requests', async () => {
+    setCsrfMetaToken('csrf-token-123');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
+    const { httpClient } = await importSubjects();
+
+    await httpClient.httpFetch('https://evil.example/api/admin/orca/connection', { method: 'PUT' });
+    const headers = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
+    expect(headers.get('X-CSRF-Token')).toBeNull();
   });
 
   it('does not attach Authorization when volatile plain password is unavailable', async () => {

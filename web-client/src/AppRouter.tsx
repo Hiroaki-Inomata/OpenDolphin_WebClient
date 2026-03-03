@@ -72,6 +72,11 @@ import { isSystemAdminRole } from './libs/auth/roles';
 import { testOrcaConnection, type OrcaConnectionTestResponse } from './features/administration/orcaConnectionApi';
 import { FocusTrapDialog } from './components/modals/FocusTrapDialog';
 import { NavigationGuardProvider, resolveScreenKey, useNavigationGuard } from './routes/NavigationGuardProvider';
+import {
+  CHARTS_CONTEXT_QUERY_KEYS,
+  persistChartsEncounterContextFromSearch,
+  stripChartsEncounterParams,
+} from './features/charts/encounterContext';
 
 type Session = LoginResult;
 const AUTH_STORAGE_KEY = 'opendolphin:web-client:auth';
@@ -277,6 +282,27 @@ const LEGACY_ROUTES = [
   'administration',
 ];
 
+const CHARTS_QUERY_SCRUB_KEYS = [
+  CHARTS_CONTEXT_QUERY_KEYS.patientId,
+  CHARTS_CONTEXT_QUERY_KEYS.appointmentId,
+  CHARTS_CONTEXT_QUERY_KEYS.receptionId,
+  CHARTS_CONTEXT_QUERY_KEYS.visitDate,
+] as const;
+
+const isChartsPath = (pathname: string): boolean => {
+  const facility = parseFacilityPath(pathname);
+  if (facility?.suffix) {
+    return facility.suffix === '/charts';
+  }
+  return pathname === '/charts' || pathname === '/charts/';
+};
+
+const hasChartsQueryToScrub = (search: string): boolean => {
+  if (!search) return false;
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  return CHARTS_QUERY_SCRUB_KEYS.some((key) => params.has(key));
+};
+
 // Debug pages must never be exposed from production-like builds.
 const DEBUG_PAGES_ENABLED = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEBUG_PAGES === '1';
 
@@ -383,6 +409,34 @@ export function AppRouterWithNavigation() {
     navigate(pendingRedirect.to, { replace: true, state: pendingRedirect.state });
     setPendingRedirect(null);
   }, [navigate, pendingRedirect, session]);
+
+  useEffect(() => {
+    if (!session) return;
+    if (!isChartsPath(location.pathname)) return;
+    if (!hasChartsQueryToScrub(location.search)) return;
+
+    persistChartsEncounterContextFromSearch(location.search, {
+      facilityId: session.facilityId,
+      userId: session.userId,
+    });
+    const strippedSearch = stripChartsEncounterParams(location.search);
+    if (strippedSearch === location.search) return;
+    navigate(
+      {
+        pathname: location.pathname,
+        search: strippedSearch,
+        hash: location.hash,
+      },
+      { replace: true, state: location.state },
+    );
+  }, [
+    location.hash,
+    location.pathname,
+    location.search,
+    location.state,
+    navigate,
+    session,
+  ]);
 
   useEffect(() => {
     const onSessionExpired = (event: Event) => {

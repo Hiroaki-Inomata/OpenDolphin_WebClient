@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { __legacyRestTestUtils, buildLegacyRestUrl } from './legacyRestApi';
+import * as httpClient from '../../libs/http/httpClient';
+import { __legacyRestTestUtils, buildLegacyRestUrl, requestLegacyRest } from './legacyRestApi';
 
 describe('legacyRestApi', () => {
   it('buildLegacyRestUrl adds query when provided', () => {
@@ -24,5 +25,19 @@ describe('legacyRestApi', () => {
     expect(resolveResponseMode('application/xml')).toBe('text');
     expect(resolveResponseMode('application/pdf')).toBe('binary');
     expect(resolveResponseMode(undefined)).toBe('text');
+  });
+
+  it('rejects absolute http/https path before sending request', async () => {
+    const fetchSpy = vi.spyOn(httpClient, 'httpFetch').mockResolvedValue(new Response(null, { status: 200 }));
+
+    const result = await requestLegacyRest({
+      method: 'GET',
+      path: 'https://evil.example/pvt',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('invalid_path');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
   });
 });

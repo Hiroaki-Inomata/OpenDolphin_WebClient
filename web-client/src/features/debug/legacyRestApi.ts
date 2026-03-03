@@ -143,6 +143,7 @@ export type LegacyRestResponseMode = 'json' | 'text' | 'binary';
 
 export type LegacyRestResponse = {
   ok: boolean;
+  error?: string;
   status: number;
   statusText?: string;
   raw: string;
@@ -164,6 +165,8 @@ export const buildLegacyRestUrl = (path: string, query?: string) => {
   }
   return `${path}?${trimmed}`;
 };
+
+const isAbsoluteHttpUrl = (path: string) => /^https?:\/\//i.test(path.trim());
 
 const resolveContentTypeHeader = (contentType?: LegacyRestContentType) => {
   switch (contentType) {
@@ -212,6 +215,16 @@ const resolveResponseMode = (contentType?: string): LegacyRestResponseMode => {
 };
 
 export async function requestLegacyRest(request: LegacyRestRequest): Promise<LegacyRestResponse> {
+  if (isAbsoluteHttpUrl(request.path)) {
+    return {
+      ok: false,
+      error: 'invalid_path',
+      status: 0,
+      raw: '',
+      mode: 'text',
+      headers: {},
+    };
+  }
   const beforeMeta = ensureObservabilityMeta();
   const target = buildLegacyRestUrl(request.path, request.query);
   const headers: Record<string, string> = {
