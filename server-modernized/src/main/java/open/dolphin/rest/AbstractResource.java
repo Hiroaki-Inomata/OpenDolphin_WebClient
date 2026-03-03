@@ -28,6 +28,7 @@ import java.util.logging.Logger;
 import open.dolphin.infomodel.DiagnosisSendWrapper;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.security.audit.AuditDetailSanitizer;
+import open.dolphin.session.UserServiceBean;
 
 /**
  *
@@ -77,6 +78,48 @@ public class AbstractResource {
         sb.append(IInfoModel.COMPOSITE_KEY_MAKER);
         sb.append(pid);
         return sb.toString();
+    }
+
+    String requireRemoteUser(HttpServletRequest request) {
+        String remoteUser = request != null ? request.getRemoteUser() : null;
+        if (remoteUser == null || remoteUser.isBlank()) {
+            throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
+        }
+        if (!isCompositeRemoteUser(remoteUser)) {
+            throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized",
+                    "Authenticated principal must include facility and user id.");
+        }
+        return remoteUser;
+    }
+
+    String requireActorFacility(HttpServletRequest... requestCandidates) {
+        HttpServletRequest request = requestCandidates != null && requestCandidates.length > 0
+                ? requestCandidates[0] : null;
+        String actor = requireRemoteUser(request);
+        String facilityId = getRemoteFacility(actor);
+        if (facilityId == null || facilityId.isBlank()) {
+            throw restError(request, Response.Status.UNAUTHORIZED, "facility_missing",
+                    "Facility identifier is required for this operation.");
+        }
+        return facilityId;
+    }
+
+    String requireAdmin(HttpServletRequest request, UserServiceBean userServiceBean) {
+        String actor = requireRemoteUser(request);
+        if (userServiceBean == null || !userServiceBean.isAdmin(actor)) {
+            throw restError(request, Response.Status.FORBIDDEN, "forbidden",
+                    "Administrator privilege is required.");
+        }
+        return actor;
+    }
+
+    void ensureFacilityMatchOr404(HttpServletRequest request, String actorFacilityId, String targetFacilityId) {
+        if (targetFacilityId == null || targetFacilityId.isBlank()) {
+            throw restError(request, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
+        }
+        if (actorFacilityId == null || actorFacilityId.isBlank() || !actorFacilityId.equals(targetFacilityId)) {
+            throw restError(request, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
+        }
     }
 
     // 2013/06/24    
@@ -283,6 +326,10 @@ public class AbstractResource {
             }
         }
         return null;
+    }
+
+    private static boolean isCompositeRemoteUser(String remoteUser) {
+        return remoteUser != null && remoteUser.contains(IInfoModel.COMPOSITE_KEY_MAKER);
     }
 
     public static WebApplicationException restError(HttpServletRequest request, Response.Status status,

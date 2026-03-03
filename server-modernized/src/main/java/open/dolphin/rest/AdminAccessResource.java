@@ -15,9 +15,6 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.sql.Timestamp;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -40,6 +37,7 @@ import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
 import open.dolphin.security.SecondFactorSecurityConfig;
+import open.dolphin.security.auth.PasswordHashService;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.security.totp.TotpHelper;
@@ -73,6 +71,9 @@ public class AdminAccessResource extends AbstractResource {
 
     @Inject
     private SessionAuditDispatcher sessionAuditDispatcher;
+
+    @Inject
+    private PasswordHashService passwordHashService;
 
     @GET
     @Path("/users")
@@ -171,7 +172,7 @@ public class AdminAccessResource extends AbstractResource {
 
         UserModel user = new UserModel();
         user.setUserId(compositeUserId);
-        user.setPassword(md5Hex(password));
+        user.setPassword(passwordHashService.hashForStorage(password));
         user.setCommonName(displayName);
         user.setSirName(sirName);
         user.setGivenName(givenName);
@@ -328,7 +329,7 @@ public class AdminAccessResource extends AbstractResource {
         verifyAdminTotp(request, actorPk, totpCode);
 
         String tempPassword = generateTemporaryPassword(DEFAULT_TEMP_PASSWORD_LENGTH);
-        target.setPassword(md5Hex(tempPassword));
+        target.setPassword(passwordHashService.hashForStorage(tempPassword));
         em.merge(target);
         upsertPublicShadowUser(target);
 
@@ -995,22 +996,6 @@ public class AdminAccessResource extends AbstractResource {
             sb.append(TEMP_PASSWORD_ALPHABET.charAt(idx));
         }
         return sb.toString();
-    }
-
-    private String md5Hex(String input) {
-        Objects.requireNonNull(input, "input");
-        try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            byte[] digest = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(digest.length * 2);
-            for (byte b : digest) {
-                sb.append(String.format("%02x", b));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException e) {
-            LOGGER.log(Level.SEVERE, "MD5 algorithm unavailable", e);
-            throw new IllegalStateException("MD5 algorithm unavailable", e);
-        }
     }
 
     private void recordAudit(HttpServletRequest request,

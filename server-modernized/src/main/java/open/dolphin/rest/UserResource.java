@@ -195,7 +195,8 @@ public class UserResource extends AbstractResource {
     @Path("/facility")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
-    public String putFacility(String json) throws IOException {
+    public String putFacility(@Context HttpServletRequest servletReq, String json) throws IOException {
+        requireAdmin(servletReq, userServiceBean);
         
         ObjectMapper mapper = new ObjectMapper();
         // 2013/06/24

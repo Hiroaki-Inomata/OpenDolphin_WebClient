@@ -42,8 +42,7 @@ public class PatientImagesResource extends AbstractResource {
 
     private static final Logger LOGGER = Logger.getLogger(PatientImagesResource.class.getName());
 
-    private static final String FEATURE_HEADER = "X-Feature-Images";
-    private static final String FEATURE_ENV = "OPENDOLPHIN_FEATURE_IMAGES_PHASEA";
+    private static final String FEATURE_ENV = "OPENDOLPHIN_PATIENT_IMAGES_ENABLED";
 
     private static final String MAX_BYTES_ENV = "OPENDOLPHIN_IMAGES_MAX_BYTES";
     private static final long DEFAULT_MAX_BYTES = 5L * 1024L * 1024L; // 5MiB
@@ -165,14 +164,13 @@ public class PatientImagesResource extends AbstractResource {
     }
 
     private void requireFeatureEnabled() {
-        String header = httpServletRequest != null ? httpServletRequest.getHeader(FEATURE_HEADER) : null;
         String env = System.getenv(FEATURE_ENV);
-        if (isTruthy(header) || isTruthy(env)) {
+        if (isTruthy(env)) {
             return;
         }
         throw restError(httpServletRequest, Response.Status.NOT_FOUND,
                 "feature_disabled", "Images PhaseA is disabled",
-                Map.of("requiredHeader", FEATURE_HEADER, "requiredEnv", FEATURE_ENV),
+                Map.of("requiredEnv", FEATURE_ENV),
                 null);
     }
 

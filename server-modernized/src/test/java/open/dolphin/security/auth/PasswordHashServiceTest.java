@@ -29,14 +29,14 @@ class PasswordHashServiceTest {
     }
 
     @Test
-    void verifyAcceptsMd5InputForManagedHash() {
+    void verifyRejectsMd5InputForManagedHash() {
         String rawPassword = "CompatRawPass!";
         String stored = service.hashForStorage(rawPassword);
         String md5Password = md5(rawPassword);
 
         PasswordHashService.VerificationResult verification = service.verify(stored, md5Password);
 
-        assertThat(verification.matched()).isTrue();
+        assertThat(verification.matched()).isFalse();
         assertThat(verification.requiresUpgrade()).isFalse();
     }
 
@@ -52,8 +52,19 @@ class PasswordHashServiceTest {
         assertThat(service.verify(upgradedHash, rawPassword).matched()).isTrue();
 
         PasswordHashService.VerificationResult fromMd5 = service.verify(legacyMd5, legacyMd5);
-        assertThat(fromMd5.matched()).isTrue();
-        assertThat(fromMd5.requiresUpgrade()).isTrue();
+        assertThat(fromMd5.matched()).isFalse();
+        assertThat(fromMd5.requiresUpgrade()).isFalse();
+    }
+
+    @Test
+    void legacyMd5PassTheHashIsRejected() {
+        String rawPassword = "PassTheHash!";
+        String storedMd5 = md5(rawPassword);
+
+        PasswordHashService.VerificationResult verification = service.verify(storedMd5, storedMd5);
+
+        assertThat(verification.matched()).isFalse();
+        assertThat(verification.requiresUpgrade()).isFalse();
     }
 
     @Test

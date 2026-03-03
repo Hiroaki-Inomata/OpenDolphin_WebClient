@@ -2,6 +2,7 @@ package open.dolphin.rest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
@@ -300,7 +301,7 @@ class LogFilterTest {
         assertEquals("unauthorized", details.get("errorCode"));
         assertEquals("Authentication required", details.get("errorMessage"));
         assertEquals("authentication_failed", details.get("reason"));
-        assertEquals("HACKED-FACILITY", details.get("facilityIdHeader"));
+        assertFalse(details.containsKey("facilityIdHeader"));
         assertFalse(details.containsKey("facilityId"));
     }
 
@@ -396,12 +397,83 @@ class LogFilterTest {
 
         ArgumentCaptor<AuditEventPayload> payloadCaptor = ArgumentCaptor.forClass(AuditEventPayload.class);
         verify(dispatcher).record(payloadCaptor.capture(), eq(AuditEventEnvelope.Outcome.FAILURE),
-                eq("header_auth_disabled"), eq("Header-based authentication is not allowed"));
+                eq("unauthorized"), eq("Authentication required"));
 
         AuditEventPayload payload = payloadCaptor.getValue();
         assertEquals("anonymous", payload.getActorId());
         assertFalse(payload.getDetails().containsKey("principal"));
         payload.getDetails().values().forEach(value -> assertFalse("SuperSecretPassword".equals(value)));
+    }
+
+    @Test
+    void nonCompositePrincipalIsRejected() throws Exception {
+        SecurityContext sc = mock(SecurityContext.class);
+        when(sc.getCallerPrincipal()).thenReturn(() -> "doctor01");
+        setField("securityContext", sc);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        stubResponseOutput(response);
+
+        Map<String, Object> attributes = new HashMap<>();
+        doAnswer(invocation -> {
+            attributes.put(invocation.getArgument(0, String.class), invocation.getArgument(1));
+            return null;
+        }).when(request).setAttribute(anyString(), any());
+        when(request.getAttribute(anyString())).thenAnswer(invocation -> attributes.get(invocation.getArgument(0, String.class)));
+
+        Map<String, String> headers = new HashMap<>();
+        when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/protected");
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRemoteAddr()).thenReturn("192.0.2.90");
+
+        filter.doFilter(request, response, chain);
+
+        verify(response).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, never()).doFilter(any(ServletRequest.class), any(ServletResponse.class));
+    }
+
+    @Test
+    void invalidTraceAndRequestIdHeadersAreSanitized() throws Exception {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        stubResponseOutput(response);
+
+        Map<String, Object> attributes = new HashMap<>();
+        doAnswer(invocation -> {
+            attributes.put(invocation.getArgument(0, String.class), invocation.getArgument(1));
+            return null;
+        }).when(request).setAttribute(anyString(), any());
+        when(request.getAttribute(anyString())).thenAnswer(invocation -> attributes.get(invocation.getArgument(0, String.class)));
+
+        String badTrace = "bad\r\ntrace";
+        String badRequest = "bad<script>";
+        Map<String, String> headers = new HashMap<>();
+        headers.put("X-Trace-Id", badTrace);
+        headers.put("X-Request-Id", badRequest);
+        when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/protected");
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRemoteAddr()).thenReturn("192.0.2.91");
+
+        filter.doFilter(request, response, chain);
+
+        ArgumentCaptor<String> traceCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> requestCaptor = ArgumentCaptor.forClass(String.class);
+        verify(response).setHeader(eq("X-Trace-Id"), traceCaptor.capture());
+        verify(response).setHeader(eq("X-Request-Id"), requestCaptor.capture());
+
+        String sanitizedTrace = traceCaptor.getValue();
+        String sanitizedRequest = requestCaptor.getValue();
+        assertNotEquals(badTrace, sanitizedTrace);
+        assertNotEquals(badRequest, sanitizedRequest);
+        UUID.fromString(sanitizedTrace);
+        UUID.fromString(sanitizedRequest);
+        assertEquals(sanitizedTrace, attributes.get(LogFilter.class.getName() + ".TRACE_ID"));
+        assertEquals(sanitizedRequest, attributes.get(LogFilter.class.getName() + ".REQUEST_ID"));
     }
 
     private void stubResponseOutput(HttpServletResponse response) throws Exception {
