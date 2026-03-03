@@ -10,7 +10,6 @@ import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import jakarta.inject.Inject;
-import jakarta.persistence.NoResultException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
@@ -26,7 +25,6 @@ import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
-import open.dolphin.session.framework.SessionServiceException;
 import open.dolphin.session.framework.SessionOperation;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -61,7 +59,8 @@ public class LetterResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String putLetter(String json) throws IOException {
-        
+        String fid = requireActorFacility(httpServletRequest);
+
         ObjectMapper mapper = new ObjectMapper();
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -69,7 +68,10 @@ public class LetterResource extends AbstractResource {
         
         Logger.getLogger("open.dolphin").log(Level.INFO, "LinkID : {0}, PatID : {1}", new Object[]{String.valueOf(model.getLinkId()), model.getPatientId()});
 
-        Long pk = letterServiceBean.saveOrUpdateLetter(model);
+        long pk = letterServiceBean.saveOrUpdateLetterForFacility(fid, model);
+        if (pk == 0L) {
+            throw new NotFoundException("Letter not found");
+        }
 
         String pkStr = String.valueOf(pk);
         debug(pkStr);
@@ -83,10 +85,11 @@ public class LetterResource extends AbstractResource {
     public LetterModuleListConverter getLetterList(@PathParam("param") String param) {
 
         debug(param);
+        String fid = requireActorFacility(httpServletRequest);
         String[] params = param.split(CAMMA);
         long karteId = Long.parseLong(params[0]);
 
-        List<LetterModule> result = letterServiceBean.getLetterList(karteId);
+        List<LetterModule> result = letterServiceBean.getLetterListForFacility(fid, karteId);
         LetterModuleList list = new LetterModuleList();
         if (result!=null && result.size()>0) {
             list.setList(result);
@@ -105,45 +108,40 @@ public class LetterResource extends AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public LetterModuleConverter getLetter(@PathParam("param") String param) {
 
+        String fid = requireActorFacility(httpServletRequest);
         long pk = Long.parseLong(param);
 
-        try {
-            LetterModule result = (LetterModule)letterServiceBean.getLetter(pk);
-            LetterModuleConverter conv = new LetterModuleConverter();
-            conv.setModel(result);
-            return conv;
-        } catch (NoResultException e) {
-            throw new NotFoundException("Letter not found: " + pk, e);
-        } catch (SessionServiceException e) {
-            if (hasNoResultCause(e)) {
-                throw new NotFoundException("Letter not found: " + pk, e);
-            }
-            throw e;
+        LetterModule result = letterServiceBean.getLetterForFacility(fid, pk);
+        if (result == null) {
+            throw new NotFoundException("Letter not found: " + pk);
         }
+        LetterModuleConverter conv = new LetterModuleConverter();
+        conv.setModel(result);
+        return conv;
     }
 
     @DELETE
     @Path("/letter/{param}")
     public void delete(@PathParam("param") String param) {
 
+        String fid = requireActorFacility(httpServletRequest);
         long pk = Long.parseLong(param);
         LetterModule existing;
-        try {
-            existing = letterServiceBean.getLetter(pk);
-        } catch (NoResultException e) {
+        existing = letterServiceBean.getLetterForFacility(fid, pk);
+        if (existing == null) {
             recordLetterDeletionAudit(pk, null, "failed", "letter_not_found");
-            throw new NotFoundException("Letter not found: " + pk, e);
-        } catch (SessionServiceException e) {
-            if (hasNoResultCause(e)) {
-                recordLetterDeletionAudit(pk, null, "failed", "letter_not_found");
-                throw new NotFoundException("Letter not found: " + pk, e);
-            }
-            throw e;
+            throw new NotFoundException("Letter not found: " + pk);
         }
 
         try {
-            letterServiceBean.delete(pk);
+            int deleted = letterServiceBean.deleteLetterForFacility(fid, pk);
+            if (deleted == 0) {
+                recordLetterDeletionAudit(pk, existing, "failed", "letter_not_found");
+                throw new NotFoundException("Letter not found: " + pk);
+            }
             recordLetterDeletionAudit(pk, existing, "success", null);
+        } catch (NotFoundException e) {
+            throw e;
         } catch (RuntimeException e) {
             recordLetterDeletionAudit(pk, existing, "failed", e.getClass().getSimpleName());
             throw e;
@@ -227,17 +225,6 @@ public class LetterResource extends AbstractResource {
         }
     }
 
-    private boolean hasNoResultCause(Throwable throwable) {
-        Throwable current = throwable;
-        while (current != null) {
-            if (current instanceof NoResultException) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
     private String resolveActorId() {
         return Optional.ofNullable(resolveRemoteUser()).orElse("system");
     }
@@ -275,4 +262,5 @@ public class LetterResource extends AbstractResource {
     private String resolveRemoteUser() {
         return httpServletRequest != null ? httpServletRequest.getRemoteUser() : null;
     }
+
 }

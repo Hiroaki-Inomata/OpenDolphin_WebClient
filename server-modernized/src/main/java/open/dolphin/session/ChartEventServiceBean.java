@@ -118,7 +118,7 @@ public class ChartEventServiceBean {
         boolean sendEvent = true;
         switch(eventType) {
             case ChartEventModel.PVT_DELETE:
-                processPvtDeleteEvent(evt);
+                sendEvent = processPvtDeleteEvent(evt);
                 break;
             case ChartEventModel.PVT_STATE:
                 sendEvent = processPvtStateEvent(evt);
@@ -136,22 +136,23 @@ public class ChartEventServiceBean {
 
         return 1;
     }
-     
-    private void processPvtDeleteEvent(ChartEventModel evt) {
+
+    private boolean processPvtDeleteEvent(ChartEventModel evt) {
         
         long pvtPk = evt.getPvtPk();
         String fid = evt.getFacilityId();
 
         // データベースから削除
         PatientVisitModel exist = em.find(PatientVisitModel.class, pvtPk);
-        // WatingListから開いていないとexist = nullなので。
-        if (exist != null) {
-            PatientModel pm = exist.getPatientModel();
-            if(pm != null) {
-                log("processPvtDeleteEvent : pvtPk = " + String.valueOf(pvtPk) + ", ptId = " + pm.getPatientId() + ", pvtDate = " + exist.getPvtDate());
-            }
-            em.remove(exist);
+        if (!isPvtFacilityMatched(exist, fid)) {
+            return false;
         }
+        // WatingListから開いていないとexist = nullなので。
+        PatientModel pm = exist.getPatientModel();
+        if(pm != null) {
+            log("processPvtDeleteEvent : pvtPk = " + String.valueOf(pvtPk) + ", ptId = " + pm.getPatientId() + ", pvtDate = " + exist.getPvtDate());
+        }
+        em.remove(exist);
         // pvtListから削除
         List<PatientVisitModel> pvtList = getPvtList(fid);
         PatientVisitModel toRemove = null;
@@ -164,6 +165,7 @@ public class ChartEventServiceBean {
         if (toRemove != null) {
             pvtList.remove(toRemove);
         }
+        return true;
     }
     
     private boolean processPvtStateEvent(ChartEventModel evt) {
@@ -176,16 +178,18 @@ public class ChartEventServiceBean {
         int byomeiCountToday = evt.getByomeiCountToday();
         String memo = evt.getMemo();
         String ownerUUID = evt.getOwnerUUID();
-        long ptPk = evt.getPtPk();
         
         if((state & (1 << PatientVisitModel.BIT_NOTUPDATE)) > 0) {
             return false;
         }
 
-        List<PatientVisitModel> pvtList = getPvtList(fid);
-
         // データベースのPatientVisitModelを更新
         PatientVisitModel pvt = em.find(PatientVisitModel.class, pvtId);
+        if (!isPvtFacilityMatched(pvt, fid)) {
+            return false;
+        }
+        List<PatientVisitModel> pvtList = getPvtList(fid);
+
         if (pvt != null) {
 //s.oh^ 2013/08/29
             //pvt.setState(state);
@@ -220,7 +224,8 @@ public class ChartEventServiceBean {
             pvt.setMemo(memo);
         }
         // データベースのPatientModelを更新
-        PatientModel pm = em.find(PatientModel.class, ptPk);
+        PatientModel pm = pvt.getPatientModel();
+        long resolvedPtPk = pm != null ? pm.getId() : 0L;
         if (pm != null) {
             log("processPvtStateEvent : owner = " + ownerUUID + ", pvtPk = " + String.valueOf(pvtId) + ", ptId = " + pm.getPatientId() + ", state = " + String.valueOf(state));
             pm.setOwnerUUID(ownerUUID);
@@ -260,13 +265,15 @@ public class ChartEventServiceBean {
                 model.setByomeiCount(byomeiCount);
                 model.setByomeiCountToday(byomeiCountToday);
                 model.setMemo(memo);
-                model.getPatientModel().setOwnerUUID(ownerUUID);
+                if (model.getPatientModel() != null) {
+                    model.getPatientModel().setOwnerUUID(ownerUUID);
+                }
                 break;
             }
         }
 //s.oh^ 2013/08/13
         for (PatientVisitModel model : pvtList) {
-            if (model.getPatientModel().getId() == ptPk) {
+            if (resolvedPtPk > 0 && model.getPatientModel() != null && model.getPatientModel().getId() == resolvedPtPk) {
                 model.setStateBit(PatientVisitModel.BIT_OPEN, ownerUUID != null);
                 model.getPatientModel().setOwnerUUID(ownerUUID);
             }
@@ -287,12 +294,13 @@ public class ChartEventServiceBean {
             return false;
         }
 
-        List<PatientVisitModel> pvtList = getPvtList(fid);
-
         PatientVisitModel pvt = em.find(PatientVisitModel.class, pvtId);
-        if(pvt != null) {
-            pvt.setMemo(memo);
+        if (!isPvtFacilityMatched(pvt, fid)) {
+            return false;
         }
+
+        List<PatientVisitModel> pvtList = getPvtList(fid);
+        pvt.setMemo(memo);
         
         log("processPvtMemoEvent : pvtPk = " + String.valueOf(pvtId) + ", memo = " + memo);
 
@@ -305,6 +313,14 @@ public class ChartEventServiceBean {
         return true;
     }
 //s.oh$
+
+    private boolean isPvtFacilityMatched(PatientVisitModel pvt, String fid) {
+        if (pvt == null || fid == null || fid.isBlank()) {
+            return false;
+        }
+        String pvtFid = pvt.getFacilityId();
+        return pvtFid != null && fid.trim().equals(pvtFid.trim());
+    }
 
     public void start() {
         log("ChartEventServiceBean: start did call");

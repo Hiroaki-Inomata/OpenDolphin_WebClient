@@ -18,6 +18,7 @@ import java.util.Map;
 import open.dolphin.rest.admin.AdminConfigSnapshot;
 import open.dolphin.rest.admin.AdminConfigStore;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
+import open.dolphin.session.UserServiceBean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,11 +34,15 @@ public class OrcaQueueResource extends AbstractResource {
     @Inject
     private OrcaQueueStore queueStore;
 
+    @Inject
+    private UserServiceBean userServiceBean;
+
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public Response getQueue(@Context HttpServletRequest request,
             @QueryParam("patientId") String patientId,
             @QueryParam("retry") String retry) {
+        requireAdmin(request, userServiceBean);
         return buildQueueResponse(request, patientId, retry, false);
     }
 
@@ -45,16 +50,15 @@ public class OrcaQueueResource extends AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public Response deleteQueue(@Context HttpServletRequest request,
             @QueryParam("patientId") String patientId) {
+        requireAdmin(request, userServiceBean);
         return buildQueueResponse(request, patientId, null, true);
     }
 
     private Response buildQueueResponse(HttpServletRequest request, String patientId, String retry, boolean deleteRequested) {
         AdminConfigSnapshot snapshot = adminConfigStore.getSnapshot();
         boolean allowMock = isTruthyEnv(ALLOW_MOCK_ENV);
-        Boolean useMockHeader = allowMock ? readBooleanHeader(request, "x-use-mock-orca-queue") : null;
-        Boolean verifyHeader = readBooleanHeader(request, "x-verify-admin-delivery");
-        boolean useMock = allowMock && (useMockHeader != null ? useMockHeader : Boolean.TRUE.equals(snapshot.getUseMockOrcaQueue()));
-        boolean verify = verifyHeader != null ? verifyHeader : Boolean.TRUE.equals(snapshot.getVerified());
+        boolean useMock = allowMock && Boolean.TRUE.equals(snapshot.getUseMockOrcaQueue());
+        boolean verify = Boolean.TRUE.equals(snapshot.getVerified());
 
         OrcaQueueStore.RetryOutcome retryOutcome = null;
         boolean discardApplied = false;
@@ -137,24 +141,6 @@ public class OrcaQueueResource extends AbstractResource {
             queue.add(row);
         }
         return queue;
-    }
-
-    private Boolean readBooleanHeader(HttpServletRequest request, String headerName) {
-        if (request == null || headerName == null) {
-            return null;
-        }
-        String value = request.getHeader(headerName);
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        if ("1".equals(trimmed) || "true".equalsIgnoreCase(trimmed)) {
-            return Boolean.TRUE;
-        }
-        if ("0".equals(trimmed) || "false".equalsIgnoreCase(trimmed)) {
-            return Boolean.FALSE;
-        }
-        return null;
     }
 
     private String resolveRunId(HttpServletRequest request) {

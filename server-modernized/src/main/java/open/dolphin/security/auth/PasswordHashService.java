@@ -7,7 +7,6 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Base64;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import javax.crypto.SecretKeyFactory;
@@ -148,9 +147,6 @@ public class PasswordHashService {
     private String canonicalMd5(String rawOrMd5) {
         if (rawOrMd5 == null) {
             return null;
-        }
-        if (isLegacyMd5(rawOrMd5)) {
-            return rawOrMd5.toLowerCase(Locale.ROOT);
         }
         return md5Hex(rawOrMd5);
     }

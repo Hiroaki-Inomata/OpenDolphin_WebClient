@@ -75,6 +75,12 @@ public class ScheduleServiceBean {
     private static final String QUERY_DOCUMENT_BY_KARTEID_STARTDATE 
             = "from DocumentModel d where d.karte.id=:karteId and d.started=:started and (d.status='F' or d.status='T')";
     
+    private static final String QUERY_KARTE_BY_PATIENT_FACILITY
+            = "from KarteBean k where k.patient.id=:patientPk and k.patient.facilityId=:fid";
+    
+    private static final String QUERY_DOCUMENT_BY_KARTEID_STARTDATE_FACILITY
+            = "from DocumentModel d where d.karte.id=:karteId and d.karte.patient.facilityId=:fid and d.started=:started and (d.status='F' or d.status='T')";
+    
     private static final String QUERY_DOCUMENT_BY_LINK_ID 
             = "from DocumentModel d where d.linkId=:id";
     
@@ -396,8 +402,12 @@ public class ScheduleServiceBean {
         }
     }
     
-    public int removePvt(long pvtPK, long ptPK, Date startDate) {
+    public int removePvtForFacility(String fid, long pvtPK, long ptPK, Date startDate) {
+        if (fid == null || fid.isBlank()) {
+            return 0;
+        }
         Map<String, Object> auditDetails = new HashMap<>();
+        auditDetails.put("facilityId", fid);
         auditDetails.put("pvtPk", pvtPK);
         auditDetails.put("patientPk", ptPK);
         auditDetails.put("startDate", startDate);
@@ -407,26 +417,35 @@ public class ScheduleServiceBean {
 
         RuntimeException failure = null;
         try {
-            // 受付咲くジョン
-            PatientVisitModel exist = (PatientVisitModel)em.find(PatientVisitModel.class, new Long(pvtPK));
-            if (exist != null) {
-                auditPatientId = exist.getPatientModel() != null ? exist.getPatientModel().getPatientId() : null;
-                auditDetails.put("pvtDeletedCount", 1);
-                if (auditPatientId != null) {
-                    auditDetails.put("patientId", auditPatientId);
-                }
-                em.remove(exist);
+            PatientVisitModel exist = (PatientVisitModel) em.find(PatientVisitModel.class, new Long(pvtPK));
+            if (exist == null || exist.getFacilityId() == null || !fid.equals(exist.getFacilityId())) {
+                return 0;
             }
+            if (exist.getPatientModel() != null && exist.getPatientModel().getId() != ptPK) {
+                return 0;
+            }
+            auditPatientId = exist.getPatientModel() != null ? exist.getPatientModel().getPatientId() : null;
+            auditDetails.put("pvtDeletedCount", 1);
+            if (auditPatientId != null) {
+                auditDetails.put("patientId", auditPatientId);
+            }
+            em.remove(exist);
             
             // 患者のカルテを取得する
-            List<KarteBean> kartes = em.createQuery(QUERY_KARTE)
+            List<KarteBean> kartes = em.createQuery(QUERY_KARTE_BY_PATIENT_FACILITY)
                                   .setParameter("patientPk", ptPK)
+                                  .setParameter("fid", fid)
                                   .getResultList();
+            if (kartes.isEmpty()) {
+                auditDetails.put("documentsDeletedStatus", "karteNotFound");
+                return 1;
+            }
             KarteBean karte = kartes.get(0);
             
             // 当日のドキュメントを検索
-            List<DocumentModel> list = (List<DocumentModel>)em.createQuery(QUERY_DOCUMENT_BY_KARTEID_STARTDATE)
+            List<DocumentModel> list = (List<DocumentModel>)em.createQuery(QUERY_DOCUMENT_BY_KARTEID_STARTDATE_FACILITY)
                                                      .setParameter("karteId", karte.getId())
+                                                     .setParameter("fid", fid)
                                                      .setParameter("started", startDate)
                                                      .getResultList();
             if (list.isEmpty()) {
@@ -452,6 +471,18 @@ public class ScheduleServiceBean {
         } finally {
             writeScheduleAudit("SCHEDULE_DELETE", auditDetails, failure, auditPatientId);
         }
+    }
+
+    /**
+     * @deprecated facility境界付きの {@link #removePvtForFacility(String, long, long, Date)} を使用すること。
+     */
+    @Deprecated
+    public int removePvt(long pvtPK, long ptPK, Date startDate) {
+        PatientVisitModel exist = (PatientVisitModel) em.find(PatientVisitModel.class, new Long(pvtPK));
+        if (exist == null || exist.getFacilityId() == null || exist.getFacilityId().isBlank()) {
+            return 0;
+        }
+        return removePvtForFacility(exist.getFacilityId(), pvtPK, ptPK, startDate);
     }
 
     public List<String> deleteDocument(long id) {

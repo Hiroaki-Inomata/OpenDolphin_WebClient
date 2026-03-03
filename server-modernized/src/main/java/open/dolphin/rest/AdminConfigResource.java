@@ -11,7 +11,6 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
@@ -20,6 +19,7 @@ import open.dolphin.rest.admin.AdminConfigStore;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
+import open.dolphin.session.UserServiceBean;
 
 @Path("/api/admin")
 public class AdminConfigResource extends AbstractResource {
@@ -33,11 +33,15 @@ public class AdminConfigResource extends AbstractResource {
     @Inject
     private SessionAuditDispatcher sessionAuditDispatcher;
 
+    @Inject
+    private UserServiceBean userServiceBean;
+
     @GET
     @Path("/config")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getConfig(@Context HttpServletRequest request) {
-        AdminConfigSnapshot snapshot = resolveSnapshot(request);
+        requireAdmin(request, userServiceBean);
+        AdminConfigSnapshot snapshot = resolveSnapshot();
         String runId = AbstractOrcaRestResource.resolveRunIdValue(request);
         return buildResponse(snapshot, runId);
     }
@@ -47,17 +51,18 @@ public class AdminConfigResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public Response putConfig(@Context HttpServletRequest request, Map<String, Object> payload) {
+        requireAdmin(request, userServiceBean);
         String runId = AbstractOrcaRestResource.resolveRunIdValue(request);
         AdminConfigSnapshot incoming = toSnapshot(payload);
         AdminConfigSnapshot updated = adminConfigStore.updateFromPayload(incoming, runId);
-        AdminConfigSnapshot resolved = applyHeaderOverrides(request, updated);
-        return buildResponse(resolved, runId);
+        return buildResponse(updated, runId);
     }
 
     @POST
     @Path("/orca/transport/reload")
     @Produces(MediaType.APPLICATION_JSON)
     public Response reloadOrcaTransport(@Context HttpServletRequest request) {
+        requireAdmin(request, userServiceBean);
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("operation", "orcaTransportReload");
         details.put("resource", "/api/admin/orca/transport/reload");
@@ -120,14 +125,14 @@ public class AdminConfigResource extends AbstractResource {
     @Path("/delivery")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getDelivery(@Context HttpServletRequest request) {
-        AdminConfigSnapshot snapshot = resolveSnapshot(request);
+        requireAdmin(request, userServiceBean);
+        AdminConfigSnapshot snapshot = resolveSnapshot();
         String runId = AbstractOrcaRestResource.resolveRunIdValue(request);
         return buildResponse(snapshot, runId);
     }
 
-    private AdminConfigSnapshot resolveSnapshot(HttpServletRequest request) {
-        AdminConfigSnapshot snapshot = adminConfigStore.getSnapshot();
-        return applyHeaderOverrides(request, snapshot);
+    private AdminConfigSnapshot resolveSnapshot() {
+        return adminConfigStore.getSnapshot();
     }
 
     private Response buildResponse(AdminConfigSnapshot snapshot, String runId) {
@@ -175,39 +180,6 @@ public class AdminConfigResource extends AbstractResource {
         body.put("source", snapshot.getSource());
         body.put("verified", snapshot.getVerified());
         return body;
-    }
-
-    private AdminConfigSnapshot applyHeaderOverrides(HttpServletRequest request, AdminConfigSnapshot snapshot) {
-        AdminConfigSnapshot copy = snapshot.copy();
-        Boolean useMock = readBooleanHeader(request, "x-use-mock-orca-queue");
-        if (useMock != null) {
-            copy.setUseMockOrcaQueue(useMock);
-            copy.setSource(useMock ? "mock" : "live");
-        }
-        Boolean verify = readBooleanHeader(request, "x-verify-admin-delivery");
-        if (verify != null) {
-            copy.setVerifyAdminDelivery(verify);
-            copy.setVerified(verify);
-        }
-        return copy;
-    }
-
-    private Boolean readBooleanHeader(HttpServletRequest request, String headerName) {
-        if (request == null || headerName == null) {
-            return null;
-        }
-        String value = request.getHeader(headerName);
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        if ("1".equals(trimmed) || "true".equalsIgnoreCase(trimmed)) {
-            return Boolean.TRUE;
-        }
-        if ("0".equals(trimmed) || "false".equalsIgnoreCase(trimmed)) {
-            return Boolean.FALSE;
-        }
-        return null;
     }
 
     private AdminConfigSnapshot toSnapshot(Map<String, Object> payload) {
@@ -276,7 +248,4 @@ public class AdminConfigResource extends AbstractResource {
         return null;
     }
 
-    private String resolveRunId(HttpServletRequest request) {
-        return AbstractOrcaRestResource.resolveRunIdValue(request);
-    }
 }

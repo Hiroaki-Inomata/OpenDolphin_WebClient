@@ -28,6 +28,7 @@ import java.util.logging.Logger;
 import open.dolphin.infomodel.DiagnosisSendWrapper;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.security.audit.AuditDetailSanitizer;
+import open.dolphin.session.UserServiceBean;
 
 /**
  *
@@ -77,6 +78,51 @@ public class AbstractResource {
         sb.append(IInfoModel.COMPOSITE_KEY_MAKER);
         sb.append(pid);
         return sb.toString();
+    }
+
+    protected String requireRemoteUser(HttpServletRequest request) {
+        String remoteUser = request != null ? request.getRemoteUser() : null;
+        if (remoteUser == null || remoteUser.isBlank()) {
+            throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
+        }
+        if (!isCompositeRemoteUser(remoteUser)) {
+            throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized",
+                    "Authenticated principal must include facility and user id.");
+        }
+        return remoteUser;
+    }
+
+    protected String requireActorFacility(HttpServletRequest request) {
+        String actor = requireRemoteUser(request);
+        String facilityId = getRemoteFacility(actor);
+        if (facilityId == null || facilityId.isBlank()) {
+            throw restError(request, Response.Status.UNAUTHORIZED, "facility_missing",
+                    "Facility identifier is required for this operation.");
+        }
+        return facilityId;
+    }
+
+    protected String requireAdmin(HttpServletRequest request, UserServiceBean userServiceBean) {
+        String actor = requireRemoteUser(request);
+        if (userServiceBean == null || !userServiceBean.isAdmin(actor)) {
+            throw restError(request, Response.Status.FORBIDDEN, "forbidden",
+                    "Administrator privilege is required.");
+        }
+        return actor;
+    }
+
+    protected void ensureFacilityMatchOr404(String actorFacility, String targetFacility,
+            String idName, Object idValue, HttpServletRequest request) {
+        if (targetFacility == null || targetFacility.isBlank()
+                || actorFacility == null || actorFacility.isBlank()
+                || !actorFacility.equals(targetFacility)) {
+            Map<String, Object> details = new LinkedHashMap<>();
+            if (idName != null && !idName.isBlank() && idValue != null) {
+                details.put(idName, idValue);
+            }
+            throw restError(request, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.",
+                    details.isEmpty() ? null : details, null);
+        }
     }
 
     // 2013/06/24    
@@ -283,6 +329,10 @@ public class AbstractResource {
             }
         }
         return null;
+    }
+
+    private static boolean isCompositeRemoteUser(String remoteUser) {
+        return remoteUser != null && remoteUser.contains(IInfoModel.COMPOSITE_KEY_MAKER);
     }
 
     public static WebApplicationException restError(HttpServletRequest request, Response.Status status,

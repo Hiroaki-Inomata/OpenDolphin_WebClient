@@ -91,12 +91,15 @@ public class PVTResource2 extends AbstractResource {
 
     @DELETE
     @Path("/{pvtPK}")
-    public void deletePvt(@PathParam("pvtPK") String pkStr) {
+    public void deletePvt(@Context HttpServletRequest request, @PathParam("pvtPK") String pkStr) {
 
         long pvtPK = Long.parseLong(pkStr);
-        String fid = getRemoteFacility(servletReq.getRemoteUser());
+        String fid = requireActorFacility(request);
 
-        int cnt = pvtServiceBean.removePvt(pvtPK, fid);
+        int cnt = pvtServiceBean.removePvtForFacility(fid, pvtPK);
+        if (cnt == 0) {
+            throw new NotFoundException();
+        }
 
         debug(String.valueOf(cnt));
     }

@@ -7,6 +7,7 @@ import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
@@ -60,7 +61,9 @@ public class ScheduleResource extends AbstractResource {
         
     @DELETE
     @Path("/pvt/{param}")
-    public void deletePvt(@PathParam("param") String param) throws Exception {
+    public void deletePvt(@Context HttpServletRequest servletReq, @PathParam("param") String param) throws Exception {
+
+        String fid = requireActorFacility(servletReq);
 
         String[] params = param.split(",");
         long pvtPK = Long.parseLong(params[0]);
@@ -68,7 +71,10 @@ public class ScheduleResource extends AbstractResource {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
         Date d = sdf.parse(params[2]);
 
-        int cnt = scheduleService.removePvt(pvtPK, ptPK, d);
+        int cnt = scheduleService.removePvtForFacility(fid, pvtPK, ptPK, d);
+        if (cnt == 0) {
+            throw new NotFoundException();
+        }
 
         debug(String.valueOf(cnt));
     }

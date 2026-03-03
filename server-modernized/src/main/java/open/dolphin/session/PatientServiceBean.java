@@ -312,17 +312,37 @@ public class PatientServiceBean {
 
     /**
      * 患者情報を更新する。
+     * @param fid 更新対象施設ID
      * @param patient 更新する患者
      * @return 更新数
      */
-    
-    public int update(PatientModel patient) {
+
+    public int updateForFacility(String fid, PatientModel patient) {
+        if (fid == null || fid.isBlank() || patient == null || patient.getId() <= 0) {
+            return 0;
+        }
+        PatientModel existing = em.find(PatientModel.class, patient.getId());
+        if (existing == null || existing.getFacilityId() == null || !existing.getFacilityId().equals(fid)) {
+            return 0;
+        }
+        patient.setFacilityId(existing.getFacilityId());
         PatientModel merged = em.merge(patient);
         ensureKarte(merged);
- //masuda^   患者情報が更新されたらPvtListも更新する必要あり
+//masuda^   患者情報が更新されたらPvtListも更新する必要あり
         updatePvtList(merged);
-//masuda$       
+//masuda$
         return 1;
+    }
+
+    /**
+     * @deprecated facility境界付きの {@link #updateForFacility(String, PatientModel)} を使用すること。
+     */
+    @Deprecated
+    public int update(PatientModel patient) {
+        if (patient == null) {
+            return 0;
+        }
+        return updateForFacility(patient.getFacilityId(), patient);
     }
 
     private KarteBean ensureKarte(PatientModel patient) {
@@ -353,7 +373,7 @@ public class PatientServiceBean {
         }
         return ensureKarte(managed);
     }
-    
+
 //masuda^
     // pvtListのPatientModelを更新し、クライアントにも通知する
     private void updatePvtList(PatientModel pm) {

@@ -154,11 +154,16 @@ public class NLabResource extends AbstractResource {
     @SessionOperation
     @DELETE
     @Path("/module/{param}")
-    public void unsubscribeTrees(@PathParam("param") String param) {
+    public void unsubscribeTrees(@Context HttpServletRequest servletReq, @PathParam("param") String param) {
+
+        String fid = requireActorFacility(servletReq);
 
         long moduleId = Long.parseLong(param);
 
-        int cnt = nLabServiceBean.deleteLabTest(moduleId);
+        int cnt = nLabServiceBean.deleteLabTestForFacility(fid, moduleId);
+        if (cnt == 0) {
+            throw new NotFoundException();
+        }
         
         String cntStr = String.valueOf(cnt);
         debug(cntStr);

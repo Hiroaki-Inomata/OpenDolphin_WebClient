@@ -56,6 +56,7 @@ public class PVTServiceBean {
     private static final String QUERY_KARTE_BY_PATIENT_ID       = "from KarteBean k where k.patient.id=:id";
     private static final String QUERY_APPO_BY_KARTE_ID_DATE     = "from AppointmentModel a where a.karte.id=:id and a.date=:date";
     private static final String QUERY_PVT_BY_PK                 = "from PatientVisitModel p where p.id=:id";
+    private static final String QUERY_PVT_BY_PK_FID             = "from PatientVisitModel p where p.id=:id and p.facilityId=:fid";
 //masuda^    
     private static final String QUERY_KARTE_ID_BY_PATIENT_ID    = "select k.id from KarteBean k where k.patient.id = :id";
     
@@ -873,16 +874,20 @@ public class PVTServiceBean {
      * @return 削除件数
      */
     public int removePvt(long id, String fid) {
-        
-        try {
-            // データベースから削除
-            PatientVisitModel exist = em.find(PatientVisitModel.class, id);
-            // WatingListから開いていないとexist = nullなので。
-            if (exist != null) {
-                em.remove(exist);
-            }
+        return removePvtForFacility(fid, id);
+    }
 
-            // pvtListから削除
+    public int removePvtForFacility(String fid, long id) {
+        if (fid == null || fid.isBlank()) {
+            return 0;
+        }
+        try {
+            PatientVisitModel exist = findPvtForFacility(fid, id);
+            if (exist == null) {
+                return 0;
+            }
+            em.remove(exist);
+
             List<PatientVisitModel> pvtList = eventServiceBean.getPvtList(fid);
             PatientVisitModel toRemove = null;
             for (PatientVisitModel model : pvtList) {
@@ -893,8 +898,8 @@ public class PVTServiceBean {
             }
             if (toRemove != null) {
                 pvtList.remove(toRemove);
-                return 1;
             }
+            return 1;
         } catch (Exception e) {
         }
         return 0;
@@ -918,9 +923,15 @@ public class PVTServiceBean {
      * @return 
      */
     
+    public int updatePvtStateForFacility(String fid, long pk, int state) {
+        PatientVisitModel exist = findPvtForFacility(fid, pk);
+        if (exist == null) {
+            return 0;
+        }
+        return updatePvtStateInternal(exist, state);
+    }
+
     public int updatePvtState(long pk, int state) {
-        
-        //PatientVisitModel exist = (PatientVisitModel) em.find(PatientVisitModel.class, new Long(pk));
         List<PatientVisitModel> list =  em
                 .createQuery(QUERY_PVT_BY_PK)
                 .setParameter(ID, pk)
@@ -929,9 +940,10 @@ public class PVTServiceBean {
         if (list.isEmpty()) {
             return 0;
         }
-        
-        PatientVisitModel exist = list.get(0);
+        return updatePvtStateInternal(list.get(0), state);
+    }
 
+    private int updatePvtStateInternal(PatientVisitModel exist, int state) {
         // 旧来の「送信済み/修正送信済み」状態（bit=1/2）は互換のため許可する。
         if (state == LEGACY_FINALIZED_SAVE_STATE || state == LEGACY_FINALIZED_MODIFY_STATE) {
             exist.setState(state);
@@ -961,9 +973,31 @@ public class PVTServiceBean {
      * @return 1
      */
     
+    public int updateMemoForFacility(String fid, long pk, String memo) {
+        PatientVisitModel exist = findPvtForFacility(fid, pk);
+        if (exist == null) {
+            return 0;
+        }
+        exist.setMemo(memo);
+        return 1;
+    }
+
     public int updateMemo(long pk, String memo) {
         PatientVisitModel exist = (PatientVisitModel) em.find(PatientVisitModel.class, new Long(pk));
         exist.setMemo(memo);
         return 1;
+    }
+
+    private PatientVisitModel findPvtForFacility(String fid, long id) {
+        if (fid == null || fid.isBlank()) {
+            return null;
+        }
+        List<PatientVisitModel> list = em
+                .createQuery(QUERY_PVT_BY_PK_FID)
+                .setParameter(ID, id)
+                .setParameter(FID, fid)
+                .setMaxResults(1)
+                .getResultList();
+        return list.isEmpty() ? null : list.get(0);
     }
 }

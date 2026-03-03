@@ -100,13 +100,18 @@ public class PVTResource extends AbstractResource {
     @PUT
     @Path("/{param}")
     @Produces(MediaType.TEXT_PLAIN)
-    public String putPvtState(@PathParam("param") String param) {
+    public String putPvtState(@Context HttpServletRequest servletReq, @PathParam("param") String param) {
+
+        String fid = requireActorFacility(servletReq);
         
         String[] params = param.split(CAMMA);
         long pvtPK = Long.parseLong(params[0]);
         int state = Integer.parseInt(params[1]);
         
-        int cnt = pVTServiceBean.updatePvtState(pvtPK, state);
+        int cnt = pVTServiceBean.updatePvtStateForFacility(fid, pvtPK, state);
+        if (cnt == 0) {
+            throw new NotFoundException();
+        }
         String cntStr = String.valueOf(cnt);
         debug(cntStr);
 
@@ -116,7 +121,9 @@ public class PVTResource extends AbstractResource {
     @PUT
     @Path("/memo/{param}")
     @Produces(MediaType.TEXT_PLAIN)
-    public String putMemo(@PathParam("param") String param) {
+    public String putMemo(@Context HttpServletRequest servletReq, @PathParam("param") String param) {
+
+        String fid = requireActorFacility(servletReq);
 
         String[] params = param.split(CAMMA);
         long pvtPK = Long.parseLong(params[0]);
@@ -124,7 +131,10 @@ public class PVTResource extends AbstractResource {
         //String memo = params[1];
         String memo = (params != null && params.length>1) ? params[1] : "";   // chg funabashi （空白対応）
 
-        int cnt = pVTServiceBean.updateMemo(pvtPK, memo);
+        int cnt = pVTServiceBean.updateMemoForFacility(fid, pvtPK, memo);
+        if (cnt == 0) {
+            throw new NotFoundException();
+        }
         String cntStr = String.valueOf(cnt);
         debug(cntStr);
 
@@ -133,11 +143,16 @@ public class PVTResource extends AbstractResource {
 
     @DELETE
     @Path("/{pvtPK}")
-    public void deletePvt(@PathParam("pvtPK") String pkStr) {
+    public void deletePvt(@Context HttpServletRequest servletReq, @PathParam("pvtPK") String pkStr) {
+
+        String fid = requireActorFacility(servletReq);
 
         long pvtPK = Long.parseLong(pkStr);
 
-        int cnt = pVTServiceBean.removePvt(pvtPK);
+        int cnt = pVTServiceBean.removePvtForFacility(fid, pvtPK);
+        if (cnt == 0) {
+            throw new NotFoundException();
+        }
 
         debug(String.valueOf(cnt));
     }

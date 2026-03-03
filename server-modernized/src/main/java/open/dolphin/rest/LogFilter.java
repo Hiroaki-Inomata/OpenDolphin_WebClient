@@ -10,6 +10,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 import jakarta.inject.Inject;
 import jakarta.servlet.*;
 import jakarta.servlet.annotation.WebFilter;
@@ -34,8 +35,6 @@ import org.jboss.logmanager.MDC;
 public class LogFilter implements Filter {
 
     private static final Logger SECURITY_LOGGER = Logger.getLogger(LogFilter.class.getName());
-    private static final String USER_NAME = "userName";
-    private static final String PASSWORD = "password";
     private static final String UNAUTHORIZED_USER = "Unauthorized user: ";
     private static final String TRACE_ID_HEADER = "X-Trace-Id";
     private static final String REQUEST_ID_HEADER = "X-Request-Id";
@@ -47,14 +46,10 @@ public class LogFilter implements Filter {
     private static final String MDC_REQUEST_ID_KEY = "requestId";
     private static final String MDC_RUN_ID_KEY = "runId";
     private static final String ANONYMOUS_PRINCIPAL = "anonymous";
-    private static final String FACILITY_HEADER = "X-Facility-Id";
-    private static final String LEGACY_FACILITY_HEADER = "facilityId";
     private static final String AUTH_CHALLENGE = "Basic realm=\"OpenDolphin\"";
     private static final String ERROR_AUDIT_RECORDED_ATTR = LogFilter.class.getName() + ".ERROR_AUDIT_RECORDED";
-    private static final String HEADER_FACILITY_DETAILS_KEY = "facilityIdHeader";
     private static final String PRINCIPAL_FACILITY_DETAILS_KEY = "facilityId";
-    private static final String HEADER_AUTH_ENV = "LOGFILTER_HEADER_AUTH_ENABLED";
-    private static final String HEADER_AUTH_PROP = "logfilter.header.auth.enabled";
+    private static final Pattern SAFE_TOKEN = Pattern.compile("^[A-Za-z0-9._-]{1,64}$");
 
     @Inject
     private SecurityContext securityContext;
@@ -65,14 +60,9 @@ public class LogFilter implements Filter {
     @Inject
     private UserServiceBean userService;
 
-    private boolean headerAuthEnabled;
-
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
-        headerAuthEnabled = isTruthy(firstNonBlank(
-                System.getProperty(HEADER_AUTH_PROP),
-                System.getenv(HEADER_AUTH_ENV)));
-        SECURITY_LOGGER.log(Level.INFO, "LogFilter header fallback is {0}", headerAuthEnabled ? "enabled" : "disabled");
+        // No runtime toggles; only principal and Basic authentication are supported.
     }
 
     @Override
@@ -84,7 +74,7 @@ public class LogFilter implements Filter {
 
         String traceId = resolveTraceId(req);
         String requestId = resolveRequestId(req, traceId);
-        String runId = isOrcaRequest(req) ? AbstractOrcaRestResource.resolveRunIdValue(req) : null;
+        String runId = resolveRunId(req);
         req.setAttribute(TRACE_ID_ATTRIBUTE, traceId);
         req.setAttribute(REQUEST_ID_ATTRIBUTE, requestId);
         if (runId != null && !runId.isBlank()) {
@@ -106,27 +96,8 @@ public class LogFilter implements Filter {
             if (principalUser.isEmpty()) {
                 principalUser = authenticateWithBasicHeader(req);
             }
-            String headerUser = safeHeader(req, USER_NAME);
-            String headerPassword = safeHeader(req, PASSWORD);
-
-            boolean hasDeprecatedHeader = (headerUser != null && !headerUser.isBlank())
-                    || (headerPassword != null && !headerPassword.isBlank());
-
-            if (principalUser.isEmpty() && headerAuthEnabled && hasDeprecatedHeader) {
-                principalUser = authenticateWithHeader(req, headerUser, headerPassword);
-            }
-
             if (principalUser.isEmpty()) {
-                String candidateUser = normalize(headerUser);
-                if (hasDeprecatedHeader && !headerAuthEnabled) {
-                    logUnauthorized(req, candidateUser, traceId);
-                    recordUnauthorizedAudit(req, traceId, candidateUser, "header_auth_disabled",
-                            "Header-based authentication is not allowed", "header_authentication_disabled",
-                            HttpServletResponse.SC_UNAUTHORIZED);
-                    sendUnauthorized(req, res, "header_auth_disabled", "Header-based authentication is not allowed",
-                            unauthorizedDetails(candidateUser, "header_authentication_disabled"));
-                    return;
-                }
+                String candidateUser = extractBasicAuthUserCandidate(req);
                 logUnauthorized(req, candidateUser, traceId);
                 recordUnauthorizedAudit(req, traceId, candidateUser, "unauthorized",
                         "Authentication required", "authentication_failed", HttpServletResponse.SC_UNAUTHORIZED);
@@ -135,15 +106,15 @@ public class LogFilter implements Filter {
                 return;
             }
 
-            String resolvedUser = resolveEffectiveUser(principalUser.orElse(null), req);
-            if (resolvedUser == null) {
-                String candidateUser = principalUser.orElse(null);
+            String resolvedUser = normalize(principalUser.orElse(null));
+            if (!isCompositePrincipal(resolvedUser)) {
+                String candidateUser = resolvedUser;
                 logUnauthorized(req, candidateUser, traceId);
                 recordUnauthorizedAudit(req, traceId, candidateUser, "unauthorized",
-                        "Authenticated user is not associated with a facility",
-                        "principal_unresolved", HttpServletResponse.SC_UNAUTHORIZED);
-                sendUnauthorized(req, res, "unauthorized", "Authenticated user is not associated with a facility",
-                        unauthorizedDetails(candidateUser, "principal_unresolved"));
+                        "Authenticated principal must be composite",
+                        "principal_not_composite", HttpServletResponse.SC_UNAUTHORIZED);
+                sendUnauthorized(req, res, "unauthorized", "Authenticated principal must be composite",
+                        unauthorizedDetails(candidateUser, "principal_not_composite"));
                 return;
             }
 
@@ -209,41 +180,64 @@ public class LogFilter implements Filter {
             }
             return Optional.of(name);
         } catch (IllegalStateException ex) {
-            SECURITY_LOGGER.log(Level.FINE, "SecurityContext unavailable; request will be rejected (header auth disabled).", ex);
+            SECURITY_LOGGER.log(Level.FINE, "SecurityContext unavailable; request will be rejected.", ex);
             return Optional.empty();
         }
     }
 
-    private String firstNonBlank(String... candidates) {
-        if (candidates == null) {
-            return null;
-        }
-        for (String candidate : candidates) {
-            if (candidate != null && !candidate.isBlank()) {
-                return candidate.trim();
-            }
-        }
-        return null;
-    }
-
     private String resolveTraceId(HttpServletRequest req) {
-        String fromHeader = safeHeader(req, TRACE_ID_HEADER);
-        if (fromHeader != null && !fromHeader.isBlank()) {
-            return fromHeader;
+        String traceHeader = safeHeader(req, TRACE_ID_HEADER);
+        String normalizedTrace = normalizeToken(traceHeader);
+        if (normalizedTrace != null) {
+            return normalizedTrace;
         }
-        String requestId = safeHeader(req, REQUEST_ID_HEADER);
-        if (requestId != null && !requestId.isBlank()) {
-            return requestId;
+        if (normalize(traceHeader) != null) {
+            return UUID.randomUUID().toString();
+        }
+
+        String requestHeader = safeHeader(req, REQUEST_ID_HEADER);
+        String normalizedRequest = normalizeToken(requestHeader);
+        if (normalizedRequest != null) {
+            return normalizedRequest;
+        }
+        if (normalize(requestHeader) != null) {
+            return UUID.randomUUID().toString();
         }
         return UUID.randomUUID().toString();
     }
 
     private String resolveRequestId(HttpServletRequest req, String traceId) {
-        String requestId = safeHeader(req, REQUEST_ID_HEADER);
-        if (requestId != null && !requestId.isBlank()) {
-            return requestId;
+        String requestHeader = safeHeader(req, REQUEST_ID_HEADER);
+        String normalizedRequest = normalizeToken(requestHeader);
+        if (normalizedRequest != null) {
+            return normalizedRequest;
         }
-        return traceId;
+        if (normalize(requestHeader) != null) {
+            return UUID.randomUUID().toString();
+        }
+
+        String normalizedTrace = normalizeToken(traceId);
+        return normalizedTrace != null ? normalizedTrace : UUID.randomUUID().toString();
+    }
+
+    private String resolveRunId(HttpServletRequest req) {
+        if (!isOrcaRequest(req)) {
+            return null;
+        }
+        String normalizedRunId = normalizeToken(AbstractOrcaRestResource.resolveRunIdValue(req));
+        if (normalizedRunId != null) {
+            return normalizedRunId;
+        }
+        String generatedRunId = normalizeToken(AbstractOrcaRestResource.resolveRunIdValue((String) null));
+        return generatedRunId != null ? generatedRunId : UUID.randomUUID().toString();
+    }
+
+    private String normalizeToken(String candidate) {
+        String normalized = normalize(candidate);
+        if (normalized == null) {
+            return null;
+        }
+        return SAFE_TOKEN.matcher(normalized).matches() ? normalized : null;
     }
 
     private boolean isOrcaRequest(HttpServletRequest request) {
@@ -332,27 +326,9 @@ public class LogFilter implements Filter {
         Logger.getLogger("open.dolphin").warning(sbd.toString());
     }
 
-    private String resolveEffectiveUser(String effectiveUser, HttpServletRequest request) {
-        String normalizedEffective = normalize(effectiveUser);
-        if (isCompositePrincipal(normalizedEffective)) {
-            return normalizedEffective;
-        }
-
-        String facility = firstNonBlank(resolveFacilityHeader(request), resolveFacilityFromPath(request));
-        if (facility != null && normalizedEffective != null) {
-            return facility + IInfoModel.COMPOSITE_KEY_MAKER + normalizedEffective;
-        }
-
-        if (!isBlank(normalizedEffective)) {
-            SECURITY_LOGGER.warning(() -> "Authenticated principal is missing facility component and will be rejected");
-        }
-
-        return null;
-    }
-
     private Optional<String> authenticateWithBasicHeader(HttpServletRequest request) {
         String auth = safeHeader(request, "Authorization");
-        if (auth == null || auth.isBlank()) {
+        if (auth == null) {
             return Optional.empty();
         }
         String trimmed = auth.trim();
@@ -374,16 +350,13 @@ public class LogFilter implements Filter {
         }
         String rawUser = decoded.substring(0, sep).trim();
         String rawPass = decoded.substring(sep + 1);
-
-        String facility = firstNonBlank(resolveFacilityHeader(request), resolveFacilityFromPath(request));
-        String compositeUser = isCompositePrincipal(rawUser)
-                ? rawUser
-                : (facility != null ? facility + IInfoModel.COMPOSITE_KEY_MAKER + rawUser : rawUser);
-
-        if (isBlank(compositeUser)) {
+        if (!isCompositePrincipal(rawUser) || rawPass == null || userService == null) {
             return Optional.empty();
         }
-
+        String compositeUser = normalize(rawUser);
+        if (compositeUser == null) {
+            return Optional.empty();
+        }
         if (userService.authenticate(compositeUser, rawPass)) {
             return Optional.of(compositeUser);
         }
@@ -391,45 +364,27 @@ public class LogFilter implements Filter {
         return Optional.empty();
     }
 
-    private Optional<String> authenticateWithHeader(HttpServletRequest request, String headerUser, String headerPassword) {
-        String rawUser = normalize(headerUser);
-        String rawPass = headerPassword;
-        if (isBlank(rawUser) || rawPass == null) {
-            return Optional.empty();
-        }
-        String facility = firstNonBlank(resolveFacilityHeader(request), resolveFacilityFromPath(request));
-        String compositeUser = isCompositePrincipal(rawUser)
-                ? rawUser
-                : (facility != null ? facility + IInfoModel.COMPOSITE_KEY_MAKER + rawUser : rawUser);
-        if (isBlank(compositeUser)) {
-            return Optional.empty();
-        }
-        if (userService.authenticate(compositeUser, rawPass)) {
-            return Optional.of(compositeUser);
-        }
-        SECURITY_LOGGER.log(Level.FINE, "Header authentication failed for user {0}", compositeUser);
-        return Optional.empty();
-    }
-
-    private String resolveFacilityFromPath(HttpServletRequest request) {
-        if (request == null) {
+    private String extractBasicAuthUserCandidate(HttpServletRequest request) {
+        String auth = safeHeader(request, "Authorization");
+        if (auth == null) {
             return null;
         }
-        String uri = request.getRequestURI();
-        if (uri == null) {
+        String trimmed = auth.trim();
+        if (!trimmed.regionMatches(true, 0, "Basic ", 0, 6)) {
             return null;
         }
-        String marker = "/user/";
-        int idx = uri.indexOf(marker);
-        if (idx < 0) {
+        String encoded = trimmed.substring(6).trim();
+        try {
+            String decoded = new String(Base64.getDecoder().decode(encoded), java.nio.charset.StandardCharsets.UTF_8);
+            int sep = decoded.indexOf(':');
+            if (sep < 0) {
+                return null;
+            }
+            String user = decoded.substring(0, sep);
+            return normalize(user);
+        } catch (IllegalArgumentException ex) {
             return null;
         }
-        String remainder = uri.substring(idx + marker.length());
-        int sep = remainder.indexOf(IInfoModel.COMPOSITE_KEY_MAKER);
-        if (sep > 0) {
-            return remainder.substring(0, sep);
-        }
-        return null;
     }
 
     private void sendUnauthorized(HttpServletRequest request, HttpServletResponse response, String errorCode,
@@ -462,48 +417,6 @@ public class LogFilter implements Filter {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private boolean isBlank(String value) {
-        return value == null || value.trim().isEmpty();
-    }
-
-    private boolean isTruthy(String value) {
-        if (value == null) {
-            return false;
-        }
-        switch (value.trim().toLowerCase()) {
-            case "1":
-            case "true":
-            case "yes":
-            case "y":
-            case "on":
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private String resolveFacilityHeader(HttpServletRequest request) {
-        if (request == null) {
-            return null;
-        }
-        String override = normalize(request.getHeader(FACILITY_HEADER));
-        if (override != null) {
-            return override;
-        }
-        return normalize(request.getHeader(LEGACY_FACILITY_HEADER));
-    }
-
-    private String extractUserSegment(String candidate) {
-        if (candidate == null) {
-            return null;
-        }
-        int separator = candidate.indexOf(IInfoModel.COMPOSITE_KEY_MAKER);
-        if (separator >= 0 && separator + 1 < candidate.length()) {
-            return candidate.substring(separator + 1);
-        }
-        return candidate;
     }
 
     private String safeHeader(HttpServletRequest req, String headerName) {
@@ -578,10 +491,6 @@ public class LogFilter implements Filter {
             details.put("errorMessage", errorMessage);
         }
         details.put("httpStatus", statusCode);
-        String facilityHeader = resolveFacilityHeader(request);
-        if (facilityHeader != null) {
-            details.put(HEADER_FACILITY_DETAILS_KEY, facilityHeader);
-        }
         String facilityFromPrincipal = extractFacilitySegment(principal);
         if (facilityFromPrincipal != null) {
             details.put(PRINCIPAL_FACILITY_DETAILS_KEY, facilityFromPrincipal);
@@ -650,10 +559,6 @@ public class LogFilter implements Filter {
         }
         if (!details.containsKey("validationError") && (status == 400 || status == 422)) {
             details.put("validationError", Boolean.TRUE);
-        }
-        String facilityHeader = resolveFacilityHeader(request);
-        if (facilityHeader != null) {
-            details.put(HEADER_FACILITY_DETAILS_KEY, facilityHeader);
         }
         String facilityFromPrincipal = extractFacilitySegment(request != null ? request.getRemoteUser() : null);
         if (facilityFromPrincipal != null) {
