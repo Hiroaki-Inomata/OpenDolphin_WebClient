@@ -5,6 +5,8 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
@@ -18,7 +20,6 @@ import open.dolphin.infomodel.HealthInsuranceModel;
 import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.PatientVisitModel;
-import open.dolphin.infomodel.RegisteredDiagnosisModel;
 import open.dolphin.session.framework.SessionOperation;
 
 /**
@@ -30,6 +31,8 @@ import open.dolphin.session.framework.SessionOperation;
 @Transactional
 @SessionOperation
 public class PatientServiceBean {
+
+    private static final Logger LOGGER = Logger.getLogger(PatientServiceBean.class.getName());
 
     // cancel status=64 を where 節へ追加
     private static final String QUERY_PATIENT_BY_PVTDATE = "from PatientVisitModel p where p.facilityId = :fid and p.pvtDate like :date and p.status!=64";
@@ -486,52 +489,62 @@ public class PatientServiceBean {
 //s.oh$
     
 //s.oh^ 2014/10/01 患者検索(傷病名)
-    public List<PatientModel> getCustom(String fid, String param) {
-        List<PatientModel> ret = new ArrayList();
-        
-        final String DIAGNOSIS = "[D]";
-        
-        if(param.indexOf(DIAGNOSIS) == 0) {
-            String val = param.substring(param.indexOf(DIAGNOSIS) + DIAGNOSIS.length());
-            List<RegisteredDiagnosisModel> list = null;
-            if(val.startsWith("*") && val.endsWith("*")) {
-                list = (List<RegisteredDiagnosisModel>)
-                       em.createQuery("from RegisteredDiagnosisModel d where d.diagnosis like :val and d.status='F'")
-                         .setParameter("val", PERCENT+val+PERCENT)
-                         .getResultList();
-            }else if(val.startsWith("*")) {
-                list = (List<RegisteredDiagnosisModel>)
-                       em.createQuery("from RegisteredDiagnosisModel d where d.diagnosis like :val and d.status='F'")
-                         .setParameter("val", PERCENT+val)
-                         .getResultList();
-            }else if(val.endsWith("*")) {
-                list = (List<RegisteredDiagnosisModel>)
-                       em.createQuery("from RegisteredDiagnosisModel d where d.diagnosis like :val and d.status='F'")
-                         .setParameter("val", val+PERCENT)
-                         .getResultList();
-            }else{
-                list = (List<RegisteredDiagnosisModel>)
-                       em.createQuery("from RegisteredDiagnosisModel d where d.diagnosis=:val and d.status='F'")
-                         .setParameter("val", val)
-                         .getResultList();
-            }
-            HashMap<String, String> map = new HashMap(10,0.75f);
-            for(RegisteredDiagnosisModel rdm : list) {
-                KarteBean karte = (KarteBean)em.find(KarteBean.class, rdm.getKarte().getId());
-                if(karte != null && karte.getPatient() != null) {
-                    if(map.get(karte.getPatient().getPatientId())!=null) {
-                        continue;
-                    }else{
-                        map.put(karte.getPatient().getPatientId(), "pid");
-                    }
-                    ret.add(karte.getPatient());
-                }
-            }
-            map.clear();
+    private String toSqlLikePattern(String raw) {
+        if (raw == null) {
+            return "%";
         }
-        
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty()) {
+            return "%";
+        }
+        boolean leading = trimmed.startsWith("*");
+        boolean trailing = trimmed.endsWith("*");
+        String core = trimmed.replaceAll("^\\*+|\\*+$", "");
+        if (core.isEmpty()) {
+            return "%";
+        }
+        if (leading && trailing) {
+            return "%" + core + "%";
+        }
+        if (leading) {
+            return "%" + core;
+        }
+        if (trailing) {
+            return core + "%";
+        }
+        return core;
+    }
+
+    public List<PatientModel> getCustom(String fid, String param) {
+        List<PatientModel> ret = new ArrayList<>();
+
+        final String DIAGNOSIS = "[D]";
+
+        if (fid == null || fid.isBlank()) {
+            return ret;
+        }
+        if (param == null || !param.contains(DIAGNOSIS)) {
+            return ret;
+        }
+
+        try {
+            String raw = param.substring(param.indexOf(DIAGNOSIS) + DIAGNOSIS.length());
+            String val = toSqlLikePattern(raw);
+            ret = em.createQuery(
+                    "select distinct k.patient "
+                    + "from RegisteredDiagnosisModel d join d.karte k join k.patient p "
+                    + "where p.facilityId = :fid and d.status='F' and d.diagnosis like :val",
+                    PatientModel.class)
+                    .setParameter("fid", fid)
+                    .setParameter("val", val)
+                    .getResultList();
+        } catch (RuntimeException ex) {
+            LOGGER.log(Level.WARNING, "getCustom diagnosis search failed", ex);
+            ret = new ArrayList<>();
+        }
+
         this.setHealthInsurances(ret);
-        
+
         return ret;
     }
 //s.oh$

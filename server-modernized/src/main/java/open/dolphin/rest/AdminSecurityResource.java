@@ -33,10 +33,14 @@ public class AdminSecurityResource extends AbstractResource {
     @Inject
     private SessionAuditDispatcher sessionAuditDispatcher;
 
+    @Inject
+    private open.dolphin.session.UserServiceBean userServiceBean;
+
     @GET
     @Path("/header-credentials/cache")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getCache(@Context HttpServletRequest request) {
+        requireAdmin(request, userServiceBean);
         Map<String, String> snapshot = userCache.snapshot();
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("ttlMinutes", userCache.ttlMinutes());
@@ -54,6 +58,7 @@ public class AdminSecurityResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public Response clearCache(@Context HttpServletRequest request, @QueryParam("userName") String userName) {
+        requireAdmin(request, userServiceBean);
         String normalized = normalize(userName);
         boolean clearedAll = normalized == null;
         int clearedCount = 0;

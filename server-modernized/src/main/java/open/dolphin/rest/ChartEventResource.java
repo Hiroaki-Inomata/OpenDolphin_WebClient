@@ -85,14 +85,12 @@ public class ChartEventResource extends AbstractResource {
             @Override
             public void onTimeout(AsyncEvent event) throws IOException {
                 remove();
-                //System.out.println("ON TIMEOUT");
                 //event.getThrowable().printStackTrace(System.out);
             }
 
             @Override
             public void onError(AsyncEvent event) throws IOException {
                 remove();
-                //System.out.println("ON ERROR");
                 //event.getThrowable().printStackTrace(System.out);
             }
 

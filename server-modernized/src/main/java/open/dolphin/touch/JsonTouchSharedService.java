@@ -26,6 +26,7 @@ import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.PVTHealthInsuranceModel;
 import open.dolphin.infomodel.PVTPublicInsuranceItemModel;
 import open.dolphin.infomodel.PatientModel;
+import open.dolphin.infomodel.RegisteredDiagnosisModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.infomodel.VisitPackage;
 import open.dolphin.session.ChartEventServiceBean;
@@ -189,14 +190,12 @@ public class JsonTouchSharedService {
         }
 
         if (wrapper != null) {
+            validateDiagnosisDefaults(wrapper);
             karteService.postPutSendDiagnosis(wrapper);
         }
 
         if (deletedDiagnosis != null && !deletedDiagnosis.isEmpty()) {
-            List<Long> list = new ArrayList<>(deletedDiagnosis.size());
-            for (String str : deletedDiagnosis) {
-                list.add(Long.parseLong(str));
-            }
+            List<Long> list = parseDiagnosisIds(deletedDiagnosis);
             karteService.removeDiagnosis(list);
         }
 
@@ -205,6 +204,36 @@ public class JsonTouchSharedService {
         }
 
         return retPk;
+    }
+
+    private void validateDiagnosisDefaults(DiagnosisSendWrapper wrapper) {
+        validateDiagnosisList(wrapper.getAddedDiagnosis());
+        validateDiagnosisList(wrapper.getUpdatedDiagnosis());
+    }
+
+    private void validateDiagnosisList(List<RegisteredDiagnosisModel> list) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        for (RegisteredDiagnosisModel diagnosis : list) {
+            if (diagnosis == null) {
+                continue;
+            }
+            if (diagnosis.getUserModel() == null || diagnosis.getKarte() == null) {
+                throw new IllegalArgumentException("Diagnosis must include actor user and karte.");
+            }
+        }
+    }
+
+    private List<Long> parseDiagnosisIds(List<String> deletedDiagnosis) {
+        List<Long> ids = new ArrayList<>(deletedDiagnosis.size());
+        for (String str : deletedDiagnosis) {
+            if (str == null || str.isBlank()) {
+                throw new NumberFormatException("Diagnosis id is blank.");
+            }
+            ids.add(Long.parseLong(str.trim()));
+        }
+        return ids;
     }
 
     private void adjustPublicInsuranceItems(DocumentModel model) {

@@ -33,6 +33,14 @@
 - `docs/server-modernization/operations/API_PARITY_RESPONSE_CHECK.md`
 - `docs/server-modernization/api-smoke-test.md`
 
+### セキュリティ設定（Trusted Proxy）
+- 監査ログのクライアントIP解決で `X-Forwarded-For` / `X-Real-IP` を信用するには、trusted proxy を明示設定してください。
+- 設定キー:
+  - system property: `audit.trusted.proxies`
+  - environment variable: `AUDIT_TRUSTED_PROXIES`
+- 値はカンマ区切りで指定（単一IP または CIDR 例: `203.0.113.10,203.0.113.0/24`）。
+- 未設定時は forwarded ヘッダを信用せず、`remoteAddr` を採用します（loopback は開発用途として許容）。
+
 ### CLAIM 廃止 / API-only
 - `docs/server-modernization/ORCA_CLAIM_DEPRECATION.md`
 - `docs/server-modernization/orca-claim-deprecation/`

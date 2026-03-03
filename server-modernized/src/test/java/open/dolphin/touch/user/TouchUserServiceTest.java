@@ -16,7 +16,6 @@ import open.dolphin.infomodel.DepartmentModel;
 import open.dolphin.infomodel.FacilityModel;
 import open.dolphin.infomodel.LicenseModel;
 import open.dolphin.infomodel.UserModel;
-import open.dolphin.touch.AbstractResource;
 import open.dolphin.touch.support.TouchAuditHelper;
 import open.dolphin.touch.support.TouchRequestContext;
 import open.dolphin.touch.session.IPhoneServiceBean;
@@ -76,19 +75,22 @@ class TouchUserServiceTest extends RuntimeDelegateTestSupport {
     @Test
     void getUserSummary_requiresAccessReason() {
         WebApplicationException ex = assertThrows(WebApplicationException.class,
-                () -> service.getUserSummary(CONTEXT_NO_REASON, "user", CONTEXT.facilityId(), "pass",
-                        DEVICE_ID));
+                () -> service.getUserSummary(CONTEXT_NO_REASON, DEVICE_ID));
         assertThat(ex.getResponse().getStatus()).isEqualTo(403);
-        verify(iPhoneServiceBean, never()).getUser(any(), any());
+        verify(iPhoneServiceBean, never()).getUserById(any());
     }
 
     @Test
-    void getUserSummary_validatesHeaderUser() {
+    void getUserSummary_validatesAuthenticatedUser() {
+        UserModel user = new UserModel();
+        user.setUserId("1.3.6.1.4.1.9414.2.10:other-user");
+        user.setMemberType("ASP_MEMBER");
+        when(iPhoneServiceBean.getUserById(CONTEXT.remoteUser())).thenReturn(user);
+
         WebApplicationException ex = assertThrows(WebApplicationException.class,
-                () -> service.getUserSummary(CONTEXT, "other-user", CONTEXT.facilityId(), "pass",
-                        DEVICE_ID));
+                () -> service.getUserSummary(CONTEXT, DEVICE_ID));
         assertThat(ex.getResponse().getStatus()).isEqualTo(401);
-        verify(iPhoneServiceBean, never()).getUser(any(), any());
+        verify(iPhoneServiceBean).getUserById(CONTEXT.remoteUser());
     }
 
     @Test
@@ -101,17 +103,16 @@ class TouchUserServiceTest extends RuntimeDelegateTestSupport {
         user.setFacilityModel(buildFacility());
         user.setLicenseModel(buildLicense());
         user.setDepartmentModel(buildDepartment());
-        when(iPhoneServiceBean.getUser(AbstractResource.DOLPHIN_ASP_OID + "2.10" + ":user", "pass"))
+        when(iPhoneServiceBean.getUserById(CONTEXT.remoteUser()))
                 .thenReturn(user);
 
-        TouchUserDtos.TouchUserResponse response = service.getUserSummary(CONTEXT, "user", CONTEXT.facilityId(), "pass",
-                DEVICE_ID);
+        TouchUserDtos.TouchUserResponse response = service.getUserSummary(CONTEXT, DEVICE_ID);
 
         assertThat(response.userPk()).isEqualTo(42L);
         assertThat(response.userId()).isEqualTo("user");
         assertThat(response.facility().facilityId()).isEqualTo(CONTEXT.facilityId());
         ArgumentCaptor<Map<String, Object>> detailCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(auditHelper).record(eq(CONTEXT), eq("TOUCH_USER_LOOKUP"), eq("/touch/user"), detailCaptor.capture());
+        verify(auditHelper).record(eq(CONTEXT), eq("TOUCH_USER_LOOKUP"), eq("/touch/user/summary"), detailCaptor.capture());
         assertThat(detailCaptor.getValue()).containsEntry("userId", CONTEXT.remoteUser());
     }
 

@@ -8,6 +8,7 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import open.dolphin.touch.support.TouchErrorMapper;
 import open.dolphin.touch.support.TouchRequestContext;
 import open.dolphin.touch.support.TouchRequestContextExtractor;
@@ -24,19 +25,29 @@ public class TouchUserResource {
 
     @GET
     @Path("/user/{param}")
+    @Deprecated
     public TouchUserDtos.TouchUserResponse getUser(@Context HttpServletRequest request,
                                                    @PathParam("param") String param) {
         TouchRequestContext context = TouchRequestContextExtractor.from(request);
         String[] params = param.split(",");
-        if (params.length != 3) {
-            throw TouchErrorMapper.toException(jakarta.ws.rs.core.Response.Status.BAD_REQUEST,
+        if (params.length >= 3) {
+            throw TouchErrorMapper.toException(Response.Status.GONE,
+                    "deprecated_endpoint", "このエンドポイントは廃止されました。新しい summary API を使用してください。", context.traceId());
+        }
+        if (params.length == 0 || params[0].isBlank()) {
+            throw TouchErrorMapper.toException(Response.Status.BAD_REQUEST,
                     "invalid_parameters", "パラメータ形式が不正です。", context.traceId());
         }
-        String pathUserId = params[0];
-        String facilityId = params[1];
-        String password = params[2];
+        throw TouchErrorMapper.toException(Response.Status.GONE,
+                "deprecated_endpoint", "このエンドポイントは廃止されました。新しい summary API を使用してください。", context.traceId());
+    }
+
+    @GET
+    @Path("/user/summary")
+    public TouchUserDtos.TouchUserResponse getUserSummary(@Context HttpServletRequest request) {
+        TouchRequestContext context = TouchRequestContextExtractor.from(request);
         String deviceId = request.getHeader("X-Device-Id");
-        return userService.getUserSummary(context, pathUserId, facilityId, password, deviceId);
+        return userService.getUserSummary(context, deviceId);
     }
 }
 

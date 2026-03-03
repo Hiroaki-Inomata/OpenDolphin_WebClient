@@ -100,8 +100,37 @@ public final class BlockWrapper extends HttpServletRequestWrapper {
     }
 
     public String getRequestURIForLog() {
-        // /openDolphin/resources/
-        String ret = getRequestURI();
-        return ret.substring(22);
+        String requestUri = getRequestURI();
+        if (requestUri == null || requestUri.isBlank()) {
+            return requestUri;
+        }
+
+        String uriForLog = requestUri.startsWith("/openDolphin/resources")
+                ? requestUri.substring(22)
+                : requestUri;
+        return maskLegacyUserPath(uriForLog);
+    }
+
+    private String maskLegacyUserPath(String uri) {
+        if (uri == null) {
+            return null;
+        }
+        if (!uri.startsWith("/touch/user/")
+                && !uri.startsWith("/touchasp/user/")
+                && !uri.startsWith("/demo/user/")
+                && !uri.startsWith("/demoasp/user/")) {
+            return uri;
+        }
+
+        int lastSlash = uri.lastIndexOf('/');
+        if (lastSlash < 0 || lastSlash + 1 >= uri.length()) {
+            return uri;
+        }
+        String segment = uri.substring(lastSlash + 1);
+        String[] parts = segment.split(",");
+        if (parts.length < 3) {
+            return uri;
+        }
+        return uri.substring(0, lastSlash + 1) + parts[0] + "," + parts[1] + ",****";
     }
 }

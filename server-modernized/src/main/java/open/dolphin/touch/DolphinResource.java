@@ -129,11 +129,6 @@ public class DolphinResource extends AbstractResource {
     private static final String USER_ALLOWED_TYPE = "ASP_MEMBER";
     private static final String ASP_TEST_USER = "ASP_TESTER";
 
-    // S3 parameters
-    private static final String ELEMENT_S3_URL = "s3URL";
-    private static final String ELEMENT_S3_ACCESS_KEY = "s3AccessKey";
-    private static final String ELEMENT_S3_SECRET_KEY = "s3SecretKey";
-    // S3 parameters
     private static final int DEFAULT_LIMIT = 50;
     private static final int MAX_LIMIT = 1000;
     private static final int DEFAULT_FALLBACK_DAYS = 6;

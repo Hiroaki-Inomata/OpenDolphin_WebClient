@@ -150,7 +150,6 @@ public class NLabServiceBean {
                 sb.append(moduleKey);
                 moduleKey = sb.toString();
                 module.setModuleKey(moduleKey);
-                //System.err.println("corrected moduke key=" + module.getModuleKey());
             } 
         }
 
@@ -161,7 +160,6 @@ public class NLabServiceBean {
                 exist = (NLaboModule)em.createQuery(QUERY_MODULE_BY_MODULE_KEY)
                                        .setParameter(MODULEKEY, moduleKey)
                                        .getSingleResult();
-                //System.err.println("module did exist");
 
             } else {
                 exist = (NLaboModule)em.createQuery(QUERY_MODULE_BY_PID_SAMPLEDATE_LABCODE)
@@ -178,7 +176,6 @@ public class NLabServiceBean {
         // Cascade.TYPE=ALL
         if (exist != null) {
             em.remove(exist);
-            //System.err.println("module did remove");
         }
 
         // 永続化する

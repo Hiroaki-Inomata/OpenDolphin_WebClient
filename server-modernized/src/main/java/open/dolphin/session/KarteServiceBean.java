@@ -73,6 +73,9 @@ public class KarteServiceBean {
     private static final String QUERY_FACILITY_BY_KARTE_ID = "select k.patient.facilityId from KarteBean k where k.id=:id";
     private static final String QUERY_FACILITY_BY_DOC_ID = "select d.karte.patient.facilityId from DocumentModel d where d.id=:id";
     private static final String QUERY_FACILITY_BY_ATTACHMENT_ID = "select a.document.karte.patient.facilityId from AttachmentModel a where a.id=:id";
+    private static final String QUERY_FACILITY_BY_PVT_ID = "select p.facilityId from PatientVisitModel p where p.id=:id";
+    private static final String QUERY_FACILITY_BY_DIAGNOSIS_ID =
+            "select r.karte.patient.facilityId from RegisteredDiagnosisModel r where r.id=:id";
 
     private static final String QUERY_DOCUMENT_INCLUDE_MODIFIED = "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and d.status !='D'";
     private static final String QUERY_DOCUMENT = "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and (d.status='F' or d.status='T')";
@@ -479,6 +482,14 @@ public class KarteServiceBean {
 
     public String findFacilityIdByAttachmentId(long attachmentId) {
         return findFacilityIdById(QUERY_FACILITY_BY_ATTACHMENT_ID, attachmentId);
+    }
+
+    public String findFacilityIdByPvtId(long pvtId) {
+        return findFacilityIdById(QUERY_FACILITY_BY_PVT_ID, pvtId);
+    }
+
+    public String findFacilityIdByDiagnosisId(long diagnosisId) {
+        return findFacilityIdById(QUERY_FACILITY_BY_DIAGNOSIS_ID, diagnosisId);
     }
 
     private String findFacilityIdById(String query, long idValue) {

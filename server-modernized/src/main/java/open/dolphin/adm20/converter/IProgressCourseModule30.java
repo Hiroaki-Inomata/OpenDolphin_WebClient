@@ -51,14 +51,10 @@ public class IProgressCourseModule30 extends IAbstractModule30 {
         this.setModuleInfo(info);
         
         // FreeText
-        //System.err.println("freeText processing......");
         byte[] bytes = model.getBeanBytes();
         ProgressCourse pc = (ProgressCourse)(IOSHelper.xmlDecode(bytes));
         String text = pc.getFreeText();
-        //System.err.println(text);
         String noHTMLString = text.replaceAll("\\<.*?>","");
-        //System.err.println("removed......");
-        //System.err.println(noHTMLString);
         pc.setFreeText(noHTMLString);
         IProgressCourse ipc = new IProgressCourse();
         ipc.fromModel(pc);

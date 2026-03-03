@@ -614,6 +614,5 @@ public class KanaToAscii {
     public static void main(String[] args) {
         KanaToAscii ka = new KanaToAscii();
         String result = ka.CHGKanatoASCII("フナバシ ケンジ", "");
-        System.err.println(result);
     }
 }

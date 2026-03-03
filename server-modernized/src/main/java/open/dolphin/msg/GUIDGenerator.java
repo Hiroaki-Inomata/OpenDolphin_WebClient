@@ -30,7 +30,6 @@ public class GUIDGenerator {
                 
                 localInetAddress = java.net.InetAddress.getLocalHost();
             } catch (java.net.UnknownHostException uhe) {
-                System.err.println("KingAppoUtil: Could not get the local IP address using InetAddress.getLocalHost()!");
                 // todo: find better way to get around this...
                 uhe.printStackTrace(System.err);
                 //return null;

@@ -41,8 +41,6 @@ public class IFacilityModel extends InfoModel implements java.io.Serializable {
 
     // S3 アカウント
     private String s3URL;
-    private String s3AccessKey;
-    private String s3SecretKey;
     
 //    // 保健医療機関コード 7桁
 //    private String insuraceFacilityId;
@@ -144,22 +142,6 @@ public class IFacilityModel extends InfoModel implements java.io.Serializable {
         this.s3URL = s3URL;
     }
 
-    public String getS3AccessKey() {
-        return s3AccessKey;
-    }
-
-    public void setS3AccessKey(String s3AccessKey) {
-        this.s3AccessKey = s3AccessKey;
-    }
-
-    public String getS3SecretKey() {
-        return s3SecretKey;
-    }
-
-    public void setS3SecretKey(String s3SecretKey) {
-        this.s3SecretKey = s3SecretKey;
-    }
-
 //    public String getInsuraceFacilityId() {
 //        return insuraceFacilityId;
 //    }
@@ -184,8 +166,6 @@ public class IFacilityModel extends InfoModel implements java.io.Serializable {
         this.setId(model.getId());
         this.setMemberType(model.getMemberType());
         this.setRegisteredDate(IOSHelper.toDateStr(model.getRegisteredDate()));
-        this.setS3AccessKey(model.getS3AccessKey());
-        this.setS3SecretKey(model.getS3SecretKey());
         this.setS3URL(model.getS3URL());
         this.setTelephone(model.getTelephone());
         this.setZipCode(model.getZipCode());
@@ -200,8 +180,6 @@ public class IFacilityModel extends InfoModel implements java.io.Serializable {
         ret.setId(this.getId());
         ret.setMemberType(this.getMemberType());
         ret.setRegisteredDate(IOSHelper.toDate(this.getRegisteredDate()));
-        ret.setS3AccessKey(this.getS3AccessKey());
-        ret.setS3SecretKey(this.getS3SecretKey());
         ret.setS3URL(this.getS3URL());
         ret.setTelephone(this.getTelephone());
         ret.setZipCode(this.getZipCode());

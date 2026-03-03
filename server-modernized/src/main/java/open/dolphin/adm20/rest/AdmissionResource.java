@@ -281,7 +281,6 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
     @Produces(MediaType.TEXT_PLAIN)
     public String postSendPackage(@Context HttpServletRequest servletReq, String json) throws IOException {
         
-        //System.err.println(json);
         
         ObjectMapper mapper = new ObjectMapper();
         ISendPackage pkg = mapper.readValue(json, ISendPackage.class);
@@ -587,7 +586,6 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
 
             @Override
             public void write(OutputStream output) throws IOException, WebApplicationException {
-                //System.out.println(json);
                 ObjectMapper mapper = new ObjectMapper();
                 SMSMessage sms = mapper.readValue(json, SMSMessage.class);
                 
@@ -654,10 +652,8 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
                 try {
                     ehtService.saveFactor2(spec);
                 } catch (NoResultException ne) {
-                    //System.err.println("NoResultException");
                     throw new WebApplicationException(ne, 404);
                 } catch (Exception e) {
-                    //System.err.println("Exception " + e.getClass());
                     throw new WebApplicationException(e, 404);
                 }
                 

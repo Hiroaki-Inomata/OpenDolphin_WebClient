@@ -126,7 +126,6 @@ public class JSONStampBuilder {
             mapper.writeValue(sw, tx);
             String json = sw.toString();
             sw.close();
-            //System.err.println(json);
             return json;
 //minagawa$        
         } catch (Exception ex) {
