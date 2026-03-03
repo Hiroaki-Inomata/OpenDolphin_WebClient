@@ -8,7 +8,6 @@ import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.Map;
 import open.dolphin.infomodel.UserModel;
-import open.dolphin.touch.AbstractResource;
 import open.dolphin.touch.support.TouchAuditHelper;
 import open.dolphin.touch.support.TouchErrorResponse;
 import open.dolphin.touch.support.TouchErrorMapper;
@@ -32,19 +31,12 @@ public class TouchUserService {
     TouchAuditHelper auditHelper;
 
     public TouchUserDtos.TouchUserResponse getUserSummary(TouchRequestContext context,
-                                                          String pathUserId,
-                                                          String facilityId,
-                                                          String password,
                                                           String deviceId) {
-        String resource = "/touch/user";
+        String resource = "/touch/user/summary";
         try {
             requireAccessReason(context);
             requireDeviceId(context, deviceId);
-            ensureFacilityMatch(context, facilityId);
-            ensurePrincipalMatchesPathUser(context, pathUserId);
-
-            String compositeUserId = composeCompositeUserId(facilityId, pathUserId);
-            UserModel user = iPhoneServiceBean.getUser(compositeUserId, password);
+            UserModel user = iPhoneServiceBean.getUserById(context.remoteUser());
             if (user == null || !isActiveMember(user)) {
                 throw TouchErrorMapper.toException(Response.Status.UNAUTHORIZED,
                         "authentication_failed", "ユーザー認証に失敗しました。", context.traceId());
@@ -59,12 +51,10 @@ public class TouchUserService {
                             "deviceId", deviceId));
             return response;
         } catch (jakarta.ws.rs.WebApplicationException ex) {
-            recordFailure(context, resource, ex,
-                    Map.of("userId", pathUserId, "facilityId", facilityId, "deviceId", deviceId));
+            recordFailure(context, resource, ex, failureDetails(context, deviceId));
             throw ex;
         } catch (RuntimeException ex) {
-            recordFailure(context, resource, ex,
-                    Map.of("userId", pathUserId, "facilityId", facilityId, "deviceId", deviceId));
+            recordFailure(context, resource, ex, failureDetails(context, deviceId));
             throw ex;
         }
     }
@@ -83,22 +73,6 @@ public class TouchUserService {
         }
     }
 
-    private void ensureFacilityMatch(TouchRequestContext context, String facilityId) {
-        if (facilityId == null) {
-            throw TouchErrorMapper.toException(Response.Status.FORBIDDEN,
-                    "facility_mismatch", "施設 ID が一致しません。", context.traceId());
-        }
-        if (context.facilityId().equals(facilityId)) {
-            return;
-        }
-        String normalizedContext = normalizeFacilityId(context.facilityId());
-        String normalizedParam = normalizeFacilityId(facilityId);
-        if (!normalizedContext.equals(normalizedParam)) {
-            throw TouchErrorMapper.toException(Response.Status.FORBIDDEN,
-                    "facility_mismatch", "施設 ID が一致しません。", context.traceId());
-        }
-    }
-
     private void ensurePrincipalMatchesPathUser(TouchRequestContext context, String pathUserId) {
         if (pathUserId == null || pathUserId.isBlank()) {
             throw TouchErrorMapper.toException(Response.Status.BAD_REQUEST,
@@ -108,11 +82,6 @@ public class TouchUserService {
             throw TouchErrorMapper.toException(Response.Status.UNAUTHORIZED,
                     "principal_mismatch", "認証ユーザーとリクエストユーザーが一致しません。", context.traceId());
         }
-    }
-
-    private String composeCompositeUserId(String facilityId, String userId) {
-        String normalizedFacility = normalizeFacilityId(facilityId);
-        return AbstractResource.DOLPHIN_ASP_OID + normalizedFacility + ":" + userId;
     }
 
     private boolean isActiveMember(UserModel user) {
@@ -166,14 +135,14 @@ public class TouchUserService {
         return index >= 0 ? compositeUserId.substring(index + 1) : compositeUserId;
     }
 
-    private String normalizeFacilityId(String facilityId) {
-        if (facilityId == null) {
-            return null;
+    private Map<String, Object> failureDetails(TouchRequestContext context, String deviceId) {
+        Map<String, Object> details = new java.util.HashMap<>();
+        if (context != null) {
+            details.put("userId", context.userId());
+            details.put("facilityId", context.facilityId());
         }
-        if (facilityId.startsWith(AbstractResource.DOLPHIN_ASP_OID)) {
-            return facilityId.substring(AbstractResource.DOLPHIN_ASP_OID.length());
-        }
-        return facilityId;
+        details.put("deviceId", deviceId);
+        return details;
     }
 
     private void recordFailure(TouchRequestContext context,

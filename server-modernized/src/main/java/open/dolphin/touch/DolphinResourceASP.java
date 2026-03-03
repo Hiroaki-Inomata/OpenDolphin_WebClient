@@ -93,8 +93,6 @@ public class DolphinResourceASP extends AbstractResource {
 
     // S3 parameters
     private static final String ELEMENT_S3_URL = "s3URL";
-    private static final String ELEMENT_S3_ACCESS_KEY = "s3AccessKey";
-    private static final String ELEMENT_S3_SECRET_KEY = "s3SecretKey";
     // S3 parameters
     
     @Inject
@@ -193,8 +191,6 @@ public class DolphinResourceASP extends AbstractResource {
 
         //-------- s3 params -----------//
         propertyString(ELEMENT_S3_URL, user.getFacilityModel().getS3URL(), sb);
-        propertyString(ELEMENT_S3_ACCESS_KEY, user.getFacilityModel().getS3AccessKey(), sb);
-        propertyString(ELEMENT_S3_SECRET_KEY, user.getFacilityModel().getS3SecretKey(), sb);
         //-------- s3 params -----------//
 
         sb.append(FACILITY_END);
@@ -1386,16 +1382,12 @@ public class DolphinResourceASP extends AbstractResource {
     @Produces(MediaType.TEXT_PLAIN)
     public String postDocument(String json) throws IOException {
         
-        //System.err.println("post document did call");
-        System.err.println(json);
         
         IDocument document = touchJsonConverter.readLegacy(json, IDocument.class);
         DocumentModel model = document.toModel();
-        System.err.println(model.toString());
         
 //        List<ModuleModel> modules = model.getModules();
 //        for (ModuleModel m : modules) {
-//            System.err.println(m.getModuleInfoBean().getStampName());
 //        }
         
         long pk = karteService.addDocument(model);
@@ -1410,11 +1402,9 @@ public class DolphinResourceASP extends AbstractResource {
     @Produces(MediaType.TEXT_PLAIN)
     public String postDocument2(String json) throws IOException {
         
-        System.err.println(json);
         
         IDocument2 document = touchJsonConverter.readLegacy(json, IDocument2.class);
         DocumentModel model = document.toModel();
-        System.err.println(model.toString());
         
         long pk = karteService.addDocument(model);
         return String.valueOf(pk);
