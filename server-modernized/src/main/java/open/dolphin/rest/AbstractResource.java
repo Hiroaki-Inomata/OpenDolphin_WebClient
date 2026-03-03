@@ -211,8 +211,7 @@ public class AbstractResource {
         if (address == null) {
             return false;
         }
-        if (address.isAnyLocalAddress() || address.isLoopbackAddress()
-                || address.isSiteLocalAddress() || address.isLinkLocalAddress()) {
+        if (address.isLoopbackAddress()) {
             return true;
         }
         for (String rule : loadTrustedProxyRules()) {
