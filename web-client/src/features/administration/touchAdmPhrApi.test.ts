@@ -21,7 +21,7 @@ describe('touchAdmPhrApi (disabled mode)', () => {
   it('requestTouchAdmPhr は通信せず disabled/404 を返す', async () => {
     const response = await requestTouchAdmPhr({
       method: 'POST',
-      path: '/touch/user/user01,0001,password',
+      path: '/touch/disabled',
       query: 'offset=0&limit=10',
       body: '{}',
       contentType: 'json',
