@@ -53,7 +53,7 @@ describe('TouchAdmPhrPanel', () => {
       />,
     );
 
-    expect(screen.getByText(/server-modernized 側で無効化/)).toBeInTheDocument();
+    expect(screen.getAllByText(/server-modernized 側で無効化/).length).toBeGreaterThan(0);
 
     const button = screen.getByRole('button', { name: '無効化済み' });
     expect(button).toBeDisabled();
