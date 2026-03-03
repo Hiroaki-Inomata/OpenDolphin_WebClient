@@ -18,6 +18,7 @@ const SESSION_BASE_KEYS = [
 const LOCAL_BASE_KEYS = [
   'opendolphin:web-client:charts:lock',
   'opendolphin:web-client:charts:approval',
+  'opendolphin:web-client:charts:order-sets',
   'opendolphin:web-client:reception-daily-state',
   'opendolphin:web-client:auth:shared-session',
   'opendolphin:web-client:auth:shared-flags',
@@ -34,6 +35,8 @@ const LOCAL_DIRECT_KEYS = [
 ];
 
 const VERSIONS = ['v2', 'v1'];
+const SESSION_SCOPED_EXACT_KEY_PREFIXES = ['charts:orca-claim-send', 'charts:orca-income-info'];
+const LOCAL_SCOPED_EXACT_KEY_PREFIXES = ['web-client:order-stamps', 'web-client:order-stamps:clipboard'];
 
 const removeIfMatch = (storage: Storage, predicate: (key: string) => boolean) => {
   const keys: string[] = [];
@@ -48,6 +51,22 @@ const removeIfMatch = (storage: Storage, predicate: (key: string) => boolean) =>
       // ignore removal failures
     }
   });
+};
+
+const removeExactKeys = (storage: Storage, keys: string[]) => {
+  keys.forEach((key) => {
+    try {
+      storage.removeItem(key);
+    } catch {
+      // ignore removal failures
+    }
+  });
+};
+
+const buildScopedExactKeys = (scope: StorageScope, keyPrefixes: string[]) => {
+  const suffix = toScopeSuffix(scope);
+  if (!suffix) return [];
+  return keyPrefixes.map((prefix) => `${prefix}:${suffix}`);
 };
 
 const matchScopedKey = (base: string, scope: StorageScope, versions = VERSIONS) => {
@@ -74,6 +93,7 @@ export const clearScopedStorage = (scope: StorageScope) => {
   // sessionStorage
   if (typeof sessionStorage !== 'undefined') {
     removeIfMatch(sessionStorage, (key) => SESSION_BASE_KEYS.some((base) => matchScopedKey(base, scope)(key)));
+    removeExactKeys(sessionStorage, buildScopedExactKeys(scope, SESSION_SCOPED_EXACT_KEY_PREFIXES));
   }
 
   // localStorage
@@ -82,6 +102,7 @@ export const clearScopedStorage = (scope: StorageScope) => {
       if (LOCAL_BASE_KEYS.some((base) => matchScopedKey(base, scope)(key))) return true;
       return false;
     });
+    removeExactKeys(localStorage, buildScopedExactKeys(scope, LOCAL_SCOPED_EXACT_KEY_PREFIXES));
     LOCAL_DIRECT_KEYS.forEach((key) => {
       try {
         localStorage.removeItem(key);

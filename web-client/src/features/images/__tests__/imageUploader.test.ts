@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildAttachmentPayload, buildImageDocumentPayload, bytesToBase64, formatBytes, type UploadSource } from '../imageUploader';
+import {
+  buildAttachmentPayload,
+  buildImageDocumentPayload,
+  bytesToBase64,
+  formatBytes,
+  MAX_ATTACHMENT_BYTES,
+  type UploadSource,
+} from '../imageUploader';
 
 describe('image uploader helpers', () => {
   it('bytesToBase64 は Uint8Array を base64 に変換する', () => {
-    const bytes = new Uint8Array([1, 2, 3]);
-    expect(bytesToBase64(bytes)).toBe('AQID');
+    const bytes = new Uint8Array([0x48, 0x69]);
+    expect(bytesToBase64(bytes)).toBe('SGk=');
   });
 
   it('buildAttachmentPayload はファイルメタと base64 を組み立てる', async () => {
@@ -37,6 +44,22 @@ describe('image uploader helpers', () => {
     const payload = await buildAttachmentPayload(source);
     expect(payload.extension).toBeUndefined();
     expect(payload.contentType).toBe('application/octet-stream');
+  });
+
+  it('buildAttachmentPayload はサイズ上限超過を拒否する', async () => {
+    let readCalled = false;
+    const source: UploadSource = {
+      name: 'huge.zip',
+      type: 'application/zip',
+      size: MAX_ATTACHMENT_BYTES + 1,
+      arrayBuffer: async () => {
+        readCalled = true;
+        return new ArrayBuffer(0);
+      },
+    };
+
+    await expect(buildAttachmentPayload(source)).rejects.toThrow('attachment_too_large');
+    expect(readCalled).toBe(false);
   });
 
   it('buildImageDocumentPayload は添付とメタを付与する', () => {

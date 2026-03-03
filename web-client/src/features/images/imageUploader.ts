@@ -8,6 +8,9 @@ export type UploadSource = {
   arrayBuffer: () => Promise<ArrayBuffer>;
 };
 
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const BASE64_CHUNK_SIZE = 0x8000;
+
 const normalizeExtension = (name: string) => {
   const idx = name.lastIndexOf('.');
   if (idx < 0) return undefined;
@@ -19,16 +22,25 @@ export const bytesToBase64 = (bytes: Uint8Array) => {
   if (typeof Buffer !== 'undefined') {
     return Buffer.from(bytes).toString('base64');
   }
-  let binary = '';
-  bytes.forEach((value) => {
-    binary += String.fromCharCode(value);
-  });
-  return btoa(binary);
+  const chunks: string[] = [];
+  for (let index = 0; index < bytes.length; index += BASE64_CHUNK_SIZE) {
+    const chunk = bytes.subarray(index, index + BASE64_CHUNK_SIZE);
+    chunks.push(String.fromCharCode(...chunk));
+  }
+  return btoa(chunks.join(''));
 };
 
 export async function buildAttachmentPayload(source: UploadSource): Promise<KarteAttachmentPayload> {
+  if (source.size > MAX_ATTACHMENT_BYTES) {
+    throw new Error('attachment_too_large');
+  }
+
   const buffer = await source.arrayBuffer();
   const bytes = new Uint8Array(buffer);
+  if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+    throw new Error('attachment_too_large');
+  }
+
   return {
     fileName: source.name,
     contentType: source.type || 'application/octet-stream',
