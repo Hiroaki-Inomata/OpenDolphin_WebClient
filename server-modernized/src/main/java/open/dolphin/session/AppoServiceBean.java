@@ -14,6 +14,7 @@ import jakarta.transaction.Transactional;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.infomodel.AppointmentModel;
 import open.dolphin.infomodel.IInfoModel;
+import open.dolphin.infomodel.KarteBean;
 import open.dolphin.session.framework.SessionOperation;
 import open.dolphin.session.framework.SessionTraceAttributes;
 import open.dolphin.session.framework.SessionTraceContext;
@@ -32,8 +33,14 @@ public class AppoServiceBean {
 
     private static final String QUERY_APPOINTMENT_BY_KARTE_ID = "from AppointmentModel a where a.karte.id=:karteId and a.date between :fromDate and :toDate";
     private static final String KARTE_ID = "karteId";
+    private static final String ID = "id";
+    private static final String FID = "fid";
     private static final String FROM_DATE = "fromDate";
     private static final String TO_DATE = "toDate";
+    private static final String QUERY_APPOINTMENT_BY_ID_FOR_FACILITY =
+            "select a from AppointmentModel a where a.id=:id and a.karte.patient.facilityId=:fid";
+    private static final String QUERY_KARTE_BY_ID_FOR_FACILITY =
+            "select k from KarteBean k where k.id=:karteId and k.patient.facilityId=:fid";
 
     @PersistenceContext
     private EntityManager em;
@@ -100,6 +107,100 @@ public class AppoServiceBean {
         return cnt;
     }
 
+    public int putAppointmentsForFacility(String fid, List<AppointmentModel> list) {
+        List<AppointmentModel> appointments = list == null ? List.of() : list;
+        Map<String, Object> auditDetails = new HashMap<>();
+        auditDetails.put("requestedCount", appointments.size());
+        auditDetails.put("facilityId", fid);
+
+        String patientId = resolveAppointmentsPatientId(appointments);
+        if (patientId != null) {
+            auditDetails.put("patientId", patientId);
+        }
+        String previousPatientContext = setPatientContext(patientId);
+
+        int cnt = 0;
+        int created = 0;
+        int updated = 0;
+        int deleted = 0;
+        int skipped = 0;
+
+        RuntimeException failure = null;
+        try {
+            if (fid == null || fid.isBlank()) {
+                skipped = appointments.size();
+                return 0;
+            }
+            String normalizedFid = fid.trim();
+
+            for (AppointmentModel model : appointments) {
+                if (model == null) {
+                    skipped++;
+                    continue;
+                }
+
+                int state = model.getState();
+                String appoName = model.getName();
+
+                if (state == AppointmentModel.TT_NEW) {
+                    KarteBean targetKarte = resolveKarteForFacility(normalizedFid, model);
+                    if (targetKarte == null) {
+                        skipped++;
+                        continue;
+                    }
+                    model.setKarteBean(targetKarte);
+                    em.persist(model);
+                    cnt++;
+                    created++;
+
+                } else if (state == AppointmentModel.TT_REPLACE && appoName != null) {
+                    if (model.getId() <= 0) {
+                        skipped++;
+                        continue;
+                    }
+                    AppointmentModel existing = findAppointmentForFacility(normalizedFid, model.getId());
+                    if (existing == null) {
+                        skipped++;
+                        continue;
+                    }
+                    model.setKarteBean(existing.getKarteBean());
+                    em.merge(model);
+                    cnt++;
+                    updated++;
+
+                } else if (state == AppointmentModel.TT_REPLACE && appoName == null) {
+                    if (model.getId() <= 0) {
+                        skipped++;
+                        continue;
+                    }
+                    AppointmentModel target = findAppointmentForFacility(normalizedFid, model.getId());
+                    if (target == null) {
+                        skipped++;
+                        continue;
+                    }
+                    em.remove(target);
+                    cnt++;
+                    deleted++;
+                } else {
+                    skipped++;
+                }
+            }
+        } catch (RuntimeException ex) {
+            failure = ex;
+            throw ex;
+        } finally {
+            auditDetails.put("createdCount", created);
+            auditDetails.put("updatedCount", updated);
+            auditDetails.put("deletedCount", deleted);
+            auditDetails.put("skippedCount", skipped);
+            auditDetails.put("appliedCount", cnt);
+            writeAppointmentAudit(auditDetails, failure);
+            restorePatientContext(previousPatientContext);
+        }
+
+        return cnt;
+    }
+
     /**
      * 予約を検索する。
      * @param spec 検索仕様
@@ -123,6 +224,31 @@ public class AppoServiceBean {
         }
 
         return ret;
+    }
+
+    private AppointmentModel findAppointmentForFacility(String fid, long appointmentId) {
+        if (fid == null || fid.isBlank() || appointmentId <= 0) {
+            return null;
+        }
+        List<AppointmentModel> hits = em.createQuery(QUERY_APPOINTMENT_BY_ID_FOR_FACILITY, AppointmentModel.class)
+                .setParameter(ID, appointmentId)
+                .setParameter(FID, fid)
+                .setMaxResults(1)
+                .getResultList();
+        return hits.isEmpty() ? null : hits.get(0);
+    }
+
+    private KarteBean resolveKarteForFacility(String fid, AppointmentModel model) {
+        if (fid == null || fid.isBlank() || model == null || model.getKarteBean() == null
+                || model.getKarteBean().getId() <= 0) {
+            return null;
+        }
+        List<KarteBean> hits = em.createQuery(QUERY_KARTE_BY_ID_FOR_FACILITY, KarteBean.class)
+                .setParameter(KARTE_ID, model.getKarteBean().getId())
+                .setParameter(FID, fid)
+                .setMaxResults(1)
+                .getResultList();
+        return hits.isEmpty() ? null : hits.get(0);
     }
 
     private void writeAppointmentAudit(Map<String, Object> details, Throwable error) {

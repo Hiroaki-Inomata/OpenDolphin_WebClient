@@ -10,6 +10,7 @@ import jakarta.inject.Named;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.Query;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
 import open.dolphin.audit.AuditEventEnvelope;
@@ -43,12 +44,25 @@ public class LetterServiceBean {
     
     private static final String KARTE_ID = "karteId";
     private static final String ID = "id";
+    private static final String FID = "fid";
 
     private static final String QUERY_LETTER_BY_KARTE_ID = "from LetterModule l where l.karte.id=:karteId";
     private static final String QUERY_LETTER_BY_ID = "from LetterModule l where l.id=:id";
     private static final String QUERY_ITEM_BY_ID = "from LetterItem l where l.module.id=:id";
     private static final String QUERY_TEXT_BY_ID = "from LetterText l where l.module.id=:id";
     private static final String QUERY_DATE_BY_ID = "from LetterDate l where l.module.id=:id";
+    private static final String QUERY_LETTER_BY_KARTE_ID_FOR_FACILITY =
+            "from LetterModule l where l.karte.id=:karteId and l.karte.patient.facilityId=:fid";
+    private static final String QUERY_LETTER_BY_ID_FOR_FACILITY =
+            "from LetterModule l where l.id=:id and l.karte.patient.facilityId=:fid";
+    private static final String QUERY_ITEM_BY_ID_FOR_FACILITY =
+            "from LetterItem l where l.module.id=:id and l.module.karte.patient.facilityId=:fid";
+    private static final String QUERY_TEXT_BY_ID_FOR_FACILITY =
+            "from LetterText l where l.module.id=:id and l.module.karte.patient.facilityId=:fid";
+    private static final String QUERY_DATE_BY_ID_FOR_FACILITY =
+            "from LetterDate l where l.module.id=:id and l.module.karte.patient.facilityId=:fid";
+    private static final String QUERY_KARTE_BY_ID_FOR_FACILITY =
+            "select k from KarteBean k where k.id=:karteId and k.patient.facilityId=:fid";
 
     @PersistenceContext
     private EntityManager em;
@@ -164,6 +178,31 @@ public class LetterServiceBean {
         } finally {
             restorePatientContext(previousPatientContext);
         }
+    }
+
+    public long saveOrUpdateLetterForFacility(String fid, LetterModule model) {
+        if (fid == null || fid.isBlank() || model == null) {
+            return 0L;
+        }
+        String normalizedFid = fid.trim();
+
+        KarteBean resolvedKarte = tryResolveKarte(model);
+        if (resolvedKarte == null || resolvedKarte.getId() <= 0) {
+            return 0L;
+        }
+
+        KarteBean securedKarte = findKarteByIdForFacility(normalizedFid, resolvedKarte.getId());
+        if (securedKarte == null) {
+            return 0L;
+        }
+
+        long linkId = model.getLinkId();
+        if (linkId != 0L && !existsLetterForFacility(normalizedFid, linkId)) {
+            return 0L;
+        }
+
+        model.setKarteBean(securedKarte);
+        return saveOrUpdateLetter(model);
     }
 
     
@@ -306,95 +345,160 @@ public class LetterServiceBean {
     }
 
     public List<LetterModule> getLetterList(long karteId) {
-
-        List<LetterModule> list = (List<LetterModule>)
-                        em.createQuery(QUERY_LETTER_BY_KARTE_ID)
-                        .setParameter(KARTE_ID, karteId)
-                        .getResultList();
-        return list;
-
+        return (List<LetterModule>) em.createQuery(QUERY_LETTER_BY_KARTE_ID)
+                .setParameter(KARTE_ID, karteId)
+                .getResultList();
     }
 
-    
+    public List<LetterModule> getLetterListForFacility(String fid, long karteId) {
+        if (fid == null || fid.isBlank()) {
+            return List.of();
+        }
+        return em.createQuery(QUERY_LETTER_BY_KARTE_ID_FOR_FACILITY, LetterModule.class)
+                .setParameter(KARTE_ID, karteId)
+                .setParameter(FID, fid.trim())
+                .getResultList();
+    }
+
     public LetterModule getLetter(long letterPk) {
-
-        LetterModule ret = (LetterModule)
-                        em.createQuery(QUERY_LETTER_BY_ID)
-                        .setParameter(ID, letterPk)
-                        .getSingleResult();
-        // item
-        List<LetterItem> items = (List<LetterItem>)
-                 em.createQuery(QUERY_ITEM_BY_ID)
-                   .setParameter(ID, ret.getId())
-                   .getResultList();
-        ret.setLetterItems(items);
-
-        // text
-        List<LetterText> texts = (List<LetterText>)
-                 em.createQuery(QUERY_TEXT_BY_ID)
-                   .setParameter(ID, ret.getId())
-                   .getResultList();
-        ret.setLetterTexts(texts);
-
-        // date
-        List<LetterDate> dates = (List<LetterDate>)
-                 em.createQuery(QUERY_DATE_BY_ID)
-                   .setParameter(ID, ret.getId())
-                   .getResultList();
-        ret.setLetterDates(dates);
-
+        LetterModule ret = (LetterModule) em.createQuery(QUERY_LETTER_BY_ID)
+                .setParameter(ID, letterPk)
+                .getSingleResult();
+        populateLetterRelations(ret, null);
         return ret;
     }
 
-    
+    public LetterModule getLetterForFacility(String fid, long letterPk) {
+        if (fid == null || fid.isBlank()) {
+            return null;
+        }
+        List<LetterModule> hits = em.createQuery(QUERY_LETTER_BY_ID_FOR_FACILITY, LetterModule.class)
+                .setParameter(ID, letterPk)
+                .setParameter(FID, fid.trim())
+                .setMaxResults(1)
+                .getResultList();
+        if (hits.isEmpty()) {
+            return null;
+        }
+        LetterModule ret = hits.get(0);
+        populateLetterRelations(ret, fid.trim());
+        return ret;
+    }
+
     public void delete(long pk) {
-        try {
-            List<LetterItem> itemList = (List<LetterItem>)
-                     em.createQuery(QUERY_ITEM_BY_ID)
-                       .setParameter(ID, pk)
-                       .getResultList();
-            for (LetterItem item : itemList) {
-                em.remove(item);
-            }
-        }catch(NoResultException e) {
-            LOGGER.warn("QUERY_ITEM_BY_ID : {}", e.toString());
+        deleteById(pk, null);
+    }
+
+    public int deleteLetterForFacility(String fid, long pk) {
+        if (fid == null || fid.isBlank()) {
+            return 0;
+        }
+        String normalizedFid = fid.trim();
+        if (!existsLetterForFacility(normalizedFid, pk)) {
+            return 0;
+        }
+        deleteById(pk, normalizedFid);
+        return 1;
+    }
+
+    private void deleteById(long pk, String fid) {
+        boolean facilityBound = fid != null && !fid.isBlank();
+
+        Query itemQuery = em.createQuery(facilityBound ? QUERY_ITEM_BY_ID_FOR_FACILITY : QUERY_ITEM_BY_ID)
+                .setParameter(ID, pk);
+        if (facilityBound) {
+            itemQuery.setParameter(FID, fid);
+        }
+        List<LetterItem> itemList = (List<LetterItem>) itemQuery.getResultList();
+        for (LetterItem item : itemList) {
+            em.remove(item);
         }
 
-        try {
-            List<LetterText> textList = (List<LetterText>)
-                 em.createQuery(QUERY_TEXT_BY_ID)
-                   .setParameter(ID, pk)
-                   .getResultList();
-
-            for (LetterText txt : textList) {
-                em.remove(txt);
-            }
-        }catch(NoResultException e) {
-            LOGGER.warn("QUERY_TEXT_BY_ID : {}", e.toString());
+        Query textQuery = em.createQuery(facilityBound ? QUERY_TEXT_BY_ID_FOR_FACILITY : QUERY_TEXT_BY_ID)
+                .setParameter(ID, pk);
+        if (facilityBound) {
+            textQuery.setParameter(FID, fid);
+        }
+        List<LetterText> textList = (List<LetterText>) textQuery.getResultList();
+        for (LetterText txt : textList) {
+            em.remove(txt);
         }
 
-        try {
-            List<LetterDate> dateList = (List<LetterDate>)
-                 em.createQuery(QUERY_DATE_BY_ID)
-                   .setParameter(ID, pk)
-                   .getResultList();
-
-            for (LetterDate date : dateList) {
-                em.remove(date);
-            }
-        }catch(NoResultException e) {
-            LOGGER.warn("QUERY_DATE_BY_ID : {}", e.toString());
+        Query dateQuery = em.createQuery(facilityBound ? QUERY_DATE_BY_ID_FOR_FACILITY : QUERY_DATE_BY_ID)
+                .setParameter(ID, pk);
+        if (facilityBound) {
+            dateQuery.setParameter(FID, fid);
+        }
+        List<LetterDate> dateList = (List<LetterDate>) dateQuery.getResultList();
+        for (LetterDate date : dateList) {
+            em.remove(date);
         }
 
-        try {
-            LetterModule delete = (LetterModule)
-                        em.createQuery(QUERY_LETTER_BY_ID)
-                        .setParameter(ID, pk)
-                        .getSingleResult();
-            em.remove(delete);
-        }catch(NoResultException e) {
-            LOGGER.warn("QUERY_LETTER_BY_ID : {}", e.toString());
+        TypedQuery<LetterModule> targetQuery = em.createQuery(
+                facilityBound ? QUERY_LETTER_BY_ID_FOR_FACILITY : QUERY_LETTER_BY_ID, LetterModule.class)
+                .setParameter(ID, pk)
+                .setMaxResults(1);
+        if (facilityBound) {
+            targetQuery.setParameter(FID, fid);
         }
+        List<LetterModule> targets = targetQuery.getResultList();
+        if (!targets.isEmpty()) {
+            em.remove(targets.get(0));
+        }
+    }
+
+    private void populateLetterRelations(LetterModule ret, String fid) {
+        boolean facilityBound = fid != null && !fid.isBlank();
+
+        Query itemQuery = em.createQuery(facilityBound ? QUERY_ITEM_BY_ID_FOR_FACILITY : QUERY_ITEM_BY_ID)
+                .setParameter(ID, ret.getId());
+        if (facilityBound) {
+            itemQuery.setParameter(FID, fid);
+        }
+        List<LetterItem> items = (List<LetterItem>) itemQuery.getResultList();
+        ret.setLetterItems(items);
+
+        Query textQuery = em.createQuery(facilityBound ? QUERY_TEXT_BY_ID_FOR_FACILITY : QUERY_TEXT_BY_ID)
+                .setParameter(ID, ret.getId());
+        if (facilityBound) {
+            textQuery.setParameter(FID, fid);
+        }
+        List<LetterText> texts = (List<LetterText>) textQuery.getResultList();
+        ret.setLetterTexts(texts);
+
+        Query dateQuery = em.createQuery(facilityBound ? QUERY_DATE_BY_ID_FOR_FACILITY : QUERY_DATE_BY_ID)
+                .setParameter(ID, ret.getId());
+        if (facilityBound) {
+            dateQuery.setParameter(FID, fid);
+        }
+        List<LetterDate> dates = (List<LetterDate>) dateQuery.getResultList();
+        ret.setLetterDates(dates);
+    }
+
+    private boolean existsLetterForFacility(String fid, long letterPk) {
+        if (fid == null || fid.isBlank()) {
+            return false;
+        }
+        List<Long> hits = em.createQuery(
+                        "select l.id from LetterModule l where l.id=:id and l.karte.patient.facilityId=:fid",
+                        Long.class)
+                .setParameter(ID, letterPk)
+                .setParameter(FID, fid)
+                .setMaxResults(1)
+                .getResultList();
+        return !hits.isEmpty();
+    }
+
+    private KarteBean findKarteByIdForFacility(String fid, long karteId) {
+        if (fid == null || fid.isBlank() || karteId <= 0) {
+            return null;
+        }
+        List<KarteBean> hits = em.createQuery(QUERY_KARTE_BY_ID_FOR_FACILITY, KarteBean.class)
+                .setParameter(KARTE_ID, karteId)
+                .setParameter(FID, fid)
+                .setMaxResults(1)
+                .getResultList();
+        return hits.isEmpty() ? null : hits.get(0);
     }
 
     private void recordLetterMutation(LetterModule model, KarteBean karte, String action, Throwable error) {

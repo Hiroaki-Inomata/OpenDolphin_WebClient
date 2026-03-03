@@ -44,7 +44,7 @@ public class ChartEventResource extends AbstractResource {
     @Path("/subscribe")
     public void subscribe() {
 
-        String fid = getRemoteFacility(servletReq.getRemoteUser());
+        String fid = requireActorFacility(servletReq);
         String clientUUID = servletReq.getHeader(ChartEventSessionKeys.CLIENT_UUID);
 //minagawa^        
         if (debug) {
@@ -107,6 +107,7 @@ public class ChartEventResource extends AbstractResource {
     @Consumes()
     @Produces(MediaType.APPLICATION_JSON)
     public String putChartEvent(String json) throws IOException {
+        String fid = requireActorFacility(servletReq);
         
 //minagawa^ resteasyを使用
 //        ChartEventModel msg = (ChartEventModel)
@@ -118,6 +119,7 @@ public class ChartEventResource extends AbstractResource {
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         ChartEventModel msg = mapper.readValue(json, ChartEventModel.class);
+        msg.setFacilityId(fid);
         int cnt = eventServiceBean.processChartEvent(msg);
         return String.valueOf(cnt);
 //minagawa$        
@@ -148,4 +150,5 @@ public class ChartEventResource extends AbstractResource {
             super.debug(msg);
         }
     }
+
 }

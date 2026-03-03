@@ -2,10 +2,13 @@ package open.dolphin.rest;
 
 import java.io.IOException;
 import jakarta.inject.Inject;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import open.dolphin.infomodel.AppoList;
 import open.dolphin.session.AppoServiceBean;
@@ -30,17 +33,22 @@ public class AppoResource extends AbstractResource {
     @PUT
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
-    public String putXml(String json) throws IOException {
+    public String putXml(@Context HttpServletRequest request, String json) throws IOException {
+        String fid = requireActorFacility(request);
         
         ObjectMapper mapper = new ObjectMapper();
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         AppoList list = mapper.readValue(json, AppoList.class);
         
-        int count = appoServiceBean.putAppointments(list.getList());
+        int count = appoServiceBean.putAppointmentsForFacility(fid, list.getList());
+        if (count == 0 && list.getList() != null && !list.getList().isEmpty()) {
+            throw new NotFoundException("Appointment not found");
+        }
         String cntStr = String.valueOf(count);
         debug(cntStr);
 
         return cntStr;
     }
+
 }
