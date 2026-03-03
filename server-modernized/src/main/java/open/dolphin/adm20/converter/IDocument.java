@@ -235,8 +235,6 @@ public class IDocument implements java.io.Serializable {
             
             List<IBundleModule> list = new ArrayList();
             for (ModuleModel module : model.getModules()) {
-                //System.err.println(module.getModuleInfoBean().getEntity());
-                //System.err.println(module.getModuleInfoBean().getStampRole());
                 if (module.getModuleInfoBean().getEntity().equals(IInfoModel.MODULE_PROGRESS_COURSE)) {
                     if (module.getModuleInfoBean().getStampRole().equals(IInfoModel.ROLE_SOA_SPEC)) {
                         soa = module;
@@ -437,7 +435,6 @@ public class IDocument implements java.io.Serializable {
             for (IBundleModule bundle : this.bundles) {
                 // 変換
                 ModuleModel module = bundle.toModel();
-                //System.err.println(module.toString());
                 // 関係構築
                 module.setDocumentModel(ret);
                 module.getModuleInfoBean().setStampNumber(number++);
@@ -467,7 +464,6 @@ public class IDocument implements java.io.Serializable {
             }
             
             // funabashi insert start 20131206
-            //System.err.println(this.ptextProgressCourse.getModel().getFreeText());
             if(this.ptextProgressCourse!=null){
                 sb.append("<paragraph>");
                 sb.append("<content><text>");
@@ -691,7 +687,6 @@ public class IDocument implements java.io.Serializable {
             for (IBundleModule bundle : this.bundles) {
                 // 変換
                 ModuleModel module = bundle.toModel();
-                //System.err.println(module.toString());
                 // 関係構築
                 module.setDocumentModel(ret);
                 module.getModuleInfoBean().setStampNumber(number++);
@@ -721,7 +716,6 @@ public class IDocument implements java.io.Serializable {
             }
             
             // funabashi insert start 20131206
-            System.out.println(this.ptextProgressCourse);
             if(this.ptextProgressCourse!=null){
                 sb.append("<paragraph>");
                 sb.append("<content><text>");

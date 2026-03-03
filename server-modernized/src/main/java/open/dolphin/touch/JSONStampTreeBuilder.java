@@ -141,7 +141,6 @@ public class JSONStampTreeBuilder extends AbstractStampTreeBuilder {
             bb.append(memo);
             bb.append(",");
             bb.append(id);
-            System.err.println(sb.toString());
         }
         
         //------------------------------------

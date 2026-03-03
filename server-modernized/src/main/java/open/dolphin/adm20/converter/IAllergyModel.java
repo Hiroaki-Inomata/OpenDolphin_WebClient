@@ -181,17 +181,6 @@ public class IAllergyModel implements java.io.Serializable {
         observation.setStatus(IInfoModel.STATUS_FINAL);
         observation.setMemo(this.getMemo());
         
-//        System.err.println(observation.getId());
-//        System.err.println(observation.getStarted());
-//        System.err.println(observation.getConfirmed());
-//        System.err.println(observation.getRecorded());
-//        System.err.println(observation.getKarteBean().getId());
-//        System.err.println(observation.getUserModel().getId());
-//        System.err.println(observation.getStatus());
-//        System.err.println(observation.getObservation());
-//        System.err.println(observation.getPhenomenon());
-//        System.err.println(observation.getCategoryValue());
-//        System.err.println(observation.getMemo());
         
         return observation;
     }

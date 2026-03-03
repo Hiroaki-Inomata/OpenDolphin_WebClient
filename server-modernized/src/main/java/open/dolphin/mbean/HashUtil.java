@@ -40,10 +40,8 @@ public class HashUtil {
             md5hash = md.digest();
             return convertToHex(md5hash);
         } catch (NoSuchAlgorithmException e1) {
-            System.err.println(e1);
 
         } catch (UnsupportedEncodingException e2) {
-            System.err.println(e2);
         }
 
         return null;
@@ -58,7 +56,6 @@ public class HashUtil {
             byte[] md5hash = md.digest(bytes);
             return convertToHex(md5hash);
         } catch (NoSuchAlgorithmException e1) {
-            System.err.println(e1);
         }
         return null;
     }
