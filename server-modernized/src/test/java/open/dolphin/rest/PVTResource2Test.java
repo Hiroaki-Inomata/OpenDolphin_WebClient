@@ -115,7 +115,7 @@ class PVTResource2Test extends RuntimeDelegateTestSupport {
         visit.setFacilityId("F001");
         chartEventServiceBean.setPvtList("F001", new ArrayList<>(Collections.singletonList(visit)));
 
-        resource.deletePvt("10");
+        resource.deletePvt(servletRequest, "10");
 
         assertEquals(10L, pvtServiceBean.getRemovedId());
         assertEquals("F001", pvtServiceBean.getRemovedFacility());
@@ -129,7 +129,9 @@ class PVTResource2Test extends RuntimeDelegateTestSupport {
         visit.setFacilityId("F002");
         chartEventServiceBean.setPvtList("F002", new ArrayList<>(Collections.singletonList(visit)));
 
-        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class, () -> resource.deletePvt("20"));
+        IllegalArgumentException thrown = assertThrows(
+                IllegalArgumentException.class,
+                () -> resource.deletePvt(servletRequest, "20"));
 
         assertEquals("Facility mismatch", thrown.getMessage());
         assertEquals(20L, pvtServiceBean.getRemovedId());
@@ -160,7 +162,7 @@ class PVTResource2Test extends RuntimeDelegateTestSupport {
         }
 
         @Override
-        public int removePvt(long id, String fid) {
+        public int removePvtForFacility(String fid, long id) {
             this.removedId = id;
             this.removedFacility = fid;
 
