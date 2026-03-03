@@ -1,17 +1,25 @@
+import { buildScopedStorageKey } from '../../libs/session/storageScope';
+
 import type { DiseaseEntry } from './diseaseApi';
+import type { ChartImageAttachment } from './documentImageAttach';
 import type { OrderBundle, OrderBundleItem } from './orderBundleApi';
 import type { SoapDraft, SoapEntry } from './soapNote';
-import type { ChartImageAttachment } from './documentImageAttach';
+
+export type ChartOrderSetDiagnosis = Pick<DiseaseEntry, 'diagnosisName' | 'diagnosisCode'>;
+
+export type ChartOrderSetBundle = Pick<OrderBundle, 'entity' | 'bundleName' | 'classCode' | 'className'> & {
+  items: OrderBundleItem[];
+};
 
 export type ChartOrderSetSnapshot = {
-  sourcePatientId: string;
-  sourceVisitDate: string;
-  capturedAt: string;
-  diagnoses: DiseaseEntry[];
-  soapDraft: SoapDraft;
-  soapHistory: SoapEntry[];
-  orderBundles: OrderBundle[];
-  imageAttachments: ChartImageAttachment[];
+  diagnoses: ChartOrderSetDiagnosis[];
+  orderBundles: ChartOrderSetBundle[];
+  sourcePatientId?: string;
+  sourceVisitDate?: string;
+  capturedAt?: string;
+  soapDraft?: SoapDraft;
+  soapHistory?: SoapEntry[];
+  imageAttachments?: ChartImageAttachment[];
 };
 
 export type ChartOrderSetEntry = {
@@ -25,17 +33,33 @@ export type ChartOrderSetEntry = {
 };
 
 type ChartOrderSetStorage = {
-  version: 1;
+  version: 2;
   updatedAt: string;
   items: ChartOrderSetEntry[];
 };
 
-const STORAGE_KEY = 'opendolphin:web-client:charts:order-sets:v1';
 const MAX_ENTRIES_PER_FACILITY = 200;
 
-const normalizeText = (value?: string | null) => value?.trim() ?? '';
+export const CHART_ORDER_SET_STORAGE_BASE = 'opendolphin:web-client:charts:order-sets';
+export const CHART_ORDER_SET_STORAGE_VERSION = 'v2';
+const LEGACY_STORAGE_KEY = `${CHART_ORDER_SET_STORAGE_BASE}:v1`;
 
-const cloneOrderItem = (item: OrderBundleItem): OrderBundleItem => ({
+const normalizeText = (value?: string | null) => value?.trim() ?? '';
+const nowIso = () => new Date().toISOString();
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+const sortByUpdatedAtDesc = (left: ChartOrderSetEntry, right: ChartOrderSetEntry) => right.updatedAt.localeCompare(left.updatedAt);
+
+const createOrderSetId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `order-set-${crypto.randomUUID()}`;
+  }
+  return `order-set-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+};
+
+const resolveScopedStorageKey = (scope?: { facilityId?: string; userId?: string }) =>
+  buildScopedStorageKey(CHART_ORDER_SET_STORAGE_BASE, CHART_ORDER_SET_STORAGE_VERSION, scope);
+
+const cloneOrderItem = (item: Partial<OrderBundleItem>): OrderBundleItem => ({
   code: normalizeText(item.code) || undefined,
   name: normalizeText(item.name),
   quantity: normalizeText(item.quantity) || undefined,
@@ -43,103 +67,110 @@ const cloneOrderItem = (item: OrderBundleItem): OrderBundleItem => ({
   memo: normalizeText(item.memo) || undefined,
 });
 
-const cloneOrderBundle = (bundle: OrderBundle): OrderBundle => ({
-  documentId: bundle.documentId,
-  moduleId: bundle.moduleId,
-  entity: normalizeText(bundle.entity) || undefined,
-  bundleName: normalizeText(bundle.bundleName) || undefined,
-  bundleNumber: normalizeText(bundle.bundleNumber) || undefined,
-  classCode: normalizeText(bundle.classCode) || undefined,
-  classCodeSystem: normalizeText(bundle.classCodeSystem) || undefined,
-  className: normalizeText(bundle.className) || undefined,
-  admin: normalizeText(bundle.admin) || undefined,
-  adminMemo: normalizeText(bundle.adminMemo) || undefined,
-  memo: normalizeText(bundle.memo) || undefined,
-  started: normalizeText(bundle.started) || undefined,
-  items: (bundle.items ?? []).map(cloneOrderItem).filter((item) => Boolean(item.name || item.code)),
+const sanitizeOrderBundle = (bundle: Partial<OrderBundle> | null | undefined): ChartOrderSetBundle | null => {
+  if (!bundle) return null;
+  const items = (Array.isArray(bundle.items) ? bundle.items : [])
+    .map((item) => cloneOrderItem(item ?? {}))
+    .filter((item) => Boolean(item.name || item.code));
+  if (items.length === 0) return null;
+  return {
+    entity: normalizeText(bundle.entity) || undefined,
+    bundleName: normalizeText(bundle.bundleName) || undefined,
+    classCode: normalizeText(bundle.classCode) || undefined,
+    className: normalizeText(bundle.className) || undefined,
+    items,
+  };
+};
+
+const sanitizeDisease = (entry: Partial<DiseaseEntry> | null | undefined): ChartOrderSetDiagnosis | null => {
+  if (!entry) return null;
+  const diagnosisName = normalizeText(entry.diagnosisName) || undefined;
+  const diagnosisCode = normalizeText(entry.diagnosisCode) || undefined;
+  if (!diagnosisName && !diagnosisCode) return null;
+  return {
+    diagnosisName,
+    diagnosisCode,
+  };
+};
+
+const sanitizeSnapshot = (snapshot: Partial<ChartOrderSetSnapshot> | null | undefined): ChartOrderSetSnapshot => ({
+  diagnoses: (Array.isArray(snapshot?.diagnoses) ? snapshot.diagnoses : [])
+    .map((item) => sanitizeDisease(item ?? {}))
+    .filter((item): item is ChartOrderSetDiagnosis => item !== null),
+  orderBundles: (Array.isArray(snapshot?.orderBundles) ? snapshot.orderBundles : [])
+    .map((item) => sanitizeOrderBundle(item ?? {}))
+    .filter((item): item is ChartOrderSetBundle => item !== null),
 });
 
-const cloneDisease = (entry: DiseaseEntry): DiseaseEntry => ({
-  diagnosisId: entry.diagnosisId,
-  diagnosisName: normalizeText(entry.diagnosisName) || undefined,
-  diagnosisCode: normalizeText(entry.diagnosisCode) || undefined,
-  departmentCode: normalizeText(entry.departmentCode) || undefined,
-  insuranceCombinationNumber: normalizeText(entry.insuranceCombinationNumber) || undefined,
-  startDate: normalizeText(entry.startDate) || undefined,
-  endDate: normalizeText(entry.endDate) || undefined,
-  outcome: normalizeText(entry.outcome) || undefined,
-  category: normalizeText(entry.category) || undefined,
-  suspectedFlag: normalizeText(entry.suspectedFlag) || undefined,
+const createEmptySoapDraft = (): SoapDraft => ({
+  free: '',
+  subjective: '',
+  objective: '',
+  assessment: '',
+  plan: '',
 });
 
-const cloneSoapEntry = (entry: SoapEntry): SoapEntry => ({
-  id: normalizeText(entry.id),
-  section: entry.section,
-  body: entry.body ?? '',
-  templateId: normalizeText(entry.templateId) || undefined,
-  authoredAt: entry.authoredAt,
-  authorRole: normalizeText(entry.authorRole),
-  authorName: normalizeText(entry.authorName) || undefined,
-  action: entry.action,
-  patientId: normalizeText(entry.patientId) || undefined,
-  appointmentId: normalizeText(entry.appointmentId) || undefined,
-  receptionId: normalizeText(entry.receptionId) || undefined,
-  visitDate: normalizeText(entry.visitDate) || undefined,
+const hydrateSnapshot = (snapshot: Partial<ChartOrderSetSnapshot> | null | undefined): ChartOrderSetSnapshot => ({
+  ...sanitizeSnapshot(snapshot),
+  soapDraft: createEmptySoapDraft(),
+  soapHistory: [],
+  imageAttachments: [],
 });
 
-const cloneSoapDraft = (draft: SoapDraft): SoapDraft => ({
-  free: draft.free ?? '',
-  subjective: draft.subjective ?? '',
-  objective: draft.objective ?? '',
-  assessment: draft.assessment ?? '',
-  plan: draft.plan ?? '',
+const sanitizeEntry = (raw: unknown): ChartOrderSetEntry | null => {
+  if (!isRecord(raw)) return null;
+  const facilityId = normalizeText(typeof raw.facilityId === 'string' ? raw.facilityId : undefined);
+  if (!facilityId) return null;
+  const updatedAt = normalizeText(typeof raw.updatedAt === 'string' ? raw.updatedAt : undefined) || nowIso();
+  const createdAt = normalizeText(typeof raw.createdAt === 'string' ? raw.createdAt : undefined) || updatedAt;
+  const name = normalizeText(typeof raw.name === 'string' ? raw.name : undefined) || '名称未設定';
+  return {
+    id: normalizeText(typeof raw.id === 'string' ? raw.id : undefined) || createOrderSetId(),
+    facilityId,
+    createdBy: normalizeText(typeof raw.createdBy === 'string' ? raw.createdBy : undefined) || undefined,
+    name,
+    createdAt,
+    updatedAt,
+    snapshot: sanitizeSnapshot(isRecord(raw.snapshot) ? (raw.snapshot as Partial<ChartOrderSetSnapshot>) : undefined),
+  };
+};
+
+const createEmptyStorage = (): ChartOrderSetStorage => ({
+  version: 2,
+  updatedAt: nowIso(),
+  items: [],
 });
 
-const cloneAttachment = (item: ChartImageAttachment): ChartImageAttachment => ({
-  id: item.id,
-  title: normalizeText(item.title) || undefined,
-  fileName: normalizeText(item.fileName) || undefined,
-  contentType: normalizeText(item.contentType) || undefined,
-  contentSize: item.contentSize,
-  recordedAt: normalizeText(item.recordedAt) || undefined,
-});
-
-const sanitizeSnapshot = (snapshot: ChartOrderSetSnapshot): ChartOrderSetSnapshot => ({
-  sourcePatientId: normalizeText(snapshot.sourcePatientId),
-  sourceVisitDate: normalizeText(snapshot.sourceVisitDate),
-  capturedAt: snapshot.capturedAt,
-  diagnoses: (snapshot.diagnoses ?? []).map(cloneDisease).filter((item) => Boolean(item.diagnosisName)),
-  soapDraft: cloneSoapDraft(snapshot.soapDraft),
-  soapHistory: (snapshot.soapHistory ?? []).map(cloneSoapEntry).filter((item) => Boolean(item.body.trim())),
-  orderBundles: (snapshot.orderBundles ?? []).map(cloneOrderBundle).filter((item) => item.items.length > 0),
-  imageAttachments: (snapshot.imageAttachments ?? []).map(cloneAttachment),
-});
-
-const readStorage = (): ChartOrderSetStorage => {
-  if (typeof localStorage === 'undefined') {
-    return { version: 1, updatedAt: new Date().toISOString(), items: [] };
-  }
+const parseStorage = (raw: string | null): ChartOrderSetStorage => {
+  if (!raw) return createEmptyStorage();
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { version: 1, updatedAt: new Date().toISOString(), items: [] };
-    const parsed = JSON.parse(raw) as Partial<ChartOrderSetStorage>;
-    if (parsed?.version !== 1 || !Array.isArray(parsed.items)) {
-      return { version: 1, updatedAt: new Date().toISOString(), items: [] };
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed) || parsed.version !== 2 || !Array.isArray(parsed.items)) {
+      return createEmptyStorage();
     }
     return {
-      version: 1,
-      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
-      items: parsed.items,
+      version: 2,
+      updatedAt: normalizeText(typeof parsed.updatedAt === 'string' ? parsed.updatedAt : undefined) || nowIso(),
+      items: parsed.items.map((item) => sanitizeEntry(item)).filter((item): item is ChartOrderSetEntry => item !== null),
     };
   } catch {
-    return { version: 1, updatedAt: new Date().toISOString(), items: [] };
+    return createEmptyStorage();
   }
 };
 
-const writeStorage = (storage: ChartOrderSetStorage) => {
+const readStorageByKey = (storageKey: string): ChartOrderSetStorage => {
+  if (typeof localStorage === 'undefined') return createEmptyStorage();
+  try {
+    return parseStorage(localStorage.getItem(storageKey));
+  } catch {
+    return createEmptyStorage();
+  }
+};
+
+const writeStorageByKey = (storageKey: string, storage: ChartOrderSetStorage) => {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
+    localStorage.setItem(storageKey, JSON.stringify(storage));
   } catch {
     // ignore storage errors
   }
@@ -149,33 +180,122 @@ const pruneFacilityItems = (items: ChartOrderSetEntry[], facilityId: string) => 
   const target = items.filter((item) => item.facilityId === facilityId);
   if (target.length <= MAX_ENTRIES_PER_FACILITY) return items;
 
-  const sorted = target
-    .slice()
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .slice(0, MAX_ENTRIES_PER_FACILITY);
+  const sorted = target.slice().sort(sortByUpdatedAtDesc).slice(0, MAX_ENTRIES_PER_FACILITY);
   const keepIds = new Set(sorted.map((item) => item.id));
   return items.filter((item) => item.facilityId !== facilityId || keepIds.has(item.id));
 };
 
-export const listChartOrderSets = (facilityId?: string): ChartOrderSetEntry[] => {
+const collectScopedStorageKeysByFacility = (facilityId: string) => {
+  if (typeof localStorage === 'undefined') return [] as string[];
+  const prefix = `${CHART_ORDER_SET_STORAGE_BASE}:${CHART_ORDER_SET_STORAGE_VERSION}:${facilityId}:`;
+  const keys: string[] = [];
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (key && key.startsWith(prefix)) keys.push(key);
+  }
+  return keys;
+};
+
+const listItemsFromAllScopedKeys = (facilityId: string): ChartOrderSetEntry[] => {
+  const byId = new Map<string, ChartOrderSetEntry>();
+  for (const key of collectScopedStorageKeysByFacility(facilityId)) {
+    const storage = readStorageByKey(key);
+    for (const item of storage.items) {
+      if (normalizeText(item.facilityId) !== facilityId) continue;
+      const prev = byId.get(item.id);
+      if (!prev || item.updatedAt >= prev.updatedAt) {
+        byId.set(item.id, item);
+      }
+    }
+  }
+  return [...byId.values()].sort(sortByUpdatedAtDesc);
+};
+
+const migrateLegacyStorageToScoped = (scope?: { facilityId?: string; userId?: string }) => {
+  if (typeof localStorage === 'undefined') return;
+  const facilityId = normalizeText(scope?.facilityId);
+  const userId = normalizeText(scope?.userId);
+  const scopedKey = resolveScopedStorageKey({ facilityId, userId });
+
+  try {
+    const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!legacyRaw || !facilityId || !userId || !scopedKey) return;
+    const parsed = JSON.parse(legacyRaw) as unknown;
+    if (!isRecord(parsed) || !Array.isArray(parsed.items)) return;
+
+    const current = readStorageByKey(scopedKey);
+    const merged = new Map<string, ChartOrderSetEntry>(current.items.map((item) => [item.id, item]));
+    for (const item of parsed.items) {
+      const normalized = sanitizeEntry(item);
+      if (!normalized || normalizeText(normalized.facilityId) !== facilityId) continue;
+      const prev = merged.get(normalized.id);
+      if (!prev || normalized.updatedAt >= prev.updatedAt) {
+        merged.set(normalized.id, {
+          ...normalized,
+          facilityId,
+          createdBy: normalized.createdBy ?? userId,
+        });
+      }
+    }
+
+    const nextItems = pruneFacilityItems([...merged.values()], facilityId);
+    writeStorageByKey(scopedKey, {
+      version: 2,
+      updatedAt: nowIso(),
+      items: nextItems,
+    });
+  } catch {
+    // ignore migration errors
+  } finally {
+    try {
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch {
+      // ignore remove errors
+    }
+  }
+};
+
+const readStorage = (scope: { facilityId?: string; userId?: string }): ChartOrderSetStorage => {
+  const scopedKey = resolveScopedStorageKey(scope);
+  if (!scopedKey) return createEmptyStorage();
+  migrateLegacyStorageToScoped(scope);
+  return readStorageByKey(scopedKey);
+};
+
+const deleteFromStorageKey = (storageKey: string, facilityId: string, id: string) => {
+  const storage = readStorageByKey(storageKey);
+  const before = storage.items.length;
+  storage.items = storage.items.filter((item) => !(item.facilityId === facilityId && item.id === id));
+  if (storage.items.length === before) return false;
+  storage.updatedAt = nowIso();
+  writeStorageByKey(storageKey, storage);
+  return true;
+};
+
+export const listChartOrderSets = (facilityId?: string, userId?: string): ChartOrderSetEntry[] => {
   const resolvedFacilityId = normalizeText(facilityId);
   if (!resolvedFacilityId) return [];
-  const storage = readStorage();
-  return storage.items
+  const resolvedUserId = normalizeText(userId) || undefined;
+
+  const items = resolvedUserId
+    ? readStorage({ facilityId: resolvedFacilityId, userId: resolvedUserId }).items
+    : (migrateLegacyStorageToScoped({ facilityId: resolvedFacilityId }), listItemsFromAllScopedKeys(resolvedFacilityId));
+
+  return items
     .filter((item) => normalizeText(item.facilityId) === resolvedFacilityId)
     .map((item) => ({
       ...item,
       name: normalizeText(item.name) || '名称未設定',
-      snapshot: sanitizeSnapshot(item.snapshot),
+      snapshot: hydrateSnapshot(item.snapshot),
     }))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    .sort(sortByUpdatedAtDesc);
 };
 
-export const getChartOrderSet = (params: { facilityId?: string; id?: string }): ChartOrderSetEntry | null => {
+export const getChartOrderSet = (params: { facilityId?: string; userId?: string; id?: string }): ChartOrderSetEntry | null => {
   const facilityId = normalizeText(params.facilityId);
   const id = normalizeText(params.id);
   if (!facilityId || !id) return null;
-  const found = listChartOrderSets(facilityId).find((item) => item.id === id);
+  const found = listChartOrderSets(facilityId, params.userId).find((item) => item.id === id);
   return found ?? null;
 };
 
@@ -187,18 +307,24 @@ export const saveChartOrderSet = (params: {
   id?: string;
 }) => {
   const facilityId = normalizeText(params.facilityId);
+  const userId = normalizeText(params.userId);
   if (!facilityId) throw new Error('facilityId is required');
-  const now = new Date().toISOString();
-  const storage = readStorage();
-  const id = normalizeText(params.id) || `order-set-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  const normalizedName = normalizeText(params.name) || `${sanitizeSnapshot(params.snapshot).sourceVisitDate || now.slice(0, 10)} セット`;
+  if (!userId) throw new Error('userId is required');
+
+  const scopedKey = resolveScopedStorageKey({ facilityId, userId });
+  if (!scopedKey) throw new Error('facilityId/userId scope is required');
+
+  const now = nowIso();
+  const storage = readStorage({ facilityId, userId });
+  const id = normalizeText(params.id) || createOrderSetId();
+  const normalizedName = normalizeText(params.name) || `${now.slice(0, 10)} セット`;
   const snapshot = sanitizeSnapshot(params.snapshot);
   const existing = storage.items.find((item) => item.id === id && item.facilityId === facilityId);
 
   const nextEntry: ChartOrderSetEntry = {
     id,
     facilityId,
-    createdBy: normalizeText(params.userId) || existing?.createdBy,
+    createdBy: existing?.createdBy ?? userId,
     name: normalizedName,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
@@ -213,27 +339,58 @@ export const saveChartOrderSet = (params: {
 
   storage.items = pruneFacilityItems(storage.items, facilityId);
   storage.updatedAt = now;
-  writeStorage(storage);
-  return nextEntry;
+  writeStorageByKey(scopedKey, storage);
+  return {
+    ...nextEntry,
+    snapshot: hydrateSnapshot(nextEntry.snapshot),
+  };
 };
 
-export const deleteChartOrderSet = (params: { facilityId?: string; id?: string }) => {
+export const deleteChartOrderSet = (params: { facilityId?: string; userId?: string; id?: string }) => {
   const facilityId = normalizeText(params.facilityId);
+  const userId = normalizeText(params.userId);
   const id = normalizeText(params.id);
   if (!facilityId || !id) return false;
-  const storage = readStorage();
-  const before = storage.items.length;
-  storage.items = storage.items.filter((item) => !(item.facilityId === facilityId && item.id === id));
-  if (storage.items.length === before) return false;
-  storage.updatedAt = new Date().toISOString();
-  writeStorage(storage);
-  return true;
+
+  if (userId) {
+    const scopedKey = resolveScopedStorageKey({ facilityId, userId });
+    if (!scopedKey) return false;
+    return deleteFromStorageKey(scopedKey, facilityId, id);
+  }
+
+  let deleted = false;
+  for (const key of collectScopedStorageKeysByFacility(facilityId)) {
+    if (deleteFromStorageKey(key, facilityId, id)) {
+      deleted = true;
+    }
+  }
+  return deleted;
 };
 
-export const clearChartOrderSetStorage = () => {
+export const clearChartOrderSetStorage = (scope?: { facilityId?: string; userId?: string }) => {
   if (typeof localStorage === 'undefined') return;
+  const facilityId = normalizeText(scope?.facilityId);
+  const userId = normalizeText(scope?.userId);
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    if (facilityId && userId) {
+      const scopedKey = resolveScopedStorageKey({ facilityId, userId });
+      if (scopedKey) localStorage.removeItem(scopedKey);
+    } else if (facilityId) {
+      for (const key of collectScopedStorageKeysByFacility(facilityId)) {
+        localStorage.removeItem(key);
+      }
+    } else {
+      const prefix = `${CHART_ORDER_SET_STORAGE_BASE}:${CHART_ORDER_SET_STORAGE_VERSION}:`;
+      const removeTargets: string[] = [];
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (key && key.startsWith(prefix)) removeTargets.push(key);
+      }
+      for (const key of removeTargets) {
+        localStorage.removeItem(key);
+      }
+    }
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch {
     // ignore
   }

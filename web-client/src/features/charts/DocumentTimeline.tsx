@@ -289,7 +289,9 @@ export function DocumentTimeline({
     }
     setQueueRetryState({ status: 'loading', patientId });
     try {
-      const response = await httpFetch(`/api/orca/queue?patientId=${patientId}&retry=1`, { method: 'GET' });
+      const response = await httpFetch(`/api/orca/queue?patientId=${encodeURIComponent(patientId)}&retry=1`, {
+        method: 'GET',
+      });
       const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       const retryApplied = typeof payload.retryApplied === 'boolean' ? payload.retryApplied : undefined;
       const retryReason = typeof payload.retryReason === 'string' ? payload.retryReason : undefined;
