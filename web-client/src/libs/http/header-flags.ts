@@ -7,15 +7,11 @@ import { isSystemAdminRole } from '../auth/roles';
 import { MSW_QUERY_PARAM } from '../devtools/mockGate';
 
 export type HeaderFlags = {
-  useMockOrcaQueue: boolean;
-  verifyAdminDelivery: boolean;
   mswFault?: string;
   mswDelayMs?: number;
 };
 
 export type HeaderOverrideFlags = {
-  useMockOrcaQueue?: boolean;
-  verifyAdminDelivery?: boolean;
   mswFault?: string;
   mswDelayMs?: number;
 };
@@ -44,8 +40,6 @@ export function readHeaderFlagsFromEnv(): HeaderFlags {
   const delayRaw = import.meta.env.VITE_MSW_DELAY_MS;
   const delay = typeof delayRaw === 'string' && delayRaw.trim().length > 0 ? Number(delayRaw) : undefined;
   return {
-    useMockOrcaQueue: import.meta.env.VITE_USE_MOCK_ORCA_QUEUE === '1',
-    verifyAdminDelivery: import.meta.env.VITE_VERIFY_ADMIN_DELIVERY === '1',
     mswFault: typeof import.meta.env.VITE_MSW_FAULT === 'string' ? import.meta.env.VITE_MSW_FAULT : undefined,
     mswDelayMs: Number.isFinite(delay as number) ? (delay as number) : undefined,
   };
@@ -54,12 +48,6 @@ export function readHeaderFlagsFromEnv(): HeaderFlags {
 export function buildHeaderOverrides(flags: HeaderOverrideFlags) {
   const allowMswFaultHeaders = isMswFaultInjectionAllowed();
   const overrides: Record<string, string> = {};
-  if (flags.useMockOrcaQueue !== undefined) {
-    overrides['x-use-mock-orca-queue'] = flags.useMockOrcaQueue ? '1' : '0';
-  }
-  if (flags.verifyAdminDelivery !== undefined) {
-    overrides['x-verify-admin-delivery'] = flags.verifyAdminDelivery ? '1' : '0';
-  }
   if (allowMswFaultHeaders && flags.mswFault && flags.mswFault.trim().length > 0) {
     overrides['x-msw-fault'] = flags.mswFault.trim();
   }
@@ -94,15 +82,6 @@ function normalizeHeaders(headers?: HeadersInit): Record<string, string> {
   return { ...headers };
 }
 
-const normalizeHeaderFlag = (value: unknown): boolean | undefined => {
-  if (typeof value === 'boolean') return value;
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim().toLowerCase();
-  if (trimmed === '1' || trimmed === 'true') return true;
-  if (trimmed === '0' || trimmed === 'false') return false;
-  return undefined;
-};
-
 export const isLocalOverrideAllowed = (): boolean => import.meta.env.DEV;
 
 const readStoredFlag = (key: string): string | null => {
@@ -133,8 +112,6 @@ const removeStoredFlag = (key: string) => {
 };
 
 export function resolveHeaderOverrides(options?: { localOverrideAllowed?: boolean }): HeaderOverrideFlags {
-  const envMock = normalizeHeaderFlag(import.meta.env.VITE_USE_MOCK_ORCA_QUEUE);
-  const envVerify = normalizeHeaderFlag(import.meta.env.VITE_VERIFY_ADMIN_DELIVERY);
   const envFault = typeof import.meta.env.VITE_MSW_FAULT === 'string' ? import.meta.env.VITE_MSW_FAULT : undefined;
   const delayRaw = import.meta.env.VITE_MSW_DELAY_MS;
   const envDelay =
@@ -143,22 +120,16 @@ export function resolveHeaderOverrides(options?: { localOverrideAllowed?: boolea
 
   if (!allowLocal) {
     return {
-      useMockOrcaQueue: envMock,
-      verifyAdminDelivery: envVerify,
       mswFault: envFault,
       mswDelayMs: Number.isFinite(envDelay as number) ? (envDelay as number) : undefined,
     };
   }
 
-  const storedMock = readStoredFlag('useMockOrcaQueue');
-  const storedVerify = readStoredFlag('verifyAdminDelivery');
   const storedFault = readStoredFlag('mswFault');
   const storedDelay = readStoredFlag('mswDelayMs');
   const parsedDelay = storedDelay ? Number(storedDelay) : undefined;
 
   return {
-    useMockOrcaQueue: envMock !== undefined ? envMock : normalizeHeaderFlag(storedMock),
-    verifyAdminDelivery: envVerify !== undefined ? envVerify : normalizeHeaderFlag(storedVerify),
     mswFault: envFault ?? (storedFault && storedFault.trim().length > 0 ? storedFault : undefined),
     mswDelayMs:
       (Number.isFinite(envDelay as number) ? (envDelay as number) : undefined) ??
@@ -167,48 +138,12 @@ export function resolveHeaderOverrides(options?: { localOverrideAllowed?: boolea
 }
 
 export function resolveHeaderFlags(options?: { localOverrideAllowed?: boolean }): HeaderFlags {
-  // 優先度: env > localStorage > デフォルト false
-  const envFlags = readHeaderFlagsFromEnv();
-  const allowLocal = options?.localOverrideAllowed ?? isLocalOverrideAllowed();
-
-  if (!allowLocal) {
-    return {
-      useMockOrcaQueue: envFlags.useMockOrcaQueue,
-      verifyAdminDelivery: envFlags.verifyAdminDelivery,
-      mswFault: envFlags.mswFault,
-      mswDelayMs: envFlags.mswDelayMs,
-    };
-  }
-
-  const storedMock = readStoredFlag('useMockOrcaQueue');
-  const storedVerify = readStoredFlag('verifyAdminDelivery');
-  const storedFault = readStoredFlag('mswFault');
-  const storedDelay = readStoredFlag('mswDelayMs');
-  const parsedDelay = storedDelay ? Number(storedDelay) : undefined;
-
-  return {
-    useMockOrcaQueue:
-      envFlags.useMockOrcaQueue ||
-      (storedMock === '1' ? true : storedMock === '0' ? false : false),
-    verifyAdminDelivery:
-      envFlags.verifyAdminDelivery ||
-      (storedVerify === '1' ? true : storedVerify === '0' ? false : false),
-    mswFault: envFlags.mswFault ?? (storedFault && storedFault.trim().length > 0 ? storedFault : undefined),
-    mswDelayMs:
-      envFlags.mswDelayMs ??
-      (typeof parsedDelay === 'number' && Number.isFinite(parsedDelay) && parsedDelay > 0 ? parsedDelay : undefined),
-  };
+  return resolveHeaderOverrides(options);
 }
 
 export function persistHeaderFlags(partial: Partial<HeaderFlags>, options?: { localOverrideAllowed?: boolean }) {
   const allowLocal = options?.localOverrideAllowed ?? isLocalOverrideAllowed();
   if (!allowLocal) return;
-  if (partial.useMockOrcaQueue !== undefined) {
-    writeStoredFlag('useMockOrcaQueue', partial.useMockOrcaQueue ? '1' : '0');
-  }
-  if (partial.verifyAdminDelivery !== undefined) {
-    writeStoredFlag('verifyAdminDelivery', partial.verifyAdminDelivery ? '1' : '0');
-  }
   if (partial.mswFault !== undefined) {
     const value = partial.mswFault?.trim() ?? '';
     if (value.length === 0) {

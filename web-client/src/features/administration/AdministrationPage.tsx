@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAuditEventLog, logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
 import { resolveAriaLive, resolveRunId } from '../../libs/observability/observability';
 import { copyTextToClipboard } from '../../libs/observability/runIdCopy';
-import { persistHeaderFlags, resolveHeaderFlags } from '../../libs/http/header-flags';
 import { isSystemAdminRole } from '../../libs/auth/roles';
 import { useAppToast } from '../../libs/ui/appToast';
 import { ToneBanner } from '../reception/components/ToneBanner';
@@ -170,8 +169,8 @@ const DEFAULT_ORCA_ENDPOINT =
 const DEFAULT_FORM: AdminConfigPayload = {
   orcaEndpoint: DEFAULT_ORCA_ENDPOINT,
   mswEnabled: import.meta.env.VITE_DISABLE_MSW !== '1',
-  useMockOrcaQueue: resolveHeaderFlags().useMockOrcaQueue,
-  verifyAdminDelivery: resolveHeaderFlags().verifyAdminDelivery,
+  useMockOrcaQueue: false,
+  verifyAdminDelivery: false,
   chartsDisplayEnabled: true,
   chartsSendEnabled: true,
   chartsMasterSource: 'auto',
@@ -872,10 +871,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
       chartsSendEnabled: data.chartsSendEnabled ?? prev.chartsSendEnabled,
       chartsMasterSource: data.chartsMasterSource ?? prev.chartsMasterSource,
     }));
-    persistHeaderFlags({
-      useMockOrcaQueue: data.useMockOrcaQueue,
-      verifyAdminDelivery: data.verifyAdminDelivery,
-    });
     appliedMeta.current = applyAuthServicePatch(
       { runId: data.runId },
       appliedMeta.current,
@@ -927,10 +922,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
     onSuccess: (data) => {
       setSaveConfirmOpen(false);
       setFeedback({ tone: 'success', message: '設定を保存し、配信をブロードキャストしました。' });
-      persistHeaderFlags({
-        useMockOrcaQueue: data.useMockOrcaQueue,
-        verifyAdminDelivery: data.verifyAdminDelivery,
-      });
       const nextChartsFlags = {
         chartsDisplayEnabled: data.chartsDisplayEnabled ?? form.chartsDisplayEnabled,
         chartsSendEnabled: data.chartsSendEnabled ?? form.chartsSendEnabled,
@@ -1680,12 +1671,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
       return;
     }
     setForm((prev) => ({ ...prev, [key]: value }));
-    if (key === 'useMockOrcaQueue' && typeof value === 'boolean') {
-      persistHeaderFlags({ useMockOrcaQueue: value });
-    }
-    if (key === 'verifyAdminDelivery' && typeof value === 'boolean') {
-      persistHeaderFlags({ verifyAdminDelivery: value });
-    }
   };
 
   const handleChartsMasterSourceChange = (value: string) => {
