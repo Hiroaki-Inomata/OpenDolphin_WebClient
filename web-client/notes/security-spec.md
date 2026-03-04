@@ -37,4 +37,4 @@
 - デプロイ順序は「backend の CSRF 注入対応を先行」「frontend を後続」とする。逆順デプロイは禁止。
 - `index.html` の `meta[name="csrf-token"]` へ実トークンを注入する（`__CSRF_TOKEN__` を本番値へ置換）。配信時はキャッシュでトークンが残留しないよう `Cache-Control: private, no-store`（または同等以上）を設定する。
 - `/api/logout` は `POST` + `credentials` + CSRF 必須で受け付ける。frontend は 404 を `unsupported` 扱いで継続するため、404 が継続する環境では監査ログ上の未実装警告が残る点に注意する。
-- 画像機能ヘッダは移行期間中 `X-Client-Feature-Images` と `X-Feature-Images` を併用し、旧ヘッダ廃止期限は backend/frontend 合意のうえ TBD とする。
+- 画像機能ヘッダは `X-Client-Feature-Images` のみを利用する。`X-Feature-Images` は廃止済みのため受理前提にしない。

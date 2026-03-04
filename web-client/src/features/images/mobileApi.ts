@@ -32,7 +32,6 @@ export type PatientImageUploadResult = {
 };
 
 const FEATURE_HEADER_NAME = 'X-Client-Feature-Images';
-const LEGACY_FEATURE_HEADER_NAME = 'X-Feature-Images';
 const FEATURE_HEADER_VALUE = '1';
 
 const buildGateHeaders = (init?: RequestInit, pathname?: string) => {
@@ -42,7 +41,6 @@ const buildGateHeaders = (init?: RequestInit, pathname?: string) => {
     headers: {
       ...(init?.headers ?? {}),
       [FEATURE_HEADER_NAME]: FEATURE_HEADER_VALUE,
-      [LEGACY_FEATURE_HEADER_NAME]: FEATURE_HEADER_VALUE,
     },
   }, pathname);
   return headers;
