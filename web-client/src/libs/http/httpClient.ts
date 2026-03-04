@@ -135,7 +135,8 @@ export function buildHttpHeaders(init?: RequestInit, pathname?: string | null): 
   const withObservability = applyObservabilityHeaders(init);
   const withFlags = applyHeaderFlagsToInit(withObservability);
   const withAuth = applyAuthHeaders(withFlags, url);
-  return normalizeHeaders(withAuth.headers);
+  const withCsrf = applyCsrfHeaders(withAuth, url);
+  return normalizeHeaders(withCsrf.headers);
 }
 
 export type HttpEndpointDefinition = {
@@ -284,6 +285,25 @@ export type HttpFetchInit = RequestInit & {
 };
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const ALLOW_MISSING_CSRF_FLAG = '1';
+type CsrfRuntimeOverride = {
+  prod?: boolean;
+  allowMissingCsrf?: boolean;
+};
+let csrfRuntimeOverride: CsrfRuntimeOverride | undefined;
+
+/**
+ * Test helper: override CSRF runtime behavior without mutating import.meta.env.PROD.
+ */
+export const setCsrfRuntimeOverrideForTests = (override?: CsrfRuntimeOverride) => {
+  csrfRuntimeOverride = override;
+};
+
+const isProdRuntime = () => csrfRuntimeOverride?.prod ?? import.meta.env.PROD;
+const isMissingCsrfAllowedRuntime = () => {
+  if (isProdRuntime()) return false;
+  return csrfRuntimeOverride?.allowMissingCsrf ?? import.meta.env.VITE_ALLOW_MISSING_CSRF === ALLOW_MISSING_CSRF_FLAG;
+};
 
 const isOrcaEndpoint = (url?: URL | null): boolean => {
   if (!url) return false;
@@ -304,10 +324,15 @@ const applyCsrfHeaders = (init?: RequestInit, url?: URL | null): RequestInit => 
   if (SAFE_METHODS.has(method)) return init ?? {};
 
   const headers = new Headers(init?.headers ?? {});
-  if (headers.has('X-CSRF-Token')) return init ?? {};
+  if (headers.has('X-CSRF-Token')) return { ...(init ?? {}), headers };
 
   const token = readCsrfToken();
-  if (!token) return init ?? {};
+  if (!token) {
+    if (!isMissingCsrfAllowedRuntime()) {
+      throw new Error('CSRF token missing');
+    }
+    return { ...(init ?? {}), headers };
+  }
 
   headers.set('X-CSRF-Token', token);
   return { ...(init ?? {}), headers };
@@ -323,14 +348,20 @@ export const shouldNotifySessionExpired = (status: number, init?: HttpFetchInit)
 
 export async function httpFetch(input: RequestInfo | URL, init?: HttpFetchInit) {
   const requestUrl = resolveRequestUrl(input);
-  // Header flags are applied here to propagate Playwright extraHTTPHeaders.
-  // 新しいフラグを追加する場合は header-flags.ts に追記し、この呼び出しで一括適用される前提。
-  const initWithFlags = applyHeaderFlagsToInit(applyAuthHeaders(init, requestUrl));
-  const initWithCsrf = applyCsrfHeaders(initWithFlags, requestUrl);
-  const initWithObservability = applyObservabilityHeaders(initWithCsrf);
+  const mergedHeaders = new Headers(input instanceof Request ? input.headers : undefined);
+  const overrideHeaders = new Headers(init?.headers ?? {});
+  overrideHeaders.forEach((value, key) => {
+    mergedHeaders.set(key, value);
+  });
+  const requestMethod = (init?.method ?? (input instanceof Request ? input.method : undefined) ?? 'GET').toUpperCase();
+  const headers = buildHttpHeaders(
+    { ...(init ?? {}), method: requestMethod, headers: mergedHeaders },
+    requestUrl ? requestUrl.toString() : undefined,
+  );
+  const initWithHeaders = { ...(init ?? {}), method: requestMethod, headers };
   // 認証クッキー（JSESSIONID 等）を常に送るため、デフォルトで include を付与する。
-  const credentials = initWithObservability.credentials ?? 'include';
-  const response = await fetch(input, { ...initWithObservability, credentials });
+  const credentials = initWithHeaders.credentials ?? 'include';
+  const response = await fetch(input, { ...initWithHeaders, credentials });
   captureObservabilityFromResponse(response);
   const resolvedInit =
     init?.notifySessionExpired === undefined && isOrcaEndpoint(requestUrl)

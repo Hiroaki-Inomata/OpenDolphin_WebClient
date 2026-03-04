@@ -636,7 +636,9 @@ describe('ReceptionPage accept UX', () => {
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
     const form = within(patientSearch);
 
-    await user.type(form.getByLabelText('患者ID'), 'P-555');
+    const patientIdInput = form.getByLabelText('患者ID');
+    await user.clear(patientIdInput);
+    await user.type(patientIdInput, 'P-555');
     await user.click(form.getByRole('button', { name: '検索' }));
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
     await user.click(within(resultPanel).getAllByRole('listitem')[0]);
@@ -814,7 +816,9 @@ describe('ReceptionPage list and side pane guidance', () => {
 
     const workflowModal = await openAcceptWorkflowModal(user);
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
-    await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-1');
+    const patientIdInput = within(patientSearch).getByLabelText('患者ID');
+    await user.clear(patientIdInput);
+    await user.type(patientIdInput, 'P-1');
     await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
 
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
@@ -854,7 +858,9 @@ describe('ReceptionPage list and side pane guidance', () => {
 
     const workflowModal = await openAcceptWorkflowModal(user);
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
-    await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-');
+    const patientIdInput = within(patientSearch).getByLabelText('患者ID');
+    await user.clear(patientIdInput);
+    await user.type(patientIdInput, 'P-');
     await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
 
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
@@ -897,7 +903,9 @@ describe('ReceptionPage list and side pane guidance', () => {
 
     const workflowModal = await openAcceptWorkflowModal(user);
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
-    await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-3');
+    const patientIdInput = within(patientSearch).getByLabelText('患者ID');
+    await user.clear(patientIdInput);
+    await user.type(patientIdInput, 'P-3');
     await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
 
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
@@ -928,7 +936,9 @@ describe('ReceptionPage list and side pane guidance', () => {
 
     const workflowModal = await openAcceptWorkflowModal(user);
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
-    await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-4');
+    const patientIdInput = within(patientSearch).getByLabelText('患者ID');
+    await user.clear(patientIdInput);
+    await user.type(patientIdInput, 'P-4');
     await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
 
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });

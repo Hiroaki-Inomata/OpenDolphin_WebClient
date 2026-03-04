@@ -16,12 +16,30 @@ export type ChartsPatientTab = {
 export type ChartsPatientTabsStorage = {
   version: 1;
   updatedAt: string;
+  savedAt: string;
   activeKey?: string;
   tabs: ChartsPatientTab[];
 };
 
 export const PATIENT_TABS_STORAGE_BASE = 'opendolphin:web-client:charts:patient-tabs';
 export const PATIENT_TABS_STORAGE_VERSION = 'v1';
+export const PATIENT_TABS_TTL_MS = 2 * 60 * 60 * 1000;
+
+const sanitizePersistedTab = (tab: ChartsPatientTab): ChartsPatientTab => ({
+  key: tab.key,
+  patientId: tab.patientId,
+  visitDate: tab.visitDate,
+  appointmentId: tab.appointmentId,
+  receptionId: tab.receptionId,
+  openedAt: tab.openedAt,
+});
+
+const isExpiredSavedAt = (savedAt?: string, now = Date.now()): boolean => {
+  if (!savedAt) return true;
+  const timestamp = Date.parse(savedAt);
+  if (Number.isNaN(timestamp)) return true;
+  return now - timestamp > PATIENT_TABS_TTL_MS;
+};
 
 export const buildPatientTabKey = (patientId: string, visitDate: string) => `${patientId}::${visitDate}`;
 
@@ -85,14 +103,23 @@ export const readChartsPatientTabsStorage = (
   scope?: { facilityId?: string; userId?: string },
 ): ChartsPatientTabsStorage | null => {
   if (typeof sessionStorage === 'undefined') return null;
+  const legacyKey = `${PATIENT_TABS_STORAGE_BASE}:v1`;
   const scopedKey =
     buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope) ??
-    `${PATIENT_TABS_STORAGE_BASE}:v1`;
+    legacyKey;
   try {
-    const raw = sessionStorage.getItem(scopedKey) ?? sessionStorage.getItem(`${PATIENT_TABS_STORAGE_BASE}:v1`);
+    const raw = sessionStorage.getItem(scopedKey) ?? sessionStorage.getItem(legacyKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<ChartsPatientTabsStorage> | null;
     if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.tabs)) return null;
+    const savedAt = typeof parsed.savedAt === 'string' ? parsed.savedAt : typeof parsed.updatedAt === 'string' ? parsed.updatedAt : undefined;
+    if (isExpiredSavedAt(savedAt)) {
+      sessionStorage.removeItem(scopedKey);
+      sessionStorage.removeItem(legacyKey);
+      return null;
+    }
+    const resolvedSavedAt = savedAt ?? new Date().toISOString();
+    const resolvedUpdatedAt = typeof parsed.updatedAt === 'string' ? parsed.updatedAt : resolvedSavedAt;
 
     const normalizedTabs = parsed.tabs.reduce<ChartsPatientTab[]>((acc, tab) => {
       const patientId = normalizeEncounterId(typeof tab.patientId === 'string' ? tab.patientId : undefined);
@@ -107,12 +134,8 @@ export const readChartsPatientTabsStorage = (
       };
       const appointmentId = normalizeEncounterId(typeof tab.appointmentId === 'string' ? tab.appointmentId : undefined);
       const receptionId = normalizeEncounterId(typeof tab.receptionId === 'string' ? tab.receptionId : undefined);
-      const name = typeof tab.name === 'string' ? tab.name.trim() : '';
-      const department = typeof tab.department === 'string' ? tab.department.trim() : '';
       if (appointmentId) normalized.appointmentId = appointmentId;
       if (receptionId) normalized.receptionId = receptionId;
-      if (name) normalized.name = name;
-      if (department) normalized.department = department;
       acc.push(normalized);
       return acc;
     }, []);
@@ -126,9 +149,18 @@ export const readChartsPatientTabsStorage = (
     const scopedKeyActual = buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope);
     if (scopedKeyActual && !sessionStorage.getItem(scopedKeyActual)) {
       try {
-        sessionStorage.setItem(scopedKeyActual, raw);
+        sessionStorage.setItem(
+          scopedKeyActual,
+          JSON.stringify({
+            version: 1,
+            updatedAt: resolvedUpdatedAt,
+            savedAt: resolvedSavedAt,
+            activeKey,
+            tabs: normalizedTabs.map(sanitizePersistedTab),
+          }),
+        );
         if (scopedKey !== scopedKeyActual) {
-          sessionStorage.removeItem(`${PATIENT_TABS_STORAGE_BASE}:v1`);
+          sessionStorage.removeItem(legacyKey);
         }
       } catch {
         // ignore migration errors
@@ -137,7 +169,8 @@ export const readChartsPatientTabsStorage = (
 
     return {
       version: 1,
-      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
+      updatedAt: resolvedUpdatedAt,
+      savedAt: resolvedSavedAt,
       activeKey,
       tabs: normalizedTabs,
     };
@@ -151,11 +184,18 @@ export const writeChartsPatientTabsStorage = (
   scope?: { facilityId?: string; userId?: string },
 ) => {
   if (typeof sessionStorage === 'undefined') return;
+  const now = new Date().toISOString();
+  const persisted: ChartsPatientTabsStorage = {
+    ...state,
+    updatedAt: now,
+    savedAt: now,
+    tabs: state.tabs.map(sanitizePersistedTab),
+  };
   const scopedKey =
     buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope) ??
     `${PATIENT_TABS_STORAGE_BASE}:v1`;
   try {
-    sessionStorage.setItem(scopedKey, JSON.stringify(state));
+    sessionStorage.setItem(scopedKey, JSON.stringify(persisted));
   } catch {
     // ignore storage errors
   }

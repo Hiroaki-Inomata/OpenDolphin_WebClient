@@ -1,4 +1,5 @@
 type StorageScope = { facilityId?: string | null; userId?: string | null };
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000;
 
 export type OrcaMedicalWarningUi = {
   medicalWarning?: string;
@@ -21,6 +22,7 @@ export type OrcaClaimSendCacheEntry = {
   patientId?: string;
   appointmentId?: string;
   performDate?: string;
+  // NOTE: invoiceNumber/medicalWarnings は PHI になり得るため永続化しない（メモリのみ）。
   invoiceNumber?: string;
   dataId?: string;
   runId?: string;
@@ -36,12 +38,15 @@ export type OrcaClaimSendCacheInput = Omit<OrcaClaimSendCacheEntry, 'savedAt'>;
 
 type OrcaClaimSendCacheStore = Record<string, OrcaClaimSendCacheEntry>;
 const AUTH_STORAGE_KEY = 'opendolphin:web-client:auth';
+const volatileClaimSendCache = new Map<string, OrcaClaimSendCacheEntry>();
 
 const buildKey = (scope: StorageScope) => {
   const facility = scope.facilityId ?? 'unknown-facility';
   const user = scope.userId ?? 'unknown-user';
   return `charts:orca-claim-send:${facility}:${user}`;
 };
+
+const buildVolatileKey = (scope: StorageScope, patientId: string) => `${buildKey(scope)}:${patientId}`;
 
 const resolveScope = (scope: StorageScope): StorageScope => {
   if (scope.facilityId && scope.userId) return scope;
@@ -64,7 +69,20 @@ export function saveOrcaClaimSendCache(value: OrcaClaimSendCacheInput, scope: St
   if (!value.patientId) return;
   const resolvedScope = resolveScope(scope);
   const key = buildKey(resolvedScope);
-  const payload: OrcaClaimSendCacheEntry = { ...value, savedAt: new Date().toISOString() };
+  const savedAt = new Date().toISOString();
+  const volatilePayload: OrcaClaimSendCacheEntry = {
+    ...value,
+    savedAt,
+  };
+  volatileClaimSendCache.set(buildVolatileKey(resolvedScope, value.patientId), volatilePayload);
+  const payload: OrcaClaimSendCacheEntry = {
+    patientId: value.patientId,
+    runId: value.runId,
+    traceId: value.traceId,
+    apiResult: value.apiResult,
+    sendStatus: value.sendStatus,
+    savedAt,
+  };
   const store = loadOrcaClaimSendCache(resolvedScope) ?? {};
   store[value.patientId] = payload;
   sessionStorage.setItem(key, JSON.stringify(store));
@@ -73,6 +91,30 @@ export function saveOrcaClaimSendCache(value: OrcaClaimSendCacheInput, scope: St
   }
 }
 
+const isExpired = (savedAt?: string) => {
+  if (!savedAt) return true;
+  const timestamp = Date.parse(savedAt);
+  if (Number.isNaN(timestamp)) return true;
+  return Date.now() - timestamp > CACHE_TTL_MS;
+};
+
+const normalizeEntry = (entry: Partial<OrcaClaimSendCacheEntry> | null | undefined): OrcaClaimSendCacheEntry | null => {
+  if (!entry) return null;
+  const patientId = typeof entry.patientId === 'string' ? entry.patientId.trim() : '';
+  if (!patientId) return null;
+  const savedAt = typeof entry.savedAt === 'string' ? entry.savedAt : undefined;
+  if (isExpired(savedAt)) return null;
+  const resolvedSavedAt = savedAt ?? new Date().toISOString();
+  return {
+    patientId,
+    runId: typeof entry.runId === 'string' ? entry.runId : undefined,
+    traceId: typeof entry.traceId === 'string' ? entry.traceId : undefined,
+    apiResult: typeof entry.apiResult === 'string' ? entry.apiResult : undefined,
+    sendStatus: entry.sendStatus === 'success' || entry.sendStatus === 'error' ? entry.sendStatus : undefined,
+    savedAt: resolvedSavedAt,
+  };
+};
+
 export function loadOrcaClaimSendCache(scope: StorageScope): OrcaClaimSendCacheStore | null {
   if (typeof sessionStorage === 'undefined') return null;
   const resolvedScope = resolveScope(scope);
@@ -80,15 +122,65 @@ export function loadOrcaClaimSendCache(scope: StorageScope): OrcaClaimSendCacheS
   const raw = sessionStorage.getItem(key);
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as OrcaClaimSendCacheStore | OrcaClaimSendCacheEntry;
-    if (parsed && typeof parsed === 'object') {
-      const entry = parsed as OrcaClaimSendCacheEntry;
-      const patientId = entry.patientId;
-      if (typeof entry.savedAt === 'string' && typeof patientId === 'string' && patientId) {
-        return { [patientId]: entry };
+    const parsed = JSON.parse(raw) as OrcaClaimSendCacheStore | OrcaClaimSendCacheEntry | null;
+    if (!parsed || typeof parsed !== 'object') {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+
+    const normalizedStore: OrcaClaimSendCacheStore = {};
+    let changed = false;
+
+    if ('savedAt' in parsed || 'patientId' in parsed) {
+      const single = normalizeEntry(parsed as OrcaClaimSendCacheEntry);
+      if (single) {
+        const patientId = single.patientId;
+        if (!patientId) {
+          sessionStorage.removeItem(key);
+          return null;
+        }
+        normalizedStore[patientId] = single;
+        changed = true;
+      } else {
+        sessionStorage.removeItem(key);
+        return null;
+      }
+    } else {
+      Object.entries(parsed as OrcaClaimSendCacheStore).forEach(([patientId, entry]) => {
+        const normalized = normalizeEntry({
+          ...(entry ?? {}),
+          patientId,
+        });
+        if (!normalized) {
+          changed = true;
+          return;
+        }
+        if (normalized.patientId !== patientId) {
+          changed = true;
+        }
+        const normalizedPatientId = normalized.patientId;
+        if (!normalizedPatientId) {
+          changed = true;
+          return;
+        }
+        normalizedStore[normalizedPatientId] = normalized;
+      });
+    }
+
+    const values = Object.values(normalizedStore);
+    if (values.length === 0) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+
+    if (changed || JSON.stringify(parsed) !== JSON.stringify(normalizedStore)) {
+      try {
+        sessionStorage.setItem(key, JSON.stringify(normalizedStore));
+      } catch {
+        // ignore rewrite failures
       }
     }
-    return parsed as OrcaClaimSendCacheStore;
+    return normalizedStore;
   } catch {
     sessionStorage.removeItem(key);
     return null;
@@ -97,6 +189,13 @@ export function loadOrcaClaimSendCache(scope: StorageScope): OrcaClaimSendCacheS
 
 export function getOrcaClaimSendEntry(scope: StorageScope, patientId?: string | null) {
   if (!patientId) return null;
-  const store = loadOrcaClaimSendCache(scope);
+  const resolvedScope = resolveScope(scope);
+  const volatileKey = buildVolatileKey(resolvedScope, patientId);
+  const volatile = volatileClaimSendCache.get(volatileKey);
+  if (volatile) {
+    if (!isExpired(volatile.savedAt)) return volatile;
+    volatileClaimSendCache.delete(volatileKey);
+  }
+  const store = loadOrcaClaimSendCache(resolvedScope);
   return store?.[patientId] ?? null;
 }

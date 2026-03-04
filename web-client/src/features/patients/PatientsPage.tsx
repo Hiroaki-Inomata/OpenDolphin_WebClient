@@ -22,10 +22,11 @@ import {
 import { MISSING_MASTER_RECOVERY_NEXT_ACTION } from '../shared/missingMasterRecovery';
 import { ToneBanner } from '../reception/components/ToneBanner';
 import { applyAuthServicePatch, useAuthService, type AuthServiceFlags, type DataSourceTransition } from '../charts/authService';
-import { normalizeVisitDate } from '../charts/encounterContext';
+import { loadChartsEncounterContext, normalizeVisitDate } from '../charts/encounterContext';
 import { useSession } from '../../AppRouter';
 import { buildFacilityPath } from '../../routes/facilityRoutes';
 import { applyExternalParams, isSafeReturnTo, pickExternalParams } from '../../routes/appNavigation';
+import { scrubPathWithQuery } from '../../routes/scrubSensitiveUrl';
 import { useNavigationGuard } from '../../routes/NavigationGuardProvider';
 import { useAppNavigation } from '../../routes/useAppNavigation';
 import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
@@ -112,6 +113,7 @@ const readFilters = (searchParams: URLSearchParams): typeof DEFAULT_FILTER => {
     Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as Partial<typeof DEFAULT_FILTER>;
 
   const fromUrl: Partial<typeof DEFAULT_FILTER> = {
+    keyword: searchParams.get('keyword') ?? searchParams.get('kw') ?? undefined,
     department: searchParams.get('dept') ?? undefined,
     physician: searchParams.get('phys') ?? undefined,
     paymentMode: normalizePaymentMode(searchParams.get('pay')),
@@ -264,24 +266,44 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   const handleOpenReception = useCallback(() => {
     appNav.openReception();
   }, [appNav.openReception]);
-  const patientIdParam = searchParams.get('patientId') ?? undefined;
-  const appointmentIdParam = searchParams.get('appointmentId') ?? undefined;
-  const receptionIdParam = searchParams.get('receptionId') ?? undefined;
-  const visitDateParam = normalizeVisitDate(searchParams.get('visitDate') ?? undefined);
+  const urlPatientIdParam = searchParams.get('patientId') ?? undefined;
+  const urlAppointmentIdParam = searchParams.get('appointmentId') ?? undefined;
+  const urlReceptionIdParam = searchParams.get('receptionId') ?? undefined;
+  const urlVisitDateParam = normalizeVisitDate(searchParams.get('visitDate') ?? undefined);
+  const storedEncounter = useMemo(
+    () => loadChartsEncounterContext(storageScope),
+    [location.pathname, location.search, storageScope],
+  );
+  const patientIdParam = urlPatientIdParam ?? storedEncounter?.patientId;
+  const appointmentIdParam = urlAppointmentIdParam ?? storedEncounter?.appointmentId;
+  const receptionIdParam = urlReceptionIdParam ?? storedEncounter?.receptionId;
+  const visitDateParam = urlVisitDateParam ?? normalizeVisitDate(storedEncounter?.visitDate);
   const fromCandidate = appNav.fromCandidate ?? undefined;
   const fromCharts = fromCandidate === 'charts';
   const storedReturnTo = useMemo(() => {
     if (typeof sessionStorage === 'undefined') return undefined;
     try {
       const scopedKey = buildScopedStorageKey(RETURN_TO_STORAGE_BASE, RETURN_TO_VERSION, storageScope) ?? RETURN_TO_LEGACY_KEY;
-      const raw = sessionStorage.getItem(scopedKey) ?? sessionStorage.getItem(RETURN_TO_LEGACY_KEY);
+      const rawScoped = sessionStorage.getItem(scopedKey);
+      const rawLegacy = scopedKey === RETURN_TO_LEGACY_KEY ? null : sessionStorage.getItem(RETURN_TO_LEGACY_KEY);
+      const raw = rawScoped ?? rawLegacy;
       if (!raw) return undefined;
-      // Migrate legacy key to scoped key (facilityId/userId) when possible.
-      if (scopedKey !== RETURN_TO_LEGACY_KEY && !sessionStorage.getItem(scopedKey)) {
-        sessionStorage.setItem(scopedKey, raw);
+      const scrubbed = scrubPathWithQuery(raw).trim();
+      if (!scrubbed) {
+        sessionStorage.removeItem(scopedKey);
+        if (scopedKey !== RETURN_TO_LEGACY_KEY) {
+          sessionStorage.removeItem(RETURN_TO_LEGACY_KEY);
+        }
+        return undefined;
+      }
+      // Migrate legacy key to scoped key and sanitize old values.
+      if (rawScoped !== scrubbed) {
+        sessionStorage.setItem(scopedKey, scrubbed);
+      }
+      if (scopedKey !== RETURN_TO_LEGACY_KEY) {
         sessionStorage.removeItem(RETURN_TO_LEGACY_KEY);
       }
-      return raw;
+      return scrubbed;
     } catch {
       return undefined;
     }
@@ -675,8 +697,9 @@ export function PatientsPage({ runId }: PatientsPageProps) {
       };
       localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(patientFilterSnapshot));
       const receptionStoredWithoutKeyword = { ...(receptionStored ?? {}) } as Record<string, unknown>;
-      delete receptionStoredWithoutKeyword.kw;
-      delete receptionStoredWithoutKeyword.keyword;
+      ['kw', 'keyword', 'patientId', 'appointmentId', 'receptionId', 'visitDate', 'invoiceNumber'].forEach((key) => {
+        delete receptionStoredWithoutKeyword[key];
+      });
       const receptionSnapshot = {
         ...receptionStoredWithoutKeyword,
         dept: appliedFilters.department,
@@ -691,20 +714,12 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     const sort = sortFromUrl ?? pickString(receptionStored?.sort);
     const date = dateFromUrl ?? pickString(receptionStored?.date);
     const from = carryoverSource.get('from');
-    const patientId = carryoverSource.get('patientId');
-    const appointmentId = carryoverSource.get('appointmentId');
-    const receptionId = carryoverSource.get('receptionId');
-    const visitDate = carryoverSource.get('visitDate');
     const returnTo = carryoverSource.get('returnTo');
     const intent = carryoverSource.get('intent');
     const runIdFromUrl = carryoverSource.get('runId');
     if (sort) params.set('sort', sort);
     if (date) params.set('date', date);
     if (from) params.set('from', from);
-    if (patientId) params.set('patientId', patientId);
-    if (appointmentId) params.set('appointmentId', appointmentId);
-    if (receptionId) params.set('receptionId', receptionId);
-    if (visitDate) params.set('visitDate', visitDate);
     if (intent) params.set('intent', intent);
     if (isSafeReturnTo(returnTo, session.facilityId)) params.set('returnTo', returnTo as string);
     if (runIdFromUrl) params.set('runId', runIdFromUrl);

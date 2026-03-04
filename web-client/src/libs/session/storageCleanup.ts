@@ -1,7 +1,9 @@
 import { toScopeSuffix, type StorageScope } from './storageScope';
 
 const SESSION_BASE_KEYS = [
+  // PHI関連(sessionStorage): ログアウト時に必ず除去する
   'opendolphin:web-client:charts:encounter-context',
+  'opendolphin:web-client:charts:patient-tabs',
   'opendolphin:web-client:patients:returnTo',
   'opendolphin:web-client:soap-history',
   'opendolphin:web-client:charts:printPreview:document',
@@ -25,6 +27,8 @@ const LOCAL_BASE_KEYS = [
 ];
 
 const LOCAL_DIRECT_KEYS = [
+  // PHI関連(localStorage): 患者検索導線や保存ビューはログアウト時に消去する
+  'opendolphin:web-client:outpatient-saved-views:v1',
   'patients-filter-state',
   'reception-filter-state',
   'opendolphin:web-client:charts:order-sets:v1',

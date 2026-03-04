@@ -9,6 +9,7 @@ const scriptDir = path.dirname(scriptPath);
 const webClientDir = path.resolve(scriptDir, '..');
 const repoRootDir = path.resolve(webClientDir, '..');
 
+const PUBLIC_PREFIX = ['VITE', ''].join('_');
 const KEYWORDS = ['PASSWORD', 'PASS', 'SECRET', 'TOKEN', 'APIKEY', 'API_KEY', 'PRIVATE', 'CREDENTIAL'];
 const ENV_KEY_PATTERN = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/;
 
@@ -19,7 +20,7 @@ const listEnvFiles = (dir) =>
 
 const hasSecretLikeName = (key) => {
   const upper = key.toUpperCase();
-  return upper.startsWith('VITE_') && KEYWORDS.some((keyword) => upper.includes(keyword));
+  return upper.startsWith(PUBLIC_PREFIX) && KEYWORDS.some((keyword) => upper.includes(keyword));
 };
 
 const scanFile = (filePath) => {

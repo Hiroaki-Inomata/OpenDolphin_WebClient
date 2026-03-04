@@ -10,6 +10,7 @@ vi.mock('../styles/app-shell.css', () => ({}));
 vi.mock('../libs/observability/observability', () => ({
   updateObservabilityMeta: vi.fn(),
   resolveAriaLive: () => 'polite',
+  getObservabilityMeta: () => ({}),
 }));
 vi.mock('../libs/observability/runIdCopy', () => ({
   copyRunIdToClipboard: vi.fn().mockResolvedValue(undefined),

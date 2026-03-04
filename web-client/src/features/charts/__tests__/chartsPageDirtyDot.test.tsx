@@ -269,29 +269,34 @@ vi.mock('../SoapNotePanel', () => ({
   },
 }));
 
+const seedPatientTabStorage = () => {
+  const patientTabKey = 'P-001::2026-02-16';
+  const storageKey = 'opendolphin:web-client:charts:patient-tabs:v1:facility:doctor';
+  const now = new Date().toISOString();
+  sessionStorage.setItem(
+    storageKey,
+    JSON.stringify({
+      version: 1,
+      updatedAt: now,
+      savedAt: now,
+      activeKey: patientTabKey,
+      tabs: [
+        {
+          key: patientTabKey,
+          patientId: 'P-001',
+          visitDate: '2026-02-16',
+          appointmentId: 'A-001',
+          receptionId: 'R-001',
+          openedAt: now,
+        },
+      ],
+    }),
+  );
+};
+
 describe('ChartsPage patient tab dirty indicator', () => {
   it('WorkspaceTabBar 統合後は Charts 内の患者タブUIを描画しない', async () => {
-    const patientTabKey = 'P-001::2026-02-16';
-    const storageKey = 'opendolphin:web-client:charts:patient-tabs:v1:facility:doctor';
-    sessionStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        version: 1,
-        updatedAt: '2026-02-16T10:00:00.000Z',
-        activeKey: patientTabKey,
-        tabs: [
-          {
-            key: patientTabKey,
-            patientId: 'P-001',
-            visitDate: '2026-02-16',
-            appointmentId: 'A-001',
-            receptionId: 'R-001',
-            name: '患者A',
-            openedAt: '2026-02-16T10:00:00.000Z',
-          },
-        ],
-      }),
-    );
+    seedPatientTabStorage();
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -317,27 +322,7 @@ describe('ChartsPage patient tab dirty indicator', () => {
   });
 
   it('未保存状態で診察終了すると保存/破棄/キャンセルの3択ダイアログを表示する', async () => {
-    const patientTabKey = 'P-001::2026-02-16';
-    const storageKey = 'opendolphin:web-client:charts:patient-tabs:v1:facility:doctor';
-    sessionStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        version: 1,
-        updatedAt: '2026-02-16T10:00:00.000Z',
-        activeKey: patientTabKey,
-        tabs: [
-          {
-            key: patientTabKey,
-            patientId: 'P-001',
-            visitDate: '2026-02-16',
-            appointmentId: 'A-001',
-            receptionId: 'R-001',
-            name: '患者A',
-            openedAt: '2026-02-16T10:00:00.000Z',
-          },
-        ],
-      }),
-    );
+    seedPatientTabStorage();
 
     const queryClient = new QueryClient({
       defaultOptions: {
@@ -374,27 +359,7 @@ describe('ChartsPage patient tab dirty indicator', () => {
   });
 
   it('Shift+Enter でドラフト保存ショートカット後は終了ガードを表示しない', async () => {
-    const patientTabKey = 'P-001::2026-02-16';
-    const storageKey = 'opendolphin:web-client:charts:patient-tabs:v1:facility:doctor';
-    sessionStorage.setItem(
-      storageKey,
-      JSON.stringify({
-        version: 1,
-        updatedAt: '2026-02-16T10:00:00.000Z',
-        activeKey: patientTabKey,
-        tabs: [
-          {
-            key: patientTabKey,
-            patientId: 'P-001',
-            visitDate: '2026-02-16',
-            appointmentId: 'A-001',
-            receptionId: 'R-001',
-            name: '患者A',
-            openedAt: '2026-02-16T10:00:00.000Z',
-          },
-        ],
-      }),
-    );
+    seedPatientTabStorage();
 
     const queryClient = new QueryClient({
       defaultOptions: {

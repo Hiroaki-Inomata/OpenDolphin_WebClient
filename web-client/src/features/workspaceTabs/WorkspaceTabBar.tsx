@@ -37,6 +37,7 @@ const normalizeText = (value: unknown): string | undefined => {
 const createInitialTabsState = (): ChartsPatientTabsStorage => ({
   version: 1,
   updatedAt: new Date().toISOString(),
+  savedAt: new Date().toISOString(),
   activeKey: undefined,
   tabs: [],
 });
@@ -204,9 +205,11 @@ export function WorkspaceTabBar({
       if (index < 0) return;
       const nextTabs = currentState.tabs.filter((tab) => tab.key !== key);
       const nextActiveTab = nextTabs[index - 1] ?? nextTabs[index] ?? nextTabs[0] ?? undefined;
+      const now = new Date().toISOString();
       const nextState: ChartsPatientTabsStorage = {
         version: 1,
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
+        savedAt: currentState.savedAt ?? now,
         activeKey: nextActiveTab?.key,
         tabs: nextTabs,
       };

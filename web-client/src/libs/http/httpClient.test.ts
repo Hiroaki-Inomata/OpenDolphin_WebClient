@@ -42,6 +42,8 @@ const setCsrfMetaToken = (content: string) => {
   document.head.appendChild(meta);
 };
 
+const readCsrfHeader = (headers: Record<string, string>) => headers['X-CSRF-Token'] ?? headers['x-csrf-token'];
+
 const mockFetchSequence = (statuses: number[]) => {
   const queue = [...statuses];
   vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
@@ -166,10 +168,12 @@ describe('httpFetch session expiry reasons', () => {
     localStorage.clear();
     clearDevVolatilePlainPassword();
     document.head.innerHTML = '';
+    setCsrfMetaToken('csrf-default-token');
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     document.head.innerHTML = '';
   });
 
@@ -411,5 +415,69 @@ describe('httpFetch session expiry reasons', () => {
     mockFetchSequence([403]);
     await httpClient.httpFetch('/blobapi/xxxx', { method: 'GET' });
     expect(notifySpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('buildHttpHeaders CSRF policy', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    document.head.innerHTML = '';
+    const { httpClient } = await importSubjects();
+    httpClient.setCsrfRuntimeOverrideForTests(undefined);
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    document.head.innerHTML = '';
+    const { httpClient } = await importSubjects();
+    httpClient.setCsrfRuntimeOverrideForTests(undefined);
+  });
+
+  it('adds X-CSRF-Token for same-origin POST', async () => {
+    setCsrfMetaToken('  csrf-token-abc  ');
+    const { httpClient } = await importSubjects();
+
+    const headers = httpClient.buildHttpHeaders({ method: 'POST' }, '/api/foo');
+    expect(readCsrfHeader(headers)).toBe('csrf-token-abc');
+  });
+
+  it('does not add X-CSRF-Token for GET', async () => {
+    setCsrfMetaToken('csrf-token-abc');
+    const { httpClient } = await importSubjects();
+
+    const headers = httpClient.buildHttpHeaders({ method: 'GET' }, '/api/foo');
+    expect(headers['X-CSRF-Token']).toBeUndefined();
+  });
+
+  it('throws for token-missing POST when PROD is enabled', async () => {
+    const { httpClient } = await importSubjects();
+    httpClient.setCsrfRuntimeOverrideForTests({ prod: true, allowMissingCsrf: true });
+
+    expect(() => httpClient.buildHttpHeaders({ method: 'POST' }, '/api/foo')).toThrowError('CSRF token missing');
+    httpClient.setCsrfRuntimeOverrideForTests(undefined);
+  });
+
+  it('allows token-missing POST in dev/test only when VITE_ALLOW_MISSING_CSRF=1', async () => {
+    vi.stubEnv('VITE_ALLOW_MISSING_CSRF', '1');
+    const { httpClient } = await importSubjects();
+    httpClient.setCsrfRuntimeOverrideForTests({ prod: false });
+
+    expect(() => httpClient.buildHttpHeaders({ method: 'POST' }, '/api/foo')).not.toThrow();
+    httpClient.setCsrfRuntimeOverrideForTests(undefined);
+  });
+
+  it('includes X-CSRF-Token in XHR path header generation', async () => {
+    setCsrfMetaToken('csrf-token-xhr');
+    const { httpClient } = await importSubjects();
+
+    const headers = httpClient.buildHttpHeaders(
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+      },
+      '/karte/document',
+    );
+
+    expect(readCsrfHeader(headers)).toBe('csrf-token-xhr');
   });
 });

@@ -575,7 +575,7 @@ function ChartsDocumentPrintContent() {
               className="charts-print__button charts-print__button--ghost"
               href={PRINT_HELP_URL}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
             >
               印刷ヘルプ
             </a>
@@ -614,7 +614,7 @@ function ChartsDocumentPrintContent() {
               className="charts-print__button charts-print__button--ghost"
               href={PRINT_HELP_URL}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
             >
               印刷ヘルプ
             </a>
@@ -892,7 +892,7 @@ function ChartsReportPrintContent({ state, restoredAt, restoredFromSession, onCl
         <div className="charts-print__controls" role="group" aria-label="帳票操作">
           {pdfUrl && (
             <>
-              <a className="charts-print__button charts-print__button--primary" href={pdfUrl} target="_blank" rel="noreferrer">
+              <a className="charts-print__button charts-print__button--primary" href={pdfUrl} target="_blank" rel="noopener noreferrer">
                 PDFを開く
               </a>
               <a className="charts-print__button" href={pdfUrl} download={`${state.reportType}-${state.dataId}.pdf`}>

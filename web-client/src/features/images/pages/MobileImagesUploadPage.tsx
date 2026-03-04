@@ -44,7 +44,10 @@ export function MobileImagesUploadPage() {
     () => new URLSearchParams(location.search.startsWith('?') ? location.search.slice(1) : location.search),
     [location.search],
   );
-  const patientIdParam = useMemo(() => queryParams.get('patientId') ?? undefined, [queryParams]);
+  const patientIdParam = useMemo(
+    () => queryParams.get('patientId') ?? appNav.encounter.patientId ?? undefined,
+    [appNav.encounter.patientId, queryParams],
+  );
   const fallbackUrl = useMemo(() => {
     const facilityId = session?.facilityId;
     if (appNav.fromCandidate === 'reception') return buildFacilityPath(facilityId, '/reception');
@@ -434,7 +437,7 @@ export function MobileImagesUploadPage() {
                       data-test-id="mobile-images-download-link"
                       href={safeDownloadUrl}
                       target="_blank"
-                      rel="noreferrer noopener"
+                      rel="noopener noreferrer"
                       style={{ fontSize: '0.95rem' }}
                     >
                       参照リンクを開く

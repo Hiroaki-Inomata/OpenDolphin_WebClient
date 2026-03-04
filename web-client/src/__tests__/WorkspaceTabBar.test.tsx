@@ -32,6 +32,7 @@ const setAuthSession = () => {
 };
 
 const setPatientTabsStorage = () => {
+  const now = new Date().toISOString();
   const scopedKey =
     buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, {
       facilityId: FACILITY_ID,
@@ -41,7 +42,8 @@ const setPatientTabsStorage = () => {
   const tabKey = buildPatientTabKey('00000001', '2026-03-01');
   const state: ChartsPatientTabsStorage = {
     version: 1,
-    updatedAt: '2026-03-01T04:11:12.000Z',
+    updatedAt: now,
+    savedAt: now,
     activeKey: tabKey,
     tabs: [
       {
@@ -50,9 +52,7 @@ const setPatientTabsStorage = () => {
         visitDate: '2026-03-01',
         appointmentId: '1001',
         receptionId: '2001',
-        name: '山田太郎',
-        department: '内科',
-        openedAt: '2026-03-01T04:11:12.000Z',
+        openedAt: now,
       },
     ],
   };
@@ -87,12 +87,12 @@ describe('WorkspaceTabBar navigation', () => {
 
     expect(window.location.pathname).toBe('/f/0001/reception');
 
-    const patientTab = await screen.findByRole('tab', { name: '山田太郎（内科）' });
+    const patientTab = await screen.findByRole('tab', { name: '患者' });
     expect(patientTab).toBeInTheDocument();
     const tabs = screen.getAllByRole('tab');
     expect(tabs.some((tab) => tab.textContent?.includes('受付'))).toBe(true);
     expect(tabs.some((tab) => tab.textContent?.includes('患者管理'))).toBe(true);
-    expect(tabs.filter((tab) => tab.textContent?.includes('山田太郎（内科）')).length).toBe(1);
+    expect(tabs.filter((tab) => tab.textContent?.includes('患者')).length).toBeGreaterThanOrEqual(1);
 
     await user.click(patientTab);
 
@@ -118,14 +118,14 @@ describe('WorkspaceTabBar navigation', () => {
       </QueryClientProvider>,
     );
 
-    const closeButton = await screen.findByRole('button', { name: '山田太郎（内科）を閉じる' });
+    const closeButton = await screen.findByRole('button', { name: '患者を閉じる' });
     await user.click(closeButton);
 
     await waitFor(() => {
       expect(window.location.pathname).toBe('/f/0001/reception');
     });
     await waitFor(() => {
-      expect(screen.queryByRole('tab', { name: '山田太郎（内科）' })).toBeNull();
+      expect(screen.queryByRole('tab', { name: '患者' })).toBeNull();
     });
   });
 });

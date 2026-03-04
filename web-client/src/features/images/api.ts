@@ -540,7 +540,7 @@ export function sendKarteDocumentWithAttachmentsViaXhr(
     const headers = buildHttpHeaders({
       method,
       headers: { 'Content-Type': 'application/json' },
-    });
+    }, endpoint);
     Object.entries(headers).forEach(([key, value]) => {
       if (value) xhr.setRequestHeader(key, value);
     });

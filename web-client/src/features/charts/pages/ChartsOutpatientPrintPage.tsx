@@ -474,7 +474,7 @@ function ChartsOutpatientPrintContent() {
               className="charts-print__button charts-print__button--ghost"
               href={PRINT_HELP_URL}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
             >
               印刷ヘルプ
             </a>
@@ -513,7 +513,7 @@ function ChartsOutpatientPrintContent() {
               className="charts-print__button charts-print__button--ghost"
               href={PRINT_HELP_URL}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
             >
               印刷ヘルプ
             </a>
