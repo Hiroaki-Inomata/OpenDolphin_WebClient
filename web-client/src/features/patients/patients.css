@@ -185,7 +185,7 @@
 }
 
 .patients-search__button:active {
-  transform: translateY(1px);
+  transform: none;
 }
 
 .patients-search__button:disabled {
@@ -310,13 +310,14 @@
 }
 
 .patients-page__row.is-selected {
-  border-color: #2563eb;
-  box-shadow: 0 12px 32px rgba(37, 99, 235, 0.25);
+  border-color: var(--ui-selection-border);
+  background: var(--ui-selection-bg);
+  box-shadow: none;
 }
 
 .patients-page__row.is-unlinked {
   border-color: var(--ui-warning-border);
-  box-shadow: 0 8px 20px rgba(245, 158, 11, 0.18);
+  box-shadow: none;
 }
 
 .patients-page__row-main {
@@ -1451,7 +1452,8 @@
   --patients-surface: var(--ui-surface);
   --patients-surface-muted: var(--ui-surface-muted);
   --patients-input-border: var(--ui-border-strong);
-  min-height: calc(100dvh - 10.5rem);
+  height: 100%;
+  min-height: 0;
 }
 
 .patients-page__header {
@@ -1604,8 +1606,9 @@
 
 .patients-page__row.is-selected {
   border-left-color: var(--patients-accent-strong);
-  border-color: var(--patients-accent-border);
-  box-shadow: 0 12px 32px rgba(30, 58, 138, 0.2);
+  border-color: var(--ui-selection-border);
+  background: var(--ui-selection-bg);
+  box-shadow: none;
 }
 
 .patients-page__row-id {
@@ -1906,13 +1909,52 @@
 
 .patients-page {
   /* 画面全体スクロールを極力発生させず、左/右ペイン内で完結させる */
-  height: calc(100dvh - 10.5rem);
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
 /* 2ペイン幅（左：検索＋一覧 / 右：詳細） */
 .patients-page__content.patients-page__split {
-  grid-template-columns: minmax(320px, 420px) 1fr;
+  grid-template-columns: var(--patients-sidebar-width, 380px) 10px 1fr;
+}
+
+.patients-page__splitter {
+  position: relative;
+  width: 10px;
+  cursor: col-resize;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.patients-page__splitter::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0.3rem;
+  bottom: 0.3rem;
+  width: 2px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  background: var(--ui-border);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.patients-page__splitter:hover::before,
+.patients-page__splitter:focus-visible::before,
+.patients-page__splitter.is-dragging::before {
+  background: var(--ui-primary);
+  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.12);
+}
+
+.patients-page__splitter:focus-visible {
+  outline: 2px solid var(--ui-focus-ring);
+  outline-offset: 1px;
+}
+
+.patients-page__splitter.is-dragging {
+  background: rgba(29, 78, 216, 0.08);
 }
 
 /* 左カラム：検索＋status＋一覧 */
@@ -2250,5 +2292,9 @@
 
   .patients-page__content.patients-page__split {
     grid-template-columns: 1fr;
+  }
+
+  .patients-page__splitter {
+    display: none;
   }
 }

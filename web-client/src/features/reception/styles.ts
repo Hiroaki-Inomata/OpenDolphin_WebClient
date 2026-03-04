@@ -145,47 +145,6 @@ export const receptionStyles = css`
     border: 0;
   }
 
-  .focus-trap-dialog__backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 11000;
-    background: rgba(15, 23, 42, 0.55);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1.25rem;
-  }
-
-  .focus-trap-dialog__panel {
-    width: min(720px, 100%);
-    max-height: 92vh;
-    overflow: auto;
-    background: #ffffff;
-    border-radius: 20px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
-    box-shadow: 0 20px 70px rgba(15, 23, 42, 0.25);
-    padding: 1.25rem;
-  }
-
-  .focus-trap-dialog__title {
-    margin: 0;
-    font-size: 1.2rem;
-    color: #0f172a;
-  }
-
-  .focus-trap-dialog__description {
-    margin: 0.6rem 0 0;
-    color: #475569;
-    line-height: 1.6;
-  }
-
-  .focus-trap-dialog__content {
-    margin-top: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
   .reception-modal__actions {
     display: flex;
     justify-content: space-between;
