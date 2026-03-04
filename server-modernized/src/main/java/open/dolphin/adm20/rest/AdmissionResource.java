@@ -8,17 +8,22 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Deque;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 import jakarta.inject.Inject;
 import jakarta.persistence.NoResultException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -47,6 +52,7 @@ import open.dolphin.adm20.converter.IOndobanModel30;
 import open.dolphin.adm20.converter.ISendPackage;
 import open.dolphin.adm20.session.ADM20_EHTServiceBean;
 import open.dolphin.converter.UserModelConverter;
+import open.dolphin.infomodel.AttachmentModel;
 import open.dolphin.infomodel.CarePlanModel;
 import open.dolphin.infomodel.ChartEventModel;
 import open.dolphin.infomodel.DiagnosisSendWrapper;
@@ -56,14 +62,20 @@ import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.Factor2Code;
 import open.dolphin.infomodel.Factor2Spec;
 import open.dolphin.infomodel.IInfoModel;
+import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.LastDateCount30;
+import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.NurseProgressCourseModel;
 import open.dolphin.infomodel.OndobanModel;
 import open.dolphin.infomodel.PVTHealthInsuranceModel;
 import open.dolphin.infomodel.PVTPublicInsuranceItemModel;
+import open.dolphin.infomodel.RegisteredDiagnosisModel;
 import open.dolphin.infomodel.SMSMessage;
+import open.dolphin.infomodel.SchemaModel;
 import open.dolphin.infomodel.UserModel;
-import open.dolphin.session.ChartEventServiceBean;
+import open.dolphin.session.KarteServiceBean;
+import open.dolphin.session.UserServiceBean;
+import open.dolphin.touch.JsonTouchSharedService;
 import open.orca.rest.ORCAConnection;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -90,12 +102,28 @@ import open.dolphin.rest.orca.AbstractOrcaRestResource;
  */
 @Path("/20/adm")
 public class AdmissionResource extends open.dolphin.rest.AbstractResource {
+
+    private static final Pattern E164_PHONE_PATTERN = Pattern.compile("^\\+?[0-9]{10,15}$");
+    private static final int SMS_MIN_NUMBERS = 1;
+    private static final int SMS_MAX_NUMBERS = 10;
+    private static final int SMS_MAX_MESSAGE_LENGTH = 1600;
+    private static final int FACTOR2_CODE_RATE_LIMIT = 5;
+    private static final int FACTOR2_VERIFY_RATE_LIMIT = 10;
+    private static final long FACTOR2_RATE_WINDOW_MILLIS = 5L * 60L * 1000L;
+    private static final ConcurrentMap<Long, Deque<Long>> FACTOR2_CODE_RATE_BUCKETS = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<Long, Deque<Long>> FACTOR2_VERIFY_RATE_BUCKETS = new ConcurrentHashMap<>();
     
     @Inject
     private ADM20_AdmissionServiceBean admissionService;
     
     @Inject
-    private ChartEventServiceBean chartService;
+    private JsonTouchSharedService sharedService;
+
+    @Inject
+    private KarteServiceBean karteServiceBean;
+
+    @Inject
+    private UserServiceBean userServiceBean;
     
     @Inject
     private ADM20_EHTServiceBean ehtService;
@@ -141,9 +169,11 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 
-                long ptPK = Long.parseLong(param);
+                String actorFacility = requireActorFacilityId(servletReq);
+                long ptPK = parseLongOr400(param, "patientPk", servletReq);
+                ensurePatientFacilityOr404(actorFacility, ptPK, servletReq);
                 List<CarePlanModel> list = admissionService.getCarePlans(ptPK);
-                List<ICarePlanModel> result = new ArrayList(list.size());
+                List<ICarePlanModel> result = new ArrayList<>(list.size());
                 for (CarePlanModel model : list) {
                     ICarePlanModel conv = new ICarePlanModel();
                     conv.fromModel(model);
@@ -166,8 +196,24 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 ObjectMapper mapper = new ObjectMapper();
                 ICarePlanModel conv = mapper.readValue(json, ICarePlanModel.class);
-                long pk = admissionService.addCarePlan(conv.toModel());
-                List<Long> result = new ArrayList(1);
+                CarePlanModel model = conv.toModel();
+                long karteId = model.getKarteId();
+                if (karteId <= 0L) {
+                    throw restError(servletReq, Response.Status.BAD_REQUEST,
+                            "karte_id_required", "karteId is required.");
+                }
+                ensureFacilityMatchOr404(
+                        requireActorFacilityId(servletReq),
+                        karteServiceBean.findFacilityIdByKarteId(karteId),
+                        "karteId",
+                        karteId,
+                        servletReq);
+                UserModel actorUserModel = requireActorUserModel(servletReq);
+                model.setId(0L);
+                model.setUserId(requireActorUserId(servletReq));
+                model.setCommonName(actorUserModel.getCommonName());
+                long pk = admissionService.addCarePlan(model);
+                List<Long> result = new ArrayList<>(1);
                 result.add(pk);
                 mapper = getSerializeMapper();
                 mapper.writeValue(os, result);
@@ -187,8 +233,28 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
                 ObjectMapper mapper = new ObjectMapper();
                 ICarePlanModel conv = mapper.readValue(json, ICarePlanModel.class);
                 CarePlanModel model = conv.toModel();
+                long id = model.getId();
+                if (id <= 0L) {
+                    throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                            "care_plan_id_required", "carePlan id is required.");
+                }
+                CarePlanModel existing = admissionService.findCarePlanById(id);
+                if (existing == null) {
+                    throw restError(httpRequest, Response.Status.NOT_FOUND, "not_found",
+                            "Requested resource was not found.");
+                }
+                ensureFacilityMatchOr404(
+                        requireActorFacilityId(httpRequest),
+                        karteServiceBean.findFacilityIdByKarteId(existing.getKarteId()),
+                        "carePlanId",
+                        id,
+                        httpRequest);
+                UserModel actorUserModel = requireActorUserModel(httpRequest);
+                model.setKarteId(existing.getKarteId());
+                model.setUserId(requireActorUserId(httpRequest));
+                model.setCommonName(actorUserModel.getCommonName());
                 int cnt = admissionService.updateCarePlan(model);
-                List<Integer> result = new ArrayList(1);
+                List<Integer> result = new ArrayList<>(1);
                 result.add(cnt);
                 mapper = getSerializeMapper();
                 mapper.writeValue(os, result);
@@ -206,9 +272,27 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 ObjectMapper mapper = new ObjectMapper();
-                ICarePlanModel model = mapper.readValue(json, ICarePlanModel.class);
-                int cnt = admissionService.deleteCarePlan(model.toModel());
-                List<Integer> result = new ArrayList(1);
+                ICarePlanModel conv = mapper.readValue(json, ICarePlanModel.class);
+                CarePlanModel model = conv.toModel();
+                long id = model.getId();
+                if (id <= 0L) {
+                    throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                            "care_plan_id_required", "carePlan id is required.");
+                }
+                CarePlanModel existing = admissionService.findCarePlanById(id);
+                if (existing == null) {
+                    throw restError(httpRequest, Response.Status.NOT_FOUND,
+                            "not_found", "Requested resource was not found.");
+                }
+                ensureFacilityMatchOr404(
+                        requireActorFacilityId(httpRequest),
+                        karteServiceBean.findFacilityIdByKarteId(existing.getKarteId()),
+                        "carePlanId",
+                        id,
+                        httpRequest);
+                model.setKarteId(existing.getKarteId());
+                int cnt = admissionService.deleteCarePlan(model);
+                List<Integer> result = new ArrayList<>(1);
                 result.add(cnt);
                 mapper = getSerializeMapper();
                 mapper.writeValue(os, result);
@@ -224,11 +308,20 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-                String [] params = param.split(",");
-                long ptPK = Long.parseLong(params[0]);
-                StringBuilder sb = new StringBuilder();
-                sb.append(params[1]).append(":").append(params[2]);
-                String fidPid = sb.toString();
+                String[] params = param.split(",");
+                if (params.length < 3) {
+                    throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                            "param_invalid", "param must be patientPk,fid,pid.");
+                }
+                String actorFacility = requireActorFacilityId(httpRequest);
+                long ptPK = parseLongOr400(params[0], "patientPk", httpRequest);
+                ensurePatientFacilityOr404(actorFacility, ptPK, httpRequest);
+                String patientId = normalizeText(params[2]);
+                if (patientId == null) {
+                    throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                            "patient_id_required", "patientId is required.");
+                }
+                String fidPid = actorFacility + IInfoModel.COMPOSITE_KEY_MAKER + patientId;
                 LastDateCount30 data = admissionService.getLastDateCount(ptPK, fidPid);
                 ILastDateCount30 result = new ILastDateCount30();
                 result.fromModel(data);
@@ -247,8 +340,18 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 String[] params = param.split(",");
-                long ptPK = Long.parseLong(params[0]);
-                Date startDate = dateFromString(params[1]);
+                if (params.length < 2) {
+                    throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                            "param_invalid", "ptPK and startDate are required.");
+                }
+                String actorFacility = requireActorFacilityId(httpRequest);
+                long ptPK = parseLongOr400(params[0], "patientPk", httpRequest);
+                ensurePatientFacilityOr404(actorFacility, ptPK, httpRequest);
+                Date startDate = IOSHelper.toDate(params[1]);
+                if (startDate == null) {
+                    throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                            "start_date_invalid", "startDate must be valid.");
+                }
                 Collection<Long> result = admissionService.getDocIdList(ptPK, startDate);
                 ObjectMapper mapper = getSerializeMapper();
                 mapper.writeValue(os, result);
@@ -264,8 +367,14 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-                long docPK = Long.parseLong(param);
+                String actorFacility = requireActorFacilityId(httpRequest);
+                long docPK = parseLongOr400(param, "docPk", httpRequest);
+                ensureDocFacilityOr404(actorFacility, docPK, httpRequest);
                 DocumentModel doc = admissionService.getDocumentByPk(docPK);
+                if (doc == null) {
+                    throw restError(httpRequest, Response.Status.NOT_FOUND,
+                            "not_found", "Requested resource was not found.");
+                }
                 doc.toDetuch();
                 IDocument conv = new IDocument();
                 conv.fromModel(doc);
@@ -280,68 +389,51 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String postSendPackage(@Context HttpServletRequest servletReq, String json) throws IOException {
-        
-        
+
         ObjectMapper mapper = new ObjectMapper();
         ISendPackage pkg = mapper.readValue(json, ISendPackage.class);
-        
-        long retPk = 0L;
-        
-        // カルテ文書
-        DocumentModel model = pkg.documentModel();
-        if (model!=null) {
- //minagawa^ VisitTouch 公費保険不具合        
-            DocInfoModel docInfo = model.getDocInfoModel();
-            PVTHealthInsuranceModel pvtIns = docInfo.getPVTHealthInsuranceModel();
-            if (pvtIns!=null) {
-                PVTPublicInsuranceItemModel[] arr;
-                arr = pvtIns.getPVTPublicInsuranceItem();
-                if (arr!=null && arr.length>0) {
-                    List<PVTPublicInsuranceItemModel> list = new ArrayList(arr.length);
-                    list.addAll(Arrays.asList(arr));
-                    pvtIns.setPublicItems(list);
-                }   
-            }
-//minagawa$      
-            retPk = admissionService.addDocument(model);
-        }
-        
-        // 病名Wrapper
-        DiagnosisSendWrapper wrapper = pkg.diagnosisSendWrapperModel();
-        if (wrapper!=null) {
+
+        DocumentModel model = pkg != null ? pkg.documentModel() : null;
+        DiagnosisSendWrapper wrapper = pkg != null ? pkg.diagnosisSendWrapperModel() : null;
+        if (wrapper != null) {
             populateDiagnosisAuditMetadata(servletReq, wrapper, "/20/adm/sendPackage");
-            admissionService.postPutSendDiagnosis(wrapper);
         }
-        
-        // 削除病名
-        List<String> deleted = pkg.deletedDiagnsis();
-        if (deleted!=null) {
-            List<Long> list = new ArrayList(deleted.size());
-            for (String str : deleted) {
-                list.add(Long.parseLong(str));
-            }
-            admissionService.removeDiagnosis(list);
+
+        String actorFacility = requireActorFacilityId(servletReq);
+        UserModel actorUserModel = requireActorUserModel(servletReq);
+        String documentPatientId = null;
+        KarteBean resolvedKarte = null;
+        if (model != null) {
+            documentPatientId = sanitizeDocumentForSendPackage(model, actorFacility, actorUserModel, servletReq);
+            resolvedKarte = model.getKarte();
         }
-        
-        // Status更新
-        ChartEventModel cvt = pkg.chartEventModel();
-        if (cvt!=null) {
-            chartService.processChartEvent(cvt);
+        sanitizeDiagnosisPayload(wrapper, actorFacility, actorUserModel, resolvedKarte, documentPatientId, servletReq);
+        List<String> deletedDiagnosis = pkg != null ? pkg.deletedDiagnsis() : null;
+        validateDeletedDiagnosisFacilities(actorFacility, deletedDiagnosis, servletReq);
+        ChartEventModel chartEvent = pkg != null ? pkg.chartEventModel() : null;
+        if (chartEvent != null) {
+            chartEvent.setFacilityId(actorFacility);
         }
-        
+
+        long retPk = sharedService.processSendPackageElements(model, wrapper, deletedDiagnosis, chartEvent);
         return String.valueOf(retPk);
     }
     
-    private Date dateFromString(String str) {
-        
-        if (str.length()>10) {
-            str = str.substring(10);
+    private Date dateFromString(String raw) {
+        String str = normalizeText(raw);
+        if (str == null) {
+            return null;
+        }
+        if (str.length() > 10) {
+            str = str.substring(0, 10);
         }
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
+        format.setLenient(false);
         try {
             return format.parse(str);
         } catch (ParseException ex) {
-            Logger.getLogger(AdmissionResource.class.getName()).log(Level.SEVERE, null, ex);
+            Logger.getLogger(AdmissionResource.class.getName())
+                    .log(Level.WARNING, "Invalid date: " + raw, ex);
         }
         return null;
     }
@@ -370,25 +462,29 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-                
-                // パラメータ抽出
-                String [] params = param.split(",");
-                long pk = Long.parseLong(params[0]);            // patientPK
-                Date fromDate = IOSHelper.toDate(params[1]);    // fromDate
-                Date toDate = IOSHelper.toDate(params[2]);      // tODate  
-                
-                // 検索
+                String[] params = param.split(",");
+                if (params.length < 3) {
+                    throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                            "param_invalid", "patientPk, fromDate and toDate are required.");
+                }
+                String actorFacility = requireActorFacilityId(httpRequest);
+                long pk = parseLongOr400(params[0], "patientPk", httpRequest);
+                ensurePatientFacilityOr404(actorFacility, pk, httpRequest);
+                Date fromDate = IOSHelper.toDate(params[1]);
+                Date toDate = IOSHelper.toDate(params[2]);
+                if (fromDate == null || toDate == null) {
+                    throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                            "date_invalid", "fromDate/toDate must be valid.");
+                }
+
                 List<OndobanModel> list = ehtService.getOndoban(pk, fromDate, toDate);
-                
-                // Converter
-                List<IOndobanModel30> result = new ArrayList();
+                List<IOndobanModel30> result = new ArrayList<>();
                 for (OndobanModel m : list) {
                     IOndobanModel30 om = new IOndobanModel30();
                     om.fromModel(m);
                     result.add(om);
                 }
-                
-                // 出力
+
                 ObjectMapper mapper = getSerializeMapper();
                 mapper.writeValue(os, result);
             }
@@ -403,17 +499,27 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-                
+                String actorFacility = requireActorFacilityId(httpRequest);
+                UserModel actorUserModel = requireActorUserModel(httpRequest);
                 ObjectMapper mapper = new ObjectMapper();
                 mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
                 IOndobanModel30[] array = mapper.readValue(json, IOndobanModel30[].class);
-                
-                ArrayList<OndobanModel> saveList = new ArrayList(array.length);
+
+                ArrayList<OndobanModel> saveList = new ArrayList<>(array.length);
                 for (IOndobanModel30 am : array) {
                     OndobanModel om = am.toModel();
+                    long karteId = requireKarteIdOr400(om.getKarte(), "karteId", httpRequest);
+                    ensureFacilityMatchOr404(
+                            actorFacility,
+                            karteServiceBean.findFacilityIdByKarteId(karteId),
+                            "karteId",
+                            karteId,
+                            httpRequest);
+                    om.setId(0L);
+                    om.setUserModel(actorUserModel);
                     saveList.add(om);
                 }
-                
+
                 List<Long> pkList = ehtService.addOndoban(saveList);
                 mapper = getSerializeMapper();
                 mapper.writeValue(os, pkList);
@@ -429,17 +535,30 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-                
+                String actorFacility = requireActorFacilityId(httpRequest);
+                UserModel actorUserModel = requireActorUserModel(httpRequest);
                 ObjectMapper mapper = new ObjectMapper();
                 mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
                 IOndobanModel30[] array = mapper.readValue(json, IOndobanModel30[].class);
-                
-                ArrayList<OndobanModel> updateList = new ArrayList(array.length);
+
+                ArrayList<OndobanModel> updateList = new ArrayList<>(array.length);
                 for (IOndobanModel30 am : array) {
                     OndobanModel om = am.toModel();
+                    long ondobanId = om.getId();
+                    if (ondobanId <= 0L) {
+                        throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                                "ondoban_id_required", "ondoban id is required.");
+                    }
+                    ensureFacilityMatchOr404(
+                            actorFacility,
+                            karteServiceBean.findFacilityIdByOndobanId(ondobanId),
+                            "ondobanId",
+                            ondobanId,
+                            httpRequest);
+                    om.setUserModel(actorUserModel);
                     updateList.add(om);
                 }
-                
+
                 int cnt = ehtService.updateOndoban(updateList);
                 mapper = getSerializeMapper();
                 mapper.writeValue(os, String.valueOf(cnt));
@@ -455,17 +574,30 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-                
+                String actorFacility = requireActorFacilityId(httpRequest);
+                UserModel actorUserModel = requireActorUserModel(httpRequest);
                 ObjectMapper mapper = new ObjectMapper();
                 mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
                 IOndobanModel30[] array = mapper.readValue(json, IOndobanModel30[].class);
-                
-                ArrayList<OndobanModel> updateList = new ArrayList(array.length);
+
+                ArrayList<OndobanModel> updateList = new ArrayList<>(array.length);
                 for (IOndobanModel30 am : array) {
                     OndobanModel om = am.toModel();
+                    long ondobanId = om.getId();
+                    if (ondobanId <= 0L) {
+                        throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                                "ondoban_id_required", "ondoban id is required.");
+                    }
+                    ensureFacilityMatchOr404(
+                            actorFacility,
+                            karteServiceBean.findFacilityIdByOndobanId(ondobanId),
+                            "ondobanId",
+                            ondobanId,
+                            httpRequest);
+                    om.setUserModel(actorUserModel);
                     updateList.add(om);
                 }
-                
+
                 int cnt = ehtService.deleteOndoban(updateList);
                 mapper = getSerializeMapper();
                 mapper.writeValue(os, String.valueOf(cnt));
@@ -483,25 +615,32 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-                
-                // パラメータ抽出
-                String [] params = param.split(",");
-                long pk = Long.parseLong(params[0]);            // patientPK
-                int firstResult = Integer.parseInt(params[1]);
-                int maxResult = Integer.parseInt(params[2]);
-                
-                // 検索
+                String[] params = param.split(",");
+                if (params.length < 3) {
+                    throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                            "param_invalid", "patientPk, firstResult and maxResult are required.");
+                }
+                String actorFacility = requireActorFacilityId(httpRequest);
+                long pk = parseLongOr400(params[0], "patientPk", httpRequest);
+                ensurePatientFacilityOr404(actorFacility, pk, httpRequest);
+                int firstResult;
+                int maxResult;
+                try {
+                    firstResult = Integer.parseInt(params[1]);
+                    maxResult = Integer.parseInt(params[2]);
+                } catch (NumberFormatException ex) {
+                    throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                            "param_invalid", "firstResult/maxResult must be numeric.");
+                }
+
                 List<NurseProgressCourseModel> list = ehtService.getNurseProgressCourse(pk, firstResult, maxResult);
-                
-                // Converter
-                List<INurseProgressCourse> result = new ArrayList();
+                List<INurseProgressCourse> result = new ArrayList<>();
                 for (NurseProgressCourseModel model : list) {
                     INurseProgressCourse conv = new INurseProgressCourse();
                     conv.fromModel(model);
                     result.add(conv);
                 }
-                
-                // 出力
+
                 ObjectMapper mapper = getSerializeMapper();
                 mapper.writeValue(os, result);
             }
@@ -516,16 +655,26 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-                
+                String actorFacility = requireActorFacilityId(httpRequest);
+                UserModel actorUserModel = requireActorUserModel(httpRequest);
                 ObjectMapper mapper = new ObjectMapper();
                 mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
                 INurseProgressCourse conv = mapper.readValue(json, INurseProgressCourse.class);
-                
+
                 NurseProgressCourseModel model = conv.toModel();
+                long karteId = requireKarteIdOr400(model.getKarte(), "karteId", httpRequest);
+                ensureFacilityMatchOr404(
+                        actorFacility,
+                        karteServiceBean.findFacilityIdByKarteId(karteId),
+                        "karteId",
+                        karteId,
+                        httpRequest);
+                model.setId(0L);
+                model.setUserModel(actorUserModel);
                 Long pk = ehtService.addNurseProgressCourse(model);
-                List<Long> pkList = new ArrayList(1);
+                List<Long> pkList = new ArrayList<>(1);
                 pkList.add(pk);
-                
+
                 mapper = getSerializeMapper();
                 mapper.writeValue(os, pkList);
             }
@@ -540,14 +689,27 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-                
+                String actorFacility = requireActorFacilityId(httpRequest);
+                UserModel actorUserModel = requireActorUserModel(httpRequest);
                 ObjectMapper mapper = new ObjectMapper();
                 mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
                 INurseProgressCourse conv = mapper.readValue(json, INurseProgressCourse.class);
-                
+
                 NurseProgressCourseModel model = conv.toModel();
+                long nurseProgressCourseId = model.getId();
+                if (nurseProgressCourseId <= 0L) {
+                    throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                            "nurse_progress_course_id_required", "nurseProgressCourse id is required.");
+                }
+                ensureFacilityMatchOr404(
+                        actorFacility,
+                        karteServiceBean.findFacilityIdByNurseProgressCourseId(nurseProgressCourseId),
+                        "nurseProgressCourseId",
+                        nurseProgressCourseId,
+                        httpRequest);
+                model.setUserModel(actorUserModel);
                 int cnt = ehtService.updateNurseProgressCourse(model);
-                
+
                 mapper = getSerializeMapper();
                 mapper.writeValue(os, String.valueOf(cnt));
             }
@@ -562,14 +724,27 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-                
+                String actorFacility = requireActorFacilityId(httpRequest);
+                UserModel actorUserModel = requireActorUserModel(httpRequest);
                 ObjectMapper mapper = new ObjectMapper();
                 mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
                 INurseProgressCourse conv = mapper.readValue(json, INurseProgressCourse.class);
-                
+
                 NurseProgressCourseModel model = conv.toModel();
+                long nurseProgressCourseId = model.getId();
+                if (nurseProgressCourseId <= 0L) {
+                    throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                            "nurse_progress_course_id_required", "nurseProgressCourse id is required.");
+                }
+                ensureFacilityMatchOr404(
+                        actorFacility,
+                        karteServiceBean.findFacilityIdByNurseProgressCourseId(nurseProgressCourseId),
+                        "nurseProgressCourseId",
+                        nurseProgressCourseId,
+                        httpRequest);
+                model.setUserModel(actorUserModel);
                 int cnt = ehtService.deleteNurseProgressCourse(model);
-                
+
                 mapper = getSerializeMapper();
                 mapper.writeValue(os, String.valueOf(cnt));
             }
@@ -586,13 +761,67 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
 
             @Override
             public void write(OutputStream output) throws IOException, WebApplicationException {
-                ObjectMapper mapper = new ObjectMapper();
-                SMSMessage sms = mapper.readValue(json, SMSMessage.class);
-                
-                plivoSender.send(sms.getNumbers(), sms.getMessage());
-                
-                mapper = getSerializeMapper();
-                mapper.writeValue(output, String.valueOf(sms.getNumbers().size()));
+                long actorUserPk = resolveActorUserPkForAudit();
+                List<String> normalized = new ArrayList<>();
+                int messageLength = 0;
+                try {
+                    requireAdmin(httpRequest, userServiceBean);
+                    actorUserPk = requireActorUserPk(httpRequest);
+                    ObjectMapper mapper = new ObjectMapper();
+                    SMSMessage sms = mapper.readValue(json, SMSMessage.class);
+
+                    List<String> numbers = sms != null && sms.getNumbers() != null ? sms.getNumbers() : List.of();
+                    if (numbers.size() < SMS_MIN_NUMBERS || numbers.size() > SMS_MAX_NUMBERS) {
+                        throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                                "numbers_invalid", "numbers size must be 1..10.");
+                    }
+                    for (String raw : numbers) {
+                        String value = normalizeText(raw);
+                        if (value == null || !E164_PHONE_PATTERN.matcher(value).matches()) {
+                            throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                                    "number_invalid", "number must match E.164 style.");
+                        }
+                        normalized.add(value);
+                    }
+                    String message = sms != null ? sms.getMessage() : null;
+                    String normalizedMessage = normalizeText(message);
+                    if (normalizedMessage == null || normalizedMessage.length() > SMS_MAX_MESSAGE_LENGTH) {
+                        throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                                "message_invalid", "message length must be 1..1600.");
+                    }
+                    messageLength = normalizedMessage.length();
+                    plivoSender.send(normalized, message);
+
+                    Map<String, Object> details = new LinkedHashMap<>();
+                    details.put("count", normalized.size());
+                    details.put("numbersMasked", maskPhoneNumbers(normalized));
+                    details.put("messageLength", messageLength);
+                    details.put("status", "success");
+                    recordAudit("SMS_SEND", "/20/adm/sms/message", actorUserPk, details);
+
+                    mapper = getSerializeMapper();
+                    mapper.writeValue(output, String.valueOf(normalized.size()));
+                } catch (WebApplicationException ex) {
+                    Map<String, Object> details = new LinkedHashMap<>();
+                    details.put("count", normalized.size());
+                    details.put("numbersMasked", maskPhoneNumbers(normalized));
+                    details.put("messageLength", messageLength);
+                    details.put("status", "failed");
+                    if (ex.getResponse() != null) {
+                        details.put("httpStatus", ex.getResponse().getStatus());
+                    }
+                    recordAudit("SMS_SEND_FAILED", "/20/adm/sms/message", actorUserPk, details);
+                    throw ex;
+                } catch (RuntimeException ex) {
+                    Map<String, Object> details = new LinkedHashMap<>();
+                    details.put("count", normalized.size());
+                    details.put("numbersMasked", maskPhoneNumbers(normalized));
+                    details.put("messageLength", messageLength);
+                    details.put("status", "failed");
+                    details.put("reason", "internal_error");
+                    recordAudit("SMS_SEND_FAILED", "/20/adm/sms/message", actorUserPk, details);
+                    throw ex;
+                }
             }
         };
     }
@@ -607,25 +836,65 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
 
             @Override
             public void write(OutputStream output) throws IOException, WebApplicationException {
-                
-                ObjectMapper mapper = new ObjectMapper();
-                Factor2Code spec = mapper.readValue(json, Factor2Code.class);
-                
-                // One time password
-                String code = TotpHelper.generateSmsCode();
-                spec.setCode(code);
-                
-                // persist temporaly
-                ehtService.saveFactor2Code(spec);
-                
-                // ユーザーのモバイルへ送信
-                List<String> numbers = new ArrayList(1);
-                numbers.add(spec.getMobileNumber());
-                
-                plivoSender.send(numbers, code);
-                
-                mapper = getSerializeMapper();
-                mapper.writeValue(output, "1");
+                long actorUserPk = requireActorUserPk(httpRequest);
+                String mobileMasked = "***";
+                try {
+                    ObjectMapper mapper = new ObjectMapper();
+                    Factor2Code spec = mapper.readValue(json, Factor2Code.class);
+                    if (spec.getUserPK() > 0L && spec.getUserPK() != actorUserPk) {
+                        throw restError(httpRequest, Response.Status.NOT_FOUND,
+                                "not_found", "Requested resource was not found.");
+                    }
+                    String mobileNumber = normalizeText(spec.getMobileNumber());
+                    if (mobileNumber == null || !E164_PHONE_PATTERN.matcher(mobileNumber).matches()) {
+                        throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                                "phone_number_invalid", "phoneNumber must match E.164 style.");
+                    }
+                    mobileMasked = maskPhone(mobileNumber);
+                    checkFactor2RateLimit(actorUserPk, FACTOR2_CODE_RATE_LIMIT, FACTOR2_CODE_RATE_BUCKETS);
+                    spec.setUserPK(actorUserPk);
+                    spec.setMobileNumber(mobileNumber);
+
+                    // One time password
+                    String code = TotpHelper.generateSmsCode();
+                    spec.setCode(code);
+
+                    // persist temporaly
+                    ehtService.saveFactor2Code(spec);
+
+                    // ユーザーのモバイルへ送信
+                    List<String> numbers = new ArrayList<>(1);
+                    numbers.add(spec.getMobileNumber());
+                    plivoSender.send(numbers, code);
+
+                    Map<String, Object> details = new LinkedHashMap<>();
+                    details.put("status", "success");
+                    details.put("mobileMasked", mobileMasked);
+                    details.put("rateLimited", false);
+                    recordAudit("FACTOR2_CODE_SEND", "/20/adm/factor2/code", actorUserPk, details);
+
+                    mapper = getSerializeMapper();
+                    mapper.writeValue(output, "1");
+                } catch (WebApplicationException ex) {
+                    Map<String, Object> details = new LinkedHashMap<>();
+                    details.put("status", "failed");
+                    details.put("mobileMasked", mobileMasked);
+                    boolean rateLimited = ex.getResponse() != null && ex.getResponse().getStatus() == 429;
+                    details.put("rateLimited", rateLimited);
+                    if (ex.getResponse() != null) {
+                        details.put("httpStatus", ex.getResponse().getStatus());
+                    }
+                    recordAudit("FACTOR2_CODE_SEND_FAILED", "/20/adm/factor2/code", actorUserPk, details);
+                    throw ex;
+                } catch (RuntimeException ex) {
+                    Map<String, Object> details = new LinkedHashMap<>();
+                    details.put("status", "failed");
+                    details.put("mobileMasked", mobileMasked);
+                    details.put("rateLimited", false);
+                    details.put("reason", "internal_error");
+                    recordAudit("FACTOR2_CODE_SEND_FAILED", "/20/adm/factor2/code", actorUserPk, details);
+                    throw ex;
+                }
             }
         };
     }
@@ -640,25 +909,71 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
 
             @Override
             public void write(OutputStream output) throws IOException, WebApplicationException {
-                
-                ObjectMapper mapper = new ObjectMapper();
-                Factor2Spec spec = mapper.readValue(json, Factor2Spec.class);
-                
-                // Backup key
-                String bkey = TotpHelper.generateBackupKey();
-                spec.setBackupKey(bkey);
-                
-                // 保存
+                long actorUserPk = requireActorUserPk(httpRequest);
+                String actorUserId = requireActorUserId(httpRequest);
+                String mobileMasked = "***";
                 try {
-                    ehtService.saveFactor2(spec);
-                } catch (NoResultException ne) {
-                    throw new WebApplicationException(ne, 404);
-                } catch (Exception e) {
-                    throw new WebApplicationException(e, 404);
+                    ObjectMapper mapper = new ObjectMapper();
+                    Factor2Spec spec = mapper.readValue(json, Factor2Spec.class);
+                    if (spec.getUserPK() > 0L && spec.getUserPK() != actorUserPk) {
+                        throw restError(httpRequest, Response.Status.NOT_FOUND,
+                                "not_found", "Requested resource was not found.");
+                    }
+                    String incomingUserId = normalizeText(spec.getUserId());
+                    if (incomingUserId != null && !incomingUserId.equals(actorUserId)) {
+                        throw restError(httpRequest, Response.Status.NOT_FOUND,
+                                "not_found", "Requested resource was not found.");
+                    }
+                    String phoneNumber = normalizeText(spec.getPhoneNumber());
+                    if (phoneNumber == null || !E164_PHONE_PATTERN.matcher(phoneNumber).matches()) {
+                        throw restError(httpRequest, Response.Status.BAD_REQUEST,
+                                "phone_number_invalid", "phoneNumber must match E.164 style.");
+                    }
+                    mobileMasked = maskPhone(phoneNumber);
+                    validateLengthOr400(spec.getDeviceName(), 128, "device_name_too_long", "deviceName must be <=128.");
+                    validateLengthOr400(spec.getMacAddress(), 128, "mac_address_too_long", "macAddress must be <=128.");
+                    spec.setUserPK(actorUserPk);
+                    spec.setUserId(actorUserId);
+                    spec.setPhoneNumber(phoneNumber);
+
+                    // Backup key
+                    String bkey = TotpHelper.generateBackupKey();
+                    spec.setBackupKey(bkey);
+
+                    // 保存
+                    try {
+                        ehtService.saveFactor2(spec);
+                    } catch (NoResultException ne) {
+                        throw new WebApplicationException(ne, 404);
+                    } catch (Exception e) {
+                        throw new WebApplicationException(e, 404);
+                    }
+
+                    Map<String, Object> details = new LinkedHashMap<>();
+                    details.put("status", "success");
+                    details.put("mobileMasked", mobileMasked);
+                    details.put("backupKeyIssued", true);
+                    recordAudit("FACTOR2_DEVICE_TRUST", "/20/adm/factor2/device", actorUserPk, details);
+
+                    mapper = getSerializeMapper();
+                    mapper.writeValue(output, bkey);
+                } catch (WebApplicationException ex) {
+                    Map<String, Object> details = new LinkedHashMap<>();
+                    details.put("status", "failed");
+                    details.put("mobileMasked", mobileMasked);
+                    if (ex.getResponse() != null) {
+                        details.put("httpStatus", ex.getResponse().getStatus());
+                    }
+                    recordAudit("FACTOR2_DEVICE_TRUST_FAILED", "/20/adm/factor2/device", actorUserPk, details);
+                    throw ex;
+                } catch (RuntimeException ex) {
+                    Map<String, Object> details = new LinkedHashMap<>();
+                    details.put("status", "failed");
+                    details.put("mobileMasked", mobileMasked);
+                    details.put("reason", "internal_error");
+                    recordAudit("FACTOR2_DEVICE_TRUST_FAILED", "/20/adm/factor2/device", actorUserPk, details);
+                    throw ex;
                 }
-                
-                mapper = getSerializeMapper();
-                mapper.writeValue(output, bkey);
             }
         };
     }
@@ -672,12 +987,30 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
 
             @Override
             public void write(OutputStream output) throws IOException, WebApplicationException {
-                
-                long userPK = Long.parseLong(param);
-                
-                // 削除
-                ehtService.resetFactor2Auth(userPK);
-                
+                long targetUserPk = parseLongOr400(param, "userPk", httpRequest);
+                long actorUserPk = requireActorUserPk(httpRequest);
+                String actorFacility = requireActorFacilityId(httpRequest);
+                if (targetUserPk != actorUserPk) {
+                    if (!isAdmin(httpRequest)) {
+                        throw restError(httpRequest, Response.Status.NOT_FOUND,
+                                "not_found", "Requested resource was not found.");
+                    }
+                    requireAdmin(httpRequest, userServiceBean);
+                    UserModel targetUser = userServiceBean.getUserByPk(targetUserPk);
+                    if (targetUser == null) {
+                        throw restError(httpRequest, Response.Status.NOT_FOUND,
+                                "not_found", "Requested resource was not found.");
+                    }
+                    String targetFacility = getRemoteFacility(targetUser.getUserId());
+                    ensureFacilityMatchOr404(actorFacility, targetFacility, "userPk", targetUserPk, httpRequest);
+                }
+
+                ehtService.resetFactor2Auth(targetUserPk);
+                Map<String, Object> details = new LinkedHashMap<>();
+                details.put("status", "success");
+                details.put("targetUserPk", targetUserPk);
+                recordAudit("FACTOR2_RESET", "/20/adm/factor2/auth", actorUserPk, details);
+
                 ObjectMapper mapper = getSerializeMapper();
                 mapper.writeValue(output, "1");
             }
@@ -690,10 +1023,25 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public UserModelConverter getUserWithNewFactor2Device(String json) throws IOException {
 
+        long actorUserPk = requireActorUserPk(httpRequest);
+        String actorUserId = requireActorUserId(httpRequest);
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         Factor2Spec spec = mapper.readValue(json, Factor2Spec.class);
-        
+        if (spec.getUserPK() > 0L && spec.getUserPK() != actorUserPk) {
+            throw restError(httpRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Requested resource was not found.");
+        }
+        String incomingUserId = normalizeText(spec.getUserId());
+        if (incomingUserId != null && !incomingUserId.equals(actorUserId)) {
+            throw restError(httpRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Requested resource was not found.");
+        }
+        validateLengthOr400(spec.getDeviceName(), 128, "device_name_too_long", "deviceName must be <=128.");
+        validateLengthOr400(spec.getMacAddress(), 128, "mac_address_too_long", "macAddress must be <=128.");
+        spec.setUserPK(actorUserPk);
+        spec.setUserId(actorUserId);
+
         UserModel result = ehtService.getUserWithNewFactor2Device(spec);
         UserModelConverter conv = new UserModelConverter();
         conv.setModel(result);
@@ -706,9 +1054,22 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public UserModelConverter getUserWithF2Backup(String json) throws IOException {
 
+        long actorUserPk = requireActorUserPk(httpRequest);
+        String actorUserId = requireActorUserId(httpRequest);
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         Factor2Spec spec = mapper.readValue(json, Factor2Spec.class);
+        if (spec.getUserPK() > 0L && spec.getUserPK() != actorUserPk) {
+            throw restError(httpRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Requested resource was not found.");
+        }
+        String incomingUserId = normalizeText(spec.getUserId());
+        if (incomingUserId != null && !incomingUserId.equals(actorUserId)) {
+            throw restError(httpRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Requested resource was not found.");
+        }
+        spec.setUserPK(actorUserPk);
+        spec.setUserId(actorUserId);
 
         UserModel result = ehtService.getUserWithF2Backup(spec);
         UserModelConverter conv = new UserModelConverter();
@@ -722,9 +1083,15 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public Response startTotpRegistration(String json) throws IOException {
         TotpRegistrationRequest request = jsonMapper.readValue(json, TotpRegistrationRequest.class);
+        long actorUserPk = requireActorUserPk(httpRequest);
+        if (request.getUserPk() > 0L && request.getUserPk() != actorUserPk) {
+            throw restError(httpRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Requested resource was not found.");
+        }
+        request.setUserPk(actorUserPk);
         try {
             TotpRegistrationResult result = ehtService.startTotpRegistration(
-                    request.getUserPk(),
+                    actorUserPk,
                     request.getLabel(),
                     request.getAccountName(),
                     request.getIssuer(),
@@ -738,14 +1105,14 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
             Map<String, Object> details = new HashMap<>();
             details.put("credentialId", result.credentialId());
             details.put("label", request.getLabel());
-            recordAudit("TOTP_REGISTER_INIT", "/20/adm/factor2/totp/registration", request.getUserPk(), details);
+            recordAudit("TOTP_REGISTER_INIT", "/20/adm/factor2/totp/registration", actorUserPk, details);
             return Response.ok(response).build();
         } catch (NoResultException e) {
-            recordAuditFailure("TOTP_REGISTER_INIT_FAILED", "/20/adm/factor2/totp/registration", request.getUserPk(),
+            recordAuditFailure("TOTP_REGISTER_INIT_FAILED", "/20/adm/factor2/totp/registration", actorUserPk,
                     "user_not_found", e, Response.Status.NOT_FOUND.getStatusCode());
             throw new WebApplicationException(e, 404);
         } catch (SecurityException e) {
-            recordAuditFailure("TOTP_REGISTER_INIT_FAILED", "/20/adm/factor2/totp/registration", request.getUserPk(),
+            recordAuditFailure("TOTP_REGISTER_INIT_FAILED", "/20/adm/factor2/totp/registration", actorUserPk,
                     e.getMessage(), e, Response.Status.BAD_REQUEST.getStatusCode());
             throw new WebApplicationException(e, 400);
         }
@@ -757,9 +1124,16 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public Response verifyTotpRegistration(String json) throws IOException {
         TotpVerificationRequest request = jsonMapper.readValue(json, TotpVerificationRequest.class);
+        long actorUserPk = requireActorUserPk(httpRequest);
+        if (request.getUserPk() > 0L && request.getUserPk() != actorUserPk) {
+            throw restError(httpRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Requested resource was not found.");
+        }
+        request.setUserPk(actorUserPk);
+        checkFactor2RateLimit(actorUserPk, FACTOR2_VERIFY_RATE_LIMIT, FACTOR2_VERIFY_RATE_BUCKETS);
         try {
             List<String> codes = ehtService.completeTotpRegistration(
-                    request.getUserPk(),
+                    actorUserPk,
                     request.getCredentialId(),
                     request.getCode(),
                     secondFactorSecurityConfig.getTotpSecretProtector());
@@ -770,18 +1144,18 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
             Map<String, Object> details = new HashMap<>();
             details.put("credentialId", request.getCredentialId());
             details.put("backupCodes", codes.size());
-            recordAudit("TOTP_REGISTER_COMPLETE", "/20/adm/factor2/totp/verification", request.getUserPk(), details);
+            recordAudit("TOTP_REGISTER_COMPLETE", "/20/adm/factor2/totp/verification", actorUserPk, details);
             return Response.ok(response).build();
         } catch (NoResultException e) {
             Map<String, Object> details = new HashMap<>();
             details.put("credentialId", request.getCredentialId());
-            recordAuditFailure("TOTP_REGISTER_COMPLETE_FAILED", "/20/adm/factor2/totp/verification", request.getUserPk(),
+            recordAuditFailure("TOTP_REGISTER_COMPLETE_FAILED", "/20/adm/factor2/totp/verification", actorUserPk,
                     "credential_not_found", e, Response.Status.NOT_FOUND.getStatusCode(), details);
             throw new WebApplicationException(e, 404);
         } catch (SecurityException e) {
             Map<String, Object> details = new HashMap<>();
             details.put("credentialId", request.getCredentialId());
-            recordAuditFailure("TOTP_REGISTER_COMPLETE_FAILED", "/20/adm/factor2/totp/verification", request.getUserPk(),
+            recordAuditFailure("TOTP_REGISTER_COMPLETE_FAILED", "/20/adm/factor2/totp/verification", actorUserPk,
                     e.getMessage(), e, Response.Status.BAD_REQUEST.getStatusCode(), details);
             throw new WebApplicationException(e, 400);
         }
@@ -793,9 +1167,22 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public Response startFidoRegistration(String json) throws IOException {
         FidoRegistrationOptionsRequest request = jsonMapper.readValue(json, FidoRegistrationOptionsRequest.class);
+        long actorUserPk = requireActorUserPk(httpRequest);
+        String actorUserId = requireActorUserId(httpRequest);
+        if (request.getUserPk() > 0L && request.getUserPk() != actorUserPk) {
+            throw restError(httpRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Requested resource was not found.");
+        }
+        String requestUserId = normalizeText(request.getUserId());
+        if (requestUserId != null && !requestUserId.equals(actorUserId)) {
+            throw restError(httpRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Requested resource was not found.");
+        }
+        request.setUserPk(actorUserPk);
+        request.setUserId(actorUserId);
         try {
             var challenge = ehtService.startFidoRegistration(
-                    request.getUserPk(),
+                    actorUserPk,
                     secondFactorSecurityConfig.getFido2Config(),
                     request.getAuthenticatorAttachment());
             FidoRegistrationOptionsResponse response = new FidoRegistrationOptionsResponse();
@@ -805,18 +1192,18 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
             Map<String, Object> details = new HashMap<>();
             details.put("requestId", challenge.getRequestId());
             details.put("authenticatorAttachment", request.getAuthenticatorAttachment());
-            recordAudit("FIDO2_REGISTER_INIT", "/20/adm/factor2/fido2/registration/options", request.getUserPk(), details);
+            recordAudit("FIDO2_REGISTER_INIT", "/20/adm/factor2/fido2/registration/options", actorUserPk, details);
             return Response.ok(response).build();
         } catch (NoResultException e) {
             Map<String, Object> details = new HashMap<>();
             details.put("authenticatorAttachment", request.getAuthenticatorAttachment());
-            recordAuditFailure("FIDO2_REGISTER_INIT_FAILED", "/20/adm/factor2/fido2/registration/options", request.getUserPk(),
+            recordAuditFailure("FIDO2_REGISTER_INIT_FAILED", "/20/adm/factor2/fido2/registration/options", actorUserPk,
                     "user_not_found", e, Response.Status.NOT_FOUND.getStatusCode(), details);
             throw new WebApplicationException(e, 404);
         } catch (SecurityException e) {
             Map<String, Object> details = new HashMap<>();
             details.put("authenticatorAttachment", request.getAuthenticatorAttachment());
-            recordAuditFailure("FIDO2_REGISTER_INIT_FAILED", "/20/adm/factor2/fido2/registration/options", request.getUserPk(),
+            recordAuditFailure("FIDO2_REGISTER_INIT_FAILED", "/20/adm/factor2/fido2/registration/options", actorUserPk,
                     e.getMessage(), e, Response.Status.BAD_REQUEST.getStatusCode(), details);
             throw new WebApplicationException(e, 400);
         }
@@ -828,9 +1215,16 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public Response finishFidoRegistration(String json) throws IOException {
         FidoRegistrationFinishRequest request = jsonMapper.readValue(json, FidoRegistrationFinishRequest.class);
+        long actorUserPk = requireActorUserPk(httpRequest);
+        if (request.getUserPk() > 0L && request.getUserPk() != actorUserPk) {
+            throw restError(httpRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Requested resource was not found.");
+        }
+        request.setUserPk(actorUserPk);
+        checkFactor2RateLimit(actorUserPk, FACTOR2_VERIFY_RATE_LIMIT, FACTOR2_VERIFY_RATE_BUCKETS);
         try {
             var credential = ehtService.finishFidoRegistration(
-                    request.getUserPk(),
+                    actorUserPk,
                     request.getRequestId(),
                     request.getCredentialResponse(),
                     request.getLabel(),
@@ -840,18 +1234,18 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
 
             Map<String, Object> details = new HashMap<>();
             details.put("credentialId", credential.getCredentialId());
-            recordAudit("FIDO2_REGISTER_COMPLETE", "/20/adm/factor2/fido2/registration/finish", request.getUserPk(), details);
+            recordAudit("FIDO2_REGISTER_COMPLETE", "/20/adm/factor2/fido2/registration/finish", actorUserPk, details);
             return Response.ok(result).build();
         } catch (NoResultException e) {
             Map<String, Object> details = new HashMap<>();
             details.put("requestId", request.getRequestId());
-            recordAuditFailure("FIDO2_REGISTER_COMPLETE_FAILED", "/20/adm/factor2/fido2/registration/finish", request.getUserPk(),
+            recordAuditFailure("FIDO2_REGISTER_COMPLETE_FAILED", "/20/adm/factor2/fido2/registration/finish", actorUserPk,
                     "challenge_not_found", e, Response.Status.NOT_FOUND.getStatusCode(), details);
             throw new WebApplicationException(e, 404);
         } catch (SecurityException e) {
             Map<String, Object> details = new HashMap<>();
             details.put("requestId", request.getRequestId());
-            recordAuditFailure("FIDO2_REGISTER_COMPLETE_FAILED", "/20/adm/factor2/fido2/registration/finish", request.getUserPk(),
+            recordAuditFailure("FIDO2_REGISTER_COMPLETE_FAILED", "/20/adm/factor2/fido2/registration/finish", actorUserPk,
                     e.getMessage(), e, Response.Status.BAD_REQUEST.getStatusCode(), details);
             throw new WebApplicationException(e, 400);
         }
@@ -863,10 +1257,23 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public Response startFidoAssertion(String json) throws IOException {
         FidoAssertionOptionsRequest request = jsonMapper.readValue(json, FidoAssertionOptionsRequest.class);
+        long actorUserPk = requireActorUserPk(httpRequest);
+        String actorUserId = requireActorUserId(httpRequest);
+        if (request.getUserPk() > 0L && request.getUserPk() != actorUserPk) {
+            throw restError(httpRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Requested resource was not found.");
+        }
+        String requestedUserId = normalizeText(request.getUserId());
+        if (requestedUserId != null && !requestedUserId.equals(actorUserId)) {
+            throw restError(httpRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Requested resource was not found.");
+        }
+        request.setUserPk(actorUserPk);
+        request.setUserId(actorUserId);
         try {
             var challenge = ehtService.startFidoAssertion(
-                    request.getUserPk(),
-                    request.getUserId(),
+                    actorUserPk,
+                    actorUserId,
                     secondFactorSecurityConfig.getFido2Config());
             FidoAssertionOptionsResponse response = new FidoAssertionOptionsResponse();
             response.setRequestId(challenge.getRequestId());
@@ -874,18 +1281,18 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
 
             Map<String, Object> details = new HashMap<>();
             details.put("requestId", challenge.getRequestId());
-            recordAudit("FIDO2_ASSERT_INIT", "/20/adm/factor2/fido2/assertion/options", request.getUserPk(), details);
+            recordAudit("FIDO2_ASSERT_INIT", "/20/adm/factor2/fido2/assertion/options", actorUserPk, details);
             return Response.ok(response).build();
         } catch (NoResultException e) {
             Map<String, Object> details = new HashMap<>();
-            details.put("userId", request.getUserId());
-            recordAuditFailure("FIDO2_ASSERT_INIT_FAILED", "/20/adm/factor2/fido2/assertion/options", request.getUserPk(),
+            details.put("userId", actorUserId);
+            recordAuditFailure("FIDO2_ASSERT_INIT_FAILED", "/20/adm/factor2/fido2/assertion/options", actorUserPk,
                     "credential_not_found", e, Response.Status.NOT_FOUND.getStatusCode(), details);
             throw new WebApplicationException(e, 404);
         } catch (SecurityException e) {
             Map<String, Object> details = new HashMap<>();
-            details.put("userId", request.getUserId());
-            recordAuditFailure("FIDO2_ASSERT_INIT_FAILED", "/20/adm/factor2/fido2/assertion/options", request.getUserPk(),
+            details.put("userId", actorUserId);
+            recordAuditFailure("FIDO2_ASSERT_INIT_FAILED", "/20/adm/factor2/fido2/assertion/options", actorUserPk,
                     e.getMessage(), e, Response.Status.BAD_REQUEST.getStatusCode(), details);
             throw new WebApplicationException(e, 400);
         }
@@ -897,9 +1304,16 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
     @Produces(MediaType.APPLICATION_JSON)
     public Response finishFidoAssertion(String json) throws IOException {
         FidoAssertionFinishRequest request = jsonMapper.readValue(json, FidoAssertionFinishRequest.class);
+        long actorUserPk = requireActorUserPk(httpRequest);
+        if (request.getUserPk() > 0L && request.getUserPk() != actorUserPk) {
+            throw restError(httpRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Requested resource was not found.");
+        }
+        request.setUserPk(actorUserPk);
+        checkFactor2RateLimit(actorUserPk, FACTOR2_VERIFY_RATE_LIMIT, FACTOR2_VERIFY_RATE_BUCKETS);
         try {
             boolean success = ehtService.finishFidoAssertion(
-                    request.getUserPk(),
+                    actorUserPk,
                     request.getRequestId(),
                     request.getCredentialResponse(),
                     secondFactorSecurityConfig.getFido2Config());
@@ -909,23 +1323,336 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
             Map<String, Object> details = new HashMap<>();
             details.put("requestId", request.getRequestId());
             details.put("authenticated", success);
-            recordAudit("FIDO2_ASSERT_COMPLETE", "/20/adm/factor2/fido2/assertion/finish", request.getUserPk(), details);
+            recordAudit("FIDO2_ASSERT_COMPLETE", "/20/adm/factor2/fido2/assertion/finish", actorUserPk, details);
             return Response.ok(response).build();
         } catch (NoResultException e) {
             Map<String, Object> details = new HashMap<>();
             details.put("requestId", request.getRequestId());
-            recordAuditFailure("FIDO2_ASSERT_COMPLETE_FAILED", "/20/adm/factor2/fido2/assertion/finish", request.getUserPk(),
+            recordAuditFailure("FIDO2_ASSERT_COMPLETE_FAILED", "/20/adm/factor2/fido2/assertion/finish", actorUserPk,
                     "challenge_not_found", e, Response.Status.NOT_FOUND.getStatusCode(), details);
             throw new WebApplicationException(e, 404);
         } catch (SecurityException e) {
             Map<String, Object> details = new HashMap<>();
             details.put("requestId", request.getRequestId());
-            recordAuditFailure("FIDO2_ASSERT_COMPLETE_FAILED", "/20/adm/factor2/fido2/assertion/finish", request.getUserPk(),
+            recordAuditFailure("FIDO2_ASSERT_COMPLETE_FAILED", "/20/adm/factor2/fido2/assertion/finish", actorUserPk,
                     e.getMessage(), e, Response.Status.BAD_REQUEST.getStatusCode(), details);
             throw new WebApplicationException(e, 400);
         }
     }
 //minagawa$  
+
+    private long parseLongOr400(String raw, String name, HttpServletRequest req) {
+        String normalized = normalizeText(raw);
+        if (normalized == null) {
+            throw restError(req, Response.Status.BAD_REQUEST,
+                    name + "_invalid", name + " must be numeric.");
+        }
+        try {
+            long value = Long.parseLong(normalized);
+            if (value <= 0L) {
+                throw restError(req, Response.Status.BAD_REQUEST,
+                        name + "_invalid", name + " must be numeric.");
+            }
+            return value;
+        } catch (NumberFormatException ex) {
+            throw restError(req, Response.Status.BAD_REQUEST,
+                    name + "_invalid", name + " must be numeric.");
+        }
+    }
+
+    private String requireActorUserId(HttpServletRequest req) {
+        return requireRemoteUser(req);
+    }
+
+    private String requireActorFacilityId(HttpServletRequest req) {
+        return requireActorFacility(req);
+    }
+
+    private UserModel requireActorUserModel(HttpServletRequest req) {
+        String actorUserId = requireActorUserId(req);
+        if (userServiceBean == null) {
+            throw restError(req, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
+        }
+        try {
+            UserModel actor = userServiceBean.getUser(actorUserId);
+            if (actor == null) {
+                throw restError(req, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
+            }
+            return actor;
+        } catch (NoResultException | SecurityException ex) {
+            throw restError(req, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
+        }
+    }
+
+    private long requireActorUserPk(HttpServletRequest req) {
+        UserModel actor = requireActorUserModel(req);
+        long actorPk = actor.getId();
+        if (actorPk <= 0L) {
+            throw restError(req, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
+        }
+        return actorPk;
+    }
+
+    private boolean isAdmin(HttpServletRequest req) {
+        String actorUserId = requireActorUserId(req);
+        boolean userBeanAdmin = userServiceBean != null && userServiceBean.isAdmin(actorUserId);
+        boolean roleAdmin = req != null && req.isUserInRole("ADMIN");
+        return userBeanAdmin || roleAdmin;
+    }
+
+    private void ensurePatientFacilityOr404(String actorFacility, long patientPk, HttpServletRequest req) {
+        ensureFacilityMatchOr404(
+                actorFacility,
+                karteServiceBean.findFacilityIdByPatientPk(patientPk),
+                "patientPk",
+                patientPk,
+                req);
+    }
+
+    private void ensureDocFacilityOr404(String actorFacility, long docPk, HttpServletRequest req) {
+        ensureFacilityMatchOr404(
+                actorFacility,
+                karteServiceBean.findFacilityIdByDocId(docPk),
+                "docPk",
+                docPk,
+                req);
+    }
+
+    private String sanitizeDocumentForSendPackage(DocumentModel model,
+            String actorFacility,
+            UserModel actorUserModel,
+            HttpServletRequest servletReq) {
+        model.setId(0L);
+        DocInfoModel docInfo = model.getDocInfoModel();
+        if (docInfo == null) {
+            throw restError(servletReq, Response.Status.BAD_REQUEST, "patient_id_required", "patientId is required.");
+        }
+        docInfo.setDocPk(0L);
+        String patientId = normalizeText(docInfo.getPatientId());
+        if (patientId == null) {
+            throw restError(servletReq, Response.Status.BAD_REQUEST, "patient_id_required", "patientId is required.");
+        }
+        KarteBean karte = sharedService.findKarteByPatient(actorFacility, patientId);
+        if (karte == null) {
+            throw restError(servletReq, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
+        }
+        model.setUserModel(actorUserModel);
+        model.setKarte(karte);
+        applyModuleDefaults(model, actorUserModel, karte);
+        applySchemaDefaults(model, actorUserModel, karte);
+        applyAttachmentDefaults(model, actorUserModel, karte);
+        return patientId;
+    }
+
+    private void applyModuleDefaults(DocumentModel model, UserModel actorUserModel, KarteBean karte) {
+        List<ModuleModel> modules = model.getModules();
+        if (modules == null || modules.isEmpty()) {
+            return;
+        }
+        for (ModuleModel module : modules) {
+            if (module == null) {
+                continue;
+            }
+            module.setId(0L);
+            module.setUserModel(actorUserModel);
+            module.setKarteBean(karte);
+            module.setDocumentModel(model);
+        }
+    }
+
+    private void applySchemaDefaults(DocumentModel model, UserModel actorUserModel, KarteBean karte) {
+        List<SchemaModel> schemas = model.getSchema();
+        if (schemas == null || schemas.isEmpty()) {
+            return;
+        }
+        for (SchemaModel schema : schemas) {
+            if (schema == null) {
+                continue;
+            }
+            schema.setId(0L);
+            schema.setUserModel(actorUserModel);
+            schema.setKarteBean(karte);
+            schema.setDocumentModel(model);
+        }
+    }
+
+    private void applyAttachmentDefaults(DocumentModel model, UserModel actorUserModel, KarteBean karte) {
+        List<AttachmentModel> attachments = model.getAttachment();
+        if (attachments == null || attachments.isEmpty()) {
+            return;
+        }
+        for (AttachmentModel attachment : attachments) {
+            if (attachment == null) {
+                continue;
+            }
+            attachment.setId(0L);
+            attachment.setUserModel(actorUserModel);
+            attachment.setKarteBean(karte);
+            attachment.setDocumentModel(model);
+        }
+    }
+
+    private void sanitizeDiagnosisPayload(DiagnosisSendWrapper wrapper,
+            String actorFacility,
+            UserModel actorUserModel,
+            KarteBean resolvedKarte,
+            String documentPatientId,
+            HttpServletRequest servletReq) {
+        if (wrapper == null) {
+            return;
+        }
+        String wrapperPatientId = normalizeText(wrapper.getPatientId());
+        if (documentPatientId != null && wrapperPatientId != null && !documentPatientId.equals(wrapperPatientId)) {
+            throw restError(servletReq, Response.Status.BAD_REQUEST,
+                    "patient_mismatch", "document patientId and diagnosis patientId must match.");
+        }
+        KarteBean karte = resolvedKarte;
+        if (karte == null) {
+            if (wrapperPatientId == null) {
+                throw restError(servletReq, Response.Status.BAD_REQUEST, "patient_id_required", "patientId is required.");
+            }
+            karte = sharedService.findKarteByPatient(actorFacility, wrapperPatientId);
+            if (karte == null) {
+                throw restError(servletReq, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
+            }
+        }
+        applyDiagnosisDefaults(wrapper.getAddedDiagnosis(), actorFacility, actorUserModel, karte, servletReq);
+        applyDiagnosisDefaults(wrapper.getUpdatedDiagnosis(), actorFacility, actorUserModel, karte, servletReq);
+    }
+
+    private void applyDiagnosisDefaults(List<RegisteredDiagnosisModel> diagnoses,
+            String actorFacility,
+            UserModel actorUserModel,
+            KarteBean karte,
+            HttpServletRequest servletReq) {
+        if (diagnoses == null || diagnoses.isEmpty()) {
+            return;
+        }
+        for (RegisteredDiagnosisModel diagnosis : diagnoses) {
+            if (diagnosis == null) {
+                continue;
+            }
+            if (diagnosis.getId() > 0L) {
+                ensureFacilityMatchOr404(actorFacility,
+                        karteServiceBean.findFacilityIdByDiagnosisId(diagnosis.getId()),
+                        "diagnosisId",
+                        diagnosis.getId(),
+                        servletReq);
+            }
+            diagnosis.setUserModel(actorUserModel);
+            diagnosis.setKarte(karte);
+        }
+    }
+
+    private void validateDeletedDiagnosisFacilities(String actorFacility, List<String> deletedDiagnosis, HttpServletRequest servletReq) {
+        if (deletedDiagnosis == null || deletedDiagnosis.isEmpty()) {
+            return;
+        }
+        for (String raw : deletedDiagnosis) {
+            String trimmed = normalizeText(raw);
+            if (trimmed == null) {
+                throw restError(servletReq, Response.Status.BAD_REQUEST,
+                        "diagnosis_id_invalid", "diagnosisId must be numeric.");
+            }
+            long diagnosisId;
+            try {
+                diagnosisId = Long.parseLong(trimmed);
+            } catch (NumberFormatException ex) {
+                throw restError(servletReq, Response.Status.BAD_REQUEST,
+                        "diagnosis_id_invalid", "diagnosisId must be numeric.");
+            }
+            ensureFacilityMatchOr404(actorFacility,
+                    karteServiceBean.findFacilityIdByDiagnosisId(diagnosisId),
+                    "diagnosisId",
+                    diagnosisId,
+                    servletReq);
+        }
+    }
+
+    private String normalizeText(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private long requireKarteIdOr400(KarteBean karte, String name, HttpServletRequest req) {
+        long karteId = karte != null ? karte.getId() : 0L;
+        if (karteId <= 0L) {
+            throw restError(req, Response.Status.BAD_REQUEST,
+                    "karte_id_required", name + " is required.");
+        }
+        return karteId;
+    }
+
+    private void validateLengthOr400(String value, int max, String code, String message) {
+        if (value != null && value.length() > max) {
+            throw restError(httpRequest, Response.Status.BAD_REQUEST, code, message);
+        }
+    }
+
+    private void checkFactor2RateLimit(long userPk, int limit, ConcurrentMap<Long, Deque<Long>> buckets) {
+        long now = System.currentTimeMillis();
+        Deque<Long> queue = buckets.computeIfAbsent(userPk, key -> new ArrayDeque<>());
+        synchronized (queue) {
+            while (!queue.isEmpty() && (now - queue.peekFirst()) > FACTOR2_RATE_WINDOW_MILLIS) {
+                queue.pollFirst();
+            }
+            if (queue.size() >= limit) {
+                throw tooManyRequests(httpRequest, "too_many_requests");
+            }
+            queue.addLast(now);
+        }
+    }
+
+    private long resolveActorUserPkForAudit() {
+        try {
+            return requireActorUserPk(httpRequest);
+        } catch (RuntimeException ex) {
+            return -1L;
+        }
+    }
+
+    private WebApplicationException tooManyRequests(HttpServletRequest req, String message) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("error", "too_many_requests");
+        body.put("code", "too_many_requests");
+        body.put("errorCode", "too_many_requests");
+        body.put("message", message);
+        body.put("status", 429);
+        String traceId = resolveTraceId(req);
+        if (traceId != null && !traceId.isBlank()) {
+            body.put("traceId", traceId);
+        }
+        if (req != null && req.getRequestURI() != null && !req.getRequestURI().isBlank()) {
+            body.put("path", req.getRequestURI());
+        }
+        Response response = Response.status(429)
+                .type(MediaType.APPLICATION_JSON_TYPE)
+                .entity(body)
+                .build();
+        return new WebApplicationException(message, response);
+    }
+
+    private List<String> maskPhoneNumbers(List<String> numbers) {
+        List<String> masked = new ArrayList<>(numbers.size());
+        for (String number : numbers) {
+            masked.add(maskPhone(number));
+        }
+        return masked;
+    }
+
+    private String maskPhone(String number) {
+        String value = normalizeText(number);
+        if (value == null) {
+            return "***";
+        }
+        if (value.length() <= 4) {
+            return "*".repeat(value.length());
+        }
+        return "*".repeat(Math.max(0, value.length() - 4)) + value.substring(value.length() - 4);
+    }
     
     /**
      * 保健医療機関コードとJMARIコードを取得する。
@@ -1018,7 +1745,7 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
     private void recordAudit(String action, String resource, long userPk, Map<String, Object> details) {
         Map<String, Object> payloadDetails = new HashMap<>();
         if (details != null && !details.isEmpty()) {
-            payloadDetails.putAll(details);
+            payloadDetails.putAll(stripSensitiveAuditDetails(details));
         }
         payloadDetails.putIfAbsent("status", "success");
         String runId = AbstractOrcaRestResource.resolveRunIdValue(httpRequest);
@@ -1092,6 +1819,28 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
             details.put("httpStatus", httpStatus);
         }
         recordAudit(action, resource, userPk, details);
+    }
+
+    private Map<String, Object> stripSensitiveAuditDetails(Map<String, Object> details) {
+        Map<String, Object> filtered = new HashMap<>();
+        for (Map.Entry<String, Object> entry : details.entrySet()) {
+            if (entry == null || entry.getKey() == null) {
+                continue;
+            }
+            String key = entry.getKey().trim().toLowerCase();
+            if (key.equals("backupkey")
+                    || key.equals("secret")
+                    || key.equals("backupcodes")
+                    || key.equals("smsbody")
+                    || key.equals("messagebody")
+                    || key.equals("code")
+                    || key.equals("authcode")
+                    || key.equals("totpcode")) {
+                continue;
+            }
+            filtered.put(entry.getKey(), entry.getValue());
+        }
+        return filtered;
     }
 
     private void enrichUserDetails(Map<String, Object> details, String actorId) {

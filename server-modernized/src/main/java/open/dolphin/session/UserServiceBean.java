@@ -174,6 +174,14 @@ public class UserServiceBean {
         return user;
     }
 
+    public UserModel getUserByPk(long userPk) {
+        UserModel user = em.find(UserModel.class, userPk);
+        if (user != null && user.getMemberType() != null && user.getMemberType().equals(MEMBER_TYPE_EXPIRED)) {
+            throw new SecurityException("Expired User");
+        }
+        return user;
+    }
+
     /**
      * 施設内の全Userを取得する。
      *

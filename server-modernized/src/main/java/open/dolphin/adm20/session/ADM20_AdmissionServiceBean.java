@@ -199,6 +199,10 @@ public class ADM20_AdmissionServiceBean {
         em.remove(delete);
         return 1;
     }
+
+    public CarePlanModel findCarePlanById(long id) {
+        return em.find(CarePlanModel.class, id);
+    }
     
     public Collection<Long> getDocIdList(long ptPK) {
         

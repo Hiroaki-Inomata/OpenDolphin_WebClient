@@ -109,8 +109,13 @@ public class JsonTouchResource extends open.dolphin.rest.AbstractResource {
     @GET
     @Path("/user/{uid}")
     @Produces(MediaType.APPLICATION_JSON)
-    public UserModelConverter getUserById(@PathParam("uid") String uid) {
-        return sharedService.getUserById(uid);
+    public UserModelConverter getUserById(@Context HttpServletRequest servletReq, @PathParam("uid") String uid) {
+        String actorFacility = requireActorFacility(servletReq);
+        String normalizedUid = uid == null ? "" : uid.trim();
+        if (!normalizedUid.startsWith(actorFacility + ":")) {
+            throw restError(servletReq, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
+        }
+        return sharedService.getUserById(normalizedUid);
     }
 
     @GET
