@@ -7,8 +7,18 @@
                         https://jakarta.ee/xml/ns/jakartaee/web-app_6_0.xsd">
 
   <filter>
+    <filter-name>SpaIndexSecurityFilter</filter-name>
+    <filter-class>open.dolphin.rest.SpaIndexSecurityFilter</filter-class>
+    <async-supported>true</async-supported>
+  </filter>
+  <filter>
     <filter-name>LogFilter</filter-name>
     <filter-class>open.dolphin.rest.LogFilter</filter-class>
+    <async-supported>true</async-supported>
+  </filter>
+  <filter>
+    <filter-name>CsrfProtectionFilter</filter-name>
+    <filter-class>open.dolphin.rest.CsrfProtectionFilter</filter-class>
     <async-supported>true</async-supported>
   </filter>
   <filter>
@@ -17,12 +27,27 @@
     <async-supported>true</async-supported>
   </filter>
   <filter-mapping>
+    <filter-name>SpaIndexSecurityFilter</filter-name>
+    <url-pattern>/*</url-pattern>
+    <dispatcher>REQUEST</dispatcher>
+  </filter-mapping>
+  <filter-mapping>
     <filter-name>LogFilter</filter-name>
     <url-pattern>/resources/*</url-pattern>
     <dispatcher>REQUEST</dispatcher>
   </filter-mapping>
   <filter-mapping>
     <filter-name>LogFilter</filter-name>
+    <url-pattern>/orca/*</url-pattern>
+    <dispatcher>REQUEST</dispatcher>
+  </filter-mapping>
+  <filter-mapping>
+    <filter-name>CsrfProtectionFilter</filter-name>
+    <url-pattern>/resources/*</url-pattern>
+    <dispatcher>REQUEST</dispatcher>
+  </filter-mapping>
+  <filter-mapping>
+    <filter-name>CsrfProtectionFilter</filter-name>
     <url-pattern>/orca/*</url-pattern>
     <dispatcher>REQUEST</dispatcher>
   </filter-mapping>
@@ -69,6 +94,7 @@
                 open.dolphin.rest.StampResource,
                 open.dolphin.rest.SystemResource,
                 open.dolphin.rest.UserResource,
+                open.dolphin.rest.LogoutResource,
                 open.dolphin.rest.ScheduleResource,
                 open.dolphin.rest.ChartEventResource,
                 open.dolphin.rest.ChartEventStreamResource,
