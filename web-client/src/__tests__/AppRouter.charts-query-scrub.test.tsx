@@ -7,6 +7,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { AppRouterWithNavigation } from '../AppRouter';
 import { loadChartsEncounterContext } from '../features/charts/encounterContext';
 import { httpFetch } from '../libs/http/httpClient';
+import { loadDeepLinkContext } from '../routes/deepLinkContextStorage';
 
 vi.mock('../styles/app-shell.css', () => ({}));
 vi.mock('../libs/http/httpClient', () => ({
@@ -197,6 +198,12 @@ describe('AppRouter charts query scrub', () => {
       receptionId: undefined,
       visitDate: undefined,
     });
+    expect(loadDeepLinkContext()?.values).toEqual(
+      expect.objectContaining({
+        patientId: '00002',
+        kw: '山田',
+      }),
+    );
   });
 
   it('mobile images query から patientId を除去して context を保存する', async () => {
@@ -215,6 +222,11 @@ describe('AppRouter charts query scrub', () => {
       receptionId: undefined,
       visitDate: undefined,
     });
+    expect(loadDeepLinkContext()?.values).toEqual(
+      expect.objectContaining({
+        patientId: '00003',
+      }),
+    );
   });
 
   it('logout API が 404 でも /login へ遷移し、患者関連 storage を削除する', async () => {
@@ -222,6 +234,10 @@ describe('AppRouter charts query scrub', () => {
     const httpFetchMock = vi.mocked(httpFetch);
     httpFetchMock.mockResolvedValueOnce(new Response(null, { status: 404 }));
     sessionStorage.setItem('opendolphin:web-client:charts:patient-tabs:v1:0001:user-1', '{"tabs":[]}');
+    sessionStorage.setItem(
+      'opendolphin:web-client:deeplink-context',
+      JSON.stringify({ savedAt: new Date().toISOString(), values: { patientId: '00003' } }),
+    );
     sessionStorage.setItem('charts:orca-claim-send:0001:user-1', '{"P-1":{"patientId":"P-1"}}');
     sessionStorage.setItem('charts:orca-income-info:0001:user-1', '{"P-1":{"patientId":"P-1"}}');
     localStorage.setItem(
@@ -245,6 +261,7 @@ describe('AppRouter charts query scrub', () => {
       );
     });
     expect(sessionStorage.getItem('opendolphin:web-client:charts:patient-tabs:v1:0001:user-1')).toBeNull();
+    expect(sessionStorage.getItem('opendolphin:web-client:deeplink-context')).toBeNull();
     expect(sessionStorage.getItem('charts:orca-claim-send:0001:user-1')).toBeNull();
     expect(sessionStorage.getItem('charts:orca-income-info:0001:user-1')).toBeNull();
     expect(localStorage.getItem('opendolphin:web-client:outpatient-saved-views:v1')).toBeNull();

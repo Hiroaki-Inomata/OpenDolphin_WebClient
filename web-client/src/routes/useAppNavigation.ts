@@ -28,6 +28,7 @@ import {
   type ExternalParams,
 } from './appNavigation';
 import { buildFacilityPath } from './facilityRoutes';
+import { saveDeepLinkContext } from './deepLinkContextStorage';
 import { scrubPathWithQuery } from './scrubSensitiveUrl';
 
 type AppNavigationScope = {
@@ -359,6 +360,7 @@ export function useAppNavigation(scope: AppNavigationScope) {
       const patientId = opts?.patientId ?? baseEncounter.patientId;
       if (patientId) {
         storeChartsEncounterContext({ ...baseEncounter, patientId }, { facilityId, userId });
+        saveDeepLinkContext({ patientId });
       }
       const url = buildMobileImagesUrl({
         facilityId,

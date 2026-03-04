@@ -50,6 +50,7 @@ import { logAuditEvent } from './libs/audit/auditLogger';
 import { ChartEventStreamBridge } from './features/shared/ChartEventStreamBridge';
 import { MockModeBanner } from './features/shared/MockModeBanner';
 import { WorkspaceTabBar } from './features/workspaceTabs/WorkspaceTabBar';
+import { SecurityMisconfigBanner } from './components/SecurityMisconfigBanner';
 import {
   SESSION_EXPIRED_EVENT,
   clearSessionExpiredNotice,
@@ -77,6 +78,7 @@ import {
   normalizeVisitDate,
   storeChartsEncounterContext,
 } from './features/charts/encounterContext';
+import { saveDeepLinkContext } from './routes/deepLinkContextStorage';
 import { scrubSearch } from './routes/scrubSensitiveUrl';
 
 type Session = LoginResult;
@@ -482,6 +484,7 @@ export function AppRouterWithNavigation() {
     if (!isSensitiveScrubPath(location.pathname)) return;
     const { scrubbedSearch, removed } = scrubSearch(location.search);
     if (scrubbedSearch === location.search) return;
+    saveDeepLinkContext(removed);
 
     const encounterContext = {
       patientId: removed.patientId,
@@ -1549,6 +1552,7 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
         </header>
 
         <MockModeBanner />
+        <SecurityMisconfigBanner />
         <WorkspaceTabBar
           facilityId={session.facilityId}
           userId={session.userId}

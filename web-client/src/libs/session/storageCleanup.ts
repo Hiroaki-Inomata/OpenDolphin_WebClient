@@ -17,6 +17,10 @@ const SESSION_BASE_KEYS = [
   'opendolphin:web-client:reception-daily-state',
 ];
 
+const SESSION_DIRECT_KEYS = [
+  'opendolphin:web-client:deeplink-context',
+];
+
 const LOCAL_BASE_KEYS = [
   'opendolphin:web-client:charts:lock',
   'opendolphin:web-client:charts:approval',
@@ -97,6 +101,7 @@ export const clearScopedStorage = (scope: StorageScope) => {
   // sessionStorage
   if (typeof sessionStorage !== 'undefined') {
     removeIfMatch(sessionStorage, (key) => SESSION_BASE_KEYS.some((base) => matchScopedKey(base, scope)(key)));
+    removeExactKeys(sessionStorage, SESSION_DIRECT_KEYS);
     removeExactKeys(sessionStorage, buildScopedExactKeys(scope, SESSION_SCOPED_EXACT_KEY_PREFIXES));
   }
 
