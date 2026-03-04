@@ -5,13 +5,15 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import open.dolphin.infomodel.IInfoModel;
+import open.dolphin.rest.AbstractResource;
+import open.dolphin.rest.LogFilter;
 
 /**
  * {@link HttpServletRequest} から {@link PhrRequestContext} を生成するユーティリティ。
  */
 public final class PhrRequestContextExtractor {
 
-    private static final String TRACE_ID_ATTRIBUTE = open.dolphin.rest.LogFilter.class.getName() + ".TRACE_ID";
+    private static final String TRACE_ID_ATTRIBUTE = LogFilter.TRACE_ID_ATTRIBUTE;
     private static final String HEADER_TRACE_ID = "X-Trace-Id";
     private static final String HEADER_REQUEST_ID = "X-Request-Id";
 
@@ -31,7 +33,7 @@ public final class PhrRequestContextExtractor {
         String userId = remoteUser.substring(separator + 1);
 
         String traceId = resolveTraceId(request);
-        String clientIp = resolveClientIp(request);
+        String clientIp = AbstractResource.resolveClientIp(request);
         String userAgent = Optional.ofNullable(request.getHeader("User-Agent")).orElse("unknown");
         String requestUri = Optional.ofNullable(request.getRequestURI()).orElse("/");
         String requestId = resolveRequestId(request);
@@ -49,15 +51,6 @@ public final class PhrRequestContextExtractor {
             return header.trim();
         }
         return UUID.randomUUID().toString();
-    }
-
-    private static String resolveClientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            int comma = forwarded.indexOf(',');
-            return comma >= 0 ? forwarded.substring(0, comma).trim() : forwarded.trim();
-        }
-        return Optional.ofNullable(request.getRemoteAddr()).orElse("unknown");
     }
 
     private static String resolveRequestId(HttpServletRequest request) {

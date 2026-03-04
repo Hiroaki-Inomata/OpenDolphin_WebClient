@@ -76,6 +76,10 @@ public class KarteServiceBean {
     private static final String QUERY_FACILITY_BY_PVT_ID = "select p.facilityId from PatientVisitModel p where p.id=:id";
     private static final String QUERY_FACILITY_BY_DIAGNOSIS_ID =
             "select r.karte.patient.facilityId from RegisteredDiagnosisModel r where r.id=:id";
+    private static final String QUERY_FACILITY_BY_ONDOBAN_ID =
+            "select o.karte.patient.facilityId from OndobanModel o where o.id=:id";
+    private static final String QUERY_FACILITY_BY_NURSE_PROGRESS_COURSE_ID =
+            "select n.karte.patient.facilityId from NurseProgressCourseModel n where n.id=:id";
 
     private static final String QUERY_DOCUMENT_INCLUDE_MODIFIED = "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and d.status !='D'";
     private static final String QUERY_DOCUMENT = "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and (d.status='F' or d.status='T')";
@@ -490,6 +494,14 @@ public class KarteServiceBean {
 
     public String findFacilityIdByDiagnosisId(long diagnosisId) {
         return findFacilityIdById(QUERY_FACILITY_BY_DIAGNOSIS_ID, diagnosisId);
+    }
+
+    public String findFacilityIdByOndobanId(long ondobanId) {
+        return findFacilityIdById(QUERY_FACILITY_BY_ONDOBAN_ID, ondobanId);
+    }
+
+    public String findFacilityIdByNurseProgressCourseId(long nurseProgressCourseId) {
+        return findFacilityIdById(QUERY_FACILITY_BY_NURSE_PROGRESS_COURSE_ID, nurseProgressCourseId);
     }
 
     private String findFacilityIdById(String query, long idValue) {

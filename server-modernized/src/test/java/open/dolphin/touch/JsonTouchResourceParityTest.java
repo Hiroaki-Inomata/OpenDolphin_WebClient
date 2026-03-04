@@ -129,9 +129,9 @@ class JsonTouchResourceParityTest {
 
     @Test
     void userParity() {
-        UserModelConverter touch = touchResource.getUserById("doctor01");
-        UserModelConverter adm10 = adm10Resource.getUserById("doctor01");
-        UserModelConverter adm20 = adm20Resource.getUserById("doctor01");
+        UserModelConverter touch = touchResource.getUserById(servletRequest, "F001:doctor01");
+        UserModelConverter adm10 = adm10Resource.getUserById(servletRequest, "F001:doctor01");
+        UserModelConverter adm20 = adm20Resource.getUserById(servletRequest, "F001:doctor01");
 
         assertEquals(touch.getUserId(), adm10.getUserId());
         assertEquals(touch.getUserId(), adm20.getUserId());
