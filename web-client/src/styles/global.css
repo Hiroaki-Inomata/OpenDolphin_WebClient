@@ -1,5 +1,16 @@
 :root {
-  font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+  --ui-font-sans:
+    'Hiragino Sans',
+    'Hiragino Kaku Gothic ProN',
+    'Yu Gothic UI',
+    'Yu Gothic',
+    'Meiryo',
+    'Noto Sans JP',
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-family: var(--ui-font-sans);
   --ui-base-font-size: 16px;
   color: var(--ui-text);
   background-color: var(--ui-bg);
@@ -8,10 +19,17 @@
   --ui-surface-muted: #f1f5f9;
   --ui-text: #0f172a;
   --ui-text-muted: #475569;
-  --ui-border: #838da0;
-  --ui-border-strong: #64748b;
+  --ui-border-subtle: #e2e8f0;
+  --ui-border: #cbd5e1;
+  --ui-border-strong: #94a3b8;
+  --ui-border-stronger: #64748b;
   --ui-primary: #1d4ed8;
   --ui-primary-contrast: #ffffff;
+  --ui-module-reception: #0f766e;
+  --ui-module-patients: #7c3aed;
+  --ui-module-charts: var(--ui-primary);
+  --ui-selection-bg: rgba(29, 78, 216, 0.08);
+  --ui-selection-border: rgba(29, 78, 216, 0.35);
   --ui-shadow: 0 10px 32px rgba(15, 23, 42, 0.08);
   --ui-shadow-soft: 0 8px 24px rgba(15, 23, 42, 0.06);
   --ui-info-bg: #eff6ff;
@@ -58,6 +76,14 @@ body {
   overflow-x: hidden;
   background: var(--ui-bg);
   color: var(--ui-text);
+}
+
+::selection {
+  background: var(--ui-selection-bg);
+}
+
+::-moz-selection {
+  background: var(--ui-selection-bg);
 }
 
 :where(a, button, input, select, textarea, summary, [role='button'], [tabindex]):focus-visible {
@@ -108,7 +134,7 @@ body {
   overflow: auto;
   background: #ffffff;
   border-radius: 20px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid var(--ui-border);
   box-shadow: 0 20px 70px rgba(15, 23, 42, 0.25);
   padding: 1.25rem;
 }
@@ -337,7 +363,7 @@ body {
 }
 
 .field input {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--ui-font-sans);
   width: 100%;
   min-height: 40px;
   padding: 0.65rem 0.9rem;
@@ -448,6 +474,21 @@ body {
 
 .facility-entry__choices {
   justify-content: flex-start;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Responsive */
