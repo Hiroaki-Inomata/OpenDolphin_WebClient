@@ -1,6 +1,9 @@
 package open.dolphin.rest;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import jakarta.inject.Inject;
 import jakarta.servlet.AsyncContext;
 import jakarta.servlet.AsyncEvent;
@@ -9,6 +12,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import open.dolphin.converter.ChartEventModelConverter;
 import open.dolphin.infomodel.ChartEventModel;
 import open.dolphin.mbean.ServletContextHolder;
@@ -28,8 +32,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class ChartEventResource extends AbstractResource {
     
     private static final boolean debug = false;
-    
-    private static final int asyncTimeout = 60 * 1000 * 60 *24; // 60 minutes*24
+    private static final int CLIENT_UUID_MAX_LENGTH = 64;
+    private static final int asyncTimeout = Integer.getInteger("chartEvent.asyncTimeoutMs", 60_000);
+    private static final int globalMax = Integer.getInteger("chartEvent.maxSubscribers", 2000);
+    private static final int perFacilityMax = Integer.getInteger("chartEvent.maxSubscribersPerFacility", 200);
+    private static final int perClientMax = Integer.getInteger("chartEvent.maxSubscribersPerClient", 3);
     
     @Inject
     private ChartEventServiceBean eventServiceBean;
@@ -45,7 +52,15 @@ public class ChartEventResource extends AbstractResource {
     public void subscribe() {
 
         String fid = requireActorFacility(servletReq);
-        String clientUUID = servletReq.getHeader(ChartEventSessionKeys.CLIENT_UUID);
+        String clientUUID = normalizeClientUuid(servletReq.getHeader(ChartEventSessionKeys.CLIENT_UUID));
+        if (clientUUID == null) {
+            throw restError(servletReq, Response.Status.BAD_REQUEST, "invalid_request",
+                    "Header 'clientUUID' is required.");
+        }
+        if (clientUUID.length() > CLIENT_UUID_MAX_LENGTH) {
+            throw restError(servletReq, Response.Status.BAD_REQUEST, "invalid_request",
+                    "Header 'clientUUID' must be 64 characters or fewer.");
+        }
 //minagawa^        
         if (debug) {
             StringBuilder sb = new StringBuilder();
@@ -54,17 +69,37 @@ public class ChartEventResource extends AbstractResource {
             debug(sb.toString());
         }
 //minagawa$        
-        
-        final AsyncContext ac = servletReq.startAsync();
-        // timeoutを設定
-        ac.setTimeout(asyncTimeout);
-        // requestにfid, clientUUIDを記録しておく
-        ac.getRequest().setAttribute(ChartEventSessionKeys.FACILITY_ID, fid);
-        ac.getRequest().setAttribute(ChartEventSessionKeys.CLIENT_UUID, clientUUID);
-        contextHolder.addAsyncContext(ac);
-        
+
+        List<AsyncContext> acList = contextHolder.getAsyncContextList();
+        final AsyncContext ac;
+        int subscribers;
+        synchronized (acList) {
+            int totalSubscribers = acList.size();
+            int facilitySubscribers = countSubscribers(acList, fid, null);
+            int clientSubscribers = countSubscribers(acList, fid, clientUUID);
+            if (isSubscriberLimitExceeded(totalSubscribers, facilitySubscribers, clientSubscribers)) {
+                Map<String, Object> details = new LinkedHashMap<>();
+                details.put("globalSubscribers", totalSubscribers);
+                details.put("globalMax", globalMax);
+                details.put("facilitySubscribers", facilitySubscribers);
+                details.put("perFacilityMax", perFacilityMax);
+                details.put("clientSubscribers", clientSubscribers);
+                details.put("perClientMax", perClientMax);
+                throw restError(servletReq, Response.Status.TOO_MANY_REQUESTS, "too_many_requests",
+                        "Too many chart event subscribers.", details, null);
+            }
+
+            ac = servletReq.startAsync();
+            // timeoutを設定
+            ac.setTimeout(asyncTimeout);
+            // requestにfid, clientUUIDを記録しておく
+            ac.getRequest().setAttribute(ChartEventSessionKeys.FACILITY_ID, fid);
+            ac.getRequest().setAttribute(ChartEventSessionKeys.CLIENT_UUID, clientUUID);
+            contextHolder.addAsyncContext(ac);
+            subscribers = acList.size();
+        }
+
 //minagawa^
-        int subscribers = contextHolder.getAsyncContextList().size();
         debug("subscribers count = " + subscribers);
 //minagawa$        
         
@@ -80,6 +115,7 @@ public class ChartEventResource extends AbstractResource {
 
             @Override
             public void onComplete(AsyncEvent event) throws IOException {
+                remove();
             }
 
             @Override
@@ -98,6 +134,50 @@ public class ChartEventResource extends AbstractResource {
             public void onStartAsync(AsyncEvent event) throws IOException {
             }
         });
+    }
+
+    private boolean isSubscriberLimitExceeded(int totalSubscribers, int facilitySubscribers, int clientSubscribers) {
+        return totalSubscribers >= globalMax
+                || facilitySubscribers >= perFacilityMax
+                || clientSubscribers >= perClientMax;
+    }
+
+    private int countSubscribers(List<AsyncContext> acList, String facilityId, String clientUUID) {
+        int count = 0;
+        for (AsyncContext context : acList) {
+            String subscribedFacility = readAttribute(context, ChartEventSessionKeys.FACILITY_ID);
+            if (facilityId == null || !facilityId.equals(subscribedFacility)) {
+                continue;
+            }
+            if (clientUUID != null) {
+                String subscribedClient = readAttribute(context, ChartEventSessionKeys.CLIENT_UUID);
+                if (!clientUUID.equals(subscribedClient)) {
+                    continue;
+                }
+            }
+            count++;
+        }
+        return count;
+    }
+
+    private String readAttribute(AsyncContext context, String key) {
+        if (context == null || key == null) {
+            return null;
+        }
+        try {
+            Object value = context.getRequest() != null ? context.getRequest().getAttribute(key) : null;
+            return value instanceof String str ? str : null;
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private String normalizeClientUuid(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     @PUT

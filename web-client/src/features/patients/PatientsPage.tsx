@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+} from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocation, useSearchParams } from 'react-router-dom';
 
@@ -62,6 +72,13 @@ const RECEPTION_FILTER_STORAGE_KEY = 'reception-filter-state';
 const RETURN_TO_STORAGE_BASE = 'opendolphin:web-client:patients:returnTo';
 const RETURN_TO_VERSION = 'v2';
 const RETURN_TO_LEGACY_KEY = `${RETURN_TO_STORAGE_BASE}:v1`;
+const SIDEBAR_WIDTH_STORAGE_BASE = 'opendolphin:web-client:patients:sidebarWidth';
+const SIDEBAR_WIDTH_STORAGE_VERSION = 'v1';
+const SIDEBAR_WIDTH_LEGACY_KEY = `${SIDEBAR_WIDTH_STORAGE_BASE}:v1`;
+const SIDEBAR_WIDTH_DEFAULT = 380;
+const SIDEBAR_WIDTH_MIN = 320;
+const SIDEBAR_WIDTH_MAX = 520;
+const SIDEBAR_WIDTH_KEY_STEP = 16;
 
 const DEFAULT_FILTER = {
   keyword: '',
@@ -145,6 +162,7 @@ const normalizeAuditValue = (value: unknown): string => {
 };
 
 const normalizeSearchKeyword = (value: string) => value.trim().toLowerCase();
+const clampSidebarWidth = (value: number) => Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, value));
 
 const formatInsuranceLabel = (entry: { name?: string; id?: string; classCode?: string }) => {
   const idPart = entry.id ? entry.id : '—';
@@ -257,6 +275,10 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     () => ({ facilityId: session.facilityId, userId: session.userId }),
     [session.facilityId, session.userId],
   );
+  const sidebarWidthStorageKey = useMemo(
+    () => buildScopedStorageKey(SIDEBAR_WIDTH_STORAGE_BASE, SIDEBAR_WIDTH_STORAGE_VERSION, storageScope) ?? SIDEBAR_WIDTH_LEGACY_KEY,
+    [storageScope],
+  );
   const today = useMemo(() => toLocalDateYmd(), []);
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -343,6 +365,9 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   const [savedViews, setSavedViews] = useState<OutpatientSavedView[]>(() => loadOutpatientSavedViews());
   const [savedViewName, setSavedViewName] = useState('');
   const [selectedViewId, setSelectedViewId] = useState<string>('');
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_WIDTH_DEFAULT);
+  const [isSidebarResizing, setIsSidebarResizing] = useState(false);
+  const sidebarResizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
   const lastUnlinkedToastKey = useRef<string | null>(null);
   const lastPatientIdParam = useRef<string | null>(null);
   const lastPatientsUpdatedAt = useRef<number | null>(null);
@@ -379,6 +404,42 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   useEffect(() => {
     document.title = `患者管理 | 施設ID=${session.facilityId}`;
   }, [session.facilityId]);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(sidebarWidthStorageKey) ?? localStorage.getItem(SIDEBAR_WIDTH_LEGACY_KEY);
+      if (!raw) {
+        setSidebarWidth(SIDEBAR_WIDTH_DEFAULT);
+        return;
+      }
+      const resolvedWidth = clampSidebarWidth(Number(raw));
+      if (Number.isNaN(resolvedWidth)) {
+        setSidebarWidth(SIDEBAR_WIDTH_DEFAULT);
+        return;
+      }
+      setSidebarWidth(resolvedWidth);
+      if (sidebarWidthStorageKey !== SIDEBAR_WIDTH_LEGACY_KEY && !localStorage.getItem(sidebarWidthStorageKey)) {
+        localStorage.setItem(sidebarWidthStorageKey, String(resolvedWidth));
+        localStorage.removeItem(SIDEBAR_WIDTH_LEGACY_KEY);
+      }
+    } catch {
+      setSidebarWidth(SIDEBAR_WIDTH_DEFAULT);
+    }
+  }, [sidebarWidthStorageKey]);
+
+  useEffect(() => {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const nextValue = String(clampSidebarWidth(sidebarWidth));
+      localStorage.setItem(sidebarWidthStorageKey, nextValue);
+      if (sidebarWidthStorageKey !== SIDEBAR_WIDTH_LEGACY_KEY) {
+        localStorage.removeItem(SIDEBAR_WIDTH_LEGACY_KEY);
+      }
+    } catch {
+      // ignore storage write errors
+    }
+  }, [sidebarWidth, sidebarWidthStorageKey]);
 
   useEffect(() => {
     registerDirty('patients:orcaMemo', orcaMemoDirty, '患者メモ（ORCA）の未保存変更');
@@ -1789,6 +1850,78 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     setSwitchingSelection(false);
   };
 
+  const splitLayoutStyle = useMemo(
+    () =>
+      ({
+        '--patients-sidebar-width': `${sidebarWidth}px`,
+      }) as CSSProperties,
+    [sidebarWidth],
+  );
+
+  const updateSidebarWidth = useCallback((nextWidth: number) => {
+    setSidebarWidth(clampSidebarWidth(nextWidth));
+  }, []);
+
+  const handleSidebarSplitterPointerDown = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      sidebarResizeRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startWidth: sidebarWidth,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setIsSidebarResizing(true);
+    },
+    [sidebarWidth],
+  );
+
+  const handleSidebarSplitterPointerMove = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const current = sidebarResizeRef.current;
+      if (!current || current.pointerId !== event.pointerId) return;
+      const delta = event.clientX - current.startX;
+      updateSidebarWidth(current.startWidth + delta);
+    },
+    [updateSidebarWidth],
+  );
+
+  const handleSidebarSplitterPointerRelease = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    const current = sidebarResizeRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    sidebarResizeRef.current = null;
+    setIsSidebarResizing(false);
+  }, []);
+
+  const handleSidebarSplitterKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        updateSidebarWidth(sidebarWidth - SIDEBAR_WIDTH_KEY_STEP);
+        return;
+      }
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        updateSidebarWidth(sidebarWidth + SIDEBAR_WIDTH_KEY_STEP);
+        return;
+      }
+      if (event.key === 'Home') {
+        event.preventDefault();
+        updateSidebarWidth(SIDEBAR_WIDTH_MIN);
+        return;
+      }
+      if (event.key === 'End') {
+        event.preventDefault();
+        updateSidebarWidth(SIDEBAR_WIDTH_MAX);
+      }
+    },
+    [sidebarWidth, updateSidebarWidth],
+  );
+
   return (
     <>
       <a className="skip-link" href="#patients-search">
@@ -1897,8 +2030,8 @@ export function PatientsPage({ runId }: PatientsPageProps) {
         />
       )}
 
-      <section className="patients-page__content patients-page__split">
-        <aside className="patients-page__sidebar" aria-label="患者検索と一覧">
+      <section className="patients-page__content patients-page__split" style={splitLayoutStyle}>
+        <aside className="patients-page__sidebar" aria-label="患者検索と一覧" id="patients-sidebar-pane">
 
           {/* 左上：検索（コンパクト + 詳細は折りたたみ） */}
           <section className="patients-search" id="patients-search" tabIndex={-1} aria-label="検索とフィルタ" aria-live={infoLive}>
@@ -2243,7 +2376,25 @@ export function PatientsPage({ runId }: PatientsPageProps) {
           </div>
         </aside>
 
-        <div className="patients-page__form" aria-live={resolveAriaLive(blocking ? 'warning' : 'info')}>
+        <div
+          className={`patients-page__splitter${isSidebarResizing ? ' is-dragging' : ''}`}
+          role="separator"
+          tabIndex={0}
+          aria-orientation="vertical"
+          aria-valuemin={SIDEBAR_WIDTH_MIN}
+          aria-valuemax={SIDEBAR_WIDTH_MAX}
+          aria-valuenow={Math.round(sidebarWidth)}
+          aria-label="患者一覧ペインの幅"
+          aria-controls="patients-sidebar-pane patients-detail-pane"
+          onPointerDown={handleSidebarSplitterPointerDown}
+          onPointerMove={handleSidebarSplitterPointerMove}
+          onPointerUp={handleSidebarSplitterPointerRelease}
+          onPointerCancel={handleSidebarSplitterPointerRelease}
+          onLostPointerCapture={handleSidebarSplitterPointerRelease}
+          onKeyDown={handleSidebarSplitterKeyDown}
+        />
+
+        <div className="patients-page__form" aria-live={resolveAriaLive(blocking ? 'warning' : 'info')} id="patients-detail-pane">
           <div className="patients-detail__context" role="status" aria-live={infoLive}>
             <div className="patients-detail__context-head">
               <p className="patients-detail__context-kicker">選択中の患者</p>

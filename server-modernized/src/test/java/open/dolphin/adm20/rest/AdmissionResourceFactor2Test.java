@@ -8,12 +8,14 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.NoResultException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
+import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
@@ -31,12 +33,14 @@ import open.dolphin.adm20.dto.TotpVerificationResponse;
 import open.dolphin.adm20.session.ADM20_EHTServiceBean;
 import open.dolphin.infomodel.Factor2Challenge;
 import open.dolphin.infomodel.Factor2Credential;
+import open.dolphin.infomodel.UserModel;
 import open.dolphin.security.SecondFactorSecurityConfig;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.security.fido.Fido2Config;
 import open.dolphin.security.totp.TotpRegistrationResult;
 import open.dolphin.security.totp.TotpSecretProtector;
+import open.dolphin.session.UserServiceBean;
 import open.dolphin.testsupport.RuntimeDelegateTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +52,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
+
+    private static final long ACTOR_USER_PK = 101L;
+    private static final String ACTOR_REMOTE_USER = "facility01:user01";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -61,6 +68,9 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
     private SessionAuditDispatcher sessionAuditDispatcher;
 
     @Mock
+    private UserServiceBean userServiceBean;
+
+    @Mock
     private HttpServletRequest httpRequest;
 
     @Captor
@@ -72,22 +82,30 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
     void setUp() throws Exception {
         resource = new AdmissionResource();
         setField(resource, "ehtService", ehtService);
+        setField(resource, "userServiceBean", userServiceBean);
         setField(resource, "secondFactorSecurityConfig", secondFactorSecurityConfig);
         setField(resource, "sessionAuditDispatcher", sessionAuditDispatcher);
         setField(resource, "httpRequest", httpRequest);
 
-        when(httpRequest.getRemoteUser()).thenReturn("legacy-user");
-        when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
-        when(httpRequest.getHeader("User-Agent")).thenReturn("JUnit");
-        when(httpRequest.getHeader("X-Request-Id")).thenReturn("trace-001");
-        when(httpRequest.getHeader("X-Run-Id")).thenReturn("run-001");
-        when(httpRequest.isUserInRole("ADMIN")).thenReturn(false);
+        UserModel actorUser = new UserModel();
+        actorUser.setId(ACTOR_USER_PK);
+        actorUser.setUserId(ACTOR_REMOTE_USER);
+        actorUser.setCommonName("Actor User");
+
+        lenient().when(httpRequest.getRemoteUser()).thenReturn(ACTOR_REMOTE_USER);
+        lenient().when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
+        lenient().when(httpRequest.getHeader("User-Agent")).thenReturn("JUnit");
+        lenient().when(httpRequest.getHeader("X-Request-Id")).thenReturn("trace-001");
+        lenient().when(httpRequest.getHeader("X-Run-Id")).thenReturn("run-001");
+        lenient().when(httpRequest.isUserInRole("ADMIN")).thenReturn(false);
+        lenient().when(userServiceBean.getUser(ACTOR_REMOTE_USER)).thenReturn(actorUser);
+        lenient().when(userServiceBean.isAdmin(ACTOR_REMOTE_USER)).thenReturn(false);
     }
 
     @Test
     void startTotpRegistrationRecordsAuditOnSuccess() throws Exception {
         TotpRegistrationRequest request = new TotpRegistrationRequest();
-        request.setUserPk(101L);
+        request.setUserPk(ACTOR_USER_PK);
         request.setLabel("Primary");
         request.setAccountName("account");
         request.setIssuer("OpenDolphin");
@@ -119,11 +137,11 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
     @Test
     void startTotpRegistrationRecordsAuditOnNotFound() throws Exception {
         TotpRegistrationRequest request = new TotpRegistrationRequest();
-        request.setUserPk(303L);
+        request.setUserPk(ACTOR_USER_PK);
         request.setLabel("Secondary");
 
         when(secondFactorSecurityConfig.getTotpSecretProtector()).thenReturn(new TotpSecretProtector(new byte[32]));
-        when(ehtService.startTotpRegistration(eq(303L), any(), any(), any(), any()))
+        when(ehtService.startTotpRegistration(eq(ACTOR_USER_PK), any(), any(), any(), any()))
                 .thenThrow(new NoResultException("user not found"));
 
         assertThatThrownBy(() -> resource.startTotpRegistration(objectMapper.writeValueAsString(request)))
@@ -143,12 +161,12 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
     @Test
     void verifyTotpRegistrationRecordsAuditOnSuccess() throws Exception {
         TotpVerificationRequest request = new TotpVerificationRequest();
-        request.setUserPk(202L);
+        request.setUserPk(ACTOR_USER_PK);
         request.setCredentialId(88L);
         request.setCode("654321");
 
         when(secondFactorSecurityConfig.getTotpSecretProtector()).thenReturn(new TotpSecretProtector(new byte[32]));
-        when(ehtService.completeTotpRegistration(eq(202L), eq(88L), eq("654321"), any()))
+        when(ehtService.completeTotpRegistration(eq(ACTOR_USER_PK), eq(88L), eq("654321"), any()))
                 .thenReturn(List.of("BACKUP-1", "BACKUP-2"));
 
         Response response = resource.verifyTotpRegistration(objectMapper.writeValueAsString(request));
@@ -164,13 +182,13 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
         assertThat(audit.getDetails())
                 .containsEntry("status", "success")
                 .containsEntry("credentialId", 88L)
-                .containsEntry("backupCodes", 2);
+                .doesNotContainKey("backupCodes");
     }
 
     @Test
     void startFidoRegistrationRecordsAuditOnSuccess() throws Exception {
         FidoRegistrationOptionsRequest request = new FidoRegistrationOptionsRequest();
-        request.setUserPk(222L);
+        request.setUserPk(ACTOR_USER_PK);
         request.setAuthenticatorAttachment("platform");
 
         Factor2Challenge challenge = new Factor2Challenge();
@@ -179,7 +197,7 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
 
         Fido2Config config = new Fido2Config("rp-id", "RP", List.of("https://example.com"));
         when(secondFactorSecurityConfig.getFido2Config()).thenReturn(config);
-        when(ehtService.startFidoRegistration(eq(222L), any(Fido2Config.class), eq("platform")))
+        when(ehtService.startFidoRegistration(eq(ACTOR_USER_PK), any(Fido2Config.class), eq("platform")))
                 .thenReturn(challenge);
 
         Response response = resource.startFidoRegistration(objectMapper.writeValueAsString(request));
@@ -201,7 +219,7 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
     @Test
     void finishFidoRegistrationRecordsAuditOnSuccess() throws Exception {
         FidoRegistrationFinishRequest request = new FidoRegistrationFinishRequest();
-        request.setUserPk(303L);
+        request.setUserPk(ACTOR_USER_PK);
         request.setRequestId("req-303");
         request.setCredentialResponse("{\"id\":\"cred\"}");
         request.setLabel("Desktop");
@@ -211,7 +229,7 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
 
         Fido2Config config = new Fido2Config("rp-id", "RP", List.of("https://example.com"));
         when(secondFactorSecurityConfig.getFido2Config()).thenReturn(config);
-        when(ehtService.finishFidoRegistration(eq(303L), eq("req-303"), eq("{\"id\":\"cred\"}"), eq("Desktop"), any(Fido2Config.class)))
+        when(ehtService.finishFidoRegistration(eq(ACTOR_USER_PK), eq("req-303"), eq("{\"id\":\"cred\"}"), eq("Desktop"), any(Fido2Config.class)))
                 .thenReturn(credential);
 
         Response response = resource.finishFidoRegistration(objectMapper.writeValueAsString(request));
@@ -232,14 +250,14 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
     @Test
     void finishFidoRegistrationRecordsAuditOnNotFound() throws Exception {
         FidoRegistrationFinishRequest request = new FidoRegistrationFinishRequest();
-        request.setUserPk(404L);
+        request.setUserPk(ACTOR_USER_PK);
         request.setRequestId("req-404");
         request.setCredentialResponse("{}");
         request.setLabel("Key");
 
         Fido2Config config = new Fido2Config("rp-id", "RP", List.of("https://example.com"));
         when(secondFactorSecurityConfig.getFido2Config()).thenReturn(config);
-        when(ehtService.finishFidoRegistration(eq(404L), eq("req-404"), eq("{}"), eq("Key"), any(Fido2Config.class)))
+        when(ehtService.finishFidoRegistration(eq(ACTOR_USER_PK), eq("req-404"), eq("{}"), eq("Key"), any(Fido2Config.class)))
                 .thenThrow(new NoResultException("challenge_not_found"));
 
         assertThatThrownBy(() -> resource.finishFidoRegistration(objectMapper.writeValueAsString(request)))
@@ -259,14 +277,14 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
     @Test
     void finishFidoRegistrationRecordsAuditOnSecurityViolation() throws Exception {
         FidoRegistrationFinishRequest request = new FidoRegistrationFinishRequest();
-        request.setUserPk(405L);
+        request.setUserPk(ACTOR_USER_PK);
         request.setRequestId("req-405");
         request.setCredentialResponse("{\"id\":\"cred\"}");
         request.setLabel("Key");
 
         Fido2Config config = new Fido2Config("rp-id", "RP", List.of("https://example.com"));
         when(secondFactorSecurityConfig.getFido2Config()).thenReturn(config);
-        when(ehtService.finishFidoRegistration(eq(405L), eq("req-405"), eq("{\"id\":\"cred\"}"), eq("Key"), any(Fido2Config.class)))
+        when(ehtService.finishFidoRegistration(eq(ACTOR_USER_PK), eq("req-405"), eq("{\"id\":\"cred\"}"), eq("Key"), any(Fido2Config.class)))
                 .thenThrow(new SecurityException("attestation_invalid"));
 
         assertThatThrownBy(() -> resource.finishFidoRegistration(objectMapper.writeValueAsString(request)))
@@ -286,8 +304,8 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
     @Test
     void startFidoAssertionRecordsAuditOnSuccess() throws Exception {
         FidoAssertionOptionsRequest request = new FidoAssertionOptionsRequest();
-        request.setUserPk(506L);
-        request.setUserId("user-506");
+        request.setUserPk(ACTOR_USER_PK);
+        request.setUserId(ACTOR_REMOTE_USER);
 
         Factor2Challenge challenge = new Factor2Challenge();
         challenge.setRequestId("req-assert-506");
@@ -295,7 +313,7 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
 
         Fido2Config config = new Fido2Config("rp-id", "RP", List.of("https://example.com"));
         when(secondFactorSecurityConfig.getFido2Config()).thenReturn(config);
-        when(ehtService.startFidoAssertion(eq(506L), eq("user-506"), any(Fido2Config.class)))
+        when(ehtService.startFidoAssertion(eq(ACTOR_USER_PK), eq(ACTOR_REMOTE_USER), any(Fido2Config.class)))
                 .thenReturn(challenge);
 
         Response response = resource.startFidoAssertion(objectMapper.writeValueAsString(request));
@@ -316,13 +334,13 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
     @Test
     void finishFidoAssertionRecordsAuditOnSuccess() throws Exception {
         FidoAssertionFinishRequest request = new FidoAssertionFinishRequest();
-        request.setUserPk(507L);
+        request.setUserPk(ACTOR_USER_PK);
         request.setRequestId("req-assert-507");
         request.setCredentialResponse("{\"id\":\"cred\"}");
 
         Fido2Config config = new Fido2Config("rp-id", "RP", List.of("https://example.com"));
         when(secondFactorSecurityConfig.getFido2Config()).thenReturn(config);
-        when(ehtService.finishFidoAssertion(eq(507L), eq("req-assert-507"), eq("{\"id\":\"cred\"}"), any(Fido2Config.class)))
+        when(ehtService.finishFidoAssertion(eq(ACTOR_USER_PK), eq("req-assert-507"), eq("{\"id\":\"cred\"}"), any(Fido2Config.class)))
                 .thenReturn(true);
 
         Response response = resource.finishFidoAssertion(objectMapper.writeValueAsString(request));
@@ -343,13 +361,13 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
     @Test
     void finishFidoAssertionRecordsAuditOnChallengeNotFound() throws Exception {
         FidoAssertionFinishRequest request = new FidoAssertionFinishRequest();
-        request.setUserPk(508L);
+        request.setUserPk(ACTOR_USER_PK);
         request.setRequestId("req-assert-508");
         request.setCredentialResponse("{\"id\":\"cred\"}");
 
         Fido2Config config = new Fido2Config("rp-id", "RP", List.of("https://example.com"));
         when(secondFactorSecurityConfig.getFido2Config()).thenReturn(config);
-        when(ehtService.finishFidoAssertion(eq(508L), eq("req-assert-508"), eq("{\"id\":\"cred\"}"), any(Fido2Config.class)))
+        when(ehtService.finishFidoAssertion(eq(ACTOR_USER_PK), eq("req-assert-508"), eq("{\"id\":\"cred\"}"), any(Fido2Config.class)))
                 .thenThrow(new NoResultException("challenge_not_found"));
 
         assertThatThrownBy(() -> resource.finishFidoAssertion(objectMapper.writeValueAsString(request)))
@@ -369,13 +387,13 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
     @Test
     void finishFidoAssertionRecordsAuditOnSecurityViolation() throws Exception {
         FidoAssertionFinishRequest request = new FidoAssertionFinishRequest();
-        request.setUserPk(509L);
+        request.setUserPk(ACTOR_USER_PK);
         request.setRequestId("req-assert-509");
         request.setCredentialResponse("{\"id\":\"cred\"}");
 
         Fido2Config config = new Fido2Config("rp-id", "RP", List.of("https://example.com"));
         when(secondFactorSecurityConfig.getFido2Config()).thenReturn(config);
-        when(ehtService.finishFidoAssertion(eq(509L), eq("req-assert-509"), eq("{\"id\":\"cred\"}"), any(Fido2Config.class)))
+        when(ehtService.finishFidoAssertion(eq(ACTOR_USER_PK), eq("req-assert-509"), eq("{\"id\":\"cred\"}"), any(Fido2Config.class)))
                 .thenThrow(new SecurityException("assertion_failed"));
 
         assertThatThrownBy(() -> resource.finishFidoAssertion(objectMapper.writeValueAsString(request)))
@@ -395,10 +413,10 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
     @Test
     void startFidoAssertionRecordsAuditOnSecurityViolation() throws Exception {
         FidoAssertionOptionsRequest request = new FidoAssertionOptionsRequest();
-        request.setUserPk(808L);
-        request.setUserId("user-808");
+        request.setUserPk(ACTOR_USER_PK);
+        request.setUserId(ACTOR_REMOTE_USER);
 
-        when(ehtService.startFidoAssertion(eq(808L), eq("user-808"), any()))
+        when(ehtService.startFidoAssertion(eq(ACTOR_USER_PK), eq(ACTOR_REMOTE_USER), any()))
                 .thenThrow(new SecurityException("credential revoked"));
 
         assertThatThrownBy(() -> resource.startFidoAssertion(objectMapper.writeValueAsString(request)))
@@ -412,17 +430,17 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
         assertThat(audit.getDetails())
                 .containsEntry("status", "failed")
                 .containsEntry("reason", "credential revoked")
-                .containsEntry("userId", "user-808");
+                .containsEntry("userId", ACTOR_REMOTE_USER);
     }
 
     @Test
     void verifyTotpRegistrationFailureRecordsAudit() throws Exception {
         TotpVerificationRequest request = new TotpVerificationRequest();
-        request.setUserPk(909L);
+        request.setUserPk(ACTOR_USER_PK);
         request.setCredentialId(44L);
         request.setCode("123456");
 
-        when(ehtService.completeTotpRegistration(eq(909L), eq(44L), eq("123456"), any()))
+        when(ehtService.completeTotpRegistration(eq(ACTOR_USER_PK), eq(44L), eq("123456"), any()))
                 .thenThrow(new SecurityException("invalid_code"));
 
         assertThatThrownBy(() -> resource.verifyTotpRegistration(objectMapper.writeValueAsString(request)))
@@ -437,6 +455,26 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
                 .containsEntry("status", "failed")
                 .containsEntry("reason", "invalid_code")
                 .containsEntry("credentialId", 44L);
+    }
+
+    @Test
+    void startTotpRegistrationRejectsMismatchedUserPk() throws Exception {
+        TotpRegistrationRequest request = new TotpRegistrationRequest();
+        request.setUserPk(999L);
+        request.setLabel("Primary");
+
+        assertThatThrownBy(() -> resource.startTotpRegistration(objectMapper.writeValueAsString(request)))
+                .isInstanceOf(WebApplicationException.class)
+                .extracting(ex -> ((WebApplicationException) ex).getResponse().getStatus())
+                .isEqualTo(Response.Status.NOT_FOUND.getStatusCode());
+    }
+
+    @Test
+    void resetFactor2AuthRejectsOtherUserWhenNotAdmin() {
+        assertThatThrownBy(() -> resource.resetFactor2Auth("202").write(new ByteArrayOutputStream()))
+                .isInstanceOf(WebApplicationException.class)
+                .extracting(ex -> ((WebApplicationException) ex).getResponse().getStatus())
+                .isEqualTo(Response.Status.NOT_FOUND.getStatusCode());
     }
 
     private static void assertRunId(AuditEventPayload audit, String testName) {

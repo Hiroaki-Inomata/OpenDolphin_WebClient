@@ -1540,13 +1540,12 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
             </span>
             <button
               type="button"
-              className="app-shell__pill app-shell__pill--copy"
+              className="app-shell__debug-copy"
               onClick={handleCopyRunId}
-              aria-label={`RUN_ID をコピー: ${resolvedRunId}`}
-              data-run-id={resolvedRunId}
+              aria-label="障害情報コピー"
+              title={resolvedRunId ? `RUN_ID をコピー: ${resolvedRunId}` : 'RUN_ID をコピー'}
             >
-              RUN_ID: {resolvedRunId}
-              <span className="app-shell__pill-note">クリックでコピー</span>
+              障害情報コピー
             </button>
           </div>
         </header>

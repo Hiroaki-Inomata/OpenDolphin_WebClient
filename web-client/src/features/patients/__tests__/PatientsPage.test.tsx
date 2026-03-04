@@ -731,3 +731,45 @@ describe('PatientsPage search summary', () => {
     expect(networkScope.getByText('不足タグ: Patient_ID')).toBeInTheDocument();
   });
 });
+
+describe('PatientsPage splitter resize', () => {
+  beforeEach(() => {
+    clearAuditEventLog();
+    localStorage.clear();
+    sessionStorage.clear();
+    mockAuthFlags.missingMaster = false;
+    mockAuthFlags.fallbackUsed = false;
+  });
+
+  it('ArrowLeft/ArrowRight/Home/End で幅を調整し localStorage に保存する', async () => {
+    mockPatients();
+    renderPatientsPage();
+    const user = userEvent.setup();
+    const splitter = screen.getByRole('separator', { name: '患者一覧ペインの幅' });
+
+    splitter.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(splitter).toHaveAttribute('aria-valuenow', '396');
+    expect(localStorage.getItem('opendolphin:web-client:patients:sidebarWidth:v1')).toBe('396');
+
+    await user.keyboard('{ArrowLeft}');
+    expect(splitter).toHaveAttribute('aria-valuenow', '380');
+    expect(localStorage.getItem('opendolphin:web-client:patients:sidebarWidth:v1')).toBe('380');
+
+    await user.keyboard('{End}');
+    expect(splitter).toHaveAttribute('aria-valuenow', '520');
+    expect(localStorage.getItem('opendolphin:web-client:patients:sidebarWidth:v1')).toBe('520');
+
+    await user.keyboard('{Home}');
+    expect(splitter).toHaveAttribute('aria-valuenow', '320');
+    expect(localStorage.getItem('opendolphin:web-client:patients:sidebarWidth:v1')).toBe('320');
+  });
+
+  it('保存済み幅を初期値として読み込む', () => {
+    localStorage.setItem('opendolphin:web-client:patients:sidebarWidth:v1', '510');
+    mockPatients();
+    renderPatientsPage();
+
+    expect(screen.getByRole('separator', { name: '患者一覧ペインの幅' })).toHaveAttribute('aria-valuenow', '510');
+  });
+});
