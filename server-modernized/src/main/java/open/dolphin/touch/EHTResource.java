@@ -32,6 +32,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
@@ -86,6 +87,7 @@ import open.dolphin.touch.converter.IPatientVisitModel;
 import open.dolphin.touch.converter.IPhysicalModel;
 import open.dolphin.touch.converter.IRegisteredDiagnosis;
 import open.dolphin.touch.converter.IVitalModel;
+import open.dolphin.touch.security.TouchAccessGuard;
 import open.dolphin.touch.session.EHTServiceBean;
 import open.dolphin.touch.support.TouchAuditHelper;
 import open.dolphin.touch.support.TouchJsonConverter;
@@ -147,6 +149,9 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
 
     @Inject
     private TouchJsonConverter touchJsonConverter;
+
+    @Inject
+    private TouchAccessGuard accessGuard;
     
     @Context
     private HttpServletRequest servletReq;
@@ -284,6 +289,8 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 String [] params = param.split(",");
                 long ptPK = Long.parseLong(params[0]);
+                accessGuard.requirePatientFacility(servletReq, ptPK);
+                accessGuard.requireFacilityEqualsActor(servletReq, params[1], "patientPk", ptPK);
                 StringBuilder sb = new StringBuilder();
                 sb.append(params[1]).append(":").append(params[2]);
                 String fidPid = sb.toString();
@@ -305,6 +312,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 long ptPK = Long.parseLong(param);
+                accessGuard.requirePatientFacility(servletReq, ptPK);
                 PatientMemoModel memo = ehtService.getPatientMemo(ptPK);
                 IPatientMemoModel conv = new IPatientMemoModel();
                 if (memo!=null) {
@@ -326,6 +334,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 IPatientMemoModel model = touchJsonConverter.readLegacy(json, IPatientMemoModel.class);
+                requireMemoKarteAccess(model);
                 int cnt = ehtService.addPatientMemo(model.toModel());
                 ObjectMapper mapper = getSerializeMapper();
                 mapper.writeValue(os, String.valueOf(cnt));
@@ -343,6 +352,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 IPatientMemoModel model = touchJsonConverter.readLegacy(json, IPatientMemoModel.class);
+                requireMemoKarteAccess(model);
                 int cnt = ehtService.updatePatientMemo(model.toModel());
                 ObjectMapper mapper = getSerializeMapper();
                 mapper.writeValue(os, String.valueOf(cnt));
@@ -361,6 +371,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 IPatientMemoModel model = touchJsonConverter.readLegacy(json, IPatientMemoModel.class);
+                requireMemoKarteAccess(model);
                 int cnt = ehtService.deletePatientMemo(model.toModel());
                 ObjectMapper mapper = getSerializeMapper();
                 mapper.writeValue(os, String.valueOf(cnt));
@@ -396,6 +407,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 
                 long ptPK = Long.parseLong(param);
+                accessGuard.requirePatientFacility(servletReq, ptPK);
                 List<AllergyModel> list = ehtService.getAllergies(ptPK);
                 List<IAllergyModel> result = new ArrayList();
                 for (AllergyModel m : list) {
@@ -423,6 +435,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 
                 int cnt = 0;
                 for (IAllergyModel am : allergies) {
+                    requireAllergyKarteAccess(am);
                     ObservationModel om = am.toObservationModel();
                     ehtService.addAllergy(om);
                     cnt++;
@@ -448,6 +461,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 
                 int cnt = 0;
                 for (IAllergyModel am : allergies) {
+                    requireAllergyKarteAccess(am);
                     ObservationModel om = am.toObservationModel();
                     ehtService.updateAllergy(om);
                     cnt++;
@@ -473,6 +487,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
 
                 int cnt = 0;
                 for (IAllergyModel am : allergies) {
+                    requireAllergyKarteAccess(am);
                     ObservationModel om = am.toObservationModel();
                     ehtService.deleteAllergy(om);
                     cnt++;
@@ -495,6 +510,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 String [] params = param.split(",");
                 
                 long ptPK = Long.parseLong(params[0]);
+                accessGuard.requirePatientFacility(servletReq, ptPK);
                 boolean active = (params.length>1) ?  Boolean.parseBoolean(params[1]) : true;
                 int first = (params.length>2) ? Integer.parseInt(params[2]) : 0;
                 int maxResult = (params.length>3) ? Integer.parseInt(params[3]) : 100;
@@ -526,6 +542,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 
                 int cnt = 0;
                 for (IRegisteredDiagnosis ir : list) {
+                    requireDiagnosisKarteAccess(ir);
                     RegisteredDiagnosisModel model = ir.toModel();
                     ehtService.addDiagnosis(model);
                     cnt++;
@@ -551,6 +568,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 
                 int cnt = 0;
                 for (IRegisteredDiagnosis ir : list) {
+                    requireDiagnosisKarteAccess(ir);
                     RegisteredDiagnosisModel model = ir.toModel();
                     ehtService.updateDiagnosis(model);
                     cnt++;
@@ -576,6 +594,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                                 
                 int cnt = 0;
                 for (IRegisteredDiagnosis ir : list) {
+                    requireDiagnosisKarteAccess(ir);
                     RegisteredDiagnosisModel model = ir.toModel();
                     ehtService.deleteDiagnosis(model);
                     cnt++;
@@ -596,6 +615,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 long ptPK = Long.parseLong(param);
+                accessGuard.requirePatientFacility(servletReq, ptPK);
                 KarteNumber karte = ehtService.getKarteNumber(ptPK);
                 karte.setNumber(getFacilityCodeBy1001());
                 IKarteNumber ieht = new IKarteNumber();
@@ -615,7 +635,9 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 long ptPK = Long.parseLong(param);
-                List<DocInfoModel> list = ehtService.getDocInfoList(ptPK);
+                accessGuard.requirePatientFacility(servletReq, ptPK);
+                String actorFacility = accessGuard.requireActorFacility(servletReq);
+                List<DocInfoModel> list = ehtService.getDocInfoList(ptPK, actorFacility);
                 final List<IFastDocInfo> result = new ArrayList(list.size());
                 for (DocInfoModel m : list) {
                     IFastDocInfo idoc = new IFastDocInfo();
@@ -637,7 +659,9 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 long docPK = Long.parseLong(param);
-                DocumentModel doc = ehtService.getDocumentByPk(docPK);
+                accessGuard.requireDocumentFacility(servletReq, docPK);
+                String actorFacility = accessGuard.requireActorFacility(servletReq);
+                DocumentModel doc = ehtService.getDocumentByPk(docPK, actorFacility);
                 doc.toDetuch();
                 IDocument idoc = new IDocument();
                 idoc.fromModel(doc);
@@ -657,7 +681,9 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 long docPK = Long.parseLong(param);
-                DocumentModel doc = ehtService.getDocumentByPk(docPK);
+                accessGuard.requireDocumentFacility(servletReq, docPK);
+                String actorFacility = accessGuard.requireActorFacility(servletReq);
+                DocumentModel doc = ehtService.getDocumentByPk(docPK, actorFacility);
                 doc.toDetuch();
                 IDocument2 idoc = new IDocument2();
                 idoc.fromModel(doc);
@@ -678,7 +704,9 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 long id = Long.parseLong(param);
-                AttachmentModel result = ehtService.getAttachment(id);
+                accessGuard.requireAttachmentFacility(servletReq, id);
+                String actorFacility = accessGuard.requireActorFacility(servletReq);
+                AttachmentModel result = ehtService.getAttachment(id, actorFacility);
                 IAttachmentModel iam = new IAttachmentModel();
                 iam.fromModel(result);
                 ObjectMapper mapper = getSerializeMapper();
@@ -730,14 +758,16 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 TouchRequestContext context = TouchRequestContextExtractor.from(request);
                 String[] pks = touchJsonConverter.readLegacy(json, String[].class);
                 long pk = Long.parseLong(pks[0]);
+                accessGuard.requireDocumentFacility(request, pk);
+                String actorFacility = accessGuard.requireActorFacility(request);
                 DocumentModel document = null;
                 try {
-                    document = ehtService.getDocumentByPk(pk);
+                    document = ehtService.getDocumentByPk(pk, actorFacility);
                 } catch (Exception ex) {
                     LOGGER.log(Level.FINE, "Failed to resolve Touch document metadata [pk=" + pk + "]", ex);
                 }
                 try {
-                    List<String> list = ehtService.deleteDocumentByPk(pk);
+                    List<String> list = ehtService.deleteDocumentByPk(pk, actorFacility);
                     ObjectMapper mapper = getSerializeMapper();
                     mapper.writeValue(os, list);
 
@@ -791,6 +821,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 String [] params = param.split(",");
                 
                 long pk = Long.parseLong(params[0]);            // patientPK
+                accessGuard.requirePatientFacility(servletReq, pk);
                 
                 Date fromDate = IOSHelper.toDate(params[1]);    // fromDate
                 Date toDate = IOSHelper.toDate(params[2]);      // tOdate
@@ -868,11 +899,13 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 String [] params = param.split(",");
 
                 long pk = Long.parseLong(params[0]);
+                accessGuard.requirePatientFacility(servletReq, pk);
+                String actorFacility = accessGuard.requireActorFacility(servletReq);
                 String entity = params[1];
                 int firstResult = Integer.parseInt(params[2]);
                 int maxResult = Integer.parseInt(params[3]);
 
-                List<ModuleModel> list = ehtService.getModules(pk, entity, firstResult, maxResult);
+                List<ModuleModel> list = ehtService.getModules(pk, entity, firstResult, maxResult, actorFacility);
                 List<IBundleModule> result = new ArrayList(list.size());
 
                 for (ModuleModel module : list) {
@@ -905,12 +938,14 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 String [] params = param.split(",");
 
                 long pk = Long.parseLong(params[0]);
+                accessGuard.requirePatientFacility(servletReq, pk);
+                String actorFacility = accessGuard.requireActorFacility(servletReq);
                 String entity = params[1];
 //minagawa^ ToDo 指定できるようにする               
                 //int firstResult = Integer.parseInt(params[2]);
                 //int maxResult = Integer.parseInt(params[3]);
 //minagawa$
-                List<ModuleModel> list = ehtService.getLastModule(pk, entity);
+                List<ModuleModel> list = ehtService.getLastModule(pk, entity, actorFacility);
                 List<IBundleModule> result = new ArrayList(list.size());
 
                 for (ModuleModel module : list) {
@@ -945,6 +980,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
                 String patientId = params[1];
                 int firstResult = Integer.parseInt(params[2]);
                 int maxResult = Integer.parseInt(params[3]);
+                accessGuard.requireFacilityEqualsActor(servletReq, facilityId, "patientId", patientId);
 
                 List<NLaboModule> list = ehtService.getLaboTest(facilityId, patientId, firstResult, maxResult);
                 List<NLaboModuleConverter> result = new ArrayList(list.size());
@@ -971,6 +1007,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
         int firstResult = Integer.parseInt(params[2]);
         int maxResult = Integer.parseInt(params[3]);
         String itemCode = params[4];
+        accessGuard.requireFacilityEqualsActor(servletReq, facilityId, "patientId", patientId);
 
         List<NLaboItem> list  = ehtService.getLaboTestItem(facilityId, patientId, firstResult, maxResult, itemCode);
         int cnt = list.size();
@@ -1041,6 +1078,8 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 long pk = Long.parseLong(param);
+                TouchRequestContext context = TouchRequestContextExtractor.from(servletReq);
+                accessGuard.requireUserSelfOrFacilityAdmin(context, pk);
                 String json = getTreeJson(pk);
                 if (json != null) {
                     os.write(json.getBytes(StandardCharsets.UTF_8));
@@ -1065,7 +1104,8 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-
+                TouchRequestContext context = TouchRequestContextExtractor.from(servletReq);
+                accessGuard.requireStampSelfOrFacilityAdmin(context, param);
                 StampModel stampModel = ehtService.getStamp(param);
                 String json = touchJsonConverter.convertStampOrNull(stampModel);
                 if (json != null) {
@@ -1360,6 +1400,30 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
 //                mapper.writeValue(os, getProperty(PVTLIST_CLEAR));
             }
         };
+    }
+
+    private void requireMemoKarteAccess(IPatientMemoModel memo) {
+        long karteId = memo != null && memo.getKarteBean() != null ? memo.getKarteBean().getId() : 0L;
+        if (karteId <= 0L) {
+            throw new NotFoundException("Requested resource was not found.");
+        }
+        accessGuard.requireKarteFacility(servletReq, karteId);
+    }
+
+    private void requireAllergyKarteAccess(IAllergyModel allergy) {
+        long karteId = allergy != null ? allergy.getKartePK() : 0L;
+        if (karteId <= 0L) {
+            throw new NotFoundException("Requested resource was not found.");
+        }
+        accessGuard.requireKarteFacility(servletReq, karteId);
+    }
+
+    private void requireDiagnosisKarteAccess(IRegisteredDiagnosis diagnosis) {
+        long karteId = diagnosis != null && diagnosis.getKarteBean() != null ? diagnosis.getKarteBean().getId() : 0L;
+        if (karteId <= 0L) {
+            throw new NotFoundException("Requested resource was not found.");
+        }
+        accessGuard.requireKarteFacility(servletReq, karteId);
     }
     
     public String getProperty(String item) {

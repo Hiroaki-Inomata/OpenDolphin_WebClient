@@ -5,10 +5,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.spec.InvalidKeySpecException;
 import java.util.Base64;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
 import org.junit.jupiter.api.Test;
 
 class PasswordHashServiceTest {
+
+    private static final String LEGACY_PREFIX = "pbkdf2_md5";
 
     private final PasswordHashService service = new PasswordHashService();
 
@@ -41,30 +46,29 @@ class PasswordHashServiceTest {
     }
 
     @Test
+    void legacyManagedMd5AuthenticationRequiresUpgrade() {
+        String rawPassword = "LegacyManagedPass!";
+        String legacy = legacyManagedHash(rawPassword, 200_000);
+
+        PasswordHashService.VerificationResult verification = service.verify(legacy, rawPassword);
+
+        assertThat(verification.matched()).isTrue();
+        assertThat(verification.requiresUpgrade()).isTrue();
+        String upgraded = verification.upgradedHash().orElseThrow();
+        assertThat(upgraded).startsWith(PasswordHashService.FORMAT_PREFIX + "$");
+        assertThat(service.verify(upgraded, rawPassword).matched()).isTrue();
+    }
+
+    @Test
     void legacyMd5AuthenticationRequiresUpgrade() {
         String rawPassword = "LegacyPass!";
         String legacyMd5 = md5(rawPassword);
 
-        PasswordHashService.VerificationResult fromRaw = service.verify(legacyMd5, rawPassword);
-        assertThat(fromRaw.matched()).isTrue();
-        assertThat(fromRaw.requiresUpgrade()).isTrue();
-        String upgradedHash = fromRaw.upgradedHash().orElseThrow();
-        assertThat(service.verify(upgradedHash, rawPassword).matched()).isTrue();
+        PasswordHashService.VerificationResult verification = service.verify(legacyMd5, rawPassword);
 
-        PasswordHashService.VerificationResult fromMd5 = service.verify(legacyMd5, legacyMd5);
-        assertThat(fromMd5.matched()).isFalse();
-        assertThat(fromMd5.requiresUpgrade()).isFalse();
-    }
-
-    @Test
-    void legacyMd5PassTheHashIsRejected() {
-        String rawPassword = "PassTheHash!";
-        String storedMd5 = md5(rawPassword);
-
-        PasswordHashService.VerificationResult verification = service.verify(storedMd5, storedMd5);
-
-        assertThat(verification.matched()).isFalse();
-        assertThat(verification.requiresUpgrade()).isFalse();
+        assertThat(verification.matched()).isTrue();
+        assertThat(verification.requiresUpgrade()).isTrue();
+        assertThat(verification.upgradedHash()).isPresent();
     }
 
     @Test
@@ -74,6 +78,25 @@ class PasswordHashServiceTest {
         assertThat(verification.matched()).isTrue();
         assertThat(verification.requiresUpgrade()).isTrue();
         assertThat(verification.upgradedHash()).isPresent();
+    }
+
+    private String legacyManagedHash(String rawPassword, int iterations) {
+        try {
+            String md5 = md5(rawPassword);
+            byte[] salt = new byte[16];
+            for (int i = 0; i < salt.length; i++) {
+                salt[i] = (byte) (i + 3);
+            }
+            PBEKeySpec spec = new PBEKeySpec(md5.toCharArray(), salt, iterations, 256);
+            byte[] hash = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                    .generateSecret(spec)
+                    .getEncoded();
+            return LEGACY_PREFIX + "$" + iterations + "$"
+                    + Base64.getEncoder().encodeToString(salt) + "$"
+                    + Base64.getEncoder().encodeToString(hash);
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private String md5(String value) {

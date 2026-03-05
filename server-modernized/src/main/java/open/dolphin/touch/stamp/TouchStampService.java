@@ -9,6 +9,7 @@ import open.dolphin.converter.StampTreeHolderConverter;
 import open.dolphin.infomodel.StampModel;
 import open.dolphin.infomodel.StampTreeHolder;
 import open.dolphin.session.StampServiceBean;
+import open.dolphin.touch.security.TouchAccessGuard;
 import open.dolphin.touch.support.TouchAuditHelper;
 import open.dolphin.touch.support.TouchErrorResponse;
 import open.dolphin.touch.support.TouchErrorMapper;
@@ -33,12 +34,16 @@ public class TouchStampService {
     @Inject
     TouchAuditHelper auditHelper;
 
+    @Inject
+    TouchAccessGuard accessGuard;
+
     public StampModelConverter getStamp(TouchRequestContext context, String stampId) {
         String resource = "/touch/stamp/" + stampId;
         try {
             requireAccessReason(context);
+            long ownerUserPk = accessGuard.requireStampSelfOrFacilityAdmin(context, stampId);
             StampModelConverter converter = responseCache.computeIfAbsent(cacheKey("stamp", stampId), () -> {
-                StampModel stamp = stampServiceBean.getStamp(stampId);
+                StampModel stamp = stampServiceBean.getStamp(stampId, ownerUserPk);
                 if (stamp == null) {
                     throw TouchErrorMapper.toException(jakarta.ws.rs.core.Response.Status.NOT_FOUND,
                             "stamp_not_found", "スタンプが見つかりません。", context.traceId());
@@ -66,6 +71,7 @@ public class TouchStampService {
         String resource = "/touch/stampTree/" + userPk;
         try {
             requireAccessReason(context);
+            accessGuard.requireUserSelfOrFacilityAdmin(context, userPk);
             StampTreeHolderConverter converter = responseCache.computeIfAbsent(cacheKey("stampTree", String.valueOf(userPk)), () -> {
                 StampTreeHolder holder = stampServiceBean.getTrees(userPk);
                 if (holder == null) {

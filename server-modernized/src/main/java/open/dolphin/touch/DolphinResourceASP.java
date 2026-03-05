@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import open.dolphin.infomodel.*;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.touch.converter.IDocument;
@@ -112,96 +113,11 @@ public class DolphinResourceASP extends AbstractResource {
     @Path("/user/{param}")
     @Produces("application/xml")
     public String getUser(@Context HttpServletRequest servletReq, @PathParam("param") String param) {
-
-        debug(servletReq.getHeader("userName"));
-        debug(servletReq.getHeader("password"));
-
-        String [] params = param.split(",");
-
-        if (params.length !=3) {
-            debug("params!=3, return");
-            return null;
-        }
-
-        // userId, 医療機関ID, パスワード
-        String userId = params[0];
-        String facilityId = params[1];
-        String password = params[2];
-
-        // OID 1.3.6.1.4.1.9414.2.xxx:userId を構築する
-        StringBuilder sb = new StringBuilder();
-        sb.append(DOLPHIN_ASP_OID);
-        sb.append(facilityId);
-        sb.append(":");
-        sb.append(userId);
-        String qid = sb.toString();
-        debug(qid);
-
-        // 戻り値のXMLを構築する
-        String retXML = null;
-        sb = new StringBuilder();
-        sb.append(XML);
-        sb.append(RESOURCE_START);
-
-        UserModel user = null;
-
-        try {
-            // User を検索する
-            user = iPhoneServiceBean.getUser(qid, password);
-            debug("got user");
-
-            // ASP Member 以外の時は評価期間中かどうかを判定する
-            if (user.getMemberType().equals(ASP_TEST_USER)) {
-
-                Date registered = user.getRegisteredDate();
-                GregorianCalendar gc = new GregorianCalendar();
-                gc.setTime(registered);
-                gc.add(Calendar.MONTH, 5);
-
-                GregorianCalendar now = new GregorianCalendar();
-
-                if (gc.before(now)) {
-                    user = null;
-                }
-            }
-
-        } catch (Exception e) {
-            debug("Exception at get user");
-            sb.append(RESOURCE_END);
-            retXML = sb.toString();
-        }
-
-        // 登録なし、認証不可、MEMBER 以外
-        if (user == null) {
-            debug("user == null, return");
-            return retXML;
-        }
-
-        // ローカルuserId
-        int index = user.getUserId().indexOf(":");
-        userId = user.getUserId().substring(index+1);
-
-        sb.append(USER_START);
-        propertyString(ELEMENT_USER_ID, userId, sb);
-        propertyString(ELEMENT_COMMON_NAME, user.getCommonName(), sb);
-
-        sb.append(FACILITY_START);
-        propertyString(ELEMENT_FACILITY_ID, user.getFacilityModel().getFacilityId(), sb);
-        propertyString(ELEMENT_FACILITY_NAME, user.getFacilityModel().getFacilityName(), sb);
-
-        //-------- s3 params -----------//
-        propertyString(ELEMENT_S3_URL, user.getFacilityModel().getS3URL(), sb);
-        //-------- s3 params -----------//
-
-        sb.append(FACILITY_END);
-
-        sb.append(USER_END);
-        sb.append(RESOURCE_END);
-
-        retXML = sb.toString();
-        debug(retXML);
-
-        return retXML;
+        throw new WebApplicationException(
+                Response.status(Response.Status.GONE)
+                        .type(MediaType.TEXT_PLAIN_TYPE)
+                        .entity("Gone")
+                        .build());
     }
 
 

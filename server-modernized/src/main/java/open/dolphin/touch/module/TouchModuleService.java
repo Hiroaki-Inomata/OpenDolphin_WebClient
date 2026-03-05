@@ -2,6 +2,7 @@ package open.dolphin.touch.module;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -35,6 +36,7 @@ import open.dolphin.touch.module.TouchModuleDtos.ModuleItem;
 import open.dolphin.touch.module.TouchModuleDtos.Page;
 import open.dolphin.touch.module.TouchModuleDtos.RpModule;
 import open.dolphin.touch.module.TouchModuleDtos.Schema;
+import open.dolphin.touch.security.TouchAccessGuard;
 import open.dolphin.touch.session.IPhoneServiceBean;
 
 /**
@@ -63,6 +65,9 @@ public class TouchModuleService {
     @Inject
     private IPhoneServiceBean iPhoneServiceBean;
 
+    @Inject
+    TouchAccessGuard accessGuard;
+
     private final ConcurrentHashMap<String, CacheUtil.CacheEntry<Page<Module>>> moduleCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CacheUtil.CacheEntry<Page<RpModule>>> rpCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CacheUtil.CacheEntry<Page<Diagnosis>>> diagnosisCache = new ConcurrentHashMap<>();
@@ -70,19 +75,22 @@ public class TouchModuleService {
     private final ConcurrentHashMap<String, CacheUtil.CacheEntry<LaboGraph>> laboGraphCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CacheUtil.CacheEntry<Page<Schema>>> schemaCache = new ConcurrentHashMap<>();
 
-    public Page<Module> getModules(long patientPk, String entity, int firstResult, int maxResult) {
+    public Page<Module> getModules(HttpServletRequest request, long patientPk, String entity, int firstResult, int maxResult) {
+        accessGuard.requirePatientFacility(request, patientPk);
         String key = cacheKey("modules", patientPk, entity, firstResult, maxResult);
         return CacheUtil.getOrCompute(moduleCache, key, CACHE_TTL,
                 () -> buildModulePage(patientPk, entity, firstResult, maxResult));
     }
 
-    public Page<RpModule> getRpModules(long patientPk, int firstResult, int maxResult) {
+    public Page<RpModule> getRpModules(HttpServletRequest request, long patientPk, int firstResult, int maxResult) {
+        accessGuard.requirePatientFacility(request, patientPk);
         String key = cacheKey("rp", patientPk, firstResult, maxResult);
         return CacheUtil.getOrCompute(rpCache, key, CACHE_TTL,
                 () -> buildRpPage(patientPk, firstResult, maxResult));
     }
 
-    public Page<Diagnosis> getDiagnoses(long patientPk, int firstResult, int maxResult) {
+    public Page<Diagnosis> getDiagnoses(HttpServletRequest request, long patientPk, int firstResult, int maxResult) {
+        accessGuard.requirePatientFacility(request, patientPk);
         String key = cacheKey("diagnosis", patientPk, firstResult, maxResult);
         return CacheUtil.getOrCompute(diagnosisCache, key, CACHE_TTL,
                 () -> buildDiagnosisPage(patientPk, firstResult, maxResult));
@@ -100,7 +108,8 @@ public class TouchModuleService {
                 () -> buildLaboGraph(facilityId, patientId, firstResult, maxResult, itemCode));
     }
 
-    public Page<Schema> getSchemas(long patientPk, int firstResult, int maxResult) {
+    public Page<Schema> getSchemas(HttpServletRequest request, long patientPk, int firstResult, int maxResult) {
+        accessGuard.requirePatientFacility(request, patientPk);
         String key = cacheKey("schema", patientPk, firstResult, maxResult);
         return CacheUtil.getOrCompute(schemaCache, key, CACHE_TTL,
                 () -> buildSchemaPage(patientPk, firstResult, maxResult));

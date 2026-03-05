@@ -1,0 +1,187 @@
+package open.dolphin.rest;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedHashMap;
+import java.awt.Color;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.lang.reflect.Field;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import javax.imageio.ImageIO;
+import open.dolphin.rest.dto.PatientImageUploadResponse;
+import open.dolphin.security.audit.AuditTrailService;
+import open.dolphin.session.PatientImageServiceBean;
+import open.dolphin.session.PatientServiceBean;
+import org.jboss.resteasy.plugins.providers.multipart.InputPart;
+import org.jboss.resteasy.plugins.providers.multipart.MultipartFormDataInput;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class PatientImagesResourceTest {
+
+    @InjectMocks
+    private PatientImagesResource resource;
+
+    @Mock
+    private PatientServiceBean patientServiceBean;
+
+    @Mock
+    private PatientImageServiceBean patientImageServiceBean;
+
+    @Mock
+    private AuditTrailService auditTrailService;
+
+    @Mock
+    private HttpServletRequest request;
+
+    @Mock
+    private MultipartFormDataInput input;
+
+    @Mock
+    private InputPart part;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        System.setProperty("opendolphin.patient.images.enabled", "true");
+        setField(resource, "httpServletRequest", request);
+
+        when(request.getRemoteUser()).thenReturn("F001:user01");
+        lenient().when(request.getRemoteAddr()).thenReturn("127.0.0.1");
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/patients/P001/images");
+        Map<String, String> headers = new java.util.HashMap<>();
+        headers.put("User-Agent", "JUnit");
+        headers.put("X-Request-Id", "req-1");
+        when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
+        lenient().when(request.isUserInRole("ADMIN")).thenReturn(false);
+        lenient().when(patientServiceBean.getPatientById("F001", "P001"))
+                .thenReturn(new open.dolphin.infomodel.PatientModel());
+
+        lenient().when(input.getFormDataMap()).thenReturn(Map.of("file", List.of(part)));
+        MultivaluedHashMap<String, String> partHeaders = new MultivaluedHashMap<>();
+        partHeaders.add("Content-Disposition", "form-data; name=\"file\"; filename=\"test.png\"");
+        lenient().when(part.getHeaders()).thenReturn(partHeaders);
+    }
+
+    @AfterEach
+    void tearDown() {
+        System.clearProperty("opendolphin.patient.images.enabled");
+        System.clearProperty("opendolphin.images.max.width");
+        System.clearProperty("opendolphin.images.max.height");
+    }
+
+    @Test
+    void upload_rejectsSpoofedContentTypePayload() throws Exception {
+        when(part.getMediaType()).thenReturn(MediaType.valueOf("image/png"));
+        when(part.getBody(eq(java.io.InputStream.class), any())).thenReturn(
+                new ByteArrayInputStream("not-an-image".getBytes()));
+
+        assertThatThrownBy(() -> resource.upload("P001", input))
+                .isInstanceOf(WebApplicationException.class)
+                .extracting(ex -> ((WebApplicationException) ex).getResponse().getStatus())
+                .isEqualTo(415);
+    }
+
+    @Test
+    void upload_rejectsBrokenImageEvenWithMagicHeader() throws Exception {
+        byte[] brokenPng = new byte[] {
+                (byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+                0x00, 0x01, 0x02
+        };
+        when(part.getMediaType()).thenReturn(MediaType.valueOf("image/png"));
+        when(part.getBody(eq(java.io.InputStream.class), any())).thenReturn(new ByteArrayInputStream(brokenPng));
+
+        assertThatThrownBy(() -> resource.upload("P001", input))
+                .isInstanceOf(WebApplicationException.class)
+                .extracting(ex -> ((WebApplicationException) ex).getResponse().getStatus())
+                .isEqualTo(400);
+    }
+
+    @Test
+    void upload_acceptsValidPngAndNormalizesPayload() throws Exception {
+        byte[] png = createPng(40, 30);
+        when(part.getMediaType()).thenReturn(MediaType.valueOf("image/png"));
+        when(part.getBody(eq(java.io.InputStream.class), any())).thenReturn(new ByteArrayInputStream(png));
+        when(patientImageServiceBean.uploadImage(eq("F001"), eq("P001"), eq("F001:user01"),
+                eq("test.png"), eq("image/png"), any()))
+                .thenReturn(new PatientImageServiceBean.UploadResult(10L, 20L, java.util.Date.from(Instant.parse("2024-01-01T00:00:00Z"))));
+
+        PatientImageUploadResponse response = resource.upload("P001", input);
+
+        assertThat(response.getImageId()).isEqualTo(20L);
+        assertThat(response.getDocumentId()).isEqualTo(10L);
+        verify(patientImageServiceBean).uploadImage(eq("F001"), eq("P001"), eq("F001:user01"),
+                eq("test.png"), eq("image/png"), any());
+    }
+
+    @Test
+    void upload_rejectsSvgActiveContent() throws Exception {
+        when(part.getMediaType()).thenReturn(MediaType.valueOf("image/svg+xml"));
+
+        assertThatThrownBy(() -> resource.upload("P001", input))
+                .isInstanceOf(WebApplicationException.class)
+                .extracting(ex -> ((WebApplicationException) ex).getResponse().getStatus())
+                .isEqualTo(415);
+    }
+
+    @Test
+    void upload_rejectsOversizedDimensions() throws Exception {
+        System.setProperty("opendolphin.images.max.width", "10");
+        System.setProperty("opendolphin.images.max.height", "10");
+
+        byte[] png = createPng(100, 50);
+        when(part.getMediaType()).thenReturn(MediaType.valueOf("image/png"));
+        when(part.getBody(eq(java.io.InputStream.class), any())).thenReturn(new ByteArrayInputStream(png));
+
+        assertThatThrownBy(() -> resource.upload("P001", input))
+                .isInstanceOf(WebApplicationException.class)
+                .extracting(ex -> ((WebApplicationException) ex).getResponse().getStatus())
+                .isEqualTo(413);
+    }
+
+    @Test
+    void upload_returnsNotFoundWhenPatientIsInaccessible() {
+        when(patientServiceBean.getPatientById("F001", "P999")).thenReturn(null);
+
+        assertThatThrownBy(() -> resource.upload("P999", input))
+                .isInstanceOf(WebApplicationException.class)
+                .extracting(ex -> ((WebApplicationException) ex).getResponse().getStatus())
+                .isEqualTo(404);
+        verify(patientImageServiceBean, never()).uploadImage(anyString(), anyString(), anyString(), anyString(), anyString(), any());
+    }
+
+    private static byte[] createPng(int width, int height) throws Exception {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        image.setRGB(0, 0, new Color(255, 0, 0, 255).getRGB());
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            ImageIO.write(image, "png", out);
+            return out.toByteArray();
+        }
+    }
+
+    private static void setField(Object target, String fieldName, Object value) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+}

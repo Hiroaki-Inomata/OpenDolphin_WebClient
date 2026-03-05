@@ -517,6 +517,17 @@ public class StampServiceBean {
         return null;
     }
 
+    public StampModel getStamp(String stampId, long ownerUserPk) {
+        StampModel stamp = getStamp(stampId);
+        if (stamp == null) {
+            return null;
+        }
+        if (ownerUserPk > 0 && stamp.getUserId() != ownerUserPk) {
+            return null;
+        }
+        return stamp;
+    }
+
     /**
      * Stampを取得する。
      * @param stampId 取得する StampModel の id

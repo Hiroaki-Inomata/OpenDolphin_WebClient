@@ -2,9 +2,11 @@ package open.dolphin.rest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.persistence.EntityManager;
@@ -14,6 +16,8 @@ import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
+import open.dolphin.infomodel.UserModel;
+import open.dolphin.security.auth.PasswordHashService;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.session.UserServiceBean;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,17 +28,22 @@ class AdminAccessResourceTest {
     private AdminAccessResource resource;
     private HttpServletRequest request;
     private UserServiceBean userServiceBean;
+    private EntityManager entityManager;
+    private PasswordHashService passwordHashService;
 
     @BeforeEach
     void setUp() throws Exception {
-        resource = new AdminAccessResource();
+        resource = new TestableAdminAccessResource();
         request = mock(HttpServletRequest.class);
         userServiceBean = mock(UserServiceBean.class);
+        entityManager = mock(EntityManager.class);
+        passwordHashService = mock(PasswordHashService.class);
 
-        setField(resource, "em", mock(EntityManager.class));
+        setField(resource, "em", entityManager);
         setField(resource, "userServiceBean", userServiceBean);
         setField(resource, "secondFactorSecurityConfig", mock(open.dolphin.security.SecondFactorSecurityConfig.class));
         setField(resource, "sessionAuditDispatcher", mock(SessionAuditDispatcher.class));
+        setField(resource, "passwordHashService", passwordHashService);
     }
 
     @Test
@@ -82,10 +91,66 @@ class AdminAccessResourceTest {
         assertTrue(users.isEmpty());
     }
 
+    @Test
+    void resetPasswordReturnsNoContentAndNoSecretInResponse() {
+        when(request.getHeader("X-Run-Id")).thenReturn("RUN-TEST");
+        when(request.getRemoteUser()).thenReturn("F001:admin");
+        when(userServiceBean.isAdmin("F001:admin")).thenReturn(true);
+
+        UserModel target = new UserModel();
+        target.setId(10L);
+        target.setUserId("F001:user01");
+        when(entityManager.find(UserModel.class, 10L)).thenReturn(target);
+        when(passwordHashService.hashForStorage("TempPass123!")).thenReturn("hashed-password");
+
+        Response response = resource.resetPassword(
+                request,
+                10L,
+                Map.of("totpCode", "123456", "temporaryPassword", "TempPass123!"));
+
+        assertEquals(204, response.getStatus());
+        assertEquals("no-store", response.getHeaderString("Cache-Control"));
+        assertEquals("no-cache", response.getHeaderString("Pragma"));
+        assertNull(response.getEntity());
+        assertEquals("hashed-password", target.getPassword());
+        verify(entityManager).merge(target);
+    }
+
     private static void setField(Object target, String name, Object value) throws Exception {
-        Field f = target.getClass().getDeclaredField(name);
-        f.setAccessible(true);
-        f.set(target, value);
+        Class<?> type = target.getClass();
+        while (type != null) {
+            try {
+                Field field = type.getDeclaredField(name);
+                field.setAccessible(true);
+                field.set(target, value);
+                return;
+            } catch (NoSuchFieldException ignore) {
+                type = type.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(name);
+    }
+
+    private static final class TestableAdminAccessResource extends AdminAccessResource {
+        @Override
+        protected void verifyAdminTotp(HttpServletRequest request, long actorPk, String totpCode) {
+            // no-op for unit tests
+        }
+
+        @Override
+        protected long resolveActorUserPk(String actorUserId) {
+            return 1L;
+        }
+
+        @Override
+        protected void upsertPublicShadowUser(UserModel user) {
+            // no-op for unit tests
+        }
+
+        @Override
+        protected UserAccessProfileRow upsertProfile(
+                long userPk, String sex, String staffRole, Boolean mustChangePassword, java.time.Instant now) {
+            return null;
+        }
     }
 }
-

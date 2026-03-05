@@ -46,7 +46,6 @@ import open.dolphin.adm20.converter.IOSHelper;
 import open.dolphin.adm20.converter.IOndobanModel30;
 import open.dolphin.adm20.converter.ISendPackage;
 import open.dolphin.adm20.session.ADM20_EHTServiceBean;
-import open.dolphin.converter.UserModelConverter;
 import open.dolphin.infomodel.CarePlanModel;
 import open.dolphin.infomodel.ChartEventModel;
 import open.dolphin.infomodel.DiagnosisSendWrapper;
@@ -83,6 +82,7 @@ import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.security.totp.TotpRegistrationResult;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
+import open.dolphin.touch.JsonTouchSharedService;
 
 
 
@@ -688,32 +688,28 @@ public class AdmissionResource extends open.dolphin.rest.AbstractResource {
     @Path("/user/factor2/device")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public UserModelConverter getUserWithNewFactor2Device(String json) throws IOException {
+    public JsonTouchSharedService.SafeUserResponse getUserWithNewFactor2Device(String json) throws IOException {
 
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         Factor2Spec spec = mapper.readValue(json, Factor2Spec.class);
         
         UserModel result = ehtService.getUserWithNewFactor2Device(spec);
-        UserModelConverter conv = new UserModelConverter();
-        conv.setModel(result);
-        return conv;
+        return JsonTouchSharedService.toSafeUserResponse(result);
     }
     
     @PUT
     @Path("/user/factor2/backup")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public UserModelConverter getUserWithF2Backup(String json) throws IOException {
+    public JsonTouchSharedService.SafeUserResponse getUserWithF2Backup(String json) throws IOException {
 
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         Factor2Spec spec = mapper.readValue(json, Factor2Spec.class);
 
         UserModel result = ehtService.getUserWithF2Backup(spec);
-        UserModelConverter conv = new UserModelConverter();
-        conv.setModel(result);
-        return conv;
+        return JsonTouchSharedService.toSafeUserResponse(result);
     }
 
     @POST

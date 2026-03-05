@@ -11,6 +11,7 @@ import java.util.Optional;
 import open.dolphin.converter.StampModelConverter;
 import open.dolphin.infomodel.StampModel;
 import open.dolphin.session.StampServiceBean;
+import open.dolphin.touch.security.TouchAccessGuard;
 import open.dolphin.touch.support.TouchAuditHelper;
 import open.dolphin.touch.support.TouchErrorResponse;
 import open.dolphin.touch.support.TouchRequestContext;
@@ -58,6 +59,9 @@ class TouchStampServiceTest extends RuntimeDelegateTestSupport {
     @Mock
     TouchAuditHelper auditHelper;
 
+    @Mock
+    TouchAccessGuard accessGuard;
+
     TouchStampService service;
 
     @BeforeEach
@@ -66,8 +70,11 @@ class TouchStampServiceTest extends RuntimeDelegateTestSupport {
         service.stampServiceBean = stampServiceBean;
         service.auditHelper = auditHelper;
         service.responseCache = new TouchResponseCache();
+        service.accessGuard = accessGuard;
         when(auditHelper.record(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(Optional.empty());
+        when(accessGuard.requireStampSelfOrFacilityAdmin(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(1L);
     }
 
     @Test
@@ -78,20 +85,20 @@ class TouchStampServiceTest extends RuntimeDelegateTestSupport {
         assertThat(ex.getResponse().getEntity()).isInstanceOf(TouchErrorResponse.class);
         TouchErrorResponse payload = (TouchErrorResponse) ex.getResponse().getEntity();
         assertThat(payload.type()).isEqualTo("access_reason_required");
-        verify(stampServiceBean, times(0)).getStamp("stamp-1");
+        verify(stampServiceBean, times(0)).getStamp("stamp-1", 1L);
     }
 
     @Test
     void getStamp_usesCache() {
         StampModel model = new StampModel();
         model.setId("stamp-1");
-        when(stampServiceBean.getStamp("stamp-1")).thenReturn(model);
+        when(stampServiceBean.getStamp("stamp-1", 1L)).thenReturn(model);
 
         StampModelConverter first = service.getStamp(CONTEXT, "stamp-1");
         StampModelConverter second = service.getStamp(CONTEXT, "stamp-1");
 
         assertThat(first.getId()).isEqualTo("stamp-1");
         assertThat(second.getId()).isEqualTo("stamp-1");
-        verify(stampServiceBean, times(1)).getStamp("stamp-1");
+        verify(stampServiceBean, times(1)).getStamp("stamp-1", 1L);
     }
 }

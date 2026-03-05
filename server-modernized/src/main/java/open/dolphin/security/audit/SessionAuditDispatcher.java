@@ -1,12 +1,13 @@
 package open.dolphin.security.audit;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.jms.ConnectionFactory;
 import jakarta.jms.JMSContext;
-import jakarta.jms.ObjectMessage;
 import jakarta.jms.Queue;
+import jakarta.jms.TextMessage;
 import jakarta.transaction.Transactional;
 import java.util.Collections;
 import java.util.HashMap;
@@ -16,6 +17,7 @@ import java.util.Optional;
 import java.util.UUID;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.audit.AuditEventEnvelope.Outcome;
+import open.dolphin.msg.dto.JmsEnvelopeMessage;
 import open.dolphin.msg.gateway.MessagingHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +31,7 @@ public class SessionAuditDispatcher {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SessionAuditDispatcher.class);
     private static final String PAYLOAD_TYPE_AUDIT = "AUDIT_EVENT";
+    private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
 
     @Inject
     private AuditTrailService auditTrailService;
@@ -75,7 +78,8 @@ public class SessionAuditDispatcher {
             return;
         }
         try (JMSContext context = connectionFactory.createContext(JMSContext.AUTO_ACKNOWLEDGE)) {
-            ObjectMessage message = context.createObjectMessage(envelope);
+            String body = JSON.writeValueAsString(JmsEnvelopeMessage.forAudit(envelope));
+            TextMessage message = context.createTextMessage(body);
             String traceId = envelope.getTraceId();
             if (traceId != null && !traceId.isBlank()) {
                 message.setStringProperty(MessagingHeaders.TRACE_ID, traceId);

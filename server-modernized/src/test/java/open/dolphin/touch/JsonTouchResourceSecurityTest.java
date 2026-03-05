@@ -31,6 +31,7 @@ import open.dolphin.infomodel.SchemaModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.session.ChartEventServiceBean;
 import open.dolphin.session.KarteServiceBean;
+import open.dolphin.session.UserServiceBean;
 import open.dolphin.touch.converter.ISendPackage;
 import open.dolphin.touch.support.TouchJsonConverter;
 import open.dolphin.touch.session.IPhoneServiceBean;
@@ -41,6 +42,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
 class JsonTouchResourceSecurityTest extends RuntimeDelegateTestSupport {
@@ -60,6 +62,9 @@ class JsonTouchResourceSecurityTest extends RuntimeDelegateTestSupport {
     private ChartEventServiceBean chartEventServiceBean;
 
     @Mock
+    private UserServiceBean userServiceBean;
+
+    @Mock
     private HttpServletRequest servletRequest;
 
     private JsonTouchSharedService sharedService;
@@ -75,6 +80,7 @@ class JsonTouchResourceSecurityTest extends RuntimeDelegateTestSupport {
         setField(sharedService, "iPhoneService", iPhoneServiceBean);
         setField(sharedService, "karteService", karteServiceBean);
         setField(sharedService, "chartService", chartEventServiceBean);
+        setField(sharedService, "userServiceBean", userServiceBean);
 
         touchResource = new JsonTouchResource();
         setField(touchResource, "sharedService", sharedService);
@@ -91,6 +97,38 @@ class JsonTouchResourceSecurityTest extends RuntimeDelegateTestSupport {
         setField(adm20Resource, "sharedService", sharedService);
         setField(adm20Resource, "touchJsonConverter", touchJsonConverter);
         setField(adm20Resource, "karteServiceBean", karteServiceBean);
+    }
+
+    @Test
+    void userEndpointReturns404ForCrossUserWithoutAdminRole() throws Exception {
+        UserModel actor = user("F001:doctor01", "F001", "doctor");
+        UserModel target = user("F001:nurse02", "F001", "user");
+        when(iPhoneServiceBean.getUserById("F001:doctor01")).thenReturn(actor);
+        when(iPhoneServiceBean.getUserById("F001:nurse02")).thenReturn(target);
+        when(userServiceBean.isAdmin("F001:doctor01")).thenReturn(false);
+
+        assertNotFound(() -> touchResource.getUserById(servletRequest, "nurse02"));
+        assertNotFound(() -> adm10Resource.getUserById(servletRequest, "nurse02"));
+        assertNotFound(() -> adm20Resource.getUserById(servletRequest, "nurse02"));
+    }
+
+    @Test
+    void userEndpointAllowsSelfAndHidesPasswordField() throws Exception {
+        UserModel actor = user("F001:doctor01", "F001", "doctor");
+        actor.setPassword("secret-value");
+        actor.setEmail("doctor@example.com");
+        when(iPhoneServiceBean.getUserById("F001:doctor01")).thenReturn(actor);
+        when(userServiceBean.isAdmin("F001:doctor01")).thenReturn(false);
+
+        JsonTouchSharedService.SafeUserResponse response = touchResource.getUserById(servletRequest, "doctor01");
+        String json = new ObjectMapper().writeValueAsString(response);
+        org.assertj.core.api.Assertions.assertThat(json)
+                .doesNotContain("password")
+                .doesNotContain("temporaryPassword")
+                .doesNotContain("credential")
+                .doesNotContain("salt")
+                .doesNotContain("hash")
+                .contains("doctor@example.com");
     }
 
     @Test
@@ -312,6 +350,18 @@ class JsonTouchResourceSecurityTest extends RuntimeDelegateTestSupport {
         Field f = target.getClass().getDeclaredField(name);
         f.setAccessible(true);
         f.set(target, value);
+    }
+
+    private static UserModel user(String userId, String facilityId, String roleValue) {
+        UserModel user = new UserModel();
+        user.setUserId(userId);
+        open.dolphin.infomodel.FacilityModel facility = new open.dolphin.infomodel.FacilityModel();
+        facility.setFacilityId(facilityId);
+        user.setFacilityModel(facility);
+        open.dolphin.infomodel.RoleModel role = new open.dolphin.infomodel.RoleModel();
+        role.setRole(roleValue);
+        user.setRoles(List.of(role));
+        return user;
     }
 
     @FunctionalInterface

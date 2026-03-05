@@ -88,7 +88,6 @@
                 open.dolphin.orca.rest.OrcaPatientSyncResource,
                 open.dolphin.touch.JsonTouchResource,
                 open.dolphin.touch.DolphinResource,
-                open.dolphin.touch.DolphinResourceASP,
                 <!-- DemoResource / DemoResourceASP are intentionally not listed.
                      Demo endpoints must never be auto-discovered in production. -->
                 open.dolphin.touch.patient.TouchPatientResource,

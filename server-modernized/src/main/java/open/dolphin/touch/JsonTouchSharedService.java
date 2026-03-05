@@ -2,6 +2,7 @@ package open.dolphin.touch;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.persistence.NoResultException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -13,11 +14,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import open.dolphin.converter.UserModelConverter;
 import open.dolphin.infomodel.ChartEventModel;
 import open.dolphin.infomodel.DiagnosisSendWrapper;
 import open.dolphin.infomodel.DocInfoModel;
@@ -31,6 +32,7 @@ import open.dolphin.infomodel.UserModel;
 import open.dolphin.infomodel.VisitPackage;
 import open.dolphin.session.ChartEventServiceBean;
 import open.dolphin.session.KarteServiceBean;
+import open.dolphin.session.UserServiceBean;
 import open.dolphin.touch.converter.ISendPackage;
 import open.dolphin.touch.converter.ISendPackage2;
 import open.dolphin.touch.converter.IVisitPackage;
@@ -44,6 +46,40 @@ import org.apache.commons.lang3.SerializationUtils;
  */
 @ApplicationScoped
 public class JsonTouchSharedService {
+
+    public record SafeUserResponse(long id,
+                                   String userId,
+                                   String sirName,
+                                   String givenName,
+                                   String commonName,
+                                   SafeLicense license,
+                                   SafeDepartment department,
+                                   SafeFacility facility,
+                                   List<SafeRole> roles,
+                                   String memberType,
+                                   String memo,
+                                   java.util.Date registeredDate,
+                                   String email,
+                                   String orcaId,
+                                   String useDrugId) {
+    }
+
+    public record SafeLicense(String code, String description) {
+    }
+
+    public record SafeDepartment(String code, String description) {
+    }
+
+    public record SafeFacility(String facilityId,
+                               String facilityName,
+                               String zipCode,
+                               String address,
+                               String telephone,
+                               String facsimile) {
+    }
+
+    public record SafeRole(String role) {
+    }
 
     public static final class PatientModelSnapshot {
         private final PatientModel patient;
@@ -79,13 +115,37 @@ public class JsonTouchSharedService {
     @Inject
     private ChartEventServiceBean chartService;
 
+    @Inject
+    private UserServiceBean userServiceBean;
+
     private volatile String cachedFacilityNumber;
 
-    public UserModelConverter getUserById(String uid) {
-        UserModel user = iPhoneService.getUserById(uid);
-        UserModelConverter conv = new UserModelConverter();
-        conv.setModel(user);
-        return conv;
+    public SafeUserResponse getSafeUserById(String actorUserId, String uid) {
+        if (actorUserId == null || actorUserId.isBlank() || uid == null || uid.isBlank()) {
+            return null;
+        }
+        String actorComposite = actorUserId.trim();
+        UserModel actor = findUserModel(actorComposite);
+        if (actor == null) {
+            return null;
+        }
+        String actorFacility = resolveFacility(actor);
+        String targetUserId = resolveTargetUserId(uid, actorFacility);
+        if (targetUserId == null) {
+            return null;
+        }
+        UserModel target = findUserModel(targetUserId);
+        if (target == null) {
+            return null;
+        }
+
+        boolean self = actor.getUserId() != null && actor.getUserId().equals(target.getUserId());
+        boolean sameFacility = actorFacility != null && actorFacility.equals(resolveFacility(target));
+        boolean admin = isAdmin(actor.getUserId());
+        if (!self && !(admin && sameFacility)) {
+            return null;
+        }
+        return toSafeUserResponse(target);
     }
 
     public PatientModelSnapshot getPatientSnapshot(String facilityId, String pid) {
@@ -112,10 +172,55 @@ public class JsonTouchSharedService {
         }
         try {
             return iPhoneService.getUserById(userId);
+        } catch (NoResultException ex) {
+            return null;
         } catch (RuntimeException ex) {
             LOGGER.log(Level.WARNING, "Failed to load user {0}", userId);
             return null;
         }
+    }
+
+    public static SafeUserResponse toSafeUserResponse(UserModel user) {
+        if (user == null) {
+            return null;
+        }
+        SafeLicense license = new SafeLicense(
+                user.getLicenseModel() != null ? user.getLicenseModel().getLicense() : null,
+                user.getLicenseModel() != null ? user.getLicenseModel().getLicenseDesc() : null);
+        SafeDepartment department = new SafeDepartment(
+                user.getDepartmentModel() != null ? user.getDepartmentModel().getDepartment() : null,
+                user.getDepartmentModel() != null ? user.getDepartmentModel().getDepartmentDesc() : null);
+        SafeFacility facility = new SafeFacility(
+                user.getFacilityModel() != null ? user.getFacilityModel().getFacilityId() : null,
+                user.getFacilityModel() != null ? user.getFacilityModel().getFacilityName() : null,
+                user.getFacilityModel() != null ? user.getFacilityModel().getZipCode() : null,
+                user.getFacilityModel() != null ? user.getFacilityModel().getAddress() : null,
+                user.getFacilityModel() != null ? user.getFacilityModel().getTelephone() : null,
+                user.getFacilityModel() != null ? user.getFacilityModel().getFacsimile() : null);
+        List<SafeRole> roles;
+        if (user.getRoles() == null || user.getRoles().isEmpty()) {
+            roles = Collections.emptyList();
+        } else {
+            roles = user.getRoles().stream()
+                    .map(role -> new SafeRole(role != null ? role.getRole() : null))
+                    .toList();
+        }
+        return new SafeUserResponse(
+                user.getId(),
+                user.getUserId(),
+                user.getSirName(),
+                user.getGivenName(),
+                user.getCommonName(),
+                license,
+                department,
+                facility,
+                roles,
+                user.getMemberType(),
+                user.getMemo(),
+                user.getRegisteredDate(),
+                user.getEmail(),
+                user.getOrcaId(),
+                user.getUseDrugId());
     }
 
     public KarteBean findKarteByPatient(String facilityId, String patientId) {
@@ -136,6 +241,53 @@ public class JsonTouchSharedService {
 
     public List<String> getPatientsWithKana(String facilityId, int first, int max) {
         return iPhoneService.getAllPatientsWithKana(facilityId, first, max);
+    }
+
+    private boolean isAdmin(String actorUserId) {
+        try {
+            return userServiceBean != null && actorUserId != null && userServiceBean.isAdmin(actorUserId);
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    private String resolveTargetUserId(String requestedUserId, String actorFacility) {
+        if (requestedUserId == null || requestedUserId.isBlank()) {
+            return null;
+        }
+        String trimmed = requestedUserId.trim();
+        if (trimmed.indexOf(':') >= 0) {
+            return trimmed;
+        }
+        if (actorFacility == null || actorFacility.isBlank()) {
+            return null;
+        }
+        return actorFacility + ":" + trimmed;
+    }
+
+    private String resolveFacility(UserModel user) {
+        if (user == null) {
+            return null;
+        }
+        String byUserId = extractFacility(user.getUserId());
+        if (byUserId != null && !byUserId.isBlank()) {
+            return byUserId;
+        }
+        if (user.getFacilityModel() == null) {
+            return null;
+        }
+        return user.getFacilityModel().getFacilityId();
+    }
+
+    private String extractFacility(String compositeUserId) {
+        if (compositeUserId == null || compositeUserId.isBlank()) {
+            return null;
+        }
+        int index = compositeUserId.indexOf(':');
+        if (index <= 0) {
+            return null;
+        }
+        return compositeUserId.substring(0, index);
     }
 
     public VisitPackage getVisitPackage(long pvtPK, long patientPK, long docPK, int mode) {

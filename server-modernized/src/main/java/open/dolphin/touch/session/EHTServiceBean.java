@@ -61,10 +61,13 @@ public class EHTServiceBean {
     
     // Karte
     private static final String QUERY_KARTE = "from KarteBean k where k.patient.id=:patientPk";
+    private static final String QUERY_KARTE_IN_FACILITY = "from KarteBean k where k.patient.id=:patientPk and k.patient.facilityId=:facilityId";
     
     // Document & module
     private static final String QUERY_DOCUMENT_BY_PK = "from DocumentModel d where d.id=:pk";
+    private static final String QUERY_DOCUMENT_BY_PK_IN_FACILITY = "from DocumentModel d where d.id=:pk and d.karte.patient.facilityId=:facilityId";
     private static final String QUERY_DOCUMENT_BY_LINK_ID = "from DocumentModel d where d.linkId=:id";
+    private static final String QUERY_DOCUMENT_BY_LINK_ID_IN_FACILITY = "from DocumentModel d where d.linkId=:id and d.karte.patient.facilityId=:facilityId";
     
 //s.oh^ 2014/07/29 スタンプ／シェーマ／添付のソート
     //private static final String QUERY_MODULE_BY_DOCUMENT = "from ModuleModel m where m.document.id=:id";
@@ -76,6 +79,8 @@ public class EHTServiceBean {
 //s.oh$
 //s.oh^ 2014/08/20 添付ファイルの別読
     private static final String QUERY_ATTACHMENT_BY_ID = "from AttachmentModel a where a.id=:id";
+    private static final String QUERY_ATTACHMENT_BY_ID_IN_FACILITY =
+            "from AttachmentModel a where a.id=:id and a.document.karte.patient.facilityId=:facilityId";
 //s.oh$
     private static final String QUERY_MODULE_BY_ENTITY = "from ModuleModel m where m.karte.id=:karteId and m.moduleInfo.entity=:entity and m.status='F' order by m.started desc";
     
@@ -413,13 +418,15 @@ public class EHTServiceBean {
     
     // EHT Karte
     public KarteNumber getKarteNumber(long ptPK) {
+        return getKarteNumber(ptPK, null);
+    }
+
+    public KarteNumber getKarteNumber(long ptPK, String facilityId) {
         
         KarteNumber ret = new KarteNumber();
         
         // Karte
-        KarteBean karte = (KarteBean) em.createQuery(QUERY_KARTE)
-                                       .setParameter("patientPk", ptPK)
-                                       .getSingleResult();
+        KarteBean karte = resolveKarte(ptPK, facilityId);
         
         ret.setKarteNumber(karte.getId());
         ret.setCreated(karte.getCreated());
@@ -429,12 +436,13 @@ public class EHTServiceBean {
     
     // DocInfo List
     public List<DocInfoModel> getDocInfoList(long ptPK) {
+        return getDocInfoList(ptPK, null);
+    }
+
+    public List<DocInfoModel> getDocInfoList(long ptPK, String facilityId) {
         
         // Karte
-        KarteBean karte = (KarteBean)
-                        em.createQuery(QUERY_KARTE)
-                          .setParameter("patientPk", ptPK)
-                          .getSingleResult();
+        KarteBean karte = resolveKarte(ptPK, facilityId);
         
         // 文書履歴エントリーを取得しカルテに設定する
         List<DocumentModel> documents =
@@ -452,12 +460,23 @@ public class EHTServiceBean {
     
     // Document
     public DocumentModel getDocumentByPk(long docPk) {
+        return getDocumentByPk(docPk, null);
+    }
+
+    public DocumentModel getDocumentByPk(long docPk, String facilityId) {
 
         DocumentModel ret;
-
-        ret = (DocumentModel) em.createQuery(QUERY_DOCUMENT_BY_PK)
-                                       .setParameter("pk", docPk)
-                                       .getSingleResult();
+        String normalizedFacility = normalizeFacilityId(facilityId);
+        if (normalizedFacility == null) {
+            ret = (DocumentModel) em.createQuery(QUERY_DOCUMENT_BY_PK)
+                    .setParameter("pk", docPk)
+                    .getSingleResult();
+        } else {
+            ret = (DocumentModel) em.createQuery(QUERY_DOCUMENT_BY_PK_IN_FACILITY)
+                    .setParameter("pk", docPk)
+                    .setParameter("facilityId", normalizedFacility)
+                    .getSingleResult();
+        }
         
         // module
         List<ModuleModel> modules =
@@ -484,12 +503,26 @@ public class EHTServiceBean {
     }
     
     public List<String> deleteDocumentByPk(long id) {
+        return deleteDocumentByPk(id, null);
+    }
+
+    public List<String> deleteDocumentByPk(long id, String facilityId) {
+        String normalizedFacility = normalizeFacilityId(facilityId);
         
         //----------------------------------------
         // 参照されているDocumentの場合は例外を投げる
         //----------------------------------------
-        Collection refs = em.createQuery(QUERY_DOCUMENT_BY_LINK_ID)
-        .setParameter("id", id).getResultList();
+        Collection refs;
+        if (normalizedFacility == null) {
+            refs = em.createQuery(QUERY_DOCUMENT_BY_LINK_ID)
+                    .setParameter("id", id)
+                    .getResultList();
+        } else {
+            refs = em.createQuery(QUERY_DOCUMENT_BY_LINK_ID_IN_FACILITY)
+                    .setParameter("id", id)
+                    .setParameter("facilityId", normalizedFacility)
+                    .getResultList();
+        }
         if (refs != null && refs.size() >0) {
             RuntimeException ce = new RuntimeException("他のドキュメントから参照されているため削除できません。");
             throw ce;
@@ -511,7 +544,10 @@ public class EHTServiceBean {
                 //-----------------------
                 // 対象 Document を取得する
                 //-----------------------
-                DocumentModel delete = (DocumentModel)em.find(DocumentModel.class, id);
+                DocumentModel delete = getDocumentByPk(id, normalizedFacility);
+                if (delete == null) {
+                    break;
+                }
                 
                 //------------------------
                 // 削除フラグをたてる
@@ -556,6 +592,9 @@ public class EHTServiceBean {
                 
                 // 削除したDocumentのlinkID を 削除するDocument id(PK) にしてLoopさせる
                 id = delete.getLinkId();
+                if (id <= 0) {
+                    break;
+                }
                 
             } catch (Exception e) {
                 break;
@@ -569,14 +608,15 @@ public class EHTServiceBean {
     // 相互作用 関連
     //------------------------------------------------------------------------ 
     public List<ModuleModel> collectModules(long patientPk, Date fromDate, Date toDate, List<String> entities) {
+        return collectModules(patientPk, fromDate, toDate, entities, null);
+    }
+
+    public List<ModuleModel> collectModules(long patientPk, Date fromDate, Date toDate, List<String> entities, String facilityId) {
         
         // 指定したentityのModuleModelを返す
         List<ModuleModel> ret;
         
-        KarteBean karte = (KarteBean)
-                        em.createQuery(QUERY_KARTE)
-                          .setParameter("patientPk", patientPk)
-                          .getSingleResult();
+        KarteBean karte = resolveKarte(patientPk, facilityId);
         
         if (entities!=null && entities.size()>0) {
             final String sql = "from ModuleModel m where m.karte.id = :karteId " +
@@ -605,13 +645,14 @@ public class EHTServiceBean {
     // Module 関連
     //------------------------------------------------------------------------ 
     public List<ModuleModel> getModules(long patientPk, String entity, int firstResult, int maxResult) {
+        return getModules(patientPk, entity, firstResult, maxResult, null);
+    }
+
+    public List<ModuleModel> getModules(long patientPk, String entity, int firstResult, int maxResult, String facilityId) {
         
         List<ModuleModel> retList;
         
-        KarteBean karte = (KarteBean)
-                        em.createQuery(QUERY_KARTE)
-                          .setParameter("patientPk", patientPk)
-                          .getSingleResult();
+        KarteBean karte = resolveKarte(patientPk, facilityId);
 
         if (entity.equals("all")) {
 
@@ -636,13 +677,14 @@ public class EHTServiceBean {
     }
     
     public List<ModuleModel> getLastModule(long patientPk, String entity) {
+        return getLastModule(patientPk, entity, null);
+    }
+
+    public List<ModuleModel> getLastModule(long patientPk, String entity, String facilityId) {
         // "select max(m.started) from d_document m where m.karte_id=:karteId and m.docType=:docType and (m.status = 'F' or m.status = 'T')"
         // from ModuleModel m where m.karte.id=:karteId and m.moduleInfo.entity=:entity and m.status='F' order by m.started desc
         // "from ModuleModel m where m.karte.id=:karteId and m.started=:started and (d.status='F' or d.status='T')"
-        KarteBean karte = (KarteBean)
-                        em.createQuery(QUERY_KARTE)
-                          .setParameter("patientPk", patientPk)
-                          .getSingleResult();
+        KarteBean karte = resolveKarte(patientPk, facilityId);
         
         Date lastDocDate = (Date)
                 em.createNativeQuery("select max(m.started) from d_module m where m.karte_id=:karteId and m.entity=:entity and (m.status = 'F' or m.status = 'T')")
@@ -934,10 +976,23 @@ public class EHTServiceBean {
     
 //s.oh^ 2014/08/20 添付ファイルの別読
     public AttachmentModel getAttachment(long pk) {
+        return getAttachment(pk, null);
+    }
+
+    public AttachmentModel getAttachment(long pk, String facilityId) {
+        String normalizedFacility = normalizeFacilityId(facilityId);
         try {
-            AttachmentModel attachment = (AttachmentModel)em.createQuery(QUERY_ATTACHMENT_BY_ID)
-                                            .setParameter(ID, pk)
-                                            .getSingleResult();
+            AttachmentModel attachment;
+            if (normalizedFacility == null) {
+                attachment = (AttachmentModel) em.createQuery(QUERY_ATTACHMENT_BY_ID)
+                        .setParameter(ID, pk)
+                        .getSingleResult();
+            } else {
+                attachment = (AttachmentModel) em.createQuery(QUERY_ATTACHMENT_BY_ID_IN_FACILITY)
+                        .setParameter(ID, pk)
+                        .setParameter("facilityId", normalizedFacility)
+                        .getSingleResult();
+            }
             attachmentStorageManager.populateBinary(attachment);
             return attachment;
         } catch (NoResultException e) {
@@ -945,5 +1000,26 @@ public class EHTServiceBean {
         return null;
     }
 //s.oh$
+
+    private KarteBean resolveKarte(long patientPk, String facilityId) {
+        String normalizedFacility = normalizeFacilityId(facilityId);
+        if (normalizedFacility == null) {
+            return (KarteBean) em.createQuery(QUERY_KARTE)
+                    .setParameter("patientPk", patientPk)
+                    .getSingleResult();
+        }
+        return (KarteBean) em.createQuery(QUERY_KARTE_IN_FACILITY)
+                .setParameter("patientPk", patientPk)
+                .setParameter("facilityId", normalizedFacility)
+                .getSingleResult();
+    }
+
+    private String normalizeFacilityId(String facilityId) {
+        if (facilityId == null) {
+            return null;
+        }
+        String trimmed = facilityId.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
 
 }

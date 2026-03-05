@@ -12,6 +12,9 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -19,9 +22,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.imageio.ImageIO;
 import open.dolphin.infomodel.AttachmentModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.rest.dto.PatientImageEntryResponse;
@@ -43,11 +48,19 @@ public class PatientImagesResource extends AbstractResource {
     private static final Logger LOGGER = Logger.getLogger(PatientImagesResource.class.getName());
 
     private static final String FEATURE_ENV = "OPENDOLPHIN_PATIENT_IMAGES_ENABLED";
+    private static final String FEATURE_PROPERTY = "opendolphin.patient.images.enabled";
 
     private static final String MAX_BYTES_ENV = "OPENDOLPHIN_IMAGES_MAX_BYTES";
+    private static final String MAX_BYTES_PROPERTY = "opendolphin.images.max.bytes";
     private static final long DEFAULT_MAX_BYTES = 5L * 1024L * 1024L; // 5MiB
+    private static final String MAX_WIDTH_ENV = "OPENDOLPHIN_IMAGES_MAX_WIDTH";
+    private static final String MAX_WIDTH_PROPERTY = "opendolphin.images.max.width";
+    private static final int DEFAULT_MAX_WIDTH = 4096;
+    private static final String MAX_HEIGHT_ENV = "OPENDOLPHIN_IMAGES_MAX_HEIGHT";
+    private static final String MAX_HEIGHT_PROPERTY = "opendolphin.images.max.height";
+    private static final int DEFAULT_MAX_HEIGHT = 4096;
 
-    private static final List<String> ALLOWED_UPLOAD_CONTENT_TYPES = List.of("image/jpeg", "image/png");
+    private static final Set<String> ALLOWED_UPLOAD_CONTENT_TYPES = Set.of("image/jpeg", "image/png");
     private static final int AUDIT_RUN_ID_MAX_LEN = 64;
 
     @Inject
@@ -164,13 +177,14 @@ public class PatientImagesResource extends AbstractResource {
     }
 
     private void requireFeatureEnabled() {
-        String env = System.getenv(FEATURE_ENV);
-        if (isTruthy(env)) {
+        String fromProperty = System.getProperty(FEATURE_PROPERTY);
+        String fromEnv = System.getenv(FEATURE_ENV);
+        if (isTruthy(fromProperty) || isTruthy(fromEnv)) {
             return;
         }
         throw restError(httpServletRequest, Response.Status.NOT_FOUND,
                 "feature_disabled", "Images PhaseA is disabled",
-                Map.of("requiredEnv", FEATURE_ENV),
+                Map.of("requiredEnv", FEATURE_ENV, "requiredProperty", FEATURE_PROPERTY),
                 null);
     }
 
@@ -184,20 +198,19 @@ public class PatientImagesResource extends AbstractResource {
 
     private void requirePatientAccessible(String facilityId, String patientId) {
         if (facilityId == null || facilityId.isBlank() || patientId == null || patientId.isBlank()) {
-            throw restError(httpServletRequest, Response.Status.FORBIDDEN,
-                    "forbidden", "Access denied",
+            throw restError(httpServletRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Resource was not found",
                     Map.of("facilityId", facilityId, "patientId", patientId), null);
         }
         if (patientServiceBean != null && patientServiceBean.getPatientById(facilityId, patientId) == null) {
-            // Phase1 policy: return 403 for authenticated but inaccessible patient id (including cross-facility).
-            throw restError(httpServletRequest, Response.Status.FORBIDDEN,
-                    "forbidden", "Access denied",
+            throw restError(httpServletRequest, Response.Status.NOT_FOUND,
+                    "not_found", "Resource was not found",
                     Map.of("facilityId", facilityId, "patientId", patientId), null);
         }
     }
 
     private long resolveMaxBytes() {
-        String raw = System.getenv(MAX_BYTES_ENV);
+        String raw = firstNonBlank(System.getProperty(MAX_BYTES_PROPERTY), System.getenv(MAX_BYTES_ENV));
         if (raw == null || raw.isBlank()) {
             return DEFAULT_MAX_BYTES;
         }
@@ -227,10 +240,11 @@ public class PatientImagesResource extends AbstractResource {
             String contentType = normalizeContentType(part.getMediaType() != null ? part.getMediaType().toString() : null);
             requireSupportedContentType(contentType);
             byte[] bytes = readBytesWithLimit(part, maxBytes);
+            NormalizedImage normalized = inspectAndNormalizeImage(contentType, bytes);
             if (fileName == null || fileName.isBlank()) {
-                fileName = "upload-" + UUID.randomUUID() + ".bin";
+                fileName = "upload-" + UUID.randomUUID() + extensionFor(normalized.contentType);
             }
-            return new UploadedFile(fileName, contentType, bytes);
+            return new UploadedFile(normalizeUploadFileName(fileName), normalized.contentType, normalized.bytes);
         } catch (WebApplicationException ex) {
             // Bubble up 4xx/5xx that we intentionally created (413/415 etc).
             throw ex;
@@ -260,6 +274,146 @@ public class PatientImagesResource extends AbstractResource {
                     "unsupported_media_type", "Unsupported content type",
                     Map.of("allowed", ALLOWED_UPLOAD_CONTENT_TYPES, "contentType", contentType), null);
         }
+    }
+
+    private NormalizedImage inspectAndNormalizeImage(String declaredContentType, byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            throw restError(httpServletRequest, Response.Status.BAD_REQUEST,
+                    "invalid_image", "Image payload is empty", null, null);
+        }
+        String detectedContentType = detectContentTypeByMagic(bytes);
+        if (detectedContentType == null) {
+            throw restError(httpServletRequest, Response.Status.UNSUPPORTED_MEDIA_TYPE,
+                    "unsupported_media_type", "Unsupported image format",
+                    Map.of("allowed", ALLOWED_UPLOAD_CONTENT_TYPES), null);
+        }
+        if (!detectedContentType.equals(declaredContentType)) {
+            throw restError(httpServletRequest, Response.Status.UNSUPPORTED_MEDIA_TYPE,
+                    "content_type_mismatch", "Declared Content-Type does not match image data",
+                    Map.of("declared", declaredContentType, "detected", detectedContentType), null);
+        }
+        BufferedImage image;
+        try (ByteArrayInputStream in = new ByteArrayInputStream(bytes)) {
+            image = ImageIO.read(in);
+        } catch (Exception ex) {
+            throw restError(httpServletRequest, Response.Status.BAD_REQUEST,
+                    "invalid_image", "Failed to decode image payload", null, ex);
+        }
+        if (image == null) {
+            throw restError(httpServletRequest, Response.Status.BAD_REQUEST,
+                    "invalid_image", "Failed to decode image payload", null, null);
+        }
+        int maxWidth = resolveMaxDimension(MAX_WIDTH_PROPERTY, MAX_WIDTH_ENV, DEFAULT_MAX_WIDTH);
+        int maxHeight = resolveMaxDimension(MAX_HEIGHT_PROPERTY, MAX_HEIGHT_ENV, DEFAULT_MAX_HEIGHT);
+        if (image.getWidth() <= 0 || image.getHeight() <= 0
+                || image.getWidth() > maxWidth || image.getHeight() > maxHeight) {
+            throw restError(httpServletRequest, Response.Status.REQUEST_ENTITY_TOO_LARGE,
+                    "image_dimension_too_large", "Image dimensions exceed allowed limit",
+                    Map.of("maxWidth", maxWidth, "maxHeight", maxHeight,
+                            "width", image.getWidth(), "height", image.getHeight()),
+                    null);
+        }
+        byte[] normalized = reencodeImage(image, detectedContentType);
+        return new NormalizedImage(detectedContentType, normalized);
+    }
+
+    private byte[] reencodeImage(BufferedImage source, String contentType) {
+        Objects.requireNonNull(source, "source");
+        String format = "image/jpeg".equals(contentType) ? "jpeg" : "png";
+        BufferedImage normalized = source;
+        if ("jpeg".equals(format) && source.getColorModel().hasAlpha()) {
+            BufferedImage rgb = new BufferedImage(source.getWidth(), source.getHeight(), BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = rgb.createGraphics();
+            try {
+                g.drawImage(source, 0, 0, null);
+            } finally {
+                g.dispose();
+            }
+            normalized = rgb;
+        }
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            boolean encoded = ImageIO.write(normalized, format, out);
+            if (!encoded || out.size() == 0) {
+                throw restError(httpServletRequest, Response.Status.BAD_REQUEST,
+                        "invalid_image", "Failed to normalize image payload", null, null);
+            }
+            return out.toByteArray();
+        } catch (WebApplicationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw restError(httpServletRequest, Response.Status.BAD_REQUEST,
+                    "invalid_image", "Failed to normalize image payload", null, ex);
+        }
+    }
+
+    private String detectContentTypeByMagic(byte[] bytes) {
+        if (bytes == null || bytes.length < 8) {
+            return null;
+        }
+        if ((bytes[0] & 0xFF) == 0x89
+                && (bytes[1] & 0xFF) == 0x50
+                && (bytes[2] & 0xFF) == 0x4E
+                && (bytes[3] & 0xFF) == 0x47
+                && (bytes[4] & 0xFF) == 0x0D
+                && (bytes[5] & 0xFF) == 0x0A
+                && (bytes[6] & 0xFF) == 0x1A
+                && (bytes[7] & 0xFF) == 0x0A) {
+            return "image/png";
+        }
+        if ((bytes[0] & 0xFF) == 0xFF
+                && (bytes[1] & 0xFF) == 0xD8
+                && (bytes[2] & 0xFF) == 0xFF) {
+            return "image/jpeg";
+        }
+        return null;
+    }
+
+    private int resolveMaxDimension(String propertyKey, String envKey, int defaultValue) {
+        String raw = firstNonBlank(System.getProperty(propertyKey), System.getenv(envKey));
+        if (raw == null || raw.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            int parsed = Integer.parseInt(raw.trim());
+            return parsed > 0 ? parsed : defaultValue;
+        } catch (Exception ex) {
+            return defaultValue;
+        }
+    }
+
+    private String firstNonBlank(String a, String b) {
+        if (a != null && !a.isBlank()) {
+            return a;
+        }
+        if (b != null && !b.isBlank()) {
+            return b;
+        }
+        return null;
+    }
+
+    private String extensionFor(String contentType) {
+        if ("image/jpeg".equals(contentType)) {
+            return ".jpg";
+        }
+        if ("image/png".equals(contentType)) {
+            return ".png";
+        }
+        return ".bin";
+    }
+
+    private String normalizeUploadFileName(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return "upload-" + UUID.randomUUID() + ".bin";
+        }
+        String sanitized = fileName.replace('\\', '/');
+        int slash = sanitized.lastIndexOf('/');
+        if (slash >= 0 && slash + 1 < sanitized.length()) {
+            sanitized = sanitized.substring(slash + 1);
+        }
+        sanitized = sanitized.replace("\r", "")
+                .replace("\n", "")
+                .replace("\"", "_");
+        return sanitized.isBlank() ? "upload-" + UUID.randomUUID() + ".bin" : sanitized;
     }
 
     private byte[] readBytesWithLimit(InputPart part, long maxBytes) throws Exception {
@@ -458,6 +612,16 @@ public class PatientImagesResource extends AbstractResource {
 
         private UploadedFile(String fileName, String contentType, byte[] bytes) {
             this.fileName = fileName;
+            this.contentType = contentType;
+            this.bytes = bytes;
+        }
+    }
+
+    private static final class NormalizedImage {
+        private final String contentType;
+        private final byte[] bytes;
+
+        private NormalizedImage(String contentType, byte[] bytes) {
             this.contentType = contentType;
             this.bytes = bytes;
         }

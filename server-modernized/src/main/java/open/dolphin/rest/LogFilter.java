@@ -48,8 +48,10 @@ public class LogFilter implements Filter {
     private static final String ANONYMOUS_PRINCIPAL = "anonymous";
     private static final String AUTH_CHALLENGE = "Basic realm=\"OpenDolphin\"";
     private static final String ERROR_AUDIT_RECORDED_ATTR = LogFilter.class.getName() + ".ERROR_AUDIT_RECORDED";
+    private static final String IP_THROTTLED_RETRY_AFTER_ATTR = LogFilter.class.getName() + ".IP_THROTTLED_RETRY_AFTER";
     private static final String PRINCIPAL_FACILITY_DETAILS_KEY = "facilityId";
     private static final Pattern SAFE_TOKEN = Pattern.compile("^[A-Za-z0-9._-]{1,64}$");
+    private static final int HTTP_TOO_MANY_REQUESTS = 429;
 
     @Inject
     private SecurityContext securityContext;
@@ -97,12 +99,22 @@ public class LogFilter implements Filter {
                 principalUser = authenticateWithBasicHeader(req);
             }
             if (principalUser.isEmpty()) {
+                Long retryAfter = readRetryAfter(req);
+                if (retryAfter != null && retryAfter > 0L) {
+                    String candidateUser = extractBasicAuthUserCandidate(req);
+                    logUnauthorized(req, candidateUser, traceId);
+                    recordUnauthorizedAudit(req, traceId, candidateUser, "too_many_requests",
+                            "Too many failed authentication attempts", "ip_throttled",
+                            HTTP_TOO_MANY_REQUESTS);
+                    sendTooManyRequests(req, res, retryAfter);
+                    return;
+                }
                 String candidateUser = extractBasicAuthUserCandidate(req);
                 logUnauthorized(req, candidateUser, traceId);
                 recordUnauthorizedAudit(req, traceId, candidateUser, "unauthorized",
                         "Authentication required", "authentication_failed", HttpServletResponse.SC_UNAUTHORIZED);
                 sendUnauthorized(req, res, "unauthorized", "Authentication required",
-                        unauthorizedDetails(candidateUser, "authentication_failed"));
+                        unauthorizedDetails("authentication_failed"));
                 return;
             }
 
@@ -114,7 +126,7 @@ public class LogFilter implements Filter {
                         "Authenticated principal must be composite",
                         "principal_not_composite", HttpServletResponse.SC_UNAUTHORIZED);
                 sendUnauthorized(req, res, "unauthorized", "Authenticated principal must be composite",
-                        unauthorizedDetails(candidateUser, "principal_not_composite"));
+                        unauthorizedDetails("principal_not_composite"));
                 return;
             }
 
@@ -343,8 +355,8 @@ public class LogFilter implements Filter {
             SECURITY_LOGGER.log(Level.FINE, "Invalid Basic auth header", ex);
             return Optional.empty();
         }
-        int sep = decoded.indexOf(':');
-        if (sep < 0) {
+        int sep = decoded.lastIndexOf(':');
+        if (sep <= 0 || sep >= decoded.length() - 1) {
             SECURITY_LOGGER.fine("Basic auth header missing separator");
             return Optional.empty();
         }
@@ -357,7 +369,13 @@ public class LogFilter implements Filter {
         if (compositeUser == null) {
             return Optional.empty();
         }
-        if (userService.authenticate(compositeUser, rawPass)) {
+        String clientIp = AbstractResource.resolveClientIp(request);
+        UserServiceBean.AuthenticationResult result = userService.authenticateWithPolicy(compositeUser, rawPass, clientIp);
+        if (result.ipThrottled()) {
+            request.setAttribute(IP_THROTTLED_RETRY_AFTER_ATTR, result.retryAfterSeconds());
+            return Optional.empty();
+        }
+        if (result.authenticated()) {
             return Optional.of(compositeUser);
         }
         SECURITY_LOGGER.log(Level.FINE, "Basic authentication failed for user {0}", compositeUser);
@@ -376,8 +394,8 @@ public class LogFilter implements Filter {
         String encoded = trimmed.substring(6).trim();
         try {
             String decoded = new String(Base64.getDecoder().decode(encoded), java.nio.charset.StandardCharsets.UTF_8);
-            int sep = decoded.indexOf(':');
-            if (sep < 0) {
+            int sep = decoded.lastIndexOf(':');
+            if (sep <= 0) {
                 return null;
             }
             String user = decoded.substring(0, sep);
@@ -393,6 +411,15 @@ public class LogFilter implements Filter {
             response.setHeader("WWW-Authenticate", AUTH_CHALLENGE);
         }
         AbstractResource.writeRestError(request, response, HttpServletResponse.SC_UNAUTHORIZED, errorCode, message, details);
+    }
+
+    private void sendTooManyRequests(HttpServletRequest request, HttpServletResponse response, long retryAfterSeconds)
+            throws IOException {
+        long retry = Math.max(1L, retryAfterSeconds);
+        response.setHeader("Retry-After", Long.toString(retry));
+        AbstractResource.writeRestError(request, response, HTTP_TOO_MANY_REQUESTS,
+                "too_many_requests", "Too many failed authentication attempts",
+                unauthorizedDetails("ip_throttled"));
     }
 
     private boolean shouldAttachAuthChallenge(HttpServletRequest request) {
@@ -449,12 +476,21 @@ public class LogFilter implements Filter {
         return null;
     }
 
-    private Map<String, Object> unauthorizedDetails(String principal, String reason) {
+    private Long readRetryAfter(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        Object value = request.getAttribute(IP_THROTTLED_RETRY_AFTER_ATTR);
+        if (value instanceof Number number) {
+            long retryAfter = number.longValue();
+            return retryAfter > 0L ? retryAfter : null;
+        }
+        return null;
+    }
+
+    private Map<String, Object> unauthorizedDetails(String reason) {
         Map<String, Object> details = new HashMap<>();
         details.put("reason", reason);
-        if (principal != null && !principal.isBlank()) {
-            details.put("principal", principal);
-        }
         return details;
     }
 

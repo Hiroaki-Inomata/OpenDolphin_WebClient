@@ -22,11 +22,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import open.dolphin.adm20.converter.IPhysicalModel;
 import open.dolphin.adm20.converter.IVitalModel;
 import open.dolphin.adm20.session.ADM20_EHTServiceBean;
+import open.dolphin.infomodel.LastDateCount;
 import open.dolphin.infomodel.VitalModel;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.session.framework.SessionTraceManager;
+import open.dolphin.touch.security.TouchAccessGuard;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +44,7 @@ class EHTResourceTest {
     private SessionAuditDispatcher sessionAuditDispatcher;
     private SessionTraceManager sessionTraceManager;
     private HttpServletRequest request;
+    private TouchAccessGuard accessGuard;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -52,6 +55,7 @@ class EHTResourceTest {
         sessionTraceManager = new SessionTraceManager();
         sessionTraceManager.start("test", Map.of());
         request = mock(HttpServletRequest.class);
+        accessGuard = mock(TouchAccessGuard.class);
 
         when(request.getRemoteUser()).thenReturn("facility01:doctor01");
         when(request.getHeader("X-Request-Id")).thenReturn("req-123");
@@ -62,6 +66,7 @@ class EHTResourceTest {
         setField(resource, "auditTrailService", auditTrailService);
         setField(resource, "sessionTraceManager", sessionTraceManager);
         setField(resource, "servletReq", request);
+        setField(resource, "accessGuard", accessGuard);
     }
 
     @AfterEach
@@ -187,6 +192,21 @@ class EHTResourceTest {
         assertThat(payload.getAction()).isEqualTo("EHT_PHYSICAL_CREATE");
         assertThat(payload.getPatientId()).isEqualTo("321");
         assertThat(payload.getDetails()).containsKey("observationIds");
+    }
+
+    @Test
+    void getLastDateCountEnforcesFacilityGuard() throws Exception {
+        LastDateCount count = new LastDateCount();
+        count.setDocCount(1L);
+        when(ehtService.getLastDateCount(101L, "F001:P001")).thenReturn(count);
+
+        StreamingOutput output = resource.getLastDateCount("101,F001,P001");
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        output.write(baos);
+
+        verify(accessGuard).requirePatientFacility(request, 101L);
+        verify(accessGuard).requireFacilityEqualsActor(request, "F001", "patientPk", 101L);
+        verify(ehtService).getLastDateCount(101L, "F001:P001");
     }
 
     private static void setField(Object target, String name, Object value) throws Exception {

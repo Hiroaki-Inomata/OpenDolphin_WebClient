@@ -2,11 +2,14 @@ package open.dolphin.adm20.rest.support;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.util.LinkedHashMap;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
+import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
@@ -150,6 +153,47 @@ public class PhrAuditHelper {
         if (additionalDetails != null && !additionalDetails.isEmpty()) {
             details.putAll(additionalDetails);
         }
-        return details;
+        return sanitizePhrDetails(details);
+    }
+
+    private Map<String, Object> sanitizePhrDetails(Map<String, Object> details) {
+        if (details == null || details.isEmpty()) {
+            return details;
+        }
+        Map<String, Object> filtered = new LinkedHashMap<>();
+        details.forEach((key, value) -> {
+            if (key == null || value == null) {
+                return;
+            }
+            String normalized = normalizeKey(key);
+            if (containsBlockedKeyword(normalized)) {
+                return;
+            }
+            filtered.put(key, value);
+        });
+        return AuditDetailSanitizer.sanitizeDetails(filtered);
+    }
+
+    private boolean containsBlockedKeyword(String normalizedKey) {
+        return normalizedKey.contains("downloadurl")
+                || normalizedKey.contains("resulturi")
+                || normalizedKey.contains("artifactpath")
+                || normalizedKey.contains("kmskeyalias")
+                || normalizedKey.contains("signedurl");
+    }
+
+    private String normalizeKey(String key) {
+        if (key == null) {
+            return "";
+        }
+        String lower = key.toLowerCase(Locale.ROOT);
+        StringBuilder sb = new StringBuilder(lower.length());
+        for (int i = 0; i < lower.length(); i++) {
+            char c = lower.charAt(i);
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 }

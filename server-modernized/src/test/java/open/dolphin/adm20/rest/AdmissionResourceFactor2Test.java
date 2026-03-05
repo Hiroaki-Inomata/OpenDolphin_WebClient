@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -31,12 +32,14 @@ import open.dolphin.adm20.dto.TotpVerificationResponse;
 import open.dolphin.adm20.session.ADM20_EHTServiceBean;
 import open.dolphin.infomodel.Factor2Challenge;
 import open.dolphin.infomodel.Factor2Credential;
+import open.dolphin.infomodel.UserModel;
 import open.dolphin.security.SecondFactorSecurityConfig;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.security.fido.Fido2Config;
 import open.dolphin.security.totp.TotpRegistrationResult;
 import open.dolphin.security.totp.TotpSecretProtector;
+import open.dolphin.touch.JsonTouchSharedService;
 import open.dolphin.testsupport.RuntimeDelegateTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -76,12 +79,38 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
         setField(resource, "sessionAuditDispatcher", sessionAuditDispatcher);
         setField(resource, "httpRequest", httpRequest);
 
-        when(httpRequest.getRemoteUser()).thenReturn("legacy-user");
-        when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
-        when(httpRequest.getHeader("User-Agent")).thenReturn("JUnit");
-        when(httpRequest.getHeader("X-Request-Id")).thenReturn("trace-001");
-        when(httpRequest.getHeader("X-Run-Id")).thenReturn("run-001");
-        when(httpRequest.isUserInRole("ADMIN")).thenReturn(false);
+        lenient().when(httpRequest.getRemoteUser()).thenReturn("legacy-user");
+        lenient().when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
+        lenient().when(httpRequest.getHeader("User-Agent")).thenReturn("JUnit");
+        lenient().when(httpRequest.getHeader("X-Request-Id")).thenReturn("trace-001");
+        lenient().when(httpRequest.getHeader("X-Run-Id")).thenReturn("run-001");
+        lenient().when(httpRequest.isUserInRole("ADMIN")).thenReturn(false);
+    }
+
+    @Test
+    void factor2UserEndpointsReturnSafeUserResponse() throws Exception {
+        UserModel model = new UserModel();
+        model.setId(10L);
+        model.setUserId("F001:user01");
+        model.setCommonName("User 01");
+        model.setPassword("secret");
+        when(ehtService.getUserWithNewFactor2Device(any())).thenReturn(model);
+        when(ehtService.getUserWithF2Backup(any())).thenReturn(model);
+
+        JsonTouchSharedService.SafeUserResponse deviceResponse =
+                resource.getUserWithNewFactor2Device("{\"userPK\":10}");
+        JsonTouchSharedService.SafeUserResponse backupResponse =
+                resource.getUserWithF2Backup("{\"userPK\":10}");
+
+        assertThat(deviceResponse.userId()).isEqualTo("F001:user01");
+        assertThat(backupResponse.userId()).isEqualTo("F001:user01");
+        String json = objectMapper.writeValueAsString(deviceResponse);
+        assertThat(json)
+                .doesNotContain("password")
+                .doesNotContain("temporaryPassword")
+                .doesNotContain("credential")
+                .doesNotContain("salt")
+                .doesNotContain("hash");
     }
 
     @Test

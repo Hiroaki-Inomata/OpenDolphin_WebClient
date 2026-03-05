@@ -28,6 +28,7 @@ import open.dolphin.infomodel.SchemaModel;
 import open.dolphin.touch.converter.IOSHelper;
 import open.dolphin.touch.module.TouchModuleDtos;
 import open.dolphin.touch.module.TouchModuleService;
+import open.dolphin.touch.security.TouchAccessGuard;
 import open.dolphin.touch.session.IPhoneServiceBean;
 import open.dolphin.testsupport.RuntimeDelegateTestSupport;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,6 +44,9 @@ class TouchModuleResourceTest extends RuntimeDelegateTestSupport {
     @Mock
     private IPhoneServiceBean iphoneService;
 
+    @Mock
+    private TouchAccessGuard accessGuard;
+
     private TouchModuleService moduleService;
     private DolphinResource resource;
 
@@ -50,6 +54,7 @@ class TouchModuleResourceTest extends RuntimeDelegateTestSupport {
     void setUp() throws Exception {
         moduleService = new TouchModuleService();
         inject(moduleService, "iPhoneServiceBean", iphoneService);
+        inject(moduleService, "accessGuard", accessGuard);
 
         resource = new DolphinResource();
         inject(resource, "moduleService", moduleService);
@@ -124,8 +129,8 @@ class TouchModuleResourceTest extends RuntimeDelegateTestSupport {
         when(iphoneService.getModules(88L, "generalOrder", 0, 5))
                 .thenReturn(List.of(module));
 
-        moduleService.getModules(88L, "generalOrder", 0, 5);
-        moduleService.getModules(88L, "generalOrder", 0, 5);
+        moduleService.getModules(null, 88L, "generalOrder", 0, 5);
+        moduleService.getModules(null, 88L, "generalOrder", 0, 5);
 
         verify(iphoneService, times(1)).getModuleCount(88L, "generalOrder");
         verify(iphoneService, times(1)).getModules(88L, "generalOrder", 0, 5);
@@ -214,7 +219,7 @@ class TouchModuleResourceTest extends RuntimeDelegateTestSupport {
         SchemaModel schema = createSchema("bucket-a", "sop-1", bytes);
         when(iphoneService.getSchema(99L, 0, 1)).thenReturn(List.of(schema));
 
-        TouchModuleDtos.Page<TouchModuleDtos.Schema> page = moduleService.getSchemas(99L, 0, 1);
+        TouchModuleDtos.Page<TouchModuleDtos.Schema> page = moduleService.getSchemas(null, 99L, 0, 1);
         assertEquals("bucket-a", page.items().get(0).bucket());
         assertEquals("sop-1", page.items().get(0).sop());
         assertEquals(Base64.getEncoder().encodeToString(bytes), page.items().get(0).base64());

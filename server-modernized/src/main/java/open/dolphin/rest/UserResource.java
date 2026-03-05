@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import jakarta.inject.Inject;
@@ -12,12 +13,10 @@ import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import open.dolphin.converter.UserListConverter;
-import open.dolphin.converter.UserModelConverter;
 import open.dolphin.infomodel.RoleModel;
-import open.dolphin.infomodel.UserList;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.session.UserServiceBean;
+import open.dolphin.touch.JsonTouchSharedService;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -39,27 +38,30 @@ public class UserResource extends AbstractResource {
     @GET
     @Path("/{userId}")
     @Produces(MediaType.APPLICATION_JSON)
-    public UserModelConverter getUser(@Context HttpServletRequest servletReq, @PathParam("userId") String userId) throws IOException {
-        
-//s.oh^ 脆弱性対応
-        // ログインユーザと同一ユーザIDかチェック
-        HttpServletRequest req = (HttpServletRequest)servletReq;
-        String remoteUser = req.getRemoteUser();
-        if (remoteUser == null || !remoteUser.equals(userId)) {
-            Logger.getLogger("open.dolphin").log(Level.WARNING, "Not the same user:{0},{1}", new Object[]{remoteUser, userId});
-            return null;
+    public JsonTouchSharedService.SafeUserResponse getUser(@Context HttpServletRequest servletReq,
+            @PathParam("userId") String userId) throws IOException {
+        String remoteUser = servletReq != null ? servletReq.getRemoteUser() : null;
+        if (remoteUser == null || remoteUser.isBlank()) {
+            throw restError(servletReq, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
         }
-//s.oh$
-
-        UserModel result = userServiceBean.getUser(userId);
-        UserModelConverter conv = new UserModelConverter();
-        conv.setModel(result);
-        return conv;
+        UserModel result = loadUserQuietly(userId);
+        if (result == null) {
+            throw restError(servletReq, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
+        }
+        boolean self = remoteUser.equals(result.getUserId());
+        boolean admin = userServiceBean.isAdmin(remoteUser);
+        boolean sameFacility = getRemoteFacility(remoteUser) != null
+                && getRemoteFacility(remoteUser).equals(getRemoteFacility(result.getUserId()));
+        if (!self && !(admin && sameFacility)) {
+            Logger.getLogger("open.dolphin").log(Level.WARNING, "Denied user read for actor={0}", new Object[]{remoteUser});
+            throw restError(servletReq, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
+        }
+        return JsonTouchSharedService.toSafeUserResponse(result);
     }
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
-    public UserListConverter getAllUser(@Context HttpServletRequest servletReq) {
+    public List<JsonTouchSharedService.SafeUserResponse> getAllUser(@Context HttpServletRequest servletReq) {
         
 //s.oh^ 脆弱性対応
         // 管理者権限かチェック
@@ -75,13 +77,9 @@ public class UserResource extends AbstractResource {
         debug(fid);
 
         List<UserModel> result = userServiceBean.getAllUser(fid);
-        UserList list = new UserList();
-        list.setList(result);
-
-        UserListConverter conv = new UserListConverter();
-        conv.setModel(list);
-        
-        return conv;
+        return result.stream()
+                .map(JsonTouchSharedService::toSafeUserResponse)
+                .collect(Collectors.toList());
     }
 
     @POST
@@ -218,6 +216,14 @@ public class UserResource extends AbstractResource {
         return userServiceBean.getUserName(userId);
     }
 //s.oh$
+
+    private UserModel loadUserQuietly(String userId) {
+        try {
+            return userServiceBean.getUser(userId);
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
 
     private boolean hasRoleChange(List<RoleModel> currentRoles, List<RoleModel> requestedRoles) {
         return !normalizeRoles(currentRoles).equals(normalizeRoles(requestedRoles));

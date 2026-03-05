@@ -24,6 +24,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +38,7 @@ import java.util.logging.Logger;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
+import open.dolphin.session.UserServiceBean;
 import org.jboss.logmanager.MDC;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -203,6 +206,39 @@ class LogFilterTest {
         filter.doFilter(request, response, chain);
 
         verify(response).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, never()).doFilter(any(ServletRequest.class), any(ServletResponse.class));
+    }
+
+    @Test
+    void ipThrottledBasicAuthReturns429WithRetryAfter() throws Exception {
+        UserServiceBean userService = mock(UserServiceBean.class);
+        when(userService.authenticateWithPolicy(eq("F001:user01"), eq("RawPass123"), eq("192.0.2.35")))
+                .thenReturn(UserServiceBean.AuthenticationResult.ipThrottled(120));
+        setField("userService", userService);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        stubResponseOutput(response);
+
+        Map<String, Object> attributes = new HashMap<>();
+        doAnswer(invocation -> {
+            attributes.put(invocation.getArgument(0, String.class), invocation.getArgument(1));
+            return null;
+        }).when(request).setAttribute(anyString(), any());
+        when(request.getAttribute(anyString())).thenAnswer(invocation -> attributes.get(invocation.getArgument(0, String.class)));
+
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Authorization", basic("F001:user01", "RawPass123"));
+        when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/protected");
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRemoteAddr()).thenReturn("192.0.2.35");
+
+        filter.doFilter(request, response, chain);
+
+        verify(response).setStatus(429);
+        verify(response).setHeader("Retry-After", "120");
         verify(chain, never()).doFilter(any(ServletRequest.class), any(ServletResponse.class));
     }
 
@@ -495,6 +531,11 @@ class LogFilterTest {
                 out.write(b);
             }
         });
+    }
+
+    private String basic(String user, String password) {
+        String raw = user + ":" + password;
+        return "Basic " + Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
 
     private static final class TestLogHandler extends Handler {
