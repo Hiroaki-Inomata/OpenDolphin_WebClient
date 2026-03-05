@@ -476,6 +476,7 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
         status: response.status,
         bodyText: body,
         statusText: response.statusText,
+        retryAfter: response.headers.get('Retry-After') ?? undefined,
       }),
     );
   }

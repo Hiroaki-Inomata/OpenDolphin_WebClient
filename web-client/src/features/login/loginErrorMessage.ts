@@ -36,6 +36,25 @@ const resolveReason = (payload: LoginErrorJson | null): string | undefined =>
   normalizeText(payload?.details?.reason) ??
   normalizeText(payload?.error);
 
+const resolveRetryAfterSeconds = (retryAfter: string | undefined): number | undefined => {
+  const normalized = normalizeText(retryAfter);
+  if (!normalized) return undefined;
+
+  const parsed = Number.parseInt(normalized, 10);
+  if (!Number.isNaN(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return undefined;
+};
+
+const resolveTooManyRequestsMessage = (retryAfter: string | undefined): string => {
+  const seconds = resolveRetryAfterSeconds(retryAfter);
+  if (seconds) {
+    return `ログイン試行回数が上限に達しました。${seconds}秒後に再試行してください。`;
+  }
+  return 'ログイン試行回数が上限に達しました。しばらく待ってから再試行してください。';
+};
+
 const resolveAuthFailureMessage = (reason: string | undefined, status: number): string => {
   const normalizedReason = reason?.toLowerCase();
   if (normalizedReason === 'authentication_failed' || normalizedReason === 'unauthorized') {
@@ -57,10 +76,15 @@ export const resolveLoginFailureMessage = (params: {
   status: number;
   bodyText?: string;
   statusText?: string;
+  retryAfter?: string;
 }): string => {
-  const { status, bodyText = '', statusText } = params;
+  const { status, bodyText = '', statusText, retryAfter } = params;
   const parsed = parseLoginErrorJson(bodyText);
   const reason = resolveReason(parsed);
+
+  if (status === 429) {
+    return resolveTooManyRequestsMessage(retryAfter);
+  }
 
   if (status === 401 || status === 403) {
     return resolveAuthFailureMessage(reason, status);
@@ -85,4 +109,3 @@ export const resolveLoginFailureMessage = (params: {
   }
   return `ログインに失敗しました（HTTP ${status}）。`;
 };
-

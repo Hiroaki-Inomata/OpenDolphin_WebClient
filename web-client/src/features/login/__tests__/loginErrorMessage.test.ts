@@ -56,5 +56,28 @@ describe('resolveLoginFailureMessage', () => {
 
     expect(message).toContain('時間をおいて再試行');
   });
-});
 
+  it('maps 429 with Retry-After seconds to wait guidance', () => {
+    const message = resolveLoginFailureMessage({
+      status: 429,
+      bodyText: JSON.stringify({
+        error: 'too_many_requests',
+      }),
+      retryAfter: '120',
+    });
+
+    expect(message).toContain('120秒後');
+  });
+
+  it('maps 429 without valid Retry-After to generic wait guidance', () => {
+    const message = resolveLoginFailureMessage({
+      status: 429,
+      bodyText: JSON.stringify({
+        error: 'too_many_requests',
+      }),
+      retryAfter: 'not-a-number',
+    });
+
+    expect(message).toContain('しばらく待って');
+  });
+});
