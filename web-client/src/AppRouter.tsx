@@ -1583,8 +1583,8 @@ function ConnectedReception() {
     <ReceptionPage
       runId={flags.runId ?? session.runId}
       destination="ORCA queue"
-      title="Reception 受付一覧と更新状況"
-      description="受付一覧の状態と更新時刻をひと目で確認し、例外対応とカルテ起動の優先度を判断します。選択した患者は右ペインで詳細を確認できます。"
+      title="受付"
+      description="受付一覧の確認、例外対応、当日受付、カルテ起動を行う画面。"
     />
   );
 }

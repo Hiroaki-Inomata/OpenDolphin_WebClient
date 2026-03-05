@@ -7,7 +7,7 @@ import { ReceptionPage } from '../pages/ReceptionPage';
 import type { AppointmentPayload, ClaimOutpatientPayload, ReceptionEntry } from '../../outpatient/types';
 import { postOrcaMedicalModV2Xml } from '../../charts/orcaClaimApi';
 
-const baseClaimData: ClaimOutpatientPayload = {
+const createBaseClaimData = (): ClaimOutpatientPayload => ({
   runId: 'RUN-CLAIM',
   missingMaster: false,
   cacheHit: false,
@@ -16,9 +16,9 @@ const baseClaimData: ClaimOutpatientPayload = {
   fetchedAt: '2026-01-29T00:00:00Z',
   bundles: [],
   queueEntries: [],
-};
+});
 
-const baseAppointmentData: AppointmentPayload = {
+const createBaseAppointmentData = (): AppointmentPayload => ({
   runId: 'RUN-APPOINT',
   missingMaster: false,
   cacheHit: false,
@@ -28,10 +28,10 @@ const baseAppointmentData: AppointmentPayload = {
   entries: [] as ReceptionEntry[],
   recordsReturned: 0,
   raw: {},
-};
+});
 
-let mockClaimData = { ...baseClaimData };
-let mockAppointmentData = { ...baseAppointmentData };
+let mockClaimData = createBaseClaimData();
+let mockAppointmentData = createBaseAppointmentData();
 let mockMutationResult: any = null;
 let mockMutationQueue: any[] = [];
 let mockMutationPending = false;
@@ -295,13 +295,13 @@ const renderReceptionPage = () => {
   screen.getByRole('heading', { name: '診察待ち' });
 };
 
-const getFloatingActionGroup = () => {
-  return screen.getByRole('group', { name: '受付操作' });
+const getToolbar = () => {
+  return screen.getByRole('region', { name: '受付ツールバー' });
 };
 
 const openAcceptWorkflowModal = async (user: ReturnType<typeof userEvent.setup>) => {
-  const floatingActionGroup = getFloatingActionGroup();
-  await user.click(within(floatingActionGroup).getByRole('button', { name: '当日受付/患者検索' }));
+  const toolbar = getToolbar();
+  await user.click(within(toolbar).getByRole('button', { name: '当日受付/患者検索' }));
   return (await screen.findByRole('region', { name: '当日受付/患者検索' })) as HTMLElement;
 };
 
@@ -322,8 +322,8 @@ const getRowMenuAction = (row: HTMLElement, name: RegExp) => {
 };
 
 beforeEach(() => {
-  mockClaimData = { ...baseClaimData };
-  mockAppointmentData = { ...baseAppointmentData };
+  mockClaimData = createBaseClaimData();
+  mockAppointmentData = createBaseAppointmentData();
   mockMutationResult = null;
   mockMutationQueue = [];
   mockMutationPending = false;
@@ -605,7 +605,18 @@ describe('ReceptionPage accept UX', () => {
       {
         patients: [
           {
-            patientId: 'P-555',
+            patientId: '555',
+            name: '送信患者',
+            insurance: '保険',
+          },
+        ],
+        recordsReturned: 1,
+        runId: 'RUN-SEARCH-VISIT',
+      },
+      {
+        patients: [
+          {
+            patientId: '555',
             name: '送信患者',
             insurance: '保険',
           },
@@ -623,7 +634,7 @@ describe('ReceptionPage accept UX', () => {
         acceptanceDate: '2026-01-29',
         acceptanceTime: '09:10:00',
         patient: {
-          patientId: 'P-555',
+          patientId: '555',
           name: '送信患者',
         },
       },
@@ -636,9 +647,14 @@ describe('ReceptionPage accept UX', () => {
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
     const form = within(patientSearch);
 
-    await user.type(form.getByLabelText('患者ID'), 'P-555');
+    const patientIdInput = form.getByLabelText('患者ID');
+    await user.clear(patientIdInput);
+    await user.type(patientIdInput, '555');
     await user.click(form.getByRole('button', { name: '検索' }));
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
+    await waitFor(() => {
+      expect(within(resultPanel).getAllByRole('listitem').length).toBeGreaterThan(0);
+    });
     await user.click(within(resultPanel).getAllByRole('listitem')[0]);
     const acceptPanel = getAcceptRegisterPanel(workflowModal);
     await user.selectOptions(within(acceptPanel).getByLabelText(/診療科/), '01');
@@ -650,38 +666,41 @@ describe('ReceptionPage accept UX', () => {
     const resultArea = (resultHeading.closest('[role="status"]') ?? resultHeading.parentElement ?? resultHeading) as HTMLElement;
     const resultScope = within(resultArea);
 
-    expect(resultScope.getByText('Api_Result: 00')).toBeInTheDocument();
-    const durationText = resultScope.getByText(/所要時間:/);
-    expect(durationText.textContent).toMatch(/所要時間: \d+ ms/);
+    expect(resultScope.queryByText(/Api_Result:/)).toBeNull();
+    expect(resultScope.queryByText(/所要時間:/)).toBeNull();
   });
 });
 
-describe('ReceptionPage section collapse defaults', () => {
-  it('keeps 会計済み section collapsed by default', () => {
+describe('ReceptionPage toolbar and tabs', () => {
+  it('shows toolbar controls and removes floating actions', () => {
     renderReceptionPage();
 
-    const completedHeading = screen.getByRole('heading', { name: '会計済み' });
-    const section = completedHeading.closest('section');
-    expect(section).not.toBeNull();
-    const toggleButton = within(section as HTMLElement).getByRole('button', { name: '開く' });
-    expect(toggleButton).toHaveAttribute('aria-expanded', 'false');
-    expect(within(section as HTMLElement).queryByRole('table')).toBeNull();
+    const toolbar = getToolbar();
+    expect(toolbar).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: '当日受付/患者検索' })).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: /日次状態/ })).toBeInTheDocument();
+    expect(document.querySelector('.reception-page__floating-actions')).toBeNull();
   });
-});
 
-describe('ReceptionPage floating actions', () => {
-  it('shows accept/search and daily-status controls in the floating action group', () => {
+  it('hides system details for non-debug users', () => {
+    renderReceptionPage();
+    expect(screen.queryByText('システム詳細')).toBeNull();
+  });
+
+  it('toggles advanced filters from 詳細条件 button', async () => {
+    const user = userEvent.setup();
     renderReceptionPage();
 
-    const floatingActionGroup = getFloatingActionGroup();
-    expect(floatingActionGroup).toBeInTheDocument();
-    expect(within(floatingActionGroup).getByRole('button', { name: '当日受付/患者検索' })).toBeInTheDocument();
-    expect(within(floatingActionGroup).getByRole('button', { name: /^日次状態:/ })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: '保険/自費' })).toBeNull();
+    const toolbar = getToolbar();
+    const toggleButton = within(toolbar).getByRole('button', { name: '詳細条件' });
+    await user.click(toggleButton);
 
-    const headerSection = document.querySelector('.reception-page__header');
-    if (headerSection) {
-      expect(headerSection.contains(floatingActionGroup)).toBe(false);
-    }
+    expect(screen.getByRole('combobox', { name: '保険/自費' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: '保存ビュー' })).toBeInTheDocument();
+
+    await user.click(toggleButton);
+    expect(screen.queryByRole('combobox', { name: '保険/自費' })).toBeNull();
   });
 });
 
@@ -716,14 +735,15 @@ describe('ReceptionPage list and side pane guidance', () => {
     renderReceptionPage();
 
     const row1 = screen.getByRole('row', { name: /山田太郎/ });
-    const row2 = screen.getByRole('row', { name: /佐藤花子/ });
 
     expect(row1).toHaveClass('reception-table__row--selected');
-    expect(row2).not.toHaveClass('reception-table__row--selected');
+    expect(screen.queryByRole('row', { name: /佐藤花子/ })).toBeNull();
+
+    await user.click(screen.getByRole('tab', { name: /診察中/ }));
+    const row2 = screen.getByRole('row', { name: /佐藤花子/ });
 
     await user.click(row2);
 
-    expect(row1).not.toHaveClass('reception-table__row--selected');
     expect(row2).toHaveClass('reception-table__row--selected');
   });
 
@@ -760,6 +780,7 @@ describe('ReceptionPage list and side pane guidance', () => {
     expect(within(patientSearch).queryByLabelText(/保険\/自費/)).toBeNull();
 
     // Preview medical records in a modal (no new tab).
+    await user.click(screen.getByRole('tab', { name: /会計待ち/ }));
     const row = screen.getByRole('row', { name: /集約患者/ });
     await openRowActionMenu(user, row);
     await user.click(getRowMenuAction(row, /過去カルテ/));
@@ -784,10 +805,10 @@ describe('ReceptionPage list and side pane guidance', () => {
   });
 
   it('shows patient details after explicit result selection', async () => {
-    mockMutationQueue.push({
+    const searchPayload = {
       patients: [
         {
-          patientId: 'P-101',
+          patientId: '101',
           name: '検索患者一',
           kana: 'ケンサクカンジャイチ',
           birthDate: '1980-01-01',
@@ -796,7 +817,7 @@ describe('ReceptionPage list and side pane guidance', () => {
           lastVisit: '2026-02-10',
         },
         {
-          patientId: 'P-102',
+          patientId: '102',
           name: '検索患者二',
           kana: 'ケンサクカンジャニ',
           birthDate: '1990-02-02',
@@ -807,14 +828,17 @@ describe('ReceptionPage list and side pane guidance', () => {
       ],
       recordsReturned: 2,
       runId: 'RUN-SEARCH',
-    });
+    };
+    mockMutationQueue.push(searchPayload, searchPayload);
 
     const user = userEvent.setup();
     renderReceptionPage();
 
     const workflowModal = await openAcceptWorkflowModal(user);
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
-    await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-1');
+    const patientIdInput = within(patientSearch).getByLabelText('患者ID');
+    await user.clear(patientIdInput);
+    await user.type(patientIdInput, '1');
     await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
 
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
@@ -837,24 +861,27 @@ describe('ReceptionPage list and side pane guidance', () => {
   });
 
   it('paginates patient-search results when the hit count is large', async () => {
-    mockMutationQueue.push({
+    const searchPayload = {
       patients: Array.from({ length: 55 }, (_, index) => {
         const suffix = String(index + 1).padStart(3, '0');
         return {
-          patientId: `P-${suffix}`,
+          patientId: `${suffix}`,
           name: `ページ患者${suffix}`,
         };
       }),
       recordsReturned: 55,
       runId: 'RUN-SEARCH-PAGE',
-    });
+    };
+    mockMutationQueue.push(searchPayload, searchPayload);
 
     const user = userEvent.setup();
     renderReceptionPage();
 
     const workflowModal = await openAcceptWorkflowModal(user);
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
-    await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-');
+    const patientIdInput = within(patientSearch).getByLabelText('患者ID');
+    await user.clear(patientIdInput);
+    await user.type(patientIdInput, '0');
     await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
 
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
@@ -877,31 +904,36 @@ describe('ReceptionPage list and side pane guidance', () => {
     expect(within(resultPanel).getByText('2 / 2')).toBeInTheDocument();
   });
 
-  it('toggles the accept workflow modal from the floating button', async () => {
-    mockMutationQueue.push({
+  it('toggles the accept workflow modal from the toolbar button', async () => {
+    const searchPayload = {
       patients: [
         {
-          patientId: 'P-301',
+          patientId: '301',
           name: 'クローズ確認患者',
         },
       ],
       recordsReturned: 1,
       runId: 'RUN-SEARCH-CLOSE',
-    });
+    };
+    mockMutationQueue.push(searchPayload, searchPayload);
 
     const user = userEvent.setup();
     renderReceptionPage();
 
-    const floatingActionGroup = getFloatingActionGroup();
-    const acceptButton = within(floatingActionGroup).getByRole('button', { name: '当日受付/患者検索' });
+    const toolbar = getToolbar();
+    const acceptButton = within(toolbar).getByRole('button', { name: '当日受付/患者検索' });
 
     const workflowModal = await openAcceptWorkflowModal(user);
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
-    await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-3');
+    const patientIdInput = within(patientSearch).getByLabelText('患者ID');
+    await user.clear(patientIdInput);
+    await user.type(patientIdInput, '3');
     await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
 
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
-    expect(within(resultPanel).getByText('クローズ確認患者')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(resultPanel).getByText('クローズ確認患者')).toBeInTheDocument();
+    });
 
     await user.click(acceptButton);
 
@@ -912,27 +944,32 @@ describe('ReceptionPage list and side pane guidance', () => {
   });
 
   it('renders patient search pane on the left and result pane on the right in accept workflow modal', async () => {
-    mockMutationQueue.push({
+    const searchPayload = {
       patients: [
         {
-          patientId: 'P-401',
+          patientId: '401',
           name: '折りたたみ患者',
         },
       ],
       recordsReturned: 1,
       runId: 'RUN-SEARCH-COLLAPSE',
-    });
+    };
+    mockMutationQueue.push(searchPayload, searchPayload);
 
     const user = userEvent.setup();
     renderReceptionPage();
 
     const workflowModal = await openAcceptWorkflowModal(user);
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
-    await user.type(within(patientSearch).getByLabelText('患者ID'), 'P-4');
+    const patientIdInput = within(patientSearch).getByLabelText('患者ID');
+    await user.clear(patientIdInput);
+    await user.type(patientIdInput, '4');
     await user.click(within(patientSearch).getByRole('button', { name: '検索' }));
 
     const resultPanel = within(workflowModal).getByRole('region', { name: '患者検索結果モーダル' });
-    expect(within(resultPanel).getByText('折りたたみ患者')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(resultPanel).getByText('折りたたみ患者')).toBeInTheDocument();
+    });
     const acceptPanel = getAcceptRegisterPanel(workflowModal);
     expect(within(acceptPanel).queryByRole('button', { name: '受付する' })).toBeNull();
 
@@ -940,7 +977,7 @@ describe('ReceptionPage list and side pane guidance', () => {
     expect(within(acceptPanel).getByRole('button', { name: '受付する' })).toBeInTheDocument();
   });
 
-  it('removes collapse/close controls from accept workflow modal', async () => {
+  it('shows close button in accept workflow modal and closes it', async () => {
     const user = userEvent.setup();
     renderReceptionPage();
 
@@ -948,15 +985,17 @@ describe('ReceptionPage list and side pane guidance', () => {
     expect(within(workflowModal).getByRole('region', { name: '患者検索' })).toBeInTheDocument();
     expect(within(workflowModal).queryByRole('button', { name: '折りたたむ' })).toBeNull();
     expect(within(workflowModal).queryByRole('button', { name: '展開' })).toBeNull();
-    expect(within(workflowModal).queryByRole('button', { name: '閉じる' })).toBeNull();
+    const closeButton = within(workflowModal).getByRole('button', { name: '閉じる' });
+    await user.click(closeButton);
+    expect(screen.queryByRole('region', { name: '当日受付/患者検索' })).toBeNull();
   });
 
   it('keeps accept workflow and daily calendar mutually exclusive', async () => {
     const user = userEvent.setup();
     renderReceptionPage();
-    const floatingActionGroup = getFloatingActionGroup();
-    const acceptButton = within(floatingActionGroup).getByRole('button', { name: '当日受付/患者検索' });
-    const dailyStatusButton = within(floatingActionGroup).getByRole('button', { name: /^日次状態:/ });
+    const toolbar = getToolbar();
+    const acceptButton = within(toolbar).getByRole('button', { name: '当日受付/患者検索' });
+    const dailyStatusButton = within(toolbar).getByRole('button', { name: /日次状態/ });
 
     await user.click(acceptButton);
     expect(await screen.findByRole('region', { name: '当日受付/患者検索' })).toBeInTheDocument();
@@ -971,13 +1010,25 @@ describe('ReceptionPage list and side pane guidance', () => {
     expect(screen.queryByRole('group', { name: '日次状態カレンダー' })).toBeNull();
     expect(dailyStatusButton).toHaveAttribute('aria-expanded', 'false');
   });
+
+  it('closes accept workflow modal with Escape key', async () => {
+    const user = userEvent.setup();
+    renderReceptionPage();
+
+    await openAcceptWorkflowModal(user);
+    expect(screen.getByRole('region', { name: '当日受付/患者検索' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('region', { name: '当日受付/患者検索' })).toBeNull();
+    });
+  });
 });
 
 describe('ReceptionPage status/date/card action UX', () => {
   it('defaults date filter to visitDate from URL (non-charts navigation)', () => {
     mockSearchParams = new URLSearchParams('visitDate=2026-02-03');
     renderReceptionPage();
-    expect(screen.getByText('日付: 2026-02-03')).toBeInTheDocument();
+    expect(screen.getByLabelText('日付')).toHaveValue('2026-02-03');
   });
 
   it('defaults date filter to today when opened from charts (visitDate is only a hint)', () => {
@@ -986,7 +1037,7 @@ describe('ReceptionPage status/date/card action UX', () => {
     try {
       mockSearchParams = new URLSearchParams('from=charts&visitDate=2026-02-03');
       renderReceptionPage();
-      expect(screen.getByText('日付: 2026-02-13')).toBeInTheDocument();
+      expect(screen.getByLabelText('日付')).toHaveValue('2026-02-13');
     } finally {
       vi.useRealTimers();
     }
@@ -995,16 +1046,13 @@ describe('ReceptionPage status/date/card action UX', () => {
   it('clears search conditions without crashing', async () => {
     const user = userEvent.setup();
     renderReceptionPage();
-    const filterSection = screen.getByRole('region', { name: '検索とフィルタ' });
-    const toggleButton = within(filterSection).getByRole('button', { name: /開く|折りたたむ/ });
-    if (toggleButton.textContent?.includes('開く')) {
-      await user.click(toggleButton);
-    }
+    const toolbar = getToolbar();
+    await user.click(within(toolbar).getByRole('button', { name: '詳細条件' }));
     await user.click(screen.getByRole('button', { name: 'クリア' }));
     expect(screen.getByRole('button', { name: '検索' })).toBeInTheDocument();
   });
 
-  it('shows row action menu items for charts/history/cancel', async () => {
+  it('shows chart button directly on table rows and keeps history/cancel in menu', async () => {
     mockAppointmentData.entries = [
       {
         id: 'row-card-1',
@@ -1022,14 +1070,14 @@ describe('ReceptionPage status/date/card action UX', () => {
     renderReceptionPage();
 
     const row = screen.getByRole('row', { name: /カード患者/ });
+    expect(within(row).getByRole('button', { name: 'カルテを開く' })).toBeInTheDocument();
     expect(within(row).getByRole('button', { name: /その他|操作を開く/ })).toBeInTheDocument();
     await openRowActionMenu(user, row);
-    expect(getRowMenuAction(row, /カルテを開く/)).toBeInTheDocument();
     expect(getRowMenuAction(row, /過去カルテ/)).toBeInTheDocument();
     expect(getRowMenuAction(row, /受付取消/)).toBeInTheDocument();
   });
 
-  it('moves 会計待ち entries under 診察終了 tab filtering', async () => {
+  it('switches to 会計待ち tab and shows only 会計待ち entries', async () => {
     mockAppointmentData.entries = [
       {
         id: 'row-tab-1',
@@ -1056,10 +1104,45 @@ describe('ReceptionPage status/date/card action UX', () => {
     ];
 
     renderReceptionPage();
-    const board = screen.getByRole('region', { name: 'ステータス別患者一覧' });
-    const afterColumn = within(board).getByRole('region', { name: '診察終了リスト' });
-    expect(within(afterColumn).getByText('診察後患者')).toBeInTheDocument();
-    expect(within(afterColumn).queryByText('受付患者')).toBeNull();
+    const tab = screen.getByRole('tab', { name: /会計待ち/ });
+    await userEvent.setup().click(tab);
+    const listRegion = screen.getByRole('region', { name: '受付一覧' });
+    expect(within(listRegion).getByText('診察後患者')).toBeInTheDocument();
+    expect(within(listRegion).queryByText('受付患者')).toBeNull();
+  });
+
+  it('switches to 予約 tab and shows only 予約 entries', async () => {
+    mockAppointmentData.entries = [
+      {
+        id: 'row-tab-3',
+        patientId: 'P-403',
+        receptionId: 'R-403',
+        name: '会計患者',
+        appointmentTime: '10:00',
+        department: '内科',
+        status: '会計待ち',
+        insurance: '保険',
+        source: 'visits',
+      },
+      {
+        id: 'row-tab-4',
+        patientId: 'P-404',
+        appointmentId: 'A-404',
+        name: '予約患者',
+        appointmentTime: '11:00',
+        department: '外科',
+        status: '予約',
+        insurance: '保険',
+        source: 'reservations',
+      },
+    ];
+
+    const user = userEvent.setup();
+    renderReceptionPage();
+    await user.click(screen.getByRole('tab', { name: /予約/ }));
+    const listRegion = screen.getByRole('region', { name: '受付一覧' });
+    expect(within(listRegion).getByText('予約患者')).toBeInTheDocument();
+    expect(within(listRegion).queryByText('会計患者')).toBeNull();
   });
 
   it('blocks duplicate acceptance even when active reception is hidden by filters', async () => {
@@ -1102,9 +1185,8 @@ describe('ReceptionPage status/date/card action UX', () => {
     const user = userEvent.setup();
     renderReceptionPage();
 
-    const filterSection = screen.getByRole('region', { name: '検索とフィルタ' });
-    await user.click(within(filterSection).getByRole('button', { name: '開く' }));
-    await user.selectOptions(within(filterSection).getByLabelText('診療科'), '外科');
+    const toolbar = getToolbar();
+    await user.selectOptions(within(toolbar).getByLabelText('診療科'), '外科');
 
     const workflowModal = await openAcceptWorkflowModal(user);
     const patientSearch = within(workflowModal).getByRole('region', { name: '患者検索' });
@@ -1119,7 +1201,7 @@ describe('ReceptionPage status/date/card action UX', () => {
     });
   });
 
-  it('shows 会計送信 button on 診察終了 rows and moves them to 会計済み on success', async () => {
+  it('shows 会計送信 button on 会計待ち rows and moves them to 会計済 on success', async () => {
     mockAppointmentData.entries = [
       {
         id: 'row-claim-1',
@@ -1137,16 +1219,16 @@ describe('ReceptionPage status/date/card action UX', () => {
     const user = userEvent.setup();
     renderReceptionPage();
 
-    const afterSection = screen.getByRole('region', { name: '診察終了リスト' });
-    const row = within(afterSection).getByRole('row', { name: /診察終了患者/ });
+    await user.click(screen.getByRole('tab', { name: /会計待ち/ }));
+    const listRegion = screen.getByRole('region', { name: '受付一覧' });
+    const row = within(listRegion).getByRole('row', { name: /診察終了患者/ });
     await user.click(within(row).getByRole('button', { name: '会計送信' }));
 
     await waitFor(() => expect(vi.mocked(postOrcaMedicalModV2Xml)).toHaveBeenCalled());
 
-    const completedColumn = screen.getByRole('region', { name: /会計済み/ });
-    const toggle = within(completedColumn).getByRole('button', { name: '開く' });
-    await user.click(toggle);
-    const completedRow = await within(completedColumn).findByRole('row', { name: /診察終了患者/ });
+    await user.click(screen.getByRole('tab', { name: /会計済/ }));
+    const completedList = screen.getByRole('region', { name: '受付一覧' });
+    const completedRow = await within(completedList).findByRole('row', { name: /診察終了患者/ });
     expect(completedRow).toBeInTheDocument();
   });
 });

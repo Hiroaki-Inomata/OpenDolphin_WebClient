@@ -1,5 +1,5 @@
 import { Global } from '@emotion/react';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 
@@ -101,22 +101,21 @@ import { fetchOrderBundles, type OrderBundle, type OrderBundleItem } from '../..
 type SortKey = 'time' | 'acceptance' | 'reservation' | 'name' | 'department';
 type StatusListLayout = 'table' | 'cards';
 
-const SECTION_ORDER: ReceptionStatus[] = ['受付中', '診療中', '会計待ち', '予約', '会計済み'];
+const SECTION_ORDER: ReceptionStatus[] = ['受付中', '診療中', '会計待ち', '会計済み', '予約'];
 const SECTION_LABEL: Record<ReceptionStatus, string> = {
   受付中: '診察待ち',
   診療中: '診察中',
-  会計待ち: '診察終了',
-  会計済み: '会計済み',
+  会計待ち: '会計待ち',
+  会計済み: '会計済',
   予約: '予約',
 };
-
-const COLLAPSE_STORAGE_KEY = 'reception-section-collapses';
 const FILTER_STORAGE_KEY = 'reception-filter-state';
 const FILTER_PANEL_COLLAPSE_KEY = 'reception-filter-panel-collapsed';
 const STATUS_LIST_LAYOUT_STORAGE_KEY = 'reception-status-list-layout';
 const ORCA_QUEUE_REFRESH_INTERVAL_MS = 60_000;
 const ORCA_QUEUE_QUERY_KEY = ['orca-queue'] as const;
 const PATIENT_SEARCH_PAGE_SIZE = 50;
+const STATUS_TAB_ORDER = SECTION_ORDER;
 
 const pad2 = (value: number) => value.toString().padStart(2, '0');
 const formatLocalYmd = (date: Date) =>
@@ -136,6 +135,11 @@ const isSortKey = (value?: string | null): value is SortKey =>
   value === 'time' || value === 'acceptance' || value === 'reservation' || value === 'name' || value === 'department';
 const isStatusListLayout = (value?: string | null): value is StatusListLayout =>
   value === 'table' || value === 'cards';
+const resolveInitialStatusTab = (section?: string | null): ReceptionStatus => {
+  if (section === 'appointment') return '予約';
+  if (section === 'billing') return '会計待ち';
+  return '受付中';
+};
 
 const entryKey = (entry: ReceptionEntry) =>
   entry.receptionId ?? entry.appointmentId ?? entry.patientId ?? entry.id;
@@ -583,36 +587,6 @@ const buildDailyCalendarCells = (monthStartYmd: string): DailyCalendarCell[] => 
   return cells;
 };
 
-const baseCollapseState: Record<ReceptionStatus, boolean> = {
-  受付中: false,
-  診療中: false,
-  会計待ち: false,
-  会計済み: true,
-  予約: true,
-};
-
-const loadCollapseState = (): Record<ReceptionStatus, boolean> => {
-  if (typeof localStorage === 'undefined') return { ...baseCollapseState };
-  try {
-    const stored = localStorage.getItem(COLLAPSE_STORAGE_KEY);
-    if (stored) {
-      return { ...baseCollapseState, ...(JSON.parse(stored) as Record<ReceptionStatus, boolean>) };
-    }
-  } catch {
-    // ignore broken localStorage value
-  }
-  return { ...baseCollapseState };
-};
-
-const persistCollapseState = (state: Record<ReceptionStatus, boolean>) => {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // ignore
-  }
-};
-
 const loadCollapsedPanel = (key: string, fallback: boolean) => {
   if (typeof localStorage === 'undefined') return fallback;
   try {
@@ -742,8 +716,8 @@ export function ReceptionPage({
   patientId,
   receptionId,
   destination = 'ORCA queue',
-  title = 'Reception 受付一覧と更新状況',
-  description = '受付一覧の状態と更新時刻をひと目で確認し、例外対応とカルテ起動の優先度を判断します。選択した患者の当日受付はモーダルで確認できます。',
+  title = '受付',
+  description = '受付一覧の確認、例外対応、当日受付、カルテ起動を行う画面。',
 }: ReceptionPageProps) {
   const session = useSession();
   const queryClient = useQueryClient();
@@ -783,13 +757,17 @@ export function ReceptionPage({
     const fromUrl = searchParams.get('sort');
     return isSortKey(fromUrl) ? fromUrl : 'time';
   });
-  const [collapsed, setCollapsed] = useState<Record<ReceptionStatus, boolean>>(loadCollapseState);
+  const [activeStatusTab, setActiveStatusTab] = useState<ReceptionStatus>(() =>
+    resolveInitialStatusTab(searchParams.get('section')),
+  );
   const [filtersCollapsed, setFiltersCollapsed] = useState(() =>
     loadCollapsedPanel(FILTER_PANEL_COLLAPSE_KEY, true),
   );
   const landingSection = searchParams.get('section') ?? undefined;
   const landingCreate = searchParams.get('create') === '1';
   const landingHandledRef = useRef<string | null>(null);
+  const statusTabManualSelectionRef = useRef(false);
+  const statusTabAutoAdjustedRef = useRef(false);
   const [acceptWorkflowModalOpen, setAcceptWorkflowModalOpen] = useState(false);
 
   useEffect(() => {
@@ -797,15 +775,6 @@ export function ReceptionPage({
     const signature = `${landingSection ?? ''}|${landingCreate ? '1' : '0'}`;
     if (landingHandledRef.current === signature) return;
     landingHandledRef.current = signature;
-
-    const scrollTo = (id: string) => {
-      const tryScroll = () => {
-        const el = document.getElementById(id);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      };
-      window.setTimeout(tryScroll, 0);
-      window.setTimeout(tryScroll, 80);
-    };
 
     if (landingSection === 'filters') {
       setFiltersCollapsed(false);
@@ -819,15 +788,16 @@ export function ReceptionPage({
       return;
     }
     if (landingSection === 'appointment') {
-      scrollTo('reception-section-appointment');
+      setActiveStatusTab('予約');
       return;
     }
     if (landingSection === 'billing') {
-      scrollTo('reception-section-billing');
+      setActiveStatusTab('会計待ち');
       return;
     }
     if (landingSection === 'accept' || landingCreate) {
       setAcceptWorkflowModalOpen(true);
+      setDailyCalendarOpen(false);
       window.setTimeout(() => {
         const el = document.getElementById('reception-patient-search-patient-id');
         if (el instanceof HTMLInputElement) {
@@ -1197,10 +1167,6 @@ export function ReceptionPage({
     appointmentQuery.error,
     appointmentQuery.isError,
   ]);
-
-  useEffect(() => {
-    persistCollapseState(collapsed);
-  }, [collapsed]);
 
   useEffect(() => {
     persistCollapsedPanel(FILTER_PANEL_COLLAPSE_KEY, filtersCollapsed);
@@ -1673,13 +1639,6 @@ export function ReceptionPage({
     if (fromState.length > 0) return fromState.slice(0, 30);
     return listReceptionSnapshotDates(storageScope, 30);
   }, [dailyEntriesState.availableDates, storageScope]);
-  const appointmentEntriesSourceLabel = useMemo(() => {
-    if (dailyEntriesState.source === 'snapshot') return '保存済み履歴';
-    if (dailyEntriesState.source === 'merged') return 'API+保存履歴';
-    if (dailyEntriesState.source === 'live') return 'API';
-    return '未取得';
-  }, [dailyEntriesState.source]);
-
   const dailyCalendarAvailableDates = useMemo(() => {
     const enabled = new Set(snapshotDateOptions);
     if (selectedDate) enabled.add(selectedDate);
@@ -1731,6 +1690,16 @@ export function ReceptionPage({
   useEffect(() => {
     if (!acceptWorkflowModalOpen) return;
     setDailyCalendarOpen(false);
+  }, [acceptWorkflowModalOpen]);
+  useEffect(() => {
+    if (!acceptWorkflowModalOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAcceptWorkflowModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
   }, [acceptWorkflowModalOpen]);
   const departmentCodeMap = useMemo(() => {
     const raw = appointmentQuery.data?.raw as Record<string, unknown> | undefined;
@@ -1914,6 +1883,31 @@ export function ReceptionPage({
     });
   }, [patientSearchTotalPages]);
   const grouped = useMemo(() => groupByStatus(sortedEntries), [sortedEntries]);
+  const groupedByStatus = useMemo(
+    () =>
+      new Map<ReceptionStatus, ReceptionEntry[]>(
+        grouped.map(({ status, items }) => [status, items]),
+      ),
+    [grouped],
+  );
+  const activeStatusItems = groupedByStatus.get(activeStatusTab) ?? [];
+  const activeStatusLabel = SECTION_LABEL[activeStatusTab] ?? activeStatusTab;
+  useEffect(() => {
+    if (statusTabAutoAdjustedRef.current) return;
+    if (!appointmentQuery.dataUpdatedAt) return;
+    if (statusTabManualSelectionRef.current) {
+      statusTabAutoAdjustedRef.current = true;
+      return;
+    }
+    const activeCount = groupedByStatus.get(activeStatusTab)?.length ?? 0;
+    if (activeCount === 0) {
+      const fallback = SECTION_ORDER.find((status) => (groupedByStatus.get(status)?.length ?? 0) > 0);
+      if (fallback) {
+        setActiveStatusTab(fallback);
+      }
+    }
+    statusTabAutoAdjustedRef.current = true;
+  }, [activeStatusTab, appointmentQuery.dataUpdatedAt, groupedByStatus]);
   useEffect(() => {
     if (!selectedDate || visibleAppointmentEntries.length === 0) return;
     saveReceptionEntriesForDate({
@@ -2153,6 +2147,24 @@ export function ReceptionPage({
         : exceptionCounts.unapproved > 0
           ? 'info'
           : 'neutral';
+  const statusExceptionTone = useMemo(() => {
+    const byStatus = new Map<ReceptionStatus, 'error' | 'warning' | 'info'>();
+    SECTION_ORDER.forEach((status) => {
+      const items = exceptionItems.filter((item) => item.entry.status === status);
+      if (items.some((item) => item.kind === 'send_error')) {
+        byStatus.set(status, 'error');
+        return;
+      }
+      if (items.some((item) => item.kind === 'delayed')) {
+        byStatus.set(status, 'warning');
+        return;
+      }
+      if (items.some((item) => item.kind === 'unapproved')) {
+        byStatus.set(status, 'info');
+      }
+    });
+    return byStatus;
+  }, [exceptionItems]);
 
   const latestAuditEvent = useMemo(() => {
     const snapshot = getAuditEventLog();
@@ -2361,10 +2373,7 @@ export function ReceptionPage({
     () => (selectedEntry ? resolveQueueForEntry(selectedEntry) : undefined),
     [resolveQueueForEntry, selectedEntry],
   );
-  const summaryText = useMemo(() => {
-    const counts = grouped.map(({ status, items }) => `${SECTION_LABEL[status]}: ${items.length}件`).join(' / ');
-    return `検索結果 ${sortedEntries.length}件（${counts}）`;
-  }, [grouped, sortedEntries.length]);
+  const summaryText = useMemo(() => `検索結果 ${sortedEntries.length}件`, [sortedEntries.length]);
 
   const selectionSummaryText = useMemo(() => {
     if (!selectedEntry) return '選択中の患者はありません。';
@@ -4041,10 +4050,38 @@ export function ReceptionPage({
     },
     [acceptWorkflowModalOpen, flags.runId, initialRunId, mergedMeta.runId],
   );
-
-  const toggleSection = (status: ReceptionStatus) => {
-    setCollapsed((prev) => ({ ...prev, [status]: !prev[status] }));
-  };
+  const handleStatusTabChange = useCallback((status: ReceptionStatus) => {
+    statusTabManualSelectionRef.current = true;
+    setActiveStatusTab(status);
+  }, []);
+  const handleStatusTabKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+      const currentIndex = STATUS_TAB_ORDER.indexOf(activeStatusTab);
+      if (currentIndex < 0) return;
+      let nextIndex = currentIndex;
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        nextIndex = (currentIndex + 1) % STATUS_TAB_ORDER.length;
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        nextIndex = (currentIndex - 1 + STATUS_TAB_ORDER.length) % STATUS_TAB_ORDER.length;
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        nextIndex = 0;
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        nextIndex = STATUS_TAB_ORDER.length - 1;
+      } else {
+        return;
+      }
+      const nextStatus = STATUS_TAB_ORDER[nextIndex];
+      handleStatusTabChange(nextStatus);
+      window.setTimeout(() => {
+        document.getElementById(`reception-status-tab-${nextStatus}`)?.focus();
+      }, 0);
+    },
+    [activeStatusTab, handleStatusTabChange],
+  );
 
   const handleSelectRow = useCallback(
     (entry: ReceptionEntry) => {
@@ -4283,8 +4320,13 @@ export function ReceptionPage({
 
           <div className="reception-accept__actions">
             <div className="reception-accept__hints" aria-live={infoLive}>
-              <span>Api_Result=00/K3: 左の一覧へ即時反映 / Api_Result=16/21: 警告表示</span>
-              <span>runId/traceId は監査ログ（action=reception_accept）とコンソールに残します</span>
+              <span>受付内容を確認して「受付する」を押してください。</span>
+              {debugUiEnabled ? (
+                <>
+                  <span>Api_Result=00/K3: 左の一覧へ即時反映 / Api_Result=16/21: 警告表示</span>
+                  <span>runId/traceId は監査ログ（action=reception_accept）とコンソールに残します</span>
+                </>
+              ) : null}
             </div>
             {debugUiEnabled ? (
               <div className="reception-accept__buttons">
@@ -4318,7 +4360,6 @@ export function ReceptionPage({
         <div className="reception-accept__result" role="status" aria-live={infoLive}>
           <div className="reception-accept__result-header">
             <h3>送信結果</h3>
-            {acceptResult.runId && <RunIdBadge runId={acceptResult.runId} />}
           </div>
           <ToneBanner
             tone={acceptResult.tone === 'success' ? 'info' : acceptResult.tone}
@@ -4328,12 +4369,14 @@ export function ReceptionPage({
             runId={acceptResult.runId ?? resolvedRunId}
             ariaLive={acceptResult.tone === 'error' ? 'assertive' : 'polite'}
           />
-          <div className="reception-accept__result-meta">
-            <span data-test-id="accept-api-result">Api_Result: {acceptResult.apiResult ?? '—'}</span>
-            <span data-test-id="accept-duration-ms">
-              所要時間: {acceptDurationMs !== null ? `${acceptDurationMs} ms` : '—'}
-            </span>
-          </div>
+          {debugUiEnabled ? (
+            <div className="reception-accept__result-meta">
+              <span data-test-id="accept-api-result">Api_Result: {acceptResult.apiResult ?? '—'}</span>
+              <span data-test-id="accept-duration-ms">
+                所要時間: {acceptDurationMs !== null ? `${acceptDurationMs} ms` : '—'}
+              </span>
+            </div>
+          ) : null}
           {acceptResult.detail && <p className="reception-accept__result-detail">{acceptResult.detail}</p>}
         </div>
       ) : null}
@@ -4357,22 +4400,192 @@ export function ReceptionPage({
           <div className="reception-page__title">
             <div className="reception-page__title-main">
               <h1>{title}</h1>
-              <p>{description}</p>
-            </div>
-            <div className="reception-page__title-actions">
-              <button
-                type="button"
-                className="reception-page__title-link"
-                onClick={() => {
-                  appNav.openPatients({ carryover: receptionCarryover });
-                }}
-              >
-                Patients へ
-              </button>
+              <p className="sr-only">{description}</p>
             </div>
           </div>
-          <div className="reception-page__meta-bar" role="status" aria-live={infoLive} data-run-id={resolvedRunId}>
-            <div className="reception-page__meta-primary">
+        </section>
+        <section className="reception-toolbar" role="region" aria-label="受付ツールバー" data-run-id={resolvedRunId}>
+          <form className="reception-toolbar__group" onSubmit={handleSearchSubmit}>
+            <div className="reception-toolbar__group" role="group" aria-label="日付操作">
+              <div className="reception-search__date-nav" role="group" aria-label="日付操作">
+                <button
+                  type="button"
+                  className="reception-search__button ghost"
+                  onClick={() => setSelectedDate((prev) => shiftDate(prev, -1))}
+                  title="前日に移動"
+                >
+                  前日
+                </button>
+                <button
+                  type="button"
+                  className="reception-search__button ghost"
+                  onClick={() => setSelectedDate(todayString())}
+                  disabled={selectedDate === todayString()}
+                  title="今日に移動"
+                >
+                  今日
+                </button>
+                <button
+                  type="button"
+                  className="reception-search__button ghost"
+                  onClick={() => setSelectedDate((prev) => shiftDate(prev, 1))}
+                  title="翌日に移動"
+                >
+                  翌日
+                </button>
+                {chartVisitDate ? (
+                  <button
+                    type="button"
+                    className="reception-search__button ghost"
+                    onClick={() => setSelectedDate(chartVisitDate)}
+                    disabled={selectedDate === chartVisitDate}
+                    title="現在のカルテ日へ移動"
+                  >
+                    カルテ日
+                  </button>
+                ) : null}
+              </div>
+              <label className="reception-search__field">
+                <span className="sr-only">日付</span>
+                <input
+                  id="reception-search-date"
+                  name="receptionSearchDate"
+                  type="date"
+                  value={selectedDate}
+                  onChange={(event) => setSelectedDate(event.target.value)}
+                  required
+                />
+              </label>
+              <div
+                ref={dailyCalendarRootRef}
+                className={`reception-daily-calendar${dailyCalendarOpen ? ' is-open' : ''}`}
+                data-run-id={resolvedRunId}
+              >
+                <button
+                  type="button"
+                  className="reception-daily-calendar__trigger"
+                  aria-label="日次状態（カレンダー）"
+                  aria-expanded={dailyCalendarOpen}
+                  onClick={toggleDailyCalendar}
+                >
+                  <span className="reception-daily-calendar__trigger-label">日次状態</span>
+                  <span className="reception-daily-calendar__trigger-date">{selectedDate}</span>
+                </button>
+                {dailyCalendarOpen ? (
+                  <div className="reception-daily-calendar__popover" role="group" aria-label="日次状態カレンダー">
+                    <header className="reception-daily-calendar__popover-header">
+                      <button
+                        type="button"
+                        className="reception-daily-calendar__nav"
+                        onClick={() => setDailyCalendarMonthStart((prev) => shiftUtcMonth(prev, -1))}
+                      >
+                        前月
+                      </button>
+                      <strong className="reception-daily-calendar__month" aria-live={infoLive}>
+                        {dailyCalendarMonthLabel}
+                      </strong>
+                      <button
+                        type="button"
+                        className="reception-daily-calendar__nav"
+                        onClick={() => setDailyCalendarMonthStart((prev) => shiftUtcMonth(prev, 1))}
+                      >
+                        翌月
+                      </button>
+                    </header>
+                    <div className="reception-daily-calendar__weekdays" aria-hidden="true">
+                      {DAILY_CALENDAR_WEEKDAYS.map((label) => (
+                        <span key={label}>{label}</span>
+                      ))}
+                    </div>
+                    <div className="reception-daily-calendar__days">
+                      {dailyCalendarCells.map((cell) => {
+                        const enabled = dailyCalendarAvailableDates.has(cell.ymd);
+                        const selected = cell.ymd === selectedDate;
+                        return (
+                          <button
+                            key={cell.ymd}
+                            type="button"
+                            className={`reception-daily-calendar__day${selected ? ' is-selected' : ''}${enabled ? ' is-enabled' : ''}${cell.inMonth ? '' : ' is-outside'}`}
+                            onClick={() => {
+                              if (!enabled) return;
+                              setSelectedDate(cell.ymd);
+                              setDailyCalendarOpen(false);
+                            }}
+                            disabled={!enabled}
+                            aria-pressed={selected}
+                            data-weekday={cell.weekday}
+                            title={enabled ? `${cell.ymd} の受付状況へ移動` : `${cell.ymd} は受付データがありません`}
+                          >
+                            {cell.day}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="reception-daily-calendar__legend" aria-hidden="true">
+                      <span className="reception-daily-calendar__legend-item">
+                        <span className="reception-daily-calendar__legend-dot" data-kind="enabled" />
+                        受付データあり
+                      </span>
+                      <span className="reception-daily-calendar__legend-item">
+                        <span className="reception-daily-calendar__legend-dot" data-kind="selected" />
+                        選択中
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="reception-toolbar__group" role="group" aria-label="検索">
+              <label className="reception-search__field">
+                <span>検索（患者ID/氏名/カナ）</span>
+                <input
+                  id="reception-search-keyword"
+                  name="receptionSearchKeyword"
+                  type="search"
+                  value={keyword}
+                  onChange={(event) => setKeyword(event.target.value)}
+                  placeholder="PX-0001 / 山田 / ヤマダ"
+                />
+              </label>
+              <button type="submit" className="reception-search__button primary">
+                検索
+              </button>
+            </div>
+            <div className="reception-toolbar__group" role="group" aria-label="絞り込み">
+              <label className="reception-search__field">
+                <span>診療科</span>
+                <select
+                  id="reception-search-department"
+                  name="receptionSearchDepartment"
+                  value={departmentFilter}
+                  onChange={(event) => setDepartmentFilter(event.target.value)}
+                >
+                  <option value="">すべて</option>
+                  {uniqueDepartments.map((dept) => (
+                    <option key={dept} value={dept}>
+                      {dept}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="reception-search__field">
+                <span>担当医</span>
+                <select
+                  id="reception-search-physician"
+                  name="receptionSearchPhysician"
+                  value={physicianFilter}
+                  onChange={(event) => setPhysicianFilter(event.target.value)}
+                >
+                  <option value="">すべて</option>
+                  {uniquePhysicians.map((physician) => (
+                    <option key={physician} value={physician}>
+                      {physician}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="reception-toolbar__group" role="status" aria-live={infoLive}>
               <button
                 type="button"
                 className={`reception-exception-indicator${exceptionCounts.total > 0 ? ' is-active' : ''}`}
@@ -4402,6 +4615,51 @@ export function ReceptionPage({
                 runId={resolvedRunId}
               />
             </div>
+            <div className="reception-toolbar__group" role="group" aria-label="操作">
+              <button
+                type="button"
+                className="reception-search__button ghost"
+                onClick={() => appointmentQuery.refetch()}
+              >
+                再取得
+              </button>
+              <button
+                type="button"
+                className="reception-search__button ghost"
+                onClick={() => setFiltersCollapsed((prev) => !prev)}
+                aria-expanded={!filtersCollapsed}
+                aria-controls="reception-toolbar-advanced"
+              >
+                詳細条件
+              </button>
+              <button
+                type="button"
+                className="reception-search__button primary"
+                onClick={toggleAcceptWorkflowModal}
+                aria-expanded={acceptWorkflowModalOpen}
+                data-test-id="reception-open-accept-workflow"
+              >
+                当日受付/患者検索
+              </button>
+              <button
+                type="button"
+                className="reception-results-toolbar__toggle"
+                onClick={() => setStatusListLayout('table')}
+                aria-pressed={statusListLayout === 'table'}
+              >
+                表
+              </button>
+              <button
+                type="button"
+                className="reception-results-toolbar__toggle"
+                onClick={() => setStatusListLayout('cards')}
+                aria-pressed={statusListLayout === 'cards'}
+              >
+                カード
+              </button>
+            </div>
+          </form>
+          {debugUiEnabled ? (
             <details className="reception-page__meta-details" data-test-id="reception-meta-details">
               <summary className="reception-page__meta-details-summary">システム詳細</summary>
               <div className="reception-page__meta-advanced" aria-label="システム詳細">
@@ -4436,264 +4694,110 @@ export function ReceptionPage({
                 />
               </div>
             </details>
-          </div>
+          ) : null}
+        </section>
+        {!filtersCollapsed ? (
           <section
-            className={`reception-search reception-search--header${filtersCollapsed ? ' is-collapsed' : ''}`}
-            aria-label="検索とフィルタ"
-            data-collapsed={filtersCollapsed ? 'true' : 'false'}
+            id="reception-toolbar-advanced"
+            className="reception-toolbar__advanced"
+            role="region"
+            aria-label="詳細条件"
           >
-            <header className="reception-search__header">
-              <div className="reception-search__header-main">
-                <h2>検索/フィルタ</h2>
-                <div className="reception-search__header-meta" aria-live={infoLive}>
-                  <span>日付: {selectedDate || '—'}</span>
-                  <span>kw: {keyword.trim() || '—'}</span>
-                  <span>科: {departmentFilter || 'すべて'}</span>
-                  <span>医: {physicianFilter || 'すべて'}</span>
-                  <span>
-                    支払: {paymentMode === 'all' ? 'すべて' : paymentMode === 'insurance' ? '保険' : '自費'}
-                  </span>
-                  <span className="reception-search__header-meta-advanced">src: {appointmentEntriesSourceLabel}</span>
-                  <span className="reception-search__header-meta-advanced">sort: {sortKey}</span>
-                </div>
-              </div>
+            <div className="reception-toolbar__advanced-grid">
+              <label className="reception-search__field">
+                <span>保険/自費</span>
+                <select
+                  id="reception-search-payment-mode"
+                  name="receptionSearchPaymentMode"
+                  value={paymentMode}
+                  onChange={(event) => setPaymentMode(normalizePaymentMode(event.target.value))}
+                >
+                  <option value="all">すべて</option>
+                  <option value="insurance">保険</option>
+                  <option value="self">自費</option>
+                </select>
+              </label>
+              <label className="reception-search__field">
+                <span>ソート</span>
+                <select
+                  id="reception-search-sort"
+                  name="receptionSearchSort"
+                  value={sortKey}
+                  onChange={(event) => setSortKey(event.target.value as SortKey)}
+                >
+                  <option value="time">優先時間（受付→予約）</option>
+                  <option value="acceptance">受付時間</option>
+                  <option value="reservation">予約時間</option>
+                  <option value="name">氏名</option>
+                  <option value="department">診療科</option>
+                </select>
+              </label>
+              <label className="reception-search__field">
+                <span>保存ビュー</span>
+                <select
+                  id="reception-search-saved-view"
+                  name="receptionSearchSavedView"
+                  value={selectedViewId}
+                  onChange={(event) => setSelectedViewId(event.target.value)}
+                >
+                  <option value="">選択してください</option>
+                  {savedViews.map((view) => (
+                    <option key={view.id} value={view.id}>
+                      {view.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 type="button"
                 className="reception-search__button ghost"
-                onClick={() => setFiltersCollapsed((prev) => !prev)}
-                aria-expanded={!filtersCollapsed}
+                onClick={() => {
+                  const view = savedViews.find((item) => item.id === selectedViewId);
+                  if (view) applySavedView(view);
+                }}
+                disabled={!selectedViewId}
               >
-                {filtersCollapsed ? '開く' : '折りたたむ'}
+                適用
               </button>
-            </header>
-            {!filtersCollapsed ? (
-              <>
-                <form className="reception-search__form" onSubmit={handleSearchSubmit}>
-                  <div className="reception-search__row reception-search__row--primary">
-                    <label className="reception-search__field">
-                      <span>日付</span>
-                      <input
-                        id="reception-search-date"
-                        name="receptionSearchDate"
-                        type="date"
-                        value={selectedDate}
-                        onChange={(event) => setSelectedDate(event.target.value)}
-                        required
-                      />
-                        <div className="reception-search__date-nav" role="group" aria-label="日付操作">
-                          <button
-                            type="button"
-                            className="reception-search__button ghost"
-                            onClick={() => setSelectedDate((prev) => shiftDate(prev, -1))}
-                            title="前日に移動"
-                          >
-                            前日
-                          </button>
-                          <button
-                            type="button"
-                            className="reception-search__button ghost"
-                            onClick={() => setSelectedDate(todayString())}
-                            disabled={selectedDate === todayString()}
-                            title="今日に移動"
-                          >
-                            今日
-                          </button>
-                          <button
-                            type="button"
-                            className="reception-search__button ghost"
-                            onClick={() => setSelectedDate((prev) => shiftDate(prev, 1))}
-                            title="翌日に移動"
-                          >
-                            翌日
-                          </button>
-                          {chartVisitDate ? (
-                            <button
-                              type="button"
-                              className="reception-search__button ghost"
-                              onClick={() => setSelectedDate(chartVisitDate)}
-                              disabled={selectedDate === chartVisitDate}
-                              title="現在のカルテ日へ移動"
-                            >
-                              カルテ日
-                            </button>
-                          ) : null}
-                        </div>
-                    </label>
-                    <label className="reception-search__field">
-                      <span>検索（患者ID/氏名/カナ）</span>
-                      <input
-                        id="reception-search-keyword"
-                        name="receptionSearchKeyword"
-                        type="search"
-                        value={keyword}
-                        onChange={(event) => setKeyword(event.target.value)}
-                        placeholder="PX-0001 / 山田 / ヤマダ"
-                      />
-                    </label>
-                    <label className="reception-search__field">
-                      <span>診療科</span>
-                      <select
-                        id="reception-search-department"
-                        name="receptionSearchDepartment"
-                        value={departmentFilter}
-                        onChange={(event) => setDepartmentFilter(event.target.value)}
-                      >
-                        <option value="">すべて</option>
-                        {uniqueDepartments.map((dept) => (
-                          <option key={dept} value={dept}>
-                            {dept}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="reception-search__field">
-                      <span>担当医</span>
-                      <select
-                        id="reception-search-physician"
-                        name="receptionSearchPhysician"
-                        value={physicianFilter}
-                        onChange={(event) => setPhysicianFilter(event.target.value)}
-                      >
-                        <option value="">すべて</option>
-                        {uniquePhysicians.map((physician) => (
-                          <option key={physician} value={physician}>
-                            {physician}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <details className="reception-search__details">
-                    <summary className="reception-search__details-summary">詳細条件</summary>
-                    <div className="reception-search__row reception-search__row--secondary">
-                      <label className="reception-search__field">
-                        <span>保険/自費</span>
-                        <select
-                          id="reception-search-payment-mode"
-                          name="receptionSearchPaymentMode"
-                          value={paymentMode}
-                          onChange={(event) => setPaymentMode(normalizePaymentMode(event.target.value))}
-                        >
-                          <option value="all">すべて</option>
-                          <option value="insurance">保険</option>
-                          <option value="self">自費</option>
-                        </select>
-                      </label>
-                      <label className="reception-search__field">
-                        <span>ソート</span>
-                        <select
-                          id="reception-search-sort"
-                          name="receptionSearchSort"
-                          value={sortKey}
-                          onChange={(event) => setSortKey(event.target.value as SortKey)}
-                        >
-                          <option value="time">優先時間（受付→予約）</option>
-                          <option value="acceptance">受付時間</option>
-                          <option value="reservation">予約時間</option>
-                          <option value="name">氏名</option>
-                          <option value="department">診療科</option>
-                        </select>
-                      </label>
-                    </div>
-                  </details>
-                  <div className="reception-search__actions">
-                    <button type="submit" className="reception-search__button primary">
-                      検索
-                    </button>
-                    <button
-                      type="button"
-                      className="reception-search__button ghost"
-                      onClick={() => appointmentQuery.refetch()}
-                    >
-                      再取得
-                    </button>
-                    <button type="button" className="reception-search__button ghost" onClick={handleClear}>
-                      クリア
-                    </button>
-                  </div>
-                </form>
-                <div className="reception-search__saved" aria-label="保存ビュー">
-                  <div className="reception-search__saved-meta" role="status" aria-live={infoLive}>
-                    <span className="reception-search__saved-share">Reception ↔ Patients で共有</span>
-                    <span className="reception-search__saved-updated">
-                      {selectedSavedView ? `選択中の更新: ${savedViewUpdatedAtLabel ?? '—'}` : '選択中のビューはありません'}
-                    </span>
-                  </div>
-                  <div className="reception-search__saved-row">
-                    <label className="reception-search__field">
-                      <span>保存ビュー</span>
-                      <select
-                        id="reception-search-saved-view"
-                        name="receptionSearchSavedView"
-                        value={selectedViewId}
-                        onChange={(event) => setSelectedViewId(event.target.value)}
-                      >
-                        <option value="">選択してください</option>
-                        {savedViews.map((view) => (
-                          <option key={view.id} value={view.id}>
-                            {view.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      className="reception-search__button ghost"
-                      onClick={() => {
-                        const view = savedViews.find((item) => item.id === selectedViewId);
-                        if (view) applySavedView(view);
-                      }}
-                      disabled={!selectedViewId}
-                    >
-                      適用
-                    </button>
-                    <button
-                      type="button"
-                      className="reception-search__button ghost"
-                      onClick={handleDeleteView}
-                      disabled={!selectedViewId}
-                    >
-                      削除
-                    </button>
-                  </div>
-                  <div className="reception-search__saved-row">
-                    <label className="reception-search__field">
-                      <span>ビュー名</span>
-                      <input
-                        id="reception-search-saved-view-name"
-                        name="receptionSearchSavedViewName"
-                        value={savedViewName}
-                        onChange={(event) => setSavedViewName(event.target.value)}
-                        placeholder="例: 内科/午前/保険"
-                      />
-                    </label>
-                    <button type="button" className="reception-search__button primary" onClick={handleSaveView}>
-                      現在の条件を保存
-                    </button>
-                  </div>
-                </div>
-                {!appointmentQuery.isLoading && sortedEntries.length === 0 && (
-                  <p className="reception-summary__empty" role="status" aria-live={infoLive}>
-                    0件です。日付やキーワードを見直してください。
-                    <span className="reception-summary__empty-hint">
-                      ヒント: 診療科・担当医・保険/自費を先に絞ると探しやすくなります。
-                    </span>
-                  </p>
-                )}
-                {appointmentQuery.isLoading && (
-                  <p role="status" aria-live={infoLive} className="reception-status">
-                    外来リストを読み込み中…
-                  </p>
-                )}
-              </>
-            ) : null}
+              <button
+                type="button"
+                className="reception-search__button ghost"
+                onClick={handleDeleteView}
+                disabled={!selectedViewId}
+              >
+                削除
+              </button>
+              <label className="reception-search__field">
+                <span>ビュー名</span>
+                <input
+                  id="reception-search-saved-view-name"
+                  name="receptionSearchSavedViewName"
+                  value={savedViewName}
+                  onChange={(event) => setSavedViewName(event.target.value)}
+                  placeholder="例: 内科/午前/保険"
+                />
+              </label>
+              <button type="button" className="reception-search__button primary" onClick={handleSaveView}>
+                現在の条件を保存
+              </button>
+              <button type="button" className="reception-search__button ghost" onClick={handleClear}>
+                クリア
+              </button>
+            </div>
+            <div className="reception-toolbar__summary" role="status" aria-live={infoLive}>
+              <span className="reception-search__saved-share">Reception ↔ Patients で共有</span>
+              <span className="reception-search__saved-updated">
+                {selectedSavedView ? `選択中の更新: ${savedViewUpdatedAtLabel ?? '—'}` : '選択中のビューはありません'}
+              </span>
+            </div>
           </section>
-	          {(appointmentErrorContext ||
-	            unlinkedWarning ||
-	            intentBanner ||
-	            broadcast ||
-            appointmentAutoRefreshNotice ||
-            appointmentQuery.data?.hasNextPage) && (
+        ) : null}
+		          {(appointmentErrorContext ||
+		            unlinkedWarning ||
+		            intentBanner ||
+		            broadcast ||
+	            appointmentAutoRefreshNotice ||
+	            appointmentQuery.data?.hasNextPage) && (
             <div className="reception-page__alerts" role="region" aria-label="警告/通知">
               {appointmentErrorContext && (
                 <ApiFailureBanner
@@ -4749,7 +4853,6 @@ export function ReceptionPage({
               ) : null}
             </div>
           )}
-        </section>
 
         <section className="reception-layout" id="reception-results" tabIndex={-1}>
           <div className="reception-layout__main">
@@ -4954,71 +5057,65 @@ export function ReceptionPage({
             </section>
             ) : null}
 
-            <div
-              className="reception-results-toolbar"
-              role="region"
-              aria-label="検索結果操作"
-              ref={summaryRef}
-              tabIndex={-1}
-            >
-              <div className="reception-results-toolbar__summary" aria-live={infoLive}>
-                <strong>{summaryText}</strong>
-                {appointmentQuery.isFetching ? (
-                  <span className="reception-results-toolbar__loading">更新中…</span>
-                ) : null}
+            <div className="reception-status-tabs" role="region" aria-label="ステータスタブ">
+              <div className="reception-status-tabs__header">
+                <div className="reception-status-tabs__summary" ref={summaryRef} tabIndex={-1} role="status" aria-live={infoLive}>
+                  <strong>{summaryText}</strong>
+                  {appointmentQuery.isFetching ? (
+                    <span className="reception-results-toolbar__loading">更新中…</span>
+                  ) : null}
+                </div>
               </div>
-              <div className="reception-results-toolbar__actions" role="group" aria-label="一覧表示切替">
-                <button
-                  type="button"
-                  className="reception-results-toolbar__toggle"
-                  onClick={() => setStatusListLayout('table')}
-                  aria-pressed={statusListLayout === 'table'}
-                >
-                  表
-                </button>
-                <button
-                  type="button"
-                  className="reception-results-toolbar__toggle"
-                  onClick={() => setStatusListLayout('cards')}
-                  aria-pressed={statusListLayout === 'cards'}
-                >
-                  カード
-                </button>
+              <div className="reception-status-tabs__list" role="tablist" aria-label="受付ステータス">
+                {STATUS_TAB_ORDER.map((status) => {
+                  const isActive = status === activeStatusTab;
+                  const count = groupedByStatus.get(status)?.length ?? 0;
+                  const dotTone = statusExceptionTone.get(status);
+                  return (
+                    <button
+                      key={status}
+                      id={`reception-status-tab-${status}`}
+                      type="button"
+                      role="tab"
+                      className={`reception-status-tabs__tab${isActive ? ' is-active' : ''}`}
+                      aria-selected={isActive}
+                      aria-controls={`reception-status-tabpanel-${status}`}
+                      tabIndex={isActive ? 0 : -1}
+                      onClick={() => handleStatusTabChange(status)}
+                      onKeyDown={handleStatusTabKeyDown}
+                    >
+                      <span>{SECTION_LABEL[status]}</span>
+                      <span>{count}</span>
+                      {dotTone ? <span className="reception-status-tabs__dot" data-tone={dotTone} aria-hidden="true" /> : null}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {statusListLayout === 'cards' ? (
-            <div className="reception-board" role="region" aria-label="ステータス別患者一覧">
-              {grouped.map(({ status, items }) => (
-                <section
-                  key={status}
-                  className="reception-board__column"
-                  id={status === '予約' ? 'reception-section-appointment' : status === '会計待ち' ? 'reception-section-billing' : undefined}
-                  data-status={status}
-                  aria-label={`${SECTION_LABEL[status]} ${items.length}件`}
-                >
-                  <header className="reception-board__header">
-                    <div className="reception-board__title">
-                      <h2>{SECTION_LABEL[status]}</h2>
-                      <span className="reception-board__count" aria-live={infoLive}>
-                        {items.length}件
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="reception-board__toggle"
-                      aria-expanded={!collapsed[status]}
-                      onClick={() => toggleSection(status)}
-                    >
-                      {collapsed[status] ? '開く' : '折りたたむ'}
-                    </button>
-                  </header>
-                  {!collapsed[status] && (
-                    <div className="reception-board__body" role="list" aria-label={`${SECTION_LABEL[status]}の患者一覧`}>
-                      {items.length === 0 ? (
-                        <p className="reception-board__empty">該当なし</p>
+            <section className="reception-list" role="region" aria-label="受付一覧">
+              <div
+                className="reception-status-tabs__panel"
+                id={`reception-status-tabpanel-${activeStatusTab}`}
+                role="tabpanel"
+                aria-labelledby={`reception-status-tab-${activeStatusTab}`}
+              >
+                {statusListLayout === 'cards' ? (
+                  <section className="reception-board__column" data-status={activeStatusTab} aria-label={`${activeStatusLabel}一覧`}>
+                    <header className="reception-board__header">
+                      <div className="reception-board__title">
+                        <h2>{activeStatusLabel}</h2>
+                        <span className="reception-board__count" aria-live={infoLive}>
+                          {activeStatusItems.length}件
+                        </span>
+                      </div>
+                    </header>
+                    <div className="reception-board__body" role="list" aria-label={`${activeStatusLabel}の患者一覧`}>
+                      {activeStatusItems.length === 0 ? (
+                        <p className="reception-board__empty">「{activeStatusLabel}」に該当する患者はいません。</p>
                       ) : (
-                        items.map((entry) => {
+                        activeStatusItems.map((entry) => {
+                          const status = activeStatusTab;
                           const bundle = resolveBundleForEntry(entry);
                           const paymentLabel = paymentModeLabel(entry.insurance);
                           const canOpenCharts = Boolean(entry.patientId);
@@ -5040,6 +5137,8 @@ export function ReceptionPage({
                           const cardActionMenuKey = `${status}:${rowKey}`;
                           const cardActionMenuOpen = openCardActionMenuKey === cardActionMenuKey;
                           const activeQueue = orcaQueueStatus;
+                          const queueDetailVisible =
+                            Boolean(activeQueue.detail) && (activeQueue.tone === 'warning' || activeQueue.tone === 'error');
                           const acceptanceTime = normalizeTimeLabel(
                             entry.acceptanceTime ?? (entry.source === 'visits' ? entry.appointmentTime : undefined),
                           );
@@ -5123,7 +5222,7 @@ export function ReceptionPage({
                                   disabled={!canOpenCharts}
                                   title={canOpenCharts ? 'カルテを開く' : '患者IDが未登録のためカルテを開けません'}
                                 >
-                                  カルテを開く
+                                  カルテ
                                 </button>
                                 <div
                                   className={`reception-card__menu${cardActionMenuOpen ? ' is-open' : ''}`}
@@ -5143,9 +5242,7 @@ export function ReceptionPage({
                                     aria-expanded={cardActionMenuOpen}
                                     onClick={(event) => {
                                       event.stopPropagation();
-                                      setOpenCardActionMenuKey((prev) =>
-                                        prev === cardActionMenuKey ? null : cardActionMenuKey,
-                                      );
+                                      setOpenCardActionMenuKey((prev) => (prev === cardActionMenuKey ? null : cardActionMenuKey));
                                     }}
                                   >
                                     その他
@@ -5279,10 +5376,7 @@ export function ReceptionPage({
                                         ) : null}
                                       </div>
                                     </div>
-                                    <span
-                                      className={`reception-badge reception-badge--${status}`}
-                                      aria-label={`状態: ${SECTION_LABEL[status]}`}
-                                    >
+                                    <span className={`reception-badge reception-badge--${status}`} aria-label={`状態: ${SECTION_LABEL[status]}`}>
                                       {isReceptionStatusMvpEnabled ? (
                                         <span className="reception-status-mvp" data-test-id="reception-status-mvp">
                                           <span className="reception-status-mvp__dot" aria-hidden="true" data-status={status} />
@@ -5319,13 +5413,13 @@ export function ReceptionPage({
                                     {bundle?.claimStatus || bundle?.claimStatusText ? (
                                       <small>請求: {bundle.claimStatus ?? bundle.claimStatusText}</small>
                                     ) : null}
-                                    {cached?.invoiceNumber ? <small>invoice: {cached.invoiceNumber}</small> : null}
-                                    {cached?.dataId ? <small>data: {cached.dataId}</small> : null}
                                     {cached?.sendStatus ? (
-                                      <small>会計送信: {cached.sendStatus === 'success' ? '成功' : '失敗'}</small>
+                                      <small>会計送信: {cached.sendStatus === 'success' ? '送信成功' : '送信失敗'}</small>
                                     ) : null}
+                                    {debugUiEnabled && cached?.invoiceNumber ? <small>invoice: {cached.invoiceNumber}</small> : null}
+                                    {debugUiEnabled && cached?.dataId ? <small>data: {cached.dataId}</small> : null}
                                     <span className={`reception-queue reception-queue--${activeQueue.tone}`}>{activeQueue.label}</span>
-                                    {activeQueue.detail ? <small>{truncateText(activeQueue.detail, 44)}</small> : null}
+                                    {queueDetailVisible ? <small>{truncateText(activeQueue.detail ?? '', 44)}</small> : null}
                                   </div>
                                   {isReceptionStatusMvpPhase2 && mvpDecision ? (
                                     <div className="reception-status-mvp__next" data-tone={mvpDecision.tone}>
@@ -5343,440 +5437,320 @@ export function ReceptionPage({
                         })
                       )}
                     </div>
-                  )}
-                </section>
-              ))}
-            </div>
-            ) : null}
-
-            {statusListLayout === 'table' ? (
-              <div className="reception-board reception-board--table" role="region" aria-label="ステータス別患者一覧">
-                {grouped.map(({ status, items }, index) => {
-              const sectionId = `reception-section-${index}`;
-              const tableHelpId = `${sectionId}-help`;
-              const tableStatusId = `${sectionId}-status`;
-              const tableLabelId = `${sectionId}-label`;
-              const tableStatusText =
-                selectedEntry && selectedEntry.status === status
-                  ? selectionSummaryText
-                  : `${SECTION_LABEL[status]} ${items.length}件`;
-              return (
-              <section key={status} className="reception-section" aria-label={`${SECTION_LABEL[status]}リスト`}>
-                <header className="reception-section__header">
-                  <div>
-                    <h2 id={tableLabelId}>{SECTION_LABEL[status]}</h2>
-                    <span className="reception-section__count" aria-live={infoLive}>
-                      {items.length} 件
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    className="reception-section__toggle"
-                    aria-expanded={!collapsed[status]}
-                    onClick={() => toggleSection(status)}
-                  >
-                    {collapsed[status] ? '開く' : '折りたたむ'}
-                  </button>
-                </header>
-                {!collapsed[status] && (
-                  <div
-                    className="reception-table__wrapper"
-                    role="region"
-                    tabIndex={0}
-                    aria-labelledby={tableLabelId}
-                  >
-                    <p id={tableHelpId} className="sr-only">行クリックで選択状態を更新し、ダブルクリックまたは Enter で Charts（新規タブ）へ移動します。</p>
-                    <p id={tableStatusId} className="sr-only" role="status" aria-live={infoLive} aria-atomic="true">
-                      {tableStatusText}
-                    </p>
-                    <table className="reception-table" aria-describedby={`${tableHelpId} ${tableStatusId}`}>
-                      <thead>
-                        <tr>
-                          <th scope="col">ID</th>
-                          <th scope="col">氏名</th>
-                          <th scope="col">来院/科</th>
-                          <th scope="col">支払</th>
-                          {claimOutpatientEnabled && <th scope="col">請求</th>}
-                          <th scope="col">メモ/参照</th>
-                          <th scope="col">直近</th>
-                          <th scope="col">ORCA</th>
-                          <th scope="col">操作</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {items.length === 0 && (
+                  </section>
+                ) : (
+                  <section className="reception-section" aria-label={`${activeStatusLabel}一覧`}>
+                    <header className="reception-section__header">
+                      <div>
+                        <h2 id={`reception-section-label-${activeStatusTab}`}>{activeStatusLabel}</h2>
+                        <span className="reception-section__count" aria-live={infoLive}>
+                          {activeStatusItems.length} 件
+                        </span>
+                      </div>
+                    </header>
+                    <div
+                      className="reception-table__wrapper"
+                      role="region"
+                      tabIndex={0}
+                      aria-labelledby={`reception-section-label-${activeStatusTab}`}
+                    >
+                      <p id={`reception-section-help-${activeStatusTab}`} className="sr-only">
+                        行クリックで選択状態を更新し、ダブルクリックまたは Enter で Charts（新規タブ）へ移動します。
+                      </p>
+                      <p
+                        id={`reception-section-status-${activeStatusTab}`}
+                        className="sr-only"
+                        role="status"
+                        aria-live={infoLive}
+                        aria-atomic="true"
+                      >
+                        {selectedEntry && selectedEntry.status === activeStatusTab
+                          ? selectionSummaryText
+                          : `${activeStatusLabel} ${activeStatusItems.length}件`}
+                      </p>
+                      <table
+                        className="reception-table"
+                        aria-describedby={`reception-section-help-${activeStatusTab} reception-section-status-${activeStatusTab}`}
+                      >
+                        <thead>
                           <tr>
-                            <td colSpan={tableColCount} className="reception-table__empty">
-                              該当なし
-                            </td>
+                            <th scope="col">ID</th>
+                            <th scope="col">氏名</th>
+                            <th scope="col">来院/科</th>
+                            <th scope="col">支払</th>
+                            {claimOutpatientEnabled && <th scope="col">請求</th>}
+                            <th scope="col">メモ/参照</th>
+                            <th scope="col">直近</th>
+                            <th scope="col">ORCA</th>
+                            <th scope="col">操作</th>
                           </tr>
-                        )}
-                        {items.map((entry) => {
-                          const queueStatus = resolveQueueStatusForEntry(entry);
-                          const bundle = resolveBundleForEntry(entry);
-                          const paymentLabel = paymentModeLabel(entry.insurance);
-                          const canOpenCharts = Boolean(entry.patientId);
-                          const orcaQueueEntry = entry.patientId ? orcaQueueByPatientId.get(entry.patientId) : undefined;
-                          const orcaQueueStatus = orcaQueueErrorStatus ?? resolveOrcaQueueStatus(orcaQueueEntry);
-                          const mvpDecision = isReceptionStatusMvpEnabled
-                            ? resolveRec001MvpDecision({
-                                missingMaster: metaMissingMaster,
-                                orcaQueueErrorMessage,
-                                orcaQueueStatus,
-                                orcaQueueEntry,
-                              })
-                            : null;
-                          const fallbackAppointmentId =
-                            entry.receptionId ? undefined : entry.appointmentId ?? (entry.id ? String(entry.id) : undefined);
-                          const isSelected = selectedEntryKey === entryKey(entry);
-                          const rowKey =
-                            entryKey(entry) ??
-                            `${entry.patientId ?? 'unknown'}-${entry.appointmentTime ?? entry.department ?? 'row'}`;
-                          const tableActionMenuKey = `table:${status}:${rowKey}`;
-                          const tableActionMenuOpen = openCardActionMenuKey === tableActionMenuKey;
-                          return (
-                            <tr
-                              key={rowKey}
-                              tabIndex={0}
-                              className={`reception-table__row${isSelected ? ' reception-table__row--selected' : ''}`}
-                              onClick={() => handleSelectRow(entry)}
-                              onDoubleClick={() => handleRowDoubleClick(entry)}
-                              onKeyDown={(event) => {
-                                if (event.target !== event.currentTarget) return;
-                                if (event.key !== 'Enter') return;
-                                event.preventDefault();
-                                handleRowDoubleClick(entry);
-                              }}
-                              aria-selected={isSelected}
-                              aria-label={`${entry.name ?? '患者'} ${entry.appointmentTime ?? ''} ${entry.department ?? ''}`}
-                              data-test-id="reception-entry-row"
-                              data-patient-id={entry.patientId ?? ''}
-                              data-reception-status={status}
-                            >
-                              <td>
-                                <PatientMetaRow
-                                  as="div"
-                                  className="reception-table__id"
-                                  patientId={entry.patientId ?? '未登録'}
-                                  receptionId={entry.receptionId}
-                                  appointmentId={fallbackAppointmentId}
-                                  showLabels
-                                  separator="slash"
-                                  runId={resolvedRunId}
-                                  itemClassName="reception-table__id-item"
-                                  labelClassName="reception-table__id-label"
-                                  valueClassName="reception-table__id-value"
-                                />
+                        </thead>
+                        <tbody>
+                          {activeStatusItems.length === 0 ? (
+                            <tr>
+                              <td colSpan={tableColCount} className="reception-table__empty">
+                                「{activeStatusLabel}」に該当する患者はいません。
                               </td>
-                              <td>
-                                <div className="reception-table__patient">
-                                  <strong>{entry.name ?? '未登録'}</strong>
-                                  <small className="reception-table__sub">{entry.kana ?? '—'}</small>
-                                  <small className="reception-table__sub">
-                                    DOB: {entry.birthDate ?? '—'} / 性別: {entry.sex ?? '—'}
-                                  </small>
-                                </div>
-                              </td>
-                              <td>
-                                <div className="reception-table__time">{entry.appointmentTime ?? '-'}</div>
-                                <small className="reception-table__sub">{entry.department ?? '-'}</small>
-                              </td>
-                              <td className="reception-table__insurance">
-                                <StatusPill className="reception-pill" ariaLabel={`支払区分: ${paymentLabel}`} runId={resolvedRunId}>
-                                  {paymentLabel}
-                                </StatusPill>
-                                <small className="reception-table__sub">{entry.insurance ?? '—'}</small>
-                              </td>
-                              {claimOutpatientEnabled && (
-                                <td className="reception-table__claim">
-                                  <div>{bundle?.claimStatus ?? bundle?.claimStatusText ?? '未取得'}</div>
-                                  {bundle?.bundleNumber && <small className="reception-table__sub">B: {bundle.bundleNumber}</small>}
-                                  {(() => {
-                                    const cached = entry.patientId ? claimSendCache[entry.patientId] : null;
-                                    if (!cached) return null;
-                                    return (
-                                      <>
-                                        {cached.invoiceNumber && (
-                                          <small className="reception-table__sub">I: {cached.invoiceNumber}</small>
-                                        )}
-                                        {cached.dataId && <small className="reception-table__sub">D: {cached.dataId}</small>}
-                                        {cached.sendStatus && (
-                                          <small className="reception-table__sub">
-                                            会計送信: {cached.sendStatus === 'success' ? '成功' : '失敗'}
-                                          </small>
-                                        )}
-                                      </>
-                                    );
-                                  })()}
+                            </tr>
+                          ) : null}
+                          {activeStatusItems.map((entry) => {
+                            const queueStatus = resolveQueueStatusForEntry(entry);
+                            const bundle = resolveBundleForEntry(entry);
+                            const paymentLabel = paymentModeLabel(entry.insurance);
+                            const canOpenCharts = Boolean(entry.patientId);
+                            const orcaQueueEntry = entry.patientId ? orcaQueueByPatientId.get(entry.patientId) : undefined;
+                            const orcaQueueStatus = orcaQueueErrorStatus ?? resolveOrcaQueueStatus(orcaQueueEntry);
+                            const displayedQueueStatus = isReceptionStatusMvpEnabled ? orcaQueueStatus : queueStatus;
+                            const queueDetailVisible =
+                              Boolean(displayedQueueStatus.detail) &&
+                              (displayedQueueStatus.tone === 'warning' || displayedQueueStatus.tone === 'error');
+                            const mvpDecision = isReceptionStatusMvpEnabled
+                              ? resolveRec001MvpDecision({
+                                  missingMaster: metaMissingMaster,
+                                  orcaQueueErrorMessage,
+                                  orcaQueueStatus,
+                                  orcaQueueEntry,
+                                })
+                              : null;
+                            const fallbackAppointmentId =
+                              entry.receptionId ? undefined : entry.appointmentId ?? (entry.id ? String(entry.id) : undefined);
+                            const isSelected = selectedEntryKey === entryKey(entry);
+                            const rowKey =
+                              entryKey(entry) ??
+                              `${entry.patientId ?? 'unknown'}-${entry.appointmentTime ?? entry.department ?? 'row'}`;
+                            const tableActionMenuKey = `table:${activeStatusTab}:${rowKey}`;
+                            const tableActionMenuOpen = openCardActionMenuKey === tableActionMenuKey;
+                            return (
+                              <tr
+                                key={rowKey}
+                                tabIndex={0}
+                                className={`reception-table__row${isSelected ? ' reception-table__row--selected' : ''}`}
+                                onClick={() => handleSelectRow(entry)}
+                                onDoubleClick={() => handleRowDoubleClick(entry)}
+                                onKeyDown={(event) => {
+                                  if (event.target !== event.currentTarget) return;
+                                  if (event.key !== 'Enter') return;
+                                  event.preventDefault();
+                                  handleRowDoubleClick(entry);
+                                }}
+                                aria-selected={isSelected}
+                                aria-label={`${entry.name ?? '患者'} ${entry.appointmentTime ?? ''} ${entry.department ?? ''}`}
+                                data-test-id="reception-entry-row"
+                                data-patient-id={entry.patientId ?? ''}
+                                data-reception-status={activeStatusTab}
+                              >
+                                <td>
+                                  <PatientMetaRow
+                                    as="div"
+                                    className="reception-table__id"
+                                    patientId={entry.patientId ?? '未登録'}
+                                    receptionId={entry.receptionId}
+                                    appointmentId={fallbackAppointmentId}
+                                    showLabels
+                                    separator="slash"
+                                    runId={resolvedRunId}
+                                    itemClassName="reception-table__id-item"
+                                    labelClassName="reception-table__id-label"
+                                    valueClassName="reception-table__id-value"
+                                  />
                                 </td>
-                              )}
-                              <td className="reception-table__note">
-                                {entry.note ? truncateText(entry.note, 36) : '—'}
-                              </td>
-                              <td className="reception-table__last">{resolveLastVisitForEntry(entry)}</td>
-                              <td className="reception-table__queue">
-                                {isReceptionStatusMvpEnabled ? (
-                                  <>
-                                    <span
-                                      className={`reception-queue reception-queue--${orcaQueueStatus.tone}`}
-                                      aria-label={`ORCAキュー: ${orcaQueueStatus.label}${orcaQueueStatus.detail ? ` ${orcaQueueStatus.detail}` : ''}`}
-                                    >
-                                      {orcaQueueStatus.label}
-                                    </span>
-                                    {orcaQueueStatus.detail && <small className="reception-table__sub">{orcaQueueStatus.detail}</small>}
-                                  </>
-                                ) : (
-                                  <>
-                                    <span
-                                      className={`reception-queue reception-queue--${queueStatus.tone}`}
-                                      aria-label={`ORCAキュー: ${queueStatus.label}${queueStatus.detail ? ` ${queueStatus.detail}` : ''}`}
-                                    >
-                                      {queueStatus.label}
-                                    </span>
-                                    {queueStatus.detail && <small className="reception-table__sub">{queueStatus.detail}</small>}
-                                  </>
+                                <td>
+                                  <div className="reception-table__patient">
+                                    <strong>{entry.name ?? '未登録'}</strong>
+                                    <small className="reception-table__sub">{entry.kana ?? '—'}</small>
+                                    <small className="reception-table__sub">
+                                      DOB: {entry.birthDate ?? '—'} / 性別: {entry.sex ?? '—'}
+                                    </small>
+                                  </div>
+                                </td>
+                                <td>
+                                  <div className="reception-table__time">{entry.appointmentTime ?? '-'}</div>
+                                  <small className="reception-table__sub">{entry.department ?? '-'}</small>
+                                </td>
+                                <td className="reception-table__insurance">
+                                  <StatusPill className="reception-pill" ariaLabel={`支払区分: ${paymentLabel}`} runId={resolvedRunId}>
+                                    {paymentLabel}
+                                  </StatusPill>
+                                  <small className="reception-table__sub">{entry.insurance ?? '—'}</small>
+                                </td>
+                                {claimOutpatientEnabled && (
+                                  <td className="reception-table__claim">
+                                    <div>{bundle?.claimStatus ?? bundle?.claimStatusText ?? '未取得'}</div>
+                                    {bundle?.bundleNumber && debugUiEnabled ? (
+                                      <small className="reception-table__sub">B: {bundle.bundleNumber}</small>
+                                    ) : null}
+                                    {(() => {
+                                      const cached = entry.patientId ? claimSendCache[entry.patientId] : null;
+                                      if (!cached) return null;
+                                      return (
+                                        <>
+                                          {cached.sendStatus ? (
+                                            <small className="reception-table__sub">
+                                              会計送信: {cached.sendStatus === 'success' ? '送信成功' : '送信失敗'}
+                                            </small>
+                                          ) : null}
+                                          {debugUiEnabled && cached.invoiceNumber ? (
+                                            <small className="reception-table__sub">I: {cached.invoiceNumber}</small>
+                                          ) : null}
+                                          {debugUiEnabled && cached.dataId ? (
+                                            <small className="reception-table__sub">D: {cached.dataId}</small>
+                                          ) : null}
+                                        </>
+                                      );
+                                    })()}
+                                  </td>
                                 )}
-                              </td>
-                              <td className="reception-table__action">
-                                {status === '会計待ち' ? (
+                                <td className="reception-table__note">
+                                  {entry.note ? truncateText(entry.note, 36) : '—'}
+                                </td>
+                                <td className="reception-table__last">{resolveLastVisitForEntry(entry)}</td>
+                                <td className="reception-table__queue">
+                                  <span
+                                    className={`reception-queue reception-queue--${displayedQueueStatus.tone}`}
+                                    aria-label={`ORCAキュー: ${displayedQueueStatus.label}${displayedQueueStatus.detail ? ` ${displayedQueueStatus.detail}` : ''}`}
+                                  >
+                                    {displayedQueueStatus.label}
+                                  </span>
+                                  {queueDetailVisible ? (
+                                    <small className="reception-table__sub">{displayedQueueStatus.detail}</small>
+                                  ) : null}
+                                </td>
+                                <td className="reception-table__action">
+                                  {activeStatusTab === '会計待ち' ? (
+                                    <button
+                                      type="button"
+                                      className="reception-card__action reception-card__action--primary"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setOpenCardActionMenuKey(null);
+                                        void handleSendBilling(entry);
+                                      }}
+                                      disabled={!entry.patientId || claimSendingPatientId === entry.patientId}
+                                      title={
+                                        !entry.patientId
+                                          ? '患者IDが未登録のため会計送信できません'
+                                          : claimSendingPatientId === entry.patientId
+                                            ? '送信中です'
+                                            : 'ORCAへ会計送信します'
+                                      }
+                                    >
+                                      {claimSendingPatientId === entry.patientId ? '会計送信中…' : '会計送信'}
+                                    </button>
+                                  ) : null}
                                   <button
                                     type="button"
                                     className="reception-card__action reception-card__action--primary"
+                                    aria-label="カルテを開く"
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       setOpenCardActionMenuKey(null);
-                                      void handleSendBilling(entry);
+                                      handleOpenCharts(entry);
                                     }}
-                                    disabled={!entry.patientId || claimSendingPatientId === entry.patientId}
-                                    title={
-                                      !entry.patientId
-                                        ? '患者IDが未登録のため会計送信できません'
-                                        : claimSendingPatientId === entry.patientId
-                                          ? '送信中です'
-                                          : 'ORCAへ会計送信します'
-                                    }
+                                    disabled={!canOpenCharts}
+                                    title={canOpenCharts ? 'カルテを開く' : '患者IDが未登録のためカルテを開けません'}
                                   >
-                                    {claimSendingPatientId === entry.patientId ? '会計送信中…' : '会計送信'}
+                                    カルテ
                                   </button>
-                                ) : null}
-                                <div
-                                  className={`reception-card__menu${tableActionMenuOpen ? ' is-open' : ''}`}
-                                  data-card-actions-menu-root="true"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                  }}
-                                  onKeyDown={(event) => {
-                                    event.stopPropagation();
-                                  }}
-                                >
-                                  <button
-                                    type="button"
-                                    className="reception-card__action reception-card__action--menu-trigger"
-                                    aria-label="行の操作を開く"
-                                    aria-haspopup="menu"
-                                    aria-expanded={tableActionMenuOpen}
+                                  <div
+                                    className={`reception-card__menu${tableActionMenuOpen ? ' is-open' : ''}`}
+                                    data-card-actions-menu-root="true"
                                     onClick={(event) => {
                                       event.stopPropagation();
-                                      setOpenCardActionMenuKey((prev) => (prev === tableActionMenuKey ? null : tableActionMenuKey));
+                                    }}
+                                    onKeyDown={(event) => {
+                                      event.stopPropagation();
                                     }}
                                   >
-                                    その他
-                                  </button>
-                                  {tableActionMenuOpen ? (
-                                    <div className="reception-card__submenu" role="menu" aria-label="行の追加操作">
-                                      <button
-                                        type="button"
-                                        className="reception-card__submenu-item"
-                                        role="menuitem"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          setOpenCardActionMenuKey(null);
-                                          handleOpenCharts(entry);
-                                        }}
-                                        disabled={!canOpenCharts}
-                                        title={canOpenCharts ? 'カルテを開く' : '患者IDが未登録のためカルテを開けません'}
-                                      >
-                                        カルテを開く
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="reception-card__submenu-item"
-                                        role="menuitem"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          setOpenCardActionMenuKey(null);
-                                          openMedicalRecordsModal({ patientId: entry.patientId, name: entry.name }, 'selection');
-                                        }}
-                                        disabled={!entry.patientId}
-                                        title={
-                                          entry.patientId ? '過去カルテをモーダルで確認' : '患者IDが未登録のため過去カルテを表示できません'
-                                        }
-                                      >
-                                        過去カルテ
-                                      </button>
-                                      {isReceptionStatusMvpPhase2 && mvpDecision?.canRetry ? (
+                                    <button
+                                      type="button"
+                                      className="reception-card__action reception-card__action--menu-trigger"
+                                      aria-label="行の操作を開く"
+                                      aria-haspopup="menu"
+                                      aria-expanded={tableActionMenuOpen}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        setOpenCardActionMenuKey((prev) => (prev === tableActionMenuKey ? null : tableActionMenuKey));
+                                      }}
+                                    >
+                                      その他
+                                    </button>
+                                    {tableActionMenuOpen ? (
+                                      <div className="reception-card__submenu" role="menu" aria-label="行の追加操作">
                                         <button
                                           type="button"
-                                          className="reception-card__submenu-item warning"
+                                          className="reception-card__submenu-item"
                                           role="menuitem"
-                                          data-test-id="reception-status-mvp-retry"
                                           onClick={(event) => {
                                             event.stopPropagation();
                                             setOpenCardActionMenuKey(null);
-                                            void handleRetryQueue(entry);
+                                            openMedicalRecordsModal({ patientId: entry.patientId, name: entry.name }, 'selection');
                                           }}
-                                          title={mvpDecision.retryTitle ?? 'ORCA再送を要求します'}
+                                          disabled={!entry.patientId}
+                                          title={
+                                            entry.patientId
+                                              ? '過去カルテをモーダルで確認'
+                                              : '患者IDが未登録のため過去カルテを表示できません'
+                                          }
                                         >
-                                          再送
+                                          過去カルテ
                                         </button>
-                                      ) : null}
-                                      <button
-                                        type="button"
-                                        className="reception-card__submenu-item danger"
-                                        role="menuitem"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          setOpenCardActionMenuKey(null);
-                                          requestCancelEntry(entry, 'table');
-                                        }}
-                                        disabled={isAcceptSubmitting || !entry.patientId || !entry.receptionId || status === '予約'}
-                                        title={
-                                          isAcceptSubmitting
-                                            ? '送信中です'
-                                            : !entry.patientId
-                                              ? '患者IDが未登録のため取消できません'
-                                              : status === '予約'
-                                                ? '予約は受付取消できません'
-                                                : entry.receptionId
-                                                  ? '受付取消'
-                                                  : '受付IDが未登録のため取消できません'
-                                        }
-                                      >
-                                        受付取消
-                                      </button>
-                                    </div>
-                                  ) : null}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                                        {isReceptionStatusMvpPhase2 && mvpDecision?.canRetry ? (
+                                          <button
+                                            type="button"
+                                            className="reception-card__submenu-item warning"
+                                            role="menuitem"
+                                            data-test-id="reception-status-mvp-retry"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              setOpenCardActionMenuKey(null);
+                                              void handleRetryQueue(entry);
+                                            }}
+                                            title={mvpDecision.retryTitle ?? 'ORCA再送を要求します'}
+                                          >
+                                            再送
+                                          </button>
+                                        ) : null}
+                                        <button
+                                          type="button"
+                                          className="reception-card__submenu-item danger"
+                                          role="menuitem"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            setOpenCardActionMenuKey(null);
+                                            requestCancelEntry(entry, 'table');
+                                          }}
+                                          disabled={isAcceptSubmitting || !entry.patientId || !entry.receptionId || activeStatusTab === '予約'}
+                                          title={
+                                            isAcceptSubmitting
+                                              ? '送信中です'
+                                              : !entry.patientId
+                                                ? '患者IDが未登録のため取消できません'
+                                                : activeStatusTab === '予約'
+                                                  ? '予約は受付取消できません'
+                                                  : entry.receptionId
+                                                    ? '受付取消'
+                                                    : '受付IDが未登録のため取消できません'
+                                          }
+                                        >
+                                          受付取消
+                                        </button>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
                 )}
-              </section>
-            )})}
               </div>
-            ) : null}
+            </section>
           </div>
 
         </section>
-
-        <div
-          className="reception-page__floating-actions"
-          role="group"
-          aria-label="受付操作"
-        >
-          <button
-            type="button"
-            className="reception-page__floating-action reception-page__floating-action--accept-workflow"
-            onClick={toggleAcceptWorkflowModal}
-            aria-expanded={acceptWorkflowModalOpen}
-            data-test-id="reception-open-accept-workflow"
-          >
-            当日受付/患者検索
-          </button>
-          <div
-            ref={dailyCalendarRootRef}
-            className={`reception-daily-calendar reception-page__floating-calendar${dailyCalendarOpen ? ' is-open' : ''}`}
-            data-run-id={resolvedRunId}
-          >
-            <button
-              type="button"
-              className="reception-daily-calendar__trigger"
-              aria-label={`日次状態: ${appointmentEntriesSourceLabel}（カレンダー）`}
-              aria-expanded={dailyCalendarOpen}
-              onClick={toggleDailyCalendar}
-            >
-              <span className="reception-daily-calendar__trigger-label">
-                日次状態: {appointmentEntriesSourceLabel}
-              </span>
-              <span className="reception-daily-calendar__trigger-date">{selectedDate}</span>
-            </button>
-
-            {dailyCalendarOpen ? (
-              <div
-                className="reception-daily-calendar__popover"
-                role="group"
-                aria-label="日次状態カレンダー"
-              >
-                <header className="reception-daily-calendar__popover-header">
-                  <button
-                    type="button"
-                    className="reception-daily-calendar__nav"
-                    onClick={() => setDailyCalendarMonthStart((prev) => shiftUtcMonth(prev, -1))}
-                  >
-                    前月
-                  </button>
-                  <strong className="reception-daily-calendar__month" aria-live={infoLive}>
-                    {dailyCalendarMonthLabel}
-                  </strong>
-                  <button
-                    type="button"
-                    className="reception-daily-calendar__nav"
-                    onClick={() => setDailyCalendarMonthStart((prev) => shiftUtcMonth(prev, 1))}
-                  >
-                    翌月
-                  </button>
-                </header>
-                <div className="reception-daily-calendar__weekdays" aria-hidden="true">
-                  {DAILY_CALENDAR_WEEKDAYS.map((label) => (
-                    <span key={label}>{label}</span>
-                  ))}
-                </div>
-                <div className="reception-daily-calendar__days">
-                  {dailyCalendarCells.map((cell) => {
-                    const enabled = dailyCalendarAvailableDates.has(cell.ymd);
-                    const selected = cell.ymd === selectedDate;
-                    return (
-                      <button
-                        key={cell.ymd}
-                        type="button"
-                        className={`reception-daily-calendar__day${selected ? ' is-selected' : ''}${enabled ? ' is-enabled' : ''}${cell.inMonth ? '' : ' is-outside'}`}
-                        onClick={() => {
-                          if (!enabled) return;
-                          setSelectedDate(cell.ymd);
-                          setDailyCalendarOpen(false);
-                        }}
-                        disabled={!enabled}
-                        aria-pressed={selected}
-                        data-weekday={cell.weekday}
-                        title={
-                          enabled
-                            ? `${cell.ymd} の受付状況へ移動`
-                            : `${cell.ymd} は受付データがありません`
-                        }
-                      >
-                        {cell.day}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="reception-daily-calendar__legend" aria-hidden="true">
-                  <span className="reception-daily-calendar__legend-item">
-                    <span className="reception-daily-calendar__legend-dot" data-kind="enabled" />
-                    受付データあり
-                  </span>
-                  <span className="reception-daily-calendar__legend-item">
-                    <span className="reception-daily-calendar__legend-dot" data-kind="selected" />
-                    選択中
-                  </span>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
 
         {debugUiEnabled ? (
           <OrderConsole
@@ -5814,6 +5788,13 @@ export function ReceptionPage({
                 <h2>当日受付/患者検索</h2>
                 <p>患者検索（AND）→ 選択 → 受付登録。</p>
               </div>
+              <button
+                type="button"
+                className="reception-search__button ghost"
+                onClick={() => setAcceptWorkflowModalOpen(false)}
+              >
+                閉じる
+              </button>
             </header>
             <div className="reception-accept-workflow-modal__body">
                 <div className="reception-accept-modal" data-run-id={resolvedRunId}>
