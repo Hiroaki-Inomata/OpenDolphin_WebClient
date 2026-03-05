@@ -1,5 +1,6 @@
 import { buildFacilityPath, isFacilityMatch, parseFacilityPath } from './facilityRoutes';
 import type { ReceptionCarryoverParams } from '../features/charts/encounterContext';
+import { scrubPathWithQuery } from './scrubSensitiveUrl';
 
 export type ExternalParams = Record<string, string>;
 
@@ -44,7 +45,8 @@ export const applyCarryover = (params: URLSearchParams, carryover?: ReceptionCar
     if (isNonEmptyString(value)) params.set(key, value.trim());
     else params.delete(key);
   };
-  setOrDelete('kw', carryover.kw);
+  // `kw` は患者名/自由入力が混在し得るため URL には保持しない。
+  params.delete('kw');
   setOrDelete('dept', carryover.dept);
   setOrDelete('phys', carryover.phys);
   setOrDelete('pay', carryover.pay);
@@ -90,6 +92,12 @@ const setOptionalParam = (params: URLSearchParams, key: string, value?: string |
   else params.delete(key);
 };
 
+const sanitizeReturnTo = (returnTo: string | null | undefined): string | undefined => {
+  if (!isNonEmptyString(returnTo)) return undefined;
+  const scrubbed = scrubPathWithQuery(returnTo);
+  return isNonEmptyString(scrubbed) ? scrubbed : undefined;
+};
+
 export const buildReceptionUrl = (opts: {
   facilityId: string | undefined;
   from?: string;
@@ -104,9 +112,10 @@ export const buildReceptionUrl = (opts: {
 }): string => {
   const pathname = buildFacilityPath(opts.facilityId, '/reception');
   const params = new URLSearchParams();
+  const returnTo = sanitizeReturnTo(opts.returnTo);
   setOptionalParam(params, 'from', opts.from);
-  if (isSafeReturnTo(opts.returnTo, opts.facilityId)) {
-    setOptionalParam(params, 'returnTo', opts.returnTo);
+  if (isSafeReturnTo(returnTo, opts.facilityId)) {
+    setOptionalParam(params, 'returnTo', returnTo);
   }
   setOptionalParam(params, 'runId', opts.runId);
   applyCarryover(params, opts.carryover);
@@ -125,6 +134,7 @@ export const buildPatientsUrl = (opts: {
   returnTo?: string;
   runId?: string;
   carryover?: ReceptionCarryoverParams;
+  // NOTE: 患者文脈は URL へ載せず sessionStorage(encounter context) で引き継ぐ。
   patientId?: string;
   appointmentId?: string;
   receptionId?: string;
@@ -134,16 +144,13 @@ export const buildPatientsUrl = (opts: {
 }): string => {
   const pathname = buildFacilityPath(opts.facilityId, '/patients');
   const params = new URLSearchParams();
+  const returnTo = sanitizeReturnTo(opts.returnTo);
   setOptionalParam(params, 'from', opts.from);
-  if (isSafeReturnTo(opts.returnTo, opts.facilityId)) {
-    setOptionalParam(params, 'returnTo', opts.returnTo);
+  if (isSafeReturnTo(returnTo, opts.facilityId)) {
+    setOptionalParam(params, 'returnTo', returnTo);
   }
   setOptionalParam(params, 'runId', opts.runId);
   applyCarryover(params, opts.carryover);
-  setOptionalParam(params, 'patientId', opts.patientId);
-  setOptionalParam(params, 'appointmentId', opts.appointmentId);
-  setOptionalParam(params, 'receptionId', opts.receptionId);
-  setOptionalParam(params, 'visitDate', opts.visitDate);
   setOptionalParam(params, 'intent', opts.intent);
   applyExternalParams(params, opts.external);
   const search = params.toString();
@@ -158,9 +165,10 @@ export const buildOrderSetUrl = (opts: {
 }): string => {
   const pathname = buildFacilityPath(opts.facilityId, '/charts/order-sets');
   const params = new URLSearchParams();
+  const returnTo = sanitizeReturnTo(opts.returnTo);
   setOptionalParam(params, 'from', opts.from);
-  if (isSafeReturnTo(opts.returnTo, opts.facilityId)) {
-    setOptionalParam(params, 'returnTo', opts.returnTo);
+  if (isSafeReturnTo(returnTo, opts.facilityId)) {
+    setOptionalParam(params, 'returnTo', returnTo);
   }
   applyExternalParams(params, opts.external);
   const search = params.toString();
@@ -176,9 +184,10 @@ export const buildPrintUrl = (opts: {
 }): string => {
   const pathname = buildFacilityPath(opts.facilityId, `/charts/print/${opts.kind}`);
   const params = new URLSearchParams();
+  const returnTo = sanitizeReturnTo(opts.returnTo);
   setOptionalParam(params, 'from', opts.from);
-  if (isSafeReturnTo(opts.returnTo, opts.facilityId)) {
-    setOptionalParam(params, 'returnTo', opts.returnTo);
+  if (isSafeReturnTo(returnTo, opts.facilityId)) {
+    setOptionalParam(params, 'returnTo', returnTo);
   }
   applyExternalParams(params, opts.external);
   const search = params.toString();
@@ -189,18 +198,18 @@ export const buildMobileImagesUrl = (opts: {
   facilityId: string | undefined;
   from?: string;
   returnTo?: string;
+  // NOTE: 患者文脈は URL へ載せず sessionStorage(encounter context) で引き継ぐ。
   patientId?: string;
   external?: ExternalParams;
 }): string => {
   const pathname = buildFacilityPath(opts.facilityId, '/m/images');
   const params = new URLSearchParams();
+  const returnTo = sanitizeReturnTo(opts.returnTo);
   setOptionalParam(params, 'from', opts.from);
-  if (isSafeReturnTo(opts.returnTo, opts.facilityId)) {
-    setOptionalParam(params, 'returnTo', opts.returnTo);
+  if (isSafeReturnTo(returnTo, opts.facilityId)) {
+    setOptionalParam(params, 'returnTo', returnTo);
   }
-  setOptionalParam(params, 'patientId', opts.patientId);
   applyExternalParams(params, opts.external);
   const search = params.toString();
   return search ? `${pathname}?${search}` : pathname;
 };
-

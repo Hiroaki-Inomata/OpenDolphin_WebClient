@@ -45,10 +45,12 @@ import { PatientsPage } from './features/patients/PatientsPage';
 import { AdministrationPage } from './features/administration/AdministrationPage';
 import { AppToastProvider, type AppToast, type AppToastInput } from './libs/ui/appToast';
 import { clearDevVolatilePlainPassword } from './libs/http/devAuthVolatile';
+import { httpFetch } from './libs/http/httpClient';
 import { logAuditEvent } from './libs/audit/auditLogger';
 import { ChartEventStreamBridge } from './features/shared/ChartEventStreamBridge';
 import { MockModeBanner } from './features/shared/MockModeBanner';
 import { WorkspaceTabBar } from './features/workspaceTabs/WorkspaceTabBar';
+import { SecurityMisconfigBanner } from './components/SecurityMisconfigBanner';
 import {
   SESSION_EXPIRED_EVENT,
   clearSessionExpiredNotice,
@@ -73,14 +75,16 @@ import { testOrcaConnection, type OrcaConnectionTestResponse } from './features/
 import { FocusTrapDialog } from './components/modals/FocusTrapDialog';
 import { NavigationGuardProvider, resolveScreenKey, useNavigationGuard } from './routes/NavigationGuardProvider';
 import {
-  CHARTS_CONTEXT_QUERY_KEYS,
-  persistChartsEncounterContextFromSearch,
-  stripChartsEncounterParams,
+  normalizeVisitDate,
+  storeChartsEncounterContext,
 } from './features/charts/encounterContext';
+import { saveDeepLinkContext } from './routes/deepLinkContextStorage';
+import { scrubSearch } from './routes/scrubSensitiveUrl';
 
 type Session = LoginResult;
 const AUTH_STORAGE_KEY = 'opendolphin:web-client:auth';
-const MOBILE_IMAGES_UI_ENABLED = import.meta.env.VITE_PATIENT_IMAGES_MOBILE_UI === '1';
+const isMobileImagesUiEnabled = () => import.meta.env.VITE_PATIENT_IMAGES_MOBILE_UI === '1';
+const LOGOUT_ENDPOINT = (import.meta.env.VITE_LOGOUT_ENDPOINT ?? '/api/logout').trim() || '/api/logout';
 const normalizeBasePath = (value?: string | null): string => {
   if (!value) return '/';
   const trimmed = value.trim();
@@ -282,25 +286,19 @@ const LEGACY_ROUTES = [
   'administration',
 ];
 
-const CHARTS_QUERY_SCRUB_KEYS = [
-  CHARTS_CONTEXT_QUERY_KEYS.patientId,
-  CHARTS_CONTEXT_QUERY_KEYS.appointmentId,
-  CHARTS_CONTEXT_QUERY_KEYS.receptionId,
-  CHARTS_CONTEXT_QUERY_KEYS.visitDate,
-] as const;
-
-const isChartsPath = (pathname: string): boolean => {
+const isSensitiveScrubPath = (pathname: string): boolean => {
   const facility = parseFacilityPath(pathname);
   if (facility?.suffix) {
-    return facility.suffix === '/charts';
+    return facility.suffix === '/charts' || facility.suffix === '/patients' || facility.suffix === '/m/images';
   }
-  return pathname === '/charts' || pathname === '/charts/';
-};
-
-const hasChartsQueryToScrub = (search: string): boolean => {
-  if (!search) return false;
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
-  return CHARTS_QUERY_SCRUB_KEYS.some((key) => params.has(key));
+  return (
+    pathname === '/charts' ||
+    pathname === '/charts/' ||
+    pathname === '/patients' ||
+    pathname === '/patients/' ||
+    pathname === '/m/images' ||
+    pathname === '/m/images/'
+  );
 };
 
 // Debug pages must never be exposed from production-like builds.
@@ -379,12 +377,83 @@ export function AppRouterWithNavigation() {
     [location, session],
   );
 
+  const requestServerLogoutBestEffort = useCallback((actor?: Session) => {
+    const runId = actor?.runId;
+    const actorLabel = actor ? `${actor.facilityId}:${actor.userId}` : undefined;
+    void (async () => {
+      try {
+        const response = await httpFetch(LOGOUT_ENDPOINT, {
+          method: 'POST',
+          notifySessionExpired: false,
+        });
+        if (response.status === 404) {
+          logAuditEvent({
+            runId,
+            source: 'auth',
+            note: 'server logout unsupported',
+            payload: {
+              action: 'logout',
+              outcome: 'unsupported',
+              endpoint: LOGOUT_ENDPOINT,
+              status: response.status,
+              actor: actorLabel,
+            },
+          });
+          return;
+        }
+        if (!response.ok) {
+          logAuditEvent({
+            runId,
+            source: 'auth',
+            note: 'server logout failed',
+            payload: {
+              action: 'logout',
+              outcome: 'error',
+              endpoint: LOGOUT_ENDPOINT,
+              status: response.status,
+              actor: actorLabel,
+            },
+          });
+          return;
+        }
+        logAuditEvent({
+          runId,
+          source: 'auth',
+          note: 'server logout success',
+          payload: {
+            action: 'logout',
+            outcome: 'success',
+            endpoint: LOGOUT_ENDPOINT,
+            status: response.status,
+            actor: actorLabel,
+          },
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : 'network_error';
+        logAuditEvent({
+          runId,
+          source: 'auth',
+          note: 'server logout failed',
+          payload: {
+            action: 'logout',
+            outcome: 'error',
+            endpoint: LOGOUT_ENDPOINT,
+            status: 0,
+            actor: actorLabel,
+            reason,
+          },
+        });
+      }
+    })();
+  }, []);
+
   const handleLogout = useCallback(
     (reason: 'manual' | 'session-expired' = 'manual') => {
       if (reason === 'manual') {
         clearSessionExpiredNotice();
       }
       const current = session;
+      requestServerLogoutBestEffort(current ?? undefined);
       if (current) {
         clearScopedStorage({ facilityId: current.facilityId, userId: current.userId });
       }
@@ -392,8 +461,9 @@ export function AppRouterWithNavigation() {
       clearStoredCredentials();
       clearSession();
       setSession(null);
+      navigate('/login', { replace: true });
     },
-    [session],
+    [navigate, requestServerLogoutBestEffort, session],
   );
 
   useEffect(() => {
@@ -411,20 +481,38 @@ export function AppRouterWithNavigation() {
   }, [navigate, pendingRedirect, session]);
 
   useEffect(() => {
-    if (!session) return;
-    if (!isChartsPath(location.pathname)) return;
-    if (!hasChartsQueryToScrub(location.search)) return;
+    if (!isSensitiveScrubPath(location.pathname)) return;
+    const { scrubbedSearch, removed } = scrubSearch(location.search);
+    if (scrubbedSearch === location.search) return;
+    saveDeepLinkContext(removed);
 
-    persistChartsEncounterContextFromSearch(location.search, {
-      facilityId: session.facilityId,
-      userId: session.userId,
-    });
-    const strippedSearch = stripChartsEncounterParams(location.search);
-    if (strippedSearch === location.search) return;
+    const encounterContext = {
+      patientId: removed.patientId,
+      appointmentId: removed.appointmentId,
+      receptionId: removed.receptionId,
+      visitDate: normalizeVisitDate(removed.visitDate),
+    };
+    if (
+      encounterContext.patientId ||
+      encounterContext.appointmentId ||
+      encounterContext.receptionId ||
+      encounterContext.visitDate
+    ) {
+      storeChartsEncounterContext(
+        encounterContext,
+        session
+          ? {
+              facilityId: session.facilityId,
+              userId: session.userId,
+            }
+          : undefined,
+      );
+    }
+
     navigate(
       {
         pathname: location.pathname,
-        search: strippedSearch,
+        search: scrubbedSearch,
         hash: location.hash,
       },
       { replace: true, state: location.state },
@@ -608,7 +696,7 @@ function FacilityShell({ session }: { session: Session | null }) {
       <Route path="charts/order-sets" element={<OrderSetEditorPage />} />
       <Route path="charts/print/outpatient" element={<ChartsOutpatientPrintPage />} />
       <Route path="charts/print/document" element={<ChartsDocumentPrintPage />} />
-      {MOBILE_IMAGES_UI_ENABLED ? <Route path="m/images" element={<MobileImagesUploadPage />} /> : null}
+      {isMobileImagesUiEnabled() ? <Route path="m/images" element={<MobileImagesUploadPage />} /> : null}
       <Route path="patients" element={<ConnectedPatients />} />
       <Route path="administration" element={<AdministrationGate session={session} />} />
       <Route path="debug" element={<DebugHubGate session={session} />} />
@@ -1452,18 +1540,18 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
             </span>
             <button
               type="button"
-              className="app-shell__pill app-shell__pill--copy"
+              className="app-shell__debug-copy"
               onClick={handleCopyRunId}
-              aria-label={`RUN_ID をコピー: ${resolvedRunId}`}
-              data-run-id={resolvedRunId}
+              aria-label="障害情報コピー"
+              title={resolvedRunId ? `RUN_ID をコピー: ${resolvedRunId}` : 'RUN_ID をコピー'}
             >
-              RUN_ID: {resolvedRunId}
-              <span className="app-shell__pill-note">クリックでコピー</span>
+              障害情報コピー
             </button>
           </div>
         </header>
 
         <MockModeBanner />
+        <SecurityMisconfigBanner />
         <WorkspaceTabBar
           facilityId={session.facilityId}
           userId={session.userId}

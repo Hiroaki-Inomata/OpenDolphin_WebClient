@@ -6,9 +6,11 @@ import { useAuthService } from '../features/charts/authService';
 import {
   buildChartsUrl,
   hasEncounterContext,
+  loadChartsEncounterContext,
   normalizeRunId,
   normalizeVisitDate,
   parseChartsEncounterContext,
+  storeChartsEncounterContext,
   type OutpatientEncounterContext,
   type ReceptionCarryoverParams,
 } from '../features/charts/encounterContext';
@@ -26,6 +28,8 @@ import {
   type ExternalParams,
 } from './appNavigation';
 import { buildFacilityPath } from './facilityRoutes';
+import { saveDeepLinkContext } from './deepLinkContextStorage';
+import { scrubPathWithQuery } from './scrubSensitiveUrl';
 
 type AppNavigationScope = {
   facilityId: string | undefined;
@@ -109,6 +113,14 @@ const readFromFromState = (state: unknown): string | undefined => {
   return typeof obj.from === 'string' ? obj.from : undefined;
 };
 
+const sanitizeReturnTo = (value?: string): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const scrubbed = scrubPathWithQuery(trimmed);
+  return scrubbed.trim() ? scrubbed : undefined;
+};
+
 export function useAppNavigation(scope: AppNavigationScope) {
   const location = useLocation();
   const { flags } = useAuthService();
@@ -127,7 +139,10 @@ export function useAppNavigation(scope: AppNavigationScope) {
 
   const returnToInQuery = useMemo(() => readQueryParam(location.search, 'returnTo'), [location.search]);
   const returnToInState = useMemo(() => readReturnToFromState(location.state), [location.state]);
-  const returnToCandidate = returnToInQuery ?? returnToInState;
+  const returnToCandidate = useMemo(
+    () => sanitizeReturnTo(returnToInQuery ?? returnToInState),
+    [returnToInQuery, returnToInState],
+  );
   const safeReturnToCandidate = useMemo(
     () => (isSafeReturnTo(returnToCandidate, facilityId) ? returnToCandidate : undefined),
     [facilityId, returnToCandidate],
@@ -158,9 +173,13 @@ export function useAppNavigation(scope: AppNavigationScope) {
     () => (safeReturnToCandidate ? parseChartsEncounterContext(new URL(safeReturnToCandidate, 'https://app.invalid').search) : {}),
     [safeReturnToCandidate],
   );
+  const encounterFromStorage = useMemo(
+    () => loadChartsEncounterContext({ facilityId, userId }) ?? {},
+    [facilityId, userId],
+  );
   const baseEncounter = useMemo(
-    () => (hasEncounterContext(encounterFromUrl) ? encounterFromUrl : encounterFromReturnTo),
-    [encounterFromReturnTo, encounterFromUrl],
+    () => (hasEncounterContext(encounterFromUrl) ? encounterFromUrl : hasEncounterContext(encounterFromReturnTo) ? encounterFromReturnTo : encounterFromStorage),
+    [encounterFromReturnTo, encounterFromStorage, encounterFromUrl],
   );
 
   const resolvedRunId = useMemo(() => {
@@ -182,7 +201,7 @@ export function useAppNavigation(scope: AppNavigationScope) {
       navigate?: NavigateExtras;
     }) => {
       const from = opts?.from ?? currentScreen;
-      const returnTo = opts?.returnTo ?? currentUrl;
+      const returnTo = sanitizeReturnTo(opts?.returnTo ?? currentUrl);
       const encounter = mergeEncounter(baseEncounter, opts?.visitDate ? { visitDate: opts.visitDate } : undefined);
       const url = buildReceptionUrl({
         facilityId,
@@ -214,13 +233,17 @@ export function useAppNavigation(scope: AppNavigationScope) {
       navigate?: NavigateExtras;
     }) => {
       const from = opts?.from ?? currentScreen;
-      const returnTo = opts?.returnTo ?? currentUrl;
+      const returnTo = sanitizeReturnTo(opts?.returnTo ?? currentUrl);
+      const safeReturnTo = isSafeReturnTo(returnTo, facilityId) ? returnTo : undefined;
       const encounter = mergeEncounter(baseEncounter, opts?.encounter);
       const patientId = opts?.patientId ?? encounter.patientId;
+      if (hasEncounterContext(encounter)) {
+        storeChartsEncounterContext(encounter, { facilityId, userId });
+      }
       const url = buildPatientsUrl({
         facilityId,
         from,
-        returnTo,
+        returnTo: safeReturnTo,
         runId: opts?.runId ?? resolvedRunId ?? flags.runId,
         carryover: mergeCarryover(baseCarryover, opts?.carryover),
         patientId,
@@ -231,10 +254,10 @@ export function useAppNavigation(scope: AppNavigationScope) {
         external: mergeExternal(baseExternal, opts?.external),
       });
 
-      if (from === 'charts' && isSafeReturnTo(returnTo, facilityId) && typeof sessionStorage !== 'undefined') {
+      if (from === 'charts' && safeReturnTo && typeof sessionStorage !== 'undefined') {
         try {
           const scopedKey = buildScopedStorageKey(RETURN_TO_STORAGE_BASE, RETURN_TO_VERSION, { facilityId, userId }) ?? RETURN_TO_LEGACY_KEY;
-          sessionStorage.setItem(scopedKey, returnTo);
+          sessionStorage.setItem(scopedKey, safeReturnTo);
           if (scopedKey !== RETURN_TO_LEGACY_KEY) {
             sessionStorage.removeItem(RETURN_TO_LEGACY_KEY);
           }
@@ -278,7 +301,7 @@ export function useAppNavigation(scope: AppNavigationScope) {
   const openOrderSets = useCallback(
     (opts?: { from?: string; returnTo?: string; external?: ExternalParams; navigate?: NavigateExtras }) => {
       const from = opts?.from ?? currentScreen;
-      const returnTo = opts?.returnTo ?? currentUrl;
+      const returnTo = sanitizeReturnTo(opts?.returnTo ?? currentUrl);
       const url = buildOrderSetUrl({
         facilityId,
         from,
@@ -293,7 +316,7 @@ export function useAppNavigation(scope: AppNavigationScope) {
   const openPrintOutpatient = useCallback(
     (opts: { state: Record<string, unknown>; from?: string; returnTo?: string; external?: ExternalParams; navigate?: NavigateExtras }) => {
       const from = opts.from ?? currentScreen;
-      const returnTo = opts.returnTo ?? currentUrl;
+      const returnTo = sanitizeReturnTo(opts.returnTo ?? currentUrl);
       const safeReturnTo = isSafeReturnTo(returnTo, facilityId) ? returnTo : undefined;
       const url = buildPrintUrl({
         facilityId,
@@ -313,7 +336,7 @@ export function useAppNavigation(scope: AppNavigationScope) {
   const openPrintDocument = useCallback(
     (opts: { state: Record<string, unknown>; from?: string; returnTo?: string; external?: ExternalParams; navigate?: NavigateExtras }) => {
       const from = opts.from ?? currentScreen;
-      const returnTo = opts.returnTo ?? currentUrl;
+      const returnTo = sanitizeReturnTo(opts.returnTo ?? currentUrl);
       const safeReturnTo = isSafeReturnTo(returnTo, facilityId) ? returnTo : undefined;
       const url = buildPrintUrl({
         facilityId,
@@ -333,12 +356,17 @@ export function useAppNavigation(scope: AppNavigationScope) {
   const openMobileImages = useCallback(
     (opts?: { from?: string; returnTo?: string; patientId?: string; external?: ExternalParams; navigate?: NavigateExtras }) => {
       const from = opts?.from ?? currentScreen;
-      const returnTo = opts?.returnTo ?? currentUrl;
+      const returnTo = sanitizeReturnTo(opts?.returnTo ?? currentUrl);
+      const patientId = opts?.patientId ?? baseEncounter.patientId;
+      if (patientId) {
+        storeChartsEncounterContext({ ...baseEncounter, patientId }, { facilityId, userId });
+        saveDeepLinkContext({ patientId });
+      }
       const url = buildMobileImagesUrl({
         facilityId,
         from,
         returnTo,
-        patientId: opts?.patientId,
+        patientId,
         external: mergeExternal(baseExternal, opts?.external),
       });
       guardedNavigate(url, { replace: opts?.navigate?.replace, state: opts?.navigate?.state });

@@ -22,20 +22,20 @@ export const chartsStyles = css`
     --charts-shadow-1: var(--ui-shadow-soft);
     --charts-shadow-2: var(--ui-shadow);
     --charts-card-padding: var(--charts-space-md);
-    --charts-card-border: 1px solid rgba(148, 163, 184, 0.3);
+    --charts-card-border: 1px solid var(--ui-border);
     --charts-card-shadow: var(--charts-shadow-1);
     --charts-side-padding: var(--charts-space-md);
-    --charts-side-border: 1px solid rgba(148, 163, 184, 0.3);
+    --charts-side-border: 1px solid var(--ui-border);
     --charts-side-shadow: var(--charts-shadow-2);
   }
 
   /* Charts UI Optimization (Proposal B) - Phase1 (UI only). */
   .charts-page[data-charts-ui-opt-b='1'] {
     --charts-card-padding: var(--charts-space-sm);
-    --charts-card-border: 1px solid rgba(148, 163, 184, 0.22);
+    --charts-card-border: 1px solid var(--ui-border-subtle);
     --charts-card-shadow: var(--charts-shadow-none);
     --charts-side-padding: var(--charts-space-sm);
-    --charts-side-border: 1px solid rgba(148, 163, 184, 0.22);
+    --charts-side-border: 1px solid var(--ui-border-subtle);
     --charts-side-shadow: var(--charts-shadow-1);
   }
 
@@ -67,7 +67,7 @@ export const chartsStyles = css`
   }
 
   .charts-topbar__toggle {
-    border: 1px solid rgba(148, 163, 184, 0.4);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     border-radius: 12px;
     padding: 0.5rem 0.9rem;
@@ -342,7 +342,7 @@ export const chartsStyles = css`
   .charts-edit-state-bar {
     grid-column: 1 / -1;
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.36);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     padding: 0.45rem 0.65rem;
     display: flex;
@@ -374,7 +374,7 @@ export const chartsStyles = css`
 
   .charts-edit-state-bar__actions button {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     color: #334155;
     padding: 0.22rem 0.62rem;
@@ -411,7 +411,7 @@ export const chartsStyles = css`
     gap: var(--charts-space-sm);
     padding: 0.35rem 0.55rem;
     border-radius: 12px;
-    border: 1px solid rgba(148, 163, 184, 0.32);
+    border: 1px solid var(--ui-border);
     background: rgba(255, 255, 255, 0.94);
     box-shadow: var(--charts-shadow-1);
     flex-wrap: wrap;
@@ -444,7 +444,7 @@ export const chartsStyles = css`
     padding: 0.32rem 0.7rem;
     min-height: 2.25rem;
     border-radius: 8px;
-    border: 1px solid rgba(148, 163, 184, 0.5);
+    border: 1px solid var(--ui-border-strong);
     background: #ffffff;
     cursor: pointer;
     font-weight: 800;
@@ -506,7 +506,7 @@ export const chartsStyles = css`
     width: 28px;
     height: 28px;
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     display: grid;
     place-items: center;
@@ -531,7 +531,7 @@ export const chartsStyles = css`
   .charts-patient-tabs__empty {
     padding: 0.15rem 0.6rem;
     border-radius: 999px;
-    border: 1px dashed rgba(148, 163, 184, 0.5);
+    border: 1px dashed var(--ui-border-strong);
     background: rgba(248, 250, 252, 0.92);
     color: rgba(71, 85, 105, 0.95);
     font-size: 0.84rem;
@@ -565,7 +565,7 @@ export const chartsStyles = css`
   .charts-patient-tabs__quick-field input {
     width: 7.5rem;
     border-radius: 8px;
-    border: 1px solid rgba(148, 163, 184, 0.55);
+    border: 1px solid var(--ui-border-strong);
     padding: 0.45rem 0.6rem;
     min-height: 2.25rem;
     background: #ffffff;
@@ -616,7 +616,7 @@ export const chartsStyles = css`
   .charts-tab-guard__actions button {
     padding: 0.6rem 0.95rem;
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.55);
+    border: 1px solid var(--ui-border-strong);
     background: #ffffff;
     color: #0f172a;
     font-weight: 900;
@@ -639,7 +639,7 @@ export const chartsStyles = css`
 
   .charts-card--summary {
     padding: var(--charts-space-sm);
-    border-color: rgba(148, 163, 184, 0.45);
+    border-color: var(--ui-border);
     box-shadow: var(--charts-shadow-2);
   }
 
@@ -650,7 +650,7 @@ export const chartsStyles = css`
   }
 
   .charts-patient-summary__embedded-actions {
-    border-top: 1px solid rgba(148, 163, 184, 0.28);
+    border-top: 1px solid var(--ui-border-subtle);
     padding-top: var(--charts-space-sm);
   }
 
@@ -667,7 +667,7 @@ export const chartsStyles = css`
   }
 
   .charts-summary__toggle {
-    border: 1px solid rgba(148, 163, 184, 0.4);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     border-radius: 999px;
     padding: 0.3rem 0.7rem;
@@ -759,7 +759,7 @@ export const chartsStyles = css`
   }
 
   .charts-patient-summary__primary-action--close {
-    border-color: rgba(148, 163, 184, 0.52);
+    border-color: var(--ui-border-strong);
     background: #f8fafc;
     color: #334155;
   }
@@ -872,7 +872,7 @@ export const chartsStyles = css`
     margin: 0;
     padding: 0.4rem 0.5rem;
     border-radius: 8px;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid var(--ui-border-subtle);
     background: rgba(255, 255, 255, 0.88);
     color: #0f172a;
     font-size: 0.85rem;
@@ -884,7 +884,7 @@ export const chartsStyles = css`
   }
 
   .charts-patient-summary__inline-actionbar {
-    border-top: 1px dashed rgba(148, 163, 184, 0.3);
+    border-top: 1px dashed var(--ui-border);
     padding-top: var(--charts-space-xs);
   }
 
@@ -1029,7 +1029,7 @@ export const chartsStyles = css`
 
   .charts-orca-original__section {
     border-radius: var(--charts-radius-md);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     background: #f8fafc;
     padding: var(--charts-space-sm);
     display: flex;
@@ -1104,7 +1104,7 @@ export const chartsStyles = css`
     margin: 0;
     padding: var(--charts-space-sm);
     border-radius: 12px;
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     background: #0f172a;
     color: #e2e8f0;
     font-size: 0.8rem;
@@ -1147,7 +1147,7 @@ export const chartsStyles = css`
     padding: var(--charts-space-sm) var(--charts-space-md);
     border-radius: var(--charts-radius-sm);
     background: #f8fafc;
-    border: 1px dashed rgba(148, 163, 184, 0.4);
+    border: 1px dashed var(--ui-border);
     color: #334155;
   }
 
@@ -1179,7 +1179,7 @@ export const chartsStyles = css`
   }
 
   .charts-fold[open] > .charts-fold__summary {
-    border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+    border-bottom: 1px solid var(--ui-border-subtle);
   }
 
   .charts-fold[open] > .charts-fold__summary::after {
@@ -1200,7 +1200,7 @@ export const chartsStyles = css`
     font-weight: 800;
     color: #64748b;
     background: rgba(226, 232, 240, 0.6);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     padding: 0.15rem 0.55rem;
     border-radius: 999px;
     white-space: nowrap;
@@ -1230,7 +1230,7 @@ export const chartsStyles = css`
   .charts-free-doc__textarea {
     width: 100%;
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     padding: var(--charts-space-sm) var(--charts-space-sm);
     font-family: inherit;
     resize: vertical;
@@ -1253,7 +1253,7 @@ export const chartsStyles = css`
   .charts-free-doc__save,
   .charts-free-doc__reset {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.4);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     padding: 0.25rem 0.7rem;
     font-weight: 900;
@@ -1308,14 +1308,14 @@ export const chartsStyles = css`
 
   @media (min-width: 1281px) {
     .charts-workbench__column + .charts-workbench__column {
-      border-left: 1px solid rgba(148, 163, 184, 0.28);
+      border-left: 1px solid var(--ui-border-subtle);
       padding-left: var(--charts-space-sm);
     }
   }
 
   @media (min-width: 1281px) {
     .charts-page[data-charts-ui-opt-b='1'] .charts-workbench__column + .charts-workbench__column {
-      border-left-color: rgba(148, 163, 184, 0.18);
+      border-left-color: var(--ui-border-subtle);
       padding-left: var(--charts-space-xs);
     }
   }
@@ -1327,12 +1327,12 @@ export const chartsStyles = css`
     justify-content: space-between;
     gap: var(--charts-space-xs);
     padding-bottom: var(--charts-space-xs);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+    border-bottom: 1px solid var(--ui-border);
   }
 
   .charts-page[data-charts-ui-opt-b='1'] .charts-column-header {
     padding-bottom: var(--charts-space-2xs);
-    border-bottom-color: rgba(148, 163, 184, 0.2);
+    border-bottom-color: var(--ui-border-subtle);
   }
 
   .charts-column-header__label {
@@ -1389,7 +1389,7 @@ export const chartsStyles = css`
     gap: var(--charts-space-sm);
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-sm);
-    border: 1px solid rgba(148, 163, 184, 0.3);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     margin-bottom: var(--charts-space-sm);
   }
@@ -1507,7 +1507,7 @@ export const chartsStyles = css`
 
   .charts-docked-panel__mini-button {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     color: #1d4ed8;
     cursor: pointer;
@@ -1562,7 +1562,7 @@ export const chartsStyles = css`
     min-width: 112px;
     min-height: 2.25rem;
     border-radius: 8px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     padding: 0.4rem 0.52rem;
     font-weight: 700;
@@ -1689,7 +1689,7 @@ export const chartsStyles = css`
     font-size: 0.64rem;
     border-radius: 999px;
     padding: 0.05rem 0.35rem;
-    border: 1px solid rgba(148, 163, 184, 0.42);
+    border: 1px solid var(--ui-border);
     background: rgba(255, 255, 255, 0.7);
     color: #1e293b;
   }
@@ -1702,7 +1702,7 @@ export const chartsStyles = css`
     max-width: calc(100vw - (var(--charts-floating-offset-x) * 2));
     bottom: calc(var(--charts-floating-offset-y) + var(--charts-utility-footer-height));
     border-radius: var(--charts-radius-md);
-    border: 1px solid rgba(148, 163, 184, 0.36);
+    border: 1px solid var(--ui-border);
     background: linear-gradient(180deg, rgba(248, 250, 252, 0.88), #ffffff 42%);
     display: flex;
     flex-direction: column;
@@ -1756,7 +1756,7 @@ export const chartsStyles = css`
     align-items: flex-start;
     gap: var(--charts-space-sm);
     padding: var(--charts-space-sm) var(--charts-space-md) var(--charts-space-xs);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+    border-bottom: 1px solid var(--ui-border-subtle);
     background: rgba(255, 255, 255, 0.96);
     backdrop-filter: blur(2px);
   }
@@ -1779,7 +1779,7 @@ export const chartsStyles = css`
     min-width: 26px;
     height: 26px;
     border-radius: 8px;
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     color: #64748b;
     font-size: 0.92rem;
@@ -1817,7 +1817,7 @@ export const chartsStyles = css`
 
   .charts-docked-panel__close {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     color: #1e3a8a;
     cursor: pointer;
@@ -1867,7 +1867,7 @@ export const chartsStyles = css`
     bottom: calc(var(--charts-floating-offset-y) + var(--charts-utility-footer-height) + 4px);
     width: 22px;
     height: 22px;
-    border: 1px solid rgba(148, 163, 184, 0.65);
+    border: 1px solid var(--ui-border-strong);
     border-radius: 6px;
     background:
       linear-gradient(135deg, transparent 0 52%, rgba(71, 85, 105, 0.42) 52% 57%, transparent 57%),
@@ -1928,7 +1928,7 @@ export const chartsStyles = css`
     z-index: 6;
     margin-top: var(--charts-space-sm);
     padding: var(--charts-space-sm);
-    border-top: 1px solid rgba(148, 163, 184, 0.35);
+    border-top: 1px solid var(--ui-border);
     background: linear-gradient(180deg, rgba(248, 250, 252, 0.68), rgba(255, 255, 255, 0.95));
     backdrop-filter: blur(6px);
   }
@@ -1948,7 +1948,7 @@ export const chartsStyles = css`
   .charts-side-panel__actions button,
   .charts-side-panel__action {
     border-radius: 10px;
-    border: 1px solid rgba(148, 163, 184, 0.5);
+    border: 1px solid var(--ui-border-strong);
     background: #ffffff;
     padding: 0.45rem 0.6rem;
     cursor: pointer;
@@ -1959,7 +1959,6 @@ export const chartsStyles = css`
 
   .charts-side-panel__actions button:hover:not(:disabled),
   .charts-side-panel__action:hover:not(:disabled) {
-    transform: translateY(-1px);
     box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
   }
 
@@ -2000,7 +1999,7 @@ export const chartsStyles = css`
   }
 
   .charts-side-panel__action--close {
-    border-color: rgba(148, 163, 184, 0.6);
+    border-color: var(--ui-border-strong);
     background: #ffffff;
     color: #0f172a;
   }
@@ -2024,7 +2023,7 @@ export const chartsStyles = css`
 
   .charts-document-menu__button {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     padding: var(--charts-space-sm) var(--charts-space-md);
     display: flex;
@@ -2060,7 +2059,7 @@ export const chartsStyles = css`
     display: inline-flex;
     align-items: center;
     gap: var(--charts-space-2xs);
-    border: 1px solid rgba(148, 163, 184, 0.38);
+    border: 1px solid var(--ui-border);
     border-radius: 8px;
     padding: 0.2rem;
     background: rgba(255, 255, 255, 0.8);
@@ -2101,7 +2100,7 @@ export const chartsStyles = css`
 
   .charts-document-paper {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: rgba(255, 255, 255, 0.9);
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65), 0 10px 28px rgba(15, 23, 42, 0.08);
     padding: var(--charts-space-sm);
@@ -2141,7 +2140,7 @@ export const chartsStyles = css`
 
   .charts-document-paper__sheet {
     border-radius: 12px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background:
       linear-gradient(180deg, transparent 1.58rem, rgba(148, 163, 184, 0.16) 1.59rem, transparent 1.6rem) repeat-y,
       #fffdfa;
@@ -2177,7 +2176,7 @@ export const chartsStyles = css`
     font-weight: 900;
     text-align: center;
     letter-spacing: 0.06em;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.42);
+    border-bottom: 1px solid var(--ui-border);
     padding-bottom: 0.2rem;
   }
 
@@ -2219,7 +2218,7 @@ export const chartsStyles = css`
 
   .charts-document-paper__section {
     margin-top: var(--charts-space-xs);
-    border-top: 1px dashed rgba(148, 163, 184, 0.45);
+    border-top: 1px dashed var(--ui-border);
     padding-top: var(--charts-space-xs);
     display: flex;
     flex-direction: column;
@@ -2392,7 +2391,7 @@ export const chartsStyles = css`
   }
 
   .charts-image-panel__queue {
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     border-radius: var(--charts-radius-md);
     padding: var(--charts-space-sm);
     background: #ffffff;
@@ -2488,7 +2487,7 @@ export const chartsStyles = css`
   }
 
   .charts-image-camera {
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     border-radius: var(--charts-radius-md);
     padding: var(--charts-space-sm);
     background: #f8fafc;
@@ -2606,7 +2605,7 @@ export const chartsStyles = css`
   }
 
   .charts-image-panel__card {
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     border-radius: var(--charts-radius-sm);
     overflow: hidden;
     background: #ffffff;
@@ -2645,7 +2644,7 @@ export const chartsStyles = css`
   .charts-image-panel__card-actions button {
     flex: 1;
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.5);
+    border: 1px solid var(--ui-border-strong);
     background: #ffffff;
     color: #334155;
     font-size: 0.7rem;
@@ -2676,7 +2675,7 @@ export const chartsStyles = css`
 
   .charts-image-panel__target select {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.5);
+    border: 1px solid var(--ui-border-strong);
     padding: 0.2rem 0.6rem;
     background: #ffffff;
     font-size: 0.75rem;
@@ -2884,7 +2883,7 @@ export const chartsStyles = css`
   }
 
   .charts-side-panel__ghost {
-    border: 1px solid rgba(148, 163, 184, 0.48);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     border-radius: 999px;
     padding: var(--charts-space-xs) var(--charts-space-sm);
@@ -2898,7 +2897,6 @@ export const chartsStyles = css`
   .charts-side-panel__ghost:hover:not(:disabled) {
     border-color: rgba(59, 130, 246, 0.35);
     background: #f8fafc;
-    transform: translateY(-1px);
     box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
   }
 
@@ -3017,7 +3015,7 @@ export const chartsStyles = css`
 
   .charts-side-panel__notice-action {
     margin-top: var(--charts-space-xs);
-    border: 1px solid rgba(148, 163, 184, 0.5);
+    border: 1px solid var(--ui-border-strong);
     background: #ffffff;
     border-radius: 999px;
     padding: var(--charts-space-2xs) var(--charts-space-sm);
@@ -3034,7 +3032,7 @@ export const chartsStyles = css`
   }
 
   .charts-side-panel__correction {
-    border: 1px dashed rgba(148, 163, 184, 0.4);
+    border: 1px dashed var(--ui-border);
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-sm);
     background: #f8fafc;
@@ -3145,7 +3143,7 @@ export const chartsStyles = css`
   .charts-side-panel__form textarea,
   .charts-side-panel__form select {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     padding: var(--charts-space-xs) var(--charts-space-sm);
     font-size: 0.9rem;
     background: #ffffff;
@@ -3222,7 +3220,7 @@ export const chartsStyles = css`
   .charts-side-panel__template-actions button,
   .charts-side-panel__chip-button {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.48);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     color: #334155;
     cursor: pointer;
@@ -3273,7 +3271,7 @@ export const chartsStyles = css`
   }
 
   .charts-side-panel__switch-button {
-    border: 1px solid rgba(148, 163, 184, 0.5);
+    border: 1px solid var(--ui-border-strong);
     border-radius: 10px;
     min-height: 38px;
     background: #ffffff;
@@ -3315,7 +3313,7 @@ export const chartsStyles = css`
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-sm);
-    border-top: 1px dashed rgba(148, 163, 184, 0.42);
+    border-top: 1px dashed var(--ui-border);
     padding-top: var(--charts-space-sm);
   }
 
@@ -3324,7 +3322,7 @@ export const chartsStyles = css`
   }
 
   .charts-side-panel__fold {
-    border-top: 1px dashed rgba(148, 163, 184, 0.42);
+    border-top: 1px dashed var(--ui-border);
     padding-top: var(--charts-space-sm);
   }
 
@@ -3373,7 +3371,7 @@ export const chartsStyles = css`
     padding: 0.15rem 0.5rem;
     font-size: 0.75rem;
     font-weight: 900;
-    border: 1px solid rgba(148, 163, 184, 0.42);
+    border: 1px solid var(--ui-border);
     background: rgba(248, 250, 252, 0.95);
     color: #0f172a;
   }
@@ -3414,7 +3412,7 @@ export const chartsStyles = css`
     padding: var(--charts-space-sm);
     padding-right: var(--charts-space-xs);
     scrollbar-gutter: stable both-edges;
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     border-radius: var(--charts-radius-sm);
     background: #ffffff;
   }
@@ -3426,7 +3424,7 @@ export const chartsStyles = css`
     background: #ffffff;
     padding-bottom: var(--charts-space-sm);
     margin-bottom: var(--charts-space-sm);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+    border-bottom: 1px solid var(--ui-border-subtle);
   }
 
   .charts-side-panel__subheader {
@@ -3468,7 +3466,7 @@ export const chartsStyles = css`
     font-size: 0.78rem;
     padding: var(--charts-space-2xs) var(--charts-space-sm);
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     color: #475569;
     background: #f1f5f9;
   }
@@ -3492,7 +3490,7 @@ export const chartsStyles = css`
   }
 
   .charts-side-panel__master-ref-panel {
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-sm);
     background: #ffffff;
@@ -3515,7 +3513,7 @@ export const chartsStyles = css`
   }
 
   .charts-side-panel__master-ref-item {
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     border-radius: var(--charts-radius-sm);
     background: #f8fafc;
     padding: var(--charts-space-xs);
@@ -3626,7 +3624,7 @@ export const chartsStyles = css`
   }
 
   .charts-side-panel__drag-handle {
-    border: 1px solid rgba(148, 163, 184, 0.5);
+    border: 1px solid var(--ui-border-strong);
     background: #f8fafc;
     color: #475569;
     border-radius: var(--charts-radius-sm);
@@ -3717,7 +3715,7 @@ export const chartsStyles = css`
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-xs);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     border-radius: var(--charts-radius-sm);
     overflow: hidden;
     background: #f8fafc;
@@ -3799,7 +3797,7 @@ export const chartsStyles = css`
   .charts-side-panel__items li {
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-sm);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     background: #ffffff;
     display: flex;
     flex-direction: column;
@@ -3894,7 +3892,7 @@ export const chartsStyles = css`
     justify-content: center;
     padding: 1px 6px;
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     background: #f1f5f9;
     color: #475569;
     font-size: 0.7rem;
@@ -3959,7 +3957,7 @@ export const chartsStyles = css`
   .charts-diagnosis__ended {
     margin-top: var(--charts-space-xs);
     border-radius: var(--charts-radius-sm);
-    border: 1px dashed rgba(148, 163, 184, 0.4);
+    border: 1px dashed var(--ui-border);
     background: #f8fafc;
     padding: var(--charts-space-xs);
   }
@@ -4006,7 +4004,7 @@ export const chartsStyles = css`
 
   .charts-diagnosis__advanced {
     border-radius: var(--charts-radius-sm);
-    border: 1px dashed rgba(148, 163, 184, 0.4);
+    border: 1px dashed var(--ui-border);
     background: #f8fafc;
     padding: var(--charts-space-xs) var(--charts-space-sm);
   }
@@ -4037,14 +4035,14 @@ export const chartsStyles = css`
   }
 
   .charts-diagnosis__editor-actions button.charts-side-panel__ghost {
-    border-color: rgba(148, 163, 184, 0.45);
+    border-color: var(--ui-border);
     color: #475569;
     background: #f8fafc;
   }
 
   .charts-diagnosis__editor-actions button:disabled {
     background: #e2e8f0;
-    border-color: rgba(148, 163, 184, 0.4);
+    border-color: var(--ui-border);
     color: #94a3b8;
     cursor: not-allowed;
   }
@@ -4056,7 +4054,7 @@ export const chartsStyles = css`
   }
 
   .charts-diagnosis__quick-add {
-    border: 1px solid rgba(148, 163, 184, 0.36);
+    border: 1px solid var(--ui-border);
     border-radius: var(--charts-radius-sm);
     background: #f8fafc;
     padding: var(--charts-space-sm);
@@ -4123,7 +4121,7 @@ export const chartsStyles = css`
   .charts-document-list__filters input,
   .charts-document-list__filters select {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     padding: var(--charts-space-xs) var(--charts-space-sm);
     font-size: 0.8rem;
     background: #ffffff;
@@ -4132,7 +4130,7 @@ export const chartsStyles = css`
 
   .charts-document-list__clear {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     background: #f1f5f9;
     color: #475569;
     padding: var(--charts-space-2xs) var(--charts-space-md);
@@ -4157,7 +4155,7 @@ export const chartsStyles = css`
 
   .charts-document-list__items li {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     background: #ffffff;
     padding: var(--charts-space-sm);
     display: grid;
@@ -4241,7 +4239,7 @@ export const chartsStyles = css`
   .charts-document-list__actions button:disabled {
     background: #e2e8f0;
     color: #94a3b8;
-    border-color: rgba(148, 163, 184, 0.4);
+    border-color: var(--ui-border);
     cursor: not-allowed;
   }
 
@@ -4261,7 +4259,7 @@ export const chartsStyles = css`
   .charts-document-list__recovery button,
   .charts-document-list__recovery a {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     color: #334155;
     padding: var(--charts-space-2xs) var(--charts-space-sm);
@@ -4301,7 +4299,7 @@ export const chartsStyles = css`
 
   .charts-side-panel__item-actions button {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     color: #334155;
     cursor: pointer;
@@ -4382,7 +4380,7 @@ export const chartsStyles = css`
     gap: 0.45rem;
     padding: 0.4rem 0.68rem;
     border-radius: 10px;
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     color: #0f172a;
     font-weight: 600;
     background: #f8fafc;
@@ -4414,7 +4412,7 @@ export const chartsStyles = css`
 
   .charts-actions__toggle {
     margin-top: var(--charts-space-xs);
-    border: 1px solid rgba(148, 163, 184, 0.4);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     border-radius: 999px;
     padding: 0.35rem 0.75rem;
@@ -4462,7 +4460,7 @@ export const chartsStyles = css`
   }
 
   .charts-actions__meta-details {
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     border-radius: 999px;
     padding: 0.35rem 0.6rem;
     background: #f8fafc;
@@ -4504,7 +4502,7 @@ export const chartsStyles = css`
     gap: var(--charts-space-xs);
     padding: var(--charts-space-xs);
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid var(--ui-border-subtle);
     background: rgba(248, 250, 252, 0.8);
   }
 
@@ -4525,7 +4523,7 @@ export const chartsStyles = css`
 
   .charts-actions__button {
     border-radius: 12px;
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     padding: 0.7rem 0.8rem;
     font-weight: 700;
@@ -4536,7 +4534,6 @@ export const chartsStyles = css`
   }
 
   .charts-actions__button:hover:not(:disabled) {
-    transform: translateY(-1px);
     box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
   }
 
@@ -4607,7 +4604,7 @@ export const chartsStyles = css`
 
   .charts-actions__button--ghost {
     background: #f8fafc;
-    border-color: rgba(148, 163, 184, 0.5);
+    border-color: var(--ui-border-strong);
     color: #334155;
   }
 
@@ -4636,7 +4633,7 @@ export const chartsStyles = css`
   }
 
   .charts-actions__more {
-    border: 1px solid rgba(148, 163, 184, 0.3);
+    border: 1px solid var(--ui-border);
     border-radius: var(--charts-radius-sm);
     background: rgba(248, 250, 252, 0.9);
     padding: var(--charts-space-xs) var(--charts-space-sm);
@@ -4717,7 +4714,7 @@ export const chartsStyles = css`
     gap: var(--charts-space-xs);
     padding: var(--charts-space-xs);
     border-radius: 10px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
   }
 
@@ -4738,7 +4735,7 @@ export const chartsStyles = css`
   }
 
   .charts-do-copy__section-row {
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     border-radius: 12px;
     padding: var(--charts-space-xs);
     background: #ffffff;
@@ -4780,7 +4777,7 @@ export const chartsStyles = css`
   .charts-do-copy textarea {
     width: 100%;
     border-radius: 12px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     padding: 0.6rem 0.75rem;
     background: #f8fafc;
     color: #0f172a;
@@ -4826,7 +4823,7 @@ export const chartsStyles = css`
 
   .charts-actions__skeleton {
     background: #f8fafc;
-    border: 1px dashed rgba(148, 163, 184, 0.6);
+    border: 1px dashed var(--ui-border-strong);
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-md);
     display: flex;
@@ -4994,7 +4991,7 @@ export const chartsStyles = css`
   }
 
   .charts-actions__send-confirm-section {
-    border: 1px solid rgba(148, 163, 184, 0.32);
+    border: 1px solid var(--ui-border);
     border-radius: var(--charts-radius-sm);
     background: #f8fafc;
     padding: var(--charts-space-sm);
@@ -5056,7 +5053,7 @@ export const chartsStyles = css`
   .charts-actions__print-field input,
   .charts-actions__print-field select {
     border-radius: 10px;
-    border: 1px solid rgba(148, 163, 184, 0.6);
+    border: 1px solid var(--ui-border-strong);
     padding: 0.45rem 0.6rem;
     font-size: 0.95rem;
   }
@@ -5152,7 +5149,7 @@ export const chartsStyles = css`
     height: 100%;
     width: min(420px, 92vw);
     background: #ffffff;
-    border-left: 1px solid rgba(148, 163, 184, 0.4);
+    border-left: 1px solid var(--ui-border);
     box-shadow: -12px 0 30px rgba(15, 23, 42, 0.12);
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-md);
@@ -5232,7 +5229,7 @@ export const chartsStyles = css`
     padding: var(--charts-space-xs) var(--charts-space-sm);
     border-radius: var(--charts-radius-sm);
     font-size: 0.9rem;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
   }
 
   .revision-drawer__status--info {
@@ -5258,7 +5255,7 @@ export const chartsStyles = css`
   .revision-drawer__refresh {
     margin-left: var(--charts-space-xs);
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.6);
+    border: 1px solid var(--ui-border-strong);
     background: #ffffff;
     padding: 2px 8px;
     font-size: 0.85rem;
@@ -5280,7 +5277,7 @@ export const chartsStyles = css`
   }
 
   .revision-drawer__item {
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-sm);
     background: rgba(248, 250, 252, 0.7);
@@ -5320,7 +5317,7 @@ export const chartsStyles = css`
 
   .revision-drawer__actions button {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.6);
+    border: 1px solid var(--ui-border-strong);
     background: #ffffff;
     padding: 4px 10px;
     font-size: 0.85rem;
@@ -5389,7 +5386,7 @@ export const chartsStyles = css`
     align-items: center;
     gap: 4px;
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     color: #475569;
     padding: 2px 10px;
@@ -5475,7 +5472,7 @@ export const chartsStyles = css`
     min-width: 132px;
     display: grid;
     gap: var(--charts-space-2xs);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     border-radius: var(--charts-radius-sm);
     background: #ffffff;
     box-shadow: 0 8px 20px rgba(15, 23, 42, 0.14);
@@ -5615,7 +5612,7 @@ export const chartsStyles = css`
     width: var(--soap-right-drawer-width);
     max-width: min(var(--soap-right-drawer-width), calc(100vw - 92px));
     border-radius: var(--charts-radius-lg);
-    border: 1px solid rgba(148, 163, 184, 0.36);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     box-shadow: -18px 0 38px rgba(15, 23, 42, 0.18);
     overflow: hidden;
@@ -5654,7 +5651,7 @@ export const chartsStyles = css`
     bottom: 0;
     width: var(--soap-right-drawer-minimized-handle, 56px);
     border: 0;
-    border-right: 1px solid rgba(148, 163, 184, 0.32);
+    border-right: 1px solid var(--ui-border);
     background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.94));
     cursor: pointer;
     display: none;
@@ -5781,7 +5778,7 @@ export const chartsStyles = css`
     justify-content: space-between;
     gap: var(--charts-space-sm);
     padding: var(--charts-space-sm) var(--charts-space-md);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+    border-bottom: 1px solid var(--ui-border);
     background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), #ffffff 70%);
   }
 
@@ -5796,7 +5793,7 @@ export const chartsStyles = css`
     gap: 4px;
     padding: 2px;
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.36);
+    border: 1px solid var(--ui-border);
     background: rgba(248, 250, 252, 0.9);
   }
 
@@ -5815,7 +5812,7 @@ export const chartsStyles = css`
     gap: 4px;
     padding: 2px;
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.38);
+    border: 1px solid var(--ui-border);
     background: rgba(248, 250, 252, 0.9);
   }
 
@@ -5895,7 +5892,7 @@ export const chartsStyles = css`
     flex-wrap: wrap;
     gap: 6px;
     padding: var(--charts-space-xs) var(--charts-space-md);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+    border-bottom: 1px solid var(--ui-border-subtle);
     background: rgba(248, 250, 252, 0.58);
   }
 
@@ -5966,7 +5963,7 @@ export const chartsStyles = css`
     gap: var(--charts-space-xs);
     width: 100%;
     padding-top: var(--charts-space-xs);
-    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    border-top: 1px solid var(--ui-border-subtle);
   }
 
   .soap-note__right-drawer[data-order-layout='split'] .soap-note__right-drawer-order-preview {
@@ -5975,7 +5972,7 @@ export const chartsStyles = css`
     padding-top: 0;
     padding-left: var(--charts-space-sm);
     border-top: 0;
-    border-left: 1px solid rgba(148, 163, 184, 0.28);
+    border-left: 1px solid var(--ui-border-subtle);
   }
 
   .soap-note__right-drawer-order-preview-header {
@@ -6105,7 +6102,7 @@ export const chartsStyles = css`
 
   .soap-note__history-mode {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     padding: var(--charts-space-md);
     display: flex;
@@ -6133,7 +6130,7 @@ export const chartsStyles = css`
 
   .soap-note__history-step {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid var(--ui-border-subtle);
     background: #ffffff;
     padding: var(--charts-space-sm);
   }
@@ -6160,7 +6157,7 @@ export const chartsStyles = css`
   }
 
   .soap-note__history-diff {
-    border-top: 1px dashed rgba(148, 163, 184, 0.35);
+    border-top: 1px dashed var(--ui-border);
     padding-top: var(--charts-space-xs);
   }
 
@@ -6198,7 +6195,7 @@ export const chartsStyles = css`
 
   .soap-note__section {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     padding: var(--charts-space-md);
     display: flex;
@@ -6300,7 +6297,7 @@ export const chartsStyles = css`
   }
 
   .soap-note__history {
-    border-top: 1px solid rgba(148, 163, 184, 0.25);
+    border-top: 1px solid var(--ui-border-subtle);
     padding-top: var(--charts-space-sm);
   }
 
@@ -6327,7 +6324,7 @@ export const chartsStyles = css`
 
   .soap-note__history-card {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid var(--ui-border-subtle);
     background: #ffffff;
     padding: var(--charts-space-sm);
     display: flex;
@@ -6348,7 +6345,7 @@ export const chartsStyles = css`
 
   .soap-note__subjectives-fold {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     overflow: hidden;
   }
@@ -6381,14 +6378,14 @@ export const chartsStyles = css`
 
   .soap-note__subjectives-content {
     padding: var(--charts-space-sm) var(--charts-space-md);
-    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    border-top: 1px solid var(--ui-border-subtle);
   }
 
   .soap-note__paper {
     position: sticky;
     top: 1rem;
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.32);
+    border: 1px solid var(--ui-border);
     background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
     padding: var(--charts-space-sm);
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
@@ -6479,7 +6476,7 @@ export const chartsStyles = css`
   .order-dock__search-row input,
   .order-dock__search-row select {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.5);
+    border: 1px solid var(--ui-border-strong);
     padding: 0.25rem 0.65rem;
     font-size: 0.78rem;
     background: #ffffff;
@@ -6497,7 +6494,7 @@ export const chartsStyles = css`
   .order-dock__search-result {
     width: 100%;
     text-align: left;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     border-radius: var(--charts-radius-sm);
     background: #ffffff;
     padding: var(--charts-space-xs) var(--charts-space-sm);
@@ -6529,7 +6526,7 @@ export const chartsStyles = css`
     align-items: center;
     gap: var(--charts-space-sm);
     padding-bottom: var(--charts-space-xs);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+    border-bottom: 1px solid var(--ui-border-subtle);
   }
 
   .order-dock__edit-title {
@@ -6547,7 +6544,7 @@ export const chartsStyles = css`
   .order-dock__edit-back,
   .order-dock__edit-close {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.38);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     color: #0f172a;
     cursor: pointer;
@@ -6564,7 +6561,7 @@ export const chartsStyles = css`
 
   .order-dock__today-fold {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     overflow: hidden;
   }
@@ -6619,7 +6616,7 @@ export const chartsStyles = css`
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-xs) var(--charts-space-sm);
     font-size: 0.85rem;
-    border: 1px solid rgba(148, 163, 184, 0.22);
+    border: 1px solid var(--ui-border-subtle);
     background: #ffffff;
   }
 
@@ -6697,7 +6694,7 @@ export const chartsStyles = css`
 
   .order-dock__group {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.2);
+    border: 1px solid var(--ui-border-subtle);
     background: #ffffff;
     min-width: 0;
     overflow: hidden;
@@ -6806,7 +6803,7 @@ export const chartsStyles = css`
     flex: 1;
     min-width: 0;
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     padding: 0.25rem 0.45rem;
     background: #ffffff;
     color: #0f172a;
@@ -6853,7 +6850,7 @@ export const chartsStyles = css`
 
   .order-dock__inline-editor {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid var(--ui-border-subtle);
     background: linear-gradient(180deg, rgba(248, 250, 252, 0.88) 0%, rgba(255, 255, 255, 0.96) 100%);
     padding: var(--charts-space-xs);
   }
@@ -6867,7 +6864,7 @@ export const chartsStyles = css`
 
   .order-dock__bundle {
     border-radius: 14px;
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     background: rgba(248, 250, 252, 0.85);
     padding: var(--charts-space-xs) var(--charts-space-sm);
     display: grid;
@@ -6901,7 +6898,7 @@ export const chartsStyles = css`
 
   .order-dock__badge {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.38);
+    border: 1px solid var(--ui-border);
     background: rgba(255, 255, 255, 0.95);
     padding: 0.1rem 0.45rem;
     font-size: 0.72rem;
@@ -6911,7 +6908,7 @@ export const chartsStyles = css`
   }
 
   .order-dock__badge--entity {
-    border-color: rgba(148, 163, 184, 0.32);
+    border-color: var(--ui-border);
     background: rgba(241, 245, 249, 0.95);
     color: #334155;
   }
@@ -6954,7 +6951,7 @@ export const chartsStyles = css`
 
   .order-dock__chip {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.32);
+    border: 1px solid var(--ui-border);
     background: rgba(255, 255, 255, 0.92);
     padding: 0.1rem 0.45rem;
     font-size: 0.72rem;
@@ -7030,13 +7027,13 @@ export const chartsStyles = css`
   }
 
   .order-dock__editor {
-    border-top: 1px dashed rgba(148, 163, 184, 0.35);
+    border-top: 1px dashed var(--ui-border);
     padding-top: var(--charts-space-sm);
   }
 
   .order-dock__rx {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     overflow: hidden;
   }
@@ -7142,7 +7139,7 @@ export const chartsStyles = css`
 
   .order-recommend-modal__scope-button {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     color: #0f172a;
     cursor: pointer;
@@ -7178,7 +7175,7 @@ export const chartsStyles = css`
   .order-recommend-modal__search input {
     width: 100%;
     border-radius: 12px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     padding: 0.45rem 0.6rem;
     color: #0f172a;
   }
@@ -7204,7 +7201,7 @@ export const chartsStyles = css`
   }
 
   .order-recommend-modal__group + .order-recommend-modal__group {
-    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    border-top: 1px solid var(--ui-border-subtle);
     padding-top: var(--charts-space-sm);
   }
 
@@ -7226,7 +7223,7 @@ export const chartsStyles = css`
   .order-recommend-modal__candidate {
     text-align: left;
     border-radius: 16px;
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid var(--ui-border-subtle);
     background: #ffffff;
     padding: 0.7rem 0.75rem;
     cursor: pointer;
@@ -7239,7 +7236,6 @@ export const chartsStyles = css`
   .order-recommend-modal__candidate:hover:not(:disabled) {
     border-color: rgba(59, 130, 246, 0.35);
     box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
-    transform: translateY(-1px);
   }
 
   .order-recommend-modal__candidate:disabled {
@@ -7316,7 +7312,7 @@ export const chartsStyles = css`
 
   .soap-note__paper-item {
     padding-bottom: var(--charts-space-xs);
-    border-bottom: 1px dashed rgba(148, 163, 184, 0.35);
+    border-bottom: 1px dashed var(--ui-border);
   }
 
   .soap-note__paper-item:last-child {
@@ -7367,7 +7363,7 @@ export const chartsStyles = css`
   }
 
   .soap-note__order-group + .soap-note__order-group {
-    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    border-top: 1px solid var(--ui-border-subtle);
     padding-top: var(--charts-space-sm);
   }
 
@@ -7446,7 +7442,7 @@ export const chartsStyles = css`
     width: 100%;
     text-align: left;
     border-radius: 12px;
-    border: 1px solid rgba(148, 163, 184, 0.34);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     padding: var(--charts-space-sm);
     display: flex;
@@ -7464,7 +7460,6 @@ export const chartsStyles = css`
   button.soap-note__summary-card:hover {
     border-color: rgba(37, 99, 235, 0.42);
     box-shadow: 0 8px 20px rgba(37, 99, 235, 0.14);
-    transform: translateY(-1px);
   }
 
   button.soap-note__summary-card:focus-visible {
@@ -7593,7 +7588,7 @@ export const chartsStyles = css`
   }
 
   .soap-note__rx-history {
-    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    border-top: 1px solid var(--ui-border-subtle);
     padding-top: var(--charts-space-sm);
     margin-top: var(--charts-space-xs);
   }
@@ -7602,7 +7597,7 @@ export const chartsStyles = css`
     margin: 0;
     font-size: 0.8rem;
     color: #475569;
-    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    border-top: 1px solid var(--ui-border-subtle);
     padding-top: var(--charts-space-xs);
   }
 
@@ -7742,14 +7737,14 @@ export const chartsStyles = css`
 
     .soap-note__right-drawer-order-preview {
       padding-top: var(--charts-space-sm);
-      border-top-color: rgba(148, 163, 184, 0.28);
+      border-top-color: var(--ui-border-subtle);
     }
 
     .soap-note__right-drawer[data-order-layout='split'] .soap-note__right-drawer-order-preview {
       padding-top: var(--charts-space-sm);
       padding-left: 0;
       border-left: 0;
-      border-top: 1px solid rgba(148, 163, 184, 0.28);
+      border-top: 1px solid var(--ui-border-subtle);
     }
 
     .soap-note__right-drawer-order-preview-list {
@@ -7809,7 +7804,7 @@ export const chartsStyles = css`
   }
 
   .soap-note__tab {
-    border: 1px solid rgba(148, 163, 184, 0.4);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     color: #475569;
     padding: var(--charts-space-2xs) var(--charts-space-sm);
@@ -7866,7 +7861,7 @@ export const chartsStyles = css`
     justify-content: space-between;
     gap: var(--charts-space-sm);
     align-items: center;
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-xs) var(--charts-space-sm);
     background: #ffffff;
@@ -7887,7 +7882,7 @@ export const chartsStyles = css`
   }
 
   .soap-note__subjectives-form {
-    border: 1px solid rgba(148, 163, 184, 0.3);
+    border: 1px solid var(--ui-border);
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-sm);
     background: #f8fafc;
@@ -7933,7 +7928,7 @@ export const chartsStyles = css`
   }
 
   .soap-note__subjectives-actions button {
-    border: 1px solid rgba(148, 163, 184, 0.5);
+    border: 1px solid var(--ui-border-strong);
     background: #ffffff;
     border-radius: 999px;
     padding: var(--charts-space-2xs) var(--charts-space-sm);
@@ -8139,7 +8134,7 @@ export const chartsStyles = css`
 
   .document-timeline__soap-entry {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     padding: var(--charts-space-sm);
     display: flex;
@@ -8219,7 +8214,7 @@ export const chartsStyles = css`
     gap: var(--charts-space-xs);
     align-items: center;
     background: #f8fafc;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-xs) var(--charts-space-sm);
   }
@@ -8317,7 +8312,7 @@ export const chartsStyles = css`
     background: #f8fafc;
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-sm) var(--charts-space-md);
-    border: 1px solid rgba(148, 163, 184, 0.3);
+    border: 1px solid var(--ui-border);
   }
 
   .document-timeline__entry--warning {
@@ -8392,7 +8387,7 @@ export const chartsStyles = css`
   .document-timeline__step {
     padding: var(--charts-space-xs) var(--charts-space-sm);
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #fff;
     text-align: center;
     font-weight: 700;
@@ -8419,7 +8414,7 @@ export const chartsStyles = css`
 
   .document-timeline__step--pending {
     background: #f8fafc;
-    border-color: rgba(148, 163, 184, 0.5);
+    border-color: var(--ui-border-strong);
     color: #475569;
   }
 
@@ -8620,7 +8615,7 @@ export const chartsStyles = css`
   .document-timeline__transition {
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #fff7ed;
   }
 
@@ -8727,7 +8722,7 @@ export const chartsStyles = css`
 
   .orca-summary__details-fold {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.32);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     overflow: hidden;
   }
@@ -8746,7 +8741,7 @@ export const chartsStyles = css`
 
   .orca-summary__details-body {
     padding: var(--charts-space-sm);
-    border-top: 1px solid rgba(148, 163, 184, 0.24);
+    border-top: 1px solid var(--ui-border-subtle);
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-sm);
@@ -8766,7 +8761,7 @@ export const chartsStyles = css`
 
   .orca-summary__card {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     padding: var(--charts-space-sm);
     background: #ffffff;
     display: flex;
@@ -8868,7 +8863,7 @@ export const chartsStyles = css`
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-md);
     background: #f8fafc;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
   }
 
   .orca-summary__badges {
@@ -8913,7 +8908,7 @@ export const chartsStyles = css`
     margin: 0;
     padding: var(--charts-space-md);
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     color: #475569;
   }
@@ -8926,7 +8921,7 @@ export const chartsStyles = css`
 
   .medical-record__section {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     overflow: hidden;
   }
@@ -8988,7 +8983,7 @@ export const chartsStyles = css`
 
   .charts-patient-panel__actions button {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     padding: 0.35rem 0.75rem;
     font-weight: 800;
@@ -9063,7 +9058,7 @@ export const chartsStyles = css`
 
   .charts-past-hub__day {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     overflow: hidden;
   }
@@ -9136,7 +9131,7 @@ export const chartsStyles = css`
 
   .charts-past-hub__day-content {
     padding: var(--charts-space-sm);
-    border-top: 1px solid rgba(148, 163, 184, 0.25);
+    border-top: 1px solid var(--ui-border-subtle);
     background: #f8fafc;
   }
 
@@ -9156,7 +9151,7 @@ export const chartsStyles = css`
   .charts-past-hub__col {
     min-width: 0;
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid var(--ui-border-subtle);
     background: #ffffff;
     padding: var(--charts-space-sm);
     display: flex;
@@ -9189,7 +9184,7 @@ export const chartsStyles = css`
 
   .charts-past-hub__encounter {
     padding-bottom: var(--charts-space-2xs);
-    border-bottom: 1px dashed rgba(148, 163, 184, 0.32);
+    border-bottom: 1px dashed var(--ui-border);
     display: flex;
     justify-content: space-between;
     gap: var(--charts-space-sm);
@@ -9209,7 +9204,7 @@ export const chartsStyles = css`
   }
 
   .charts-past-hub__encounter[data-active='1'] + .charts-past-hub__encounter {
-    border-top: 1px dashed rgba(148, 163, 184, 0.32);
+    border-top: 1px dashed var(--ui-border);
     padding-top: var(--charts-space-2xs);
   }
 
@@ -9221,7 +9216,7 @@ export const chartsStyles = css`
 
   .charts-past-hub__note {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border: 1px solid var(--ui-border-subtle);
     background: #f8fafc;
     padding: var(--charts-space-sm);
   }
@@ -9264,7 +9259,7 @@ export const chartsStyles = css`
 
   .charts-past-hub__order-item {
     padding-bottom: var(--charts-space-2xs);
-    border-bottom: 1px dashed rgba(148, 163, 184, 0.32);
+    border-bottom: 1px dashed var(--ui-border);
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
@@ -9366,7 +9361,7 @@ export const chartsStyles = css`
   .charts-past-hub__group + .charts-past-hub__group {
     margin-top: var(--charts-space-sm);
     padding-top: var(--charts-space-sm);
-    border-top: 1px solid rgba(148, 163, 184, 0.3);
+    border-top: 1px solid var(--ui-border);
   }
 
   .charts-past-hub__group-header {
@@ -9390,7 +9385,7 @@ export const chartsStyles = css`
     justify-content: space-between;
     padding: var(--charts-space-sm) var(--charts-space-md);
     border-radius: var(--charts-radius-md);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: linear-gradient(135deg, #eef2ff, #ffffff);
   }
 
@@ -9446,7 +9441,7 @@ export const chartsStyles = css`
 
   .patients-tab__ghost {
     background: #f8fafc;
-    border-color: rgba(148, 163, 184, 0.45);
+    border-color: var(--ui-border);
     color: #0f172a;
   }
 
@@ -9459,7 +9454,7 @@ export const chartsStyles = css`
 
   .patients-tab__meta {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     padding: var(--charts-space-xs) var(--charts-space-sm);
   }
@@ -9574,7 +9569,7 @@ export const chartsStyles = css`
 
   .patients-tab__chip {
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.45);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     padding: 0.32rem 0.65rem;
     font-weight: 800;
@@ -9680,7 +9675,7 @@ export const chartsStyles = css`
     padding: var(--charts-space-xs);
     border-radius: var(--charts-radius-sm);
     background: #f8fafc;
-    border: 1px solid rgba(148, 163, 184, 0.3);
+    border: 1px solid var(--ui-border);
   }
 
   .patients-tab__draft-summary strong {
@@ -9748,7 +9743,7 @@ export const chartsStyles = css`
     padding: var(--charts-space-xs);
     border-radius: var(--charts-radius-sm);
     background: #f8fafc;
-    border: 1px solid rgba(148, 163, 184, 0.3);
+    border: 1px solid var(--ui-border);
   }
 
   .patients-tab__switch-title {
@@ -9809,7 +9804,7 @@ export const chartsStyles = css`
     padding: var(--charts-space-md);
     border-radius: var(--charts-radius-sm);
     background: #f8fafc;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     text-align: left;
     width: 100%;
     cursor: pointer;
@@ -9968,7 +9963,7 @@ export const chartsStyles = css`
 
   .patients-tab__card {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     padding: var(--charts-space-sm);
     display: flex;
@@ -10119,7 +10114,7 @@ export const chartsStyles = css`
 
   .patients-tab__history-row {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #ffffff;
     padding: var(--charts-space-sm);
     text-align: left;
@@ -10172,7 +10167,7 @@ export const chartsStyles = css`
     font-size: 0.85rem;
     font-weight: 800;
     padding-bottom: var(--charts-space-2xs);
-    border-bottom: 1px dashed rgba(148, 163, 184, 0.6);
+    border-bottom: 1px dashed var(--ui-border-strong);
   }
 
   .patients-tab__diff-row {
@@ -10182,7 +10177,7 @@ export const chartsStyles = css`
     border-radius: var(--charts-radius-sm);
     padding: var(--charts-space-xs) var(--charts-space-sm);
     background: #ffffff;
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     align-items: start;
   }
 
@@ -10232,7 +10227,7 @@ export const chartsStyles = css`
     width: min(860px, 100%);
     background: #ffffff;
     border-radius: var(--charts-radius-lg);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     box-shadow: var(--charts-shadow-2);
     padding: var(--charts-space-md);
     display: flex;
@@ -10267,7 +10262,7 @@ export const chartsStyles = css`
 
   .patients-tab__modal-row {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     padding: var(--charts-space-sm) var(--charts-space-md);
     text-align: left;
@@ -10343,7 +10338,7 @@ export const chartsStyles = css`
 
   .patient-edit__notice {
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.4);
+    border: 1px solid var(--ui-border);
     background: #f8fafc;
     padding: var(--charts-space-sm) var(--charts-space-md);
     color: #0f172a;
@@ -10455,7 +10450,7 @@ export const chartsStyles = css`
     font-weight: 900;
     font-size: 0.85rem;
     padding-bottom: var(--charts-space-2xs);
-    border-bottom: 1px dashed rgba(148, 163, 184, 0.6);
+    border-bottom: 1px dashed var(--ui-border-strong);
   }
 
   .patient-edit__diff-row {
@@ -10464,7 +10459,7 @@ export const chartsStyles = css`
     gap: var(--charts-space-sm);
     padding: var(--charts-space-xs) var(--charts-space-sm);
     border-radius: var(--charts-radius-sm);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid var(--ui-border-subtle);
     background: #ffffff;
     align-items: start;
   }

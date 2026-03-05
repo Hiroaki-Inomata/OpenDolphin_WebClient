@@ -18,6 +18,16 @@ const STORAGE_KEY = 'opendolphin:web-client:outpatient-saved-views:v1';
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+const sanitizeFilters = (filters: Partial<OutpatientSavedView['filters']>) => ({
+  // keyword は患者氏名/IDなどの自由入力を含み得るため永続化しない
+  keyword: undefined,
+  department: typeof filters.department === 'string' ? filters.department : undefined,
+  physician: typeof filters.physician === 'string' ? filters.physician : undefined,
+  paymentMode: (filters.paymentMode as PaymentMode | undefined) ?? undefined,
+  sort: typeof filters.sort === 'string' ? filters.sort : undefined,
+  date: typeof filters.date === 'string' ? filters.date : undefined,
+});
+
 const normalizeViews = (value: unknown): OutpatientSavedView[] => {
   if (!Array.isArray(value)) return [];
   return value
@@ -32,14 +42,7 @@ const normalizeViews = (value: unknown): OutpatientSavedView[] => {
         id,
         label: item.label.trim(),
         updatedAt,
-        filters: {
-          keyword: typeof filters.keyword === 'string' ? filters.keyword : undefined,
-          department: typeof filters.department === 'string' ? filters.department : undefined,
-          physician: typeof filters.physician === 'string' ? filters.physician : undefined,
-          paymentMode: (filters.paymentMode as PaymentMode | undefined) ?? undefined,
-          sort: typeof filters.sort === 'string' ? filters.sort : undefined,
-          date: typeof filters.date === 'string' ? filters.date : undefined,
-        },
+        filters: sanitizeFilters(filters),
       } as OutpatientSavedView;
     })
     .filter((item): item is OutpatientSavedView => Boolean(item));
@@ -51,7 +54,23 @@ export const loadOutpatientSavedViews = (): OutpatientSavedView[] => {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
-    return normalizeViews(parsed).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const normalized = normalizeViews(parsed).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const hasLegacyKeyword = Array.isArray(parsed)
+      ? parsed.some(
+          (entry) =>
+            Boolean(
+              entry &&
+                typeof entry === 'object' &&
+                'filters' in entry &&
+                (entry as { filters?: { keyword?: unknown } }).filters &&
+                typeof (entry as { filters?: { keyword?: unknown } }).filters?.keyword === 'string',
+            ),
+        )
+      : false;
+    if (hasLegacyKeyword) {
+      persistViews(normalized);
+    }
+    return normalized;
   } catch {
     return [];
   }
@@ -76,14 +95,7 @@ export const upsertOutpatientSavedView = (input: Omit<OutpatientSavedView, 'id' 
     id: input.id ?? (existingIndex >= 0 ? views[existingIndex].id : generateId()),
     label,
     updatedAt: now,
-    filters: {
-      keyword: input.filters.keyword,
-      department: input.filters.department,
-      physician: input.filters.physician,
-      paymentMode: input.filters.paymentMode,
-      sort: input.filters.sort,
-      date: input.filters.date,
-    },
+    filters: sanitizeFilters(input.filters),
   };
   if (existingIndex >= 0) {
     const updated = [...views];

@@ -1629,13 +1629,41 @@ export function ReceptionPage({
       }),
     [dailyStateRevision, normalizedLiveEntries, selectedDate, storageScope],
   );
-  const appointmentEntries = dailyEntriesState.entries;
+  const effectiveDailyEntriesState = useMemo(() => {
+    if (dailyEntriesState.source !== 'snapshot') return dailyEntriesState;
+    const outcome = appointmentQuery.data?.outcome;
+    const httpStatus = appointmentQuery.data?.httpStatus;
+    const hasHttpError = typeof httpStatus === 'number' && (httpStatus === 0 || httpStatus >= 400);
+    const liveSucceeded =
+      !appointmentQuery.isLoading &&
+      !appointmentQuery.isFetching &&
+      !appointmentQuery.isError &&
+      !hasHttpError &&
+      outcome !== 'error';
+    if (liveSucceeded && normalizedLiveEntries.length === 0) {
+      return {
+        ...dailyEntriesState,
+        entries: [],
+        source: 'live' as const,
+      };
+    }
+    return dailyEntriesState;
+  }, [
+    appointmentQuery.data?.httpStatus,
+    appointmentQuery.data?.outcome,
+    appointmentQuery.isError,
+    appointmentQuery.isFetching,
+    appointmentQuery.isLoading,
+    dailyEntriesState,
+    normalizedLiveEntries.length,
+  ]);
+  const appointmentEntries = effectiveDailyEntriesState.entries;
   const visibleAppointmentEntries = useMemo(
     () => appointmentEntries,
     [appointmentEntries],
   );
   const snapshotDateOptions = useMemo(() => {
-    const fromState = dailyEntriesState.availableDates ?? [];
+    const fromState = effectiveDailyEntriesState.availableDates ?? [];
     if (fromState.length > 0) return fromState.slice(0, 30);
     return listReceptionSnapshotDates(storageScope, 30);
   }, [dailyEntriesState.availableDates, storageScope]);
@@ -2599,7 +2627,11 @@ export function ReceptionPage({
     if (trimmed === '外来受付') return '01';
     return '01';
   }, []);
-  const buildAuthJsonHeaders = useCallback(() => buildHttpHeaders({ headers: { 'Content-Type': 'application/json' } }), []);
+  const buildAuthJsonHeaders = useCallback(
+    (method: string, pathname: string) =>
+      buildHttpHeaders({ method, headers: { 'Content-Type': 'application/json' } }, pathname),
+    [],
+  );
   const resolvedDepartmentCode =
     normalizeDepartmentCode(acceptDepartmentSelection) ??
     (DEPARTMENT_CODE_RE.test(departmentFilter.trim()) ? departmentFilter.trim() : '');
@@ -2708,7 +2740,7 @@ export function ReceptionPage({
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/orca/visits/mutation', true);
     xhr.withCredentials = true;
-    const headers = buildAuthJsonHeaders();
+    const headers = buildAuthJsonHeaders('POST', '/orca/visits/mutation');
     Object.entries(headers).forEach(([key, value]) => {
       xhr.setRequestHeader(key, value);
     });

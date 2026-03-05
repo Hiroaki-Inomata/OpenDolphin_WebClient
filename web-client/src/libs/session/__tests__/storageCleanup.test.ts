@@ -44,9 +44,11 @@ describe('storageCleanup', () => {
     session.setItem('opendolphin:web-client:charts:printPreview:outpatient:v2:fac-1:user-1', 'x');
     session.setItem('opendolphin:web-client:charts:printPreview:report:v2:fac-1:user-1', 'x');
     session.setItem('opendolphin:web-client:charts:encounter-context:v2:fac-1:user-1', 'x');
+    session.setItem('opendolphin:web-client:charts:patient-tabs:v1:fac-1:user-1', 'x');
     session.setItem('opendolphin:web-client:soap-history:v2:fac-1:user-1', 'x');
     session.setItem('opendolphin:web-client:patients:returnTo:v2:fac-1:user-1', 'x');
     session.setItem('opendolphin:web-client:reception-daily-state:v1:fac-1:user-1', 'x');
+    session.setItem('opendolphin:web-client:deeplink-context', '{"savedAt":"2026-03-04T00:00:00.000Z","values":{"patientId":"123"}}');
     session.setItem('charts:orca-claim-send:fac-1:user-1', 'x');
     session.setItem('charts:orca-income-info:fac-1:user-1', 'x');
     // legacy (v1, w/o scope)
@@ -65,6 +67,7 @@ describe('storageCleanup', () => {
     local.setItem('opendolphin:web-client:auth:shared-session:v1', 'x');
     local.setItem('opendolphin:web-client:auth:shared-flags:v1', 'x');
     local.setItem('opendolphin:web-client:charts:order-sets:v1', 'x');
+    local.setItem('opendolphin:web-client:outpatient-saved-views:v1', 'x');
     local.setItem('web-client:order-stamps:fac-1:user-1', 'x');
     local.setItem('web-client:order-stamps:clipboard:fac-1:user-1', 'x');
     local.setItem('useMockOrcaQueue', '1');
@@ -103,7 +106,9 @@ describe('storageCleanup', () => {
     expect(session.getItem('opendolphin:web-client:charts:printPreview:outpatient:v2:fac-1:user-1')).toBeNull();
     expect(session.getItem('opendolphin:web-client:charts:printPreview:report:v2:fac-1:user-1')).toBeNull();
     expect(session.getItem('opendolphin:web-client:charts:encounter-context:v2:fac-1:user-1')).toBeNull();
+    expect(session.getItem('opendolphin:web-client:charts:patient-tabs:v1:fac-1:user-1')).toBeNull();
     expect(session.getItem('opendolphin:web-client:reception-daily-state:v1:fac-1:user-1')).toBeNull();
+    expect(session.getItem('opendolphin:web-client:deeplink-context')).toBeNull();
     expect(session.getItem('opendolphin:web-client:soap-history:v1')).toBeNull();
     expect(session.getItem('opendolphin:web-client:charts:printPreview:document:v1')).toBeNull();
     expect(session.getItem('opendolphin:web-client:charts:printResult:document:v1')).toBeNull();
@@ -119,6 +124,7 @@ describe('storageCleanup', () => {
     expect(local.getItem('opendolphin:web-client:charts:lock:v2:fac-1:user-1:facility:fac-1:patient:123:patient:123')).toBeNull();
     expect(local.getItem('opendolphin:web-client:charts:order-sets:v2:fac-1:user-1')).toBeNull();
     expect(local.getItem('opendolphin:web-client:charts:order-sets:v1')).toBeNull();
+    expect(local.getItem('opendolphin:web-client:outpatient-saved-views:v1')).toBeNull();
     expect(local.getItem('web-client:order-stamps:fac-1:user-1')).toBeNull();
     expect(local.getItem('web-client:order-stamps:clipboard:fac-1:user-1')).toBeNull();
     expect(local.getItem('useMockOrcaQueue')).toBeNull();

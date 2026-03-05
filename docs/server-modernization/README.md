@@ -32,6 +32,14 @@
 - `docs/server-modernization/operations/CODEX_ENV_SETUP.md`
 - `docs/server-modernization/operations/API_PARITY_RESPONSE_CHECK.md`
 - `docs/server-modernization/api-smoke-test.md`
+- `docs/web-client/operations/security-rollout-checklist-20260304.md`（Web client 連携の CSRF/Logout/画像ヘッダ運用条件）
+
+### Web client 連携セキュリティ契約（2026-03）
+- デプロイ順序は backend 先行 → frontend 後続（逆順禁止）。
+- `index.html` は `__CSRF_TOKEN__` を実トークンへ置換して配信し、`Cache-Control: private, no-store` を適用する。
+- unsafe method（`POST/PUT/PATCH/DELETE`）の CSRF 検証は `fetch` と `XMLHttpRequest`（upload）で同一に扱う。
+- `POST /api/logout` は `credentials` + CSRF を前提に冪等で処理する。
+- 画像ヘッダは `X-Client-Feature-Images` のみを使用し、旧 `X-Feature-Images` は廃止する。
 
 ### セキュリティ設定（Trusted Proxy）
 - 監査ログのクライアントIP解決で `X-Forwarded-For` / `X-Real-IP` を信用するには、trusted proxy を明示設定してください。

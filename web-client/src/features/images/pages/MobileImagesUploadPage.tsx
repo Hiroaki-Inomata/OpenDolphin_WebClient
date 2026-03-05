@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { resolveAriaLive, resolveRunId } from '../../../libs/observability/observability';
 import { safeSameOriginHttpUrl } from '../../../libs/security/safeUrl';
 import { useOptionalSession } from '../../../AppRouter';
+import { loadDeepLinkContext } from '../../../routes/deepLinkContextStorage';
 import { buildFacilityPath } from '../../../routes/facilityRoutes';
 import { useAuthService } from '../../charts/authService';
 import { useAppNavigation } from '../../../routes/useAppNavigation';
@@ -34,6 +35,12 @@ const buildErrorMessage = (status: number, error?: string) => {
   return `送信に失敗しました（${error ?? `HTTP ${status}`}）。`;
 };
 
+const normalizePatientId = (value?: string | null) => {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
 export function MobileImagesUploadPage() {
   const session = useOptionalSession();
   const location = useLocation();
@@ -44,7 +51,12 @@ export function MobileImagesUploadPage() {
     () => new URLSearchParams(location.search.startsWith('?') ? location.search.slice(1) : location.search),
     [location.search],
   );
-  const patientIdParam = useMemo(() => queryParams.get('patientId') ?? undefined, [queryParams]);
+  const patientIdParam = useMemo(() => normalizePatientId(queryParams.get('patientId')), [queryParams]);
+  const deepLinkPatientId = useMemo(
+    () => normalizePatientId(loadDeepLinkContext()?.values.patientId),
+    [location.search],
+  );
+  const resolvedPatientId = patientIdParam ?? deepLinkPatientId;
   const fallbackUrl = useMemo(() => {
     const facilityId = session?.facilityId;
     if (appNav.fromCandidate === 'reception') return buildFacilityPath(facilityId, '/reception');
@@ -53,7 +65,7 @@ export function MobileImagesUploadPage() {
   }, [appNav.fromCandidate, session?.facilityId]);
   const infoLive = resolveAriaLive('info');
   const errorLive = resolveAriaLive('error');
-  const [patientId, setPatientId] = useState<string | undefined>(() => patientIdParam);
+  const [patientId, setPatientId] = useState<string | undefined>(() => resolvedPatientId);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [stage, setStage] = useState<UploadStage>('idle');
@@ -66,9 +78,9 @@ export function MobileImagesUploadPage() {
   const lastAttemptRef = useRef<{ patientId: string; file: File } | null>(null);
 
   useEffect(() => {
-    if (!patientIdParam) return;
-    setPatientId((prev) => (prev ? prev : patientIdParam));
-  }, [patientIdParam]);
+    if (!resolvedPatientId) return;
+    setPatientId(resolvedPatientId);
+  }, [resolvedPatientId]);
 
   useEffect(() => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -98,15 +110,18 @@ export function MobileImagesUploadPage() {
 
   useEffect(() => {
     setSelectedFile(null);
-    setStage(patientId ? 'ready' : 'idle');
-    setStatusText(patientId ? `patientId=${patientId}` : '患者を選択してください。');
     setLastError(null);
     setListItems([]);
-    if (patientId) {
-      refreshList(patientId).catch(() => {
-        // ignore
-      });
+    if (!patientId) {
+      setStage('error');
+      setStatusText('患者情報が取得できません。患者導線から再度開いてください。');
+      return;
     }
+    setStage('ready');
+    setStatusText('患者情報を確認しました。画像を選択して送信してください。');
+    refreshList(patientId).catch(() => {
+      // ignore
+    });
   }, [patientId, refreshList]);
 
   const canPickFile = Boolean(patientId) && stage !== 'uploading';
@@ -231,7 +246,7 @@ export function MobileImagesUploadPage() {
           background: 'white',
         }}
       >
-        <MobilePatientPicker title="1) 患者特定" selectedPatientId={patientId} onSelect={(pid) => setPatientId(pid)} />
+        <MobilePatientPicker title="1) 患者特定" selectedPatientId={undefined} onSelect={(pid) => setPatientId(pid)} />
       </section>
 
       <section
@@ -352,7 +367,7 @@ export function MobileImagesUploadPage() {
               {progress.mode === 'real' && typeof progress.percent === 'number' ? `進捗: ${progress.percent}%` : '進捗: 送信中…'}
             </div>
           ) : null}
-          {stage === 'error' ? (
+          {stage === 'error' && lastError ? (
             <button
               type="button"
               data-test-id="mobile-image-retry"
@@ -370,6 +385,15 @@ export function MobileImagesUploadPage() {
             >
               再試行（Retry）
             </button>
+          ) : null}
+          {!patientId ? (
+            <p
+              data-test-id="mobile-images-missing-patient"
+              role="alert"
+              style={{ margin: 0, fontSize: '0.9rem', color: '#b42318' }}
+            >
+              患者情報が取得できないため送信できません。患者導線から開き直してください。
+            </p>
           ) : null}
         </div>
 
@@ -392,7 +416,7 @@ export function MobileImagesUploadPage() {
       >
         <h2 style={{ margin: 0, fontSize: '1.1rem' }}>3) 完了 / 参照</h2>
         {!patientId ? (
-          <p style={{ margin: 0, fontSize: '0.95rem', opacity: 0.85 }}>患者を確定すると一覧が表示されます。</p>
+          <p style={{ margin: 0, fontSize: '0.95rem', opacity: 0.85 }}>患者情報が取得できないため一覧を表示できません。</p>
         ) : listItems.length === 0 ? (
           <p style={{ margin: 0, fontSize: '0.95rem', opacity: 0.85 }}>画像はまだありません。</p>
         ) : (
@@ -434,7 +458,7 @@ export function MobileImagesUploadPage() {
                       data-test-id="mobile-images-download-link"
                       href={safeDownloadUrl}
                       target="_blank"
-                      rel="noreferrer noopener"
+                      rel="noopener noreferrer"
                       style={{ fontSize: '0.95rem' }}
                     >
                       参照リンクを開く

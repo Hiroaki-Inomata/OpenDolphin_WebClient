@@ -39,7 +39,7 @@ function NavigationHarness() {
           appNav.openPrintOutpatient({
             state: { entryId: 'ENTRY-001' },
             from: 'charts',
-            returnTo: '/f/0001/charts?patientId=P-001',
+            returnTo: '/f/0001/charts?patientId=P-001&kw=山田',
           })
         }
       >
@@ -51,11 +51,34 @@ function NavigationHarness() {
           appNav.openPrintDocument({
             state: { documentId: 'DOC-001' },
             from: 'charts',
-            returnTo: '/f/0001/charts?patientId=P-001&appointmentId=A-001',
+            returnTo: '/f/0001/charts?patientId=P-001&appointmentId=A-001&kw=山田',
           })
         }
       >
         open-document
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          appNav.openPatients({
+            from: 'charts',
+            returnTo: '/f/0001/charts?patientId=1&kw=山田',
+          })
+        }
+      >
+        open-patients
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          appNav.openMobileImages({
+            from: 'charts',
+            patientId: '12345',
+            returnTo: '/f/0001/charts?patientId=12345&kw=山田',
+          })
+        }
+      >
+        open-mobile-images
       </button>
     </div>
   );
@@ -64,6 +87,7 @@ function NavigationHarness() {
 describe('useAppNavigation print routing', () => {
   beforeEach(() => {
     guardedNavigateMock.mockReset();
+    sessionStorage.clear();
   });
 
   it('openPrintOutpatient は returnTo を URL と state に保持する', async () => {
@@ -83,9 +107,9 @@ describe('useAppNavigation print routing', () => {
 
     expect(parsed.pathname).toBe('/f/0001/charts/print/outpatient');
     expect(parsed.searchParams.get('from')).toBe('charts');
-    expect(parsed.searchParams.get('returnTo')).toBe('/f/0001/charts?patientId=P-001');
+    expect(parsed.searchParams.get('returnTo')).toBe('/f/0001/charts');
     expect(options.state?.from).toBe('charts');
-    expect(options.state?.returnTo).toBe('/f/0001/charts?patientId=P-001');
+    expect(options.state?.returnTo).toBe('/f/0001/charts');
   });
 
   it('openPrintDocument は returnTo を URL と state に保持する', async () => {
@@ -105,8 +129,54 @@ describe('useAppNavigation print routing', () => {
 
     expect(parsed.pathname).toBe('/f/0001/charts/print/document');
     expect(parsed.searchParams.get('from')).toBe('charts');
-    expect(parsed.searchParams.get('returnTo')).toBe('/f/0001/charts?patientId=P-001&appointmentId=A-001');
+    expect(parsed.searchParams.get('returnTo')).toBe('/f/0001/charts');
     expect(options.state?.from).toBe('charts');
-    expect(options.state?.returnTo).toBe('/f/0001/charts?patientId=P-001&appointmentId=A-001');
+    expect(options.state?.returnTo).toBe('/f/0001/charts');
+  });
+
+  it('openPatients は returnTo を scrub して URL/state/sessionStorage へ保存する', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/f/0001/charts?patientId=P-001']}>
+        <NavigationHarness />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'open-patients' }));
+
+    expect(guardedNavigateMock).toHaveBeenCalledTimes(1);
+    const [to] = guardedNavigateMock.mock.calls[0] as [string, { state?: Record<string, unknown> }];
+    const parsed = new URL(to, 'https://app.invalid');
+    expect(parsed.pathname).toBe('/f/0001/patients');
+    expect(parsed.searchParams.get('returnTo')).toBe('/f/0001/charts');
+    expect(sessionStorage.getItem('opendolphin:web-client:patients:returnTo:v2:0001:user01')).toBe('/f/0001/charts');
+  });
+
+  it('openMobileImages は patientId を deeplink context へ保存して URL へ残さない', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/f/0001/charts?patientId=P-001']}>
+        <NavigationHarness />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'open-mobile-images' }));
+
+    expect(guardedNavigateMock).toHaveBeenCalledTimes(1);
+    const [to] = guardedNavigateMock.mock.calls[0] as [string, { state?: Record<string, unknown> }];
+    const parsed = new URL(to, 'https://app.invalid');
+    expect(parsed.pathname).toBe('/f/0001/m/images');
+    expect(parsed.searchParams.get('patientId')).toBeNull();
+    const deepLinkRaw = sessionStorage.getItem('opendolphin:web-client:deeplink-context');
+    expect(deepLinkRaw).not.toBeNull();
+    expect(JSON.parse(deepLinkRaw as string)).toEqual(
+      expect.objectContaining({
+        values: expect.objectContaining({
+          patientId: '12345',
+        }),
+      }),
+    );
   });
 });

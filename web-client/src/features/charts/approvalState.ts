@@ -16,7 +16,8 @@ export type ChartsApprovalRecord = {
 
 const APPROVAL_PREFIX = 'opendolphin:web-client:charts:approval:v1:';
 
-const stableHash = (value: string): string => {
+// Non-cryptographic hash for key compaction only. It is not a secrecy control.
+const nonCryptoHash = (value: string): string => {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i += 1) {
     hash ^= value.charCodeAt(i);
@@ -48,7 +49,7 @@ const buildHashedApprovalStorageKey = (target: ChartsApprovalTarget, patientId: 
       ? `appointment:${appointmentId}`
       : `patient:${patientId}`;
   const facilityPart = facility ? `facility:${facility}` : 'facility:unknown';
-  return `${APPROVAL_PREFIX}${facilityPart}:pid:${stableHash(patientId)}:scope:${stableHash(scope)}`;
+  return `${APPROVAL_PREFIX}${facilityPart}:pid:${nonCryptoHash(patientId)}:scope:${nonCryptoHash(scope)}`;
 };
 
 const migrateLegacyApprovalRecord = (legacyKey: string, storageKey: string) => {

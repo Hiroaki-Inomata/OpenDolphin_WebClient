@@ -47,7 +47,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @ExtendWith(MockitoExtension.class)
 class JsonTouchResourceSecurityTest extends RuntimeDelegateTestSupport {
 
-    private static final String ACTOR_REMOTE_USER = "F001:doctor01";
+    private static final String ACTOR_REMOTE_USER = "facility01:user01";
 
     @Mock
     private TouchJsonConverter touchJsonConverter;
@@ -145,14 +145,22 @@ class JsonTouchResourceSecurityTest extends RuntimeDelegateTestSupport {
         setField(adm20, "karteServiceBean", karteServiceBean);
         setField(touch, "servletRequest", servletRequest);
 
-        when(karteServiceBean.findFacilityIdByPvtId(1L)).thenReturn("F001");
-        when(karteServiceBean.findFacilityIdByPatientPk(2L)).thenReturn("F001");
+        when(karteServiceBean.findFacilityIdByPvtId(1L)).thenReturn("facility01");
+        when(karteServiceBean.findFacilityIdByPatientPk(2L)).thenReturn("facility01");
         when(karteServiceBean.findFacilityIdByDocId(3L)).thenReturn("F999");
 
         assertNotFound(() -> touch.getVisitPackage(servletRequest, "1,2,3,1"));
         assertNotFound(() -> adm10.getVisitPackage(servletRequest, "1,2,3,1"));
         assertNotFound(() -> adm20.getVisitPackage(servletRequest, "1,2,3,1"));
         verify(sharedMock, never()).getVisitPackage(anyLong(), anyLong(), anyLong(), anyInt());
+    }
+
+    @Test
+    void getUserByIdReturns404WhenUidFacilityDiffersFromActorFacilityForAllResources() {
+        assertNotFound(() -> touchResource.getUserById(servletRequest, "facility02:user99"));
+        assertNotFound(() -> adm10Resource.getUserById(servletRequest, "facility02:user99"));
+        assertNotFound(() -> adm20Resource.getUserById(servletRequest, "facility02:user99"));
+        verify(iPhoneServiceBean, never()).getUserById("facility02:user99");
     }
 
     @Test
@@ -219,15 +227,15 @@ class JsonTouchResourceSecurityTest extends RuntimeDelegateTestSupport {
         PatientModel patient = new PatientModel();
         patient.setId(10L);
         patient.setPatientId("P100");
-        patient.setFacilityId("F001");
-        when(iPhoneServiceBean.getPatientById("F001", "P100")).thenReturn(patient);
+        patient.setFacilityId("facility01");
+        when(iPhoneServiceBean.getPatientById("facility01", "P100")).thenReturn(patient);
 
         KarteBean resolvedKarte = new KarteBean();
         resolvedKarte.setId(500L);
         resolvedKarte.setPatientModel(patient);
         when(karteServiceBean.getKarte(10L, null)).thenReturn(resolvedKarte);
-        when(karteServiceBean.findFacilityIdByDiagnosisId(11L)).thenReturn("F001");
-        when(karteServiceBean.findFacilityIdByDiagnosisId(12L)).thenReturn("F001");
+        when(karteServiceBean.findFacilityIdByDiagnosisId(11L)).thenReturn("facility01");
+        when(karteServiceBean.findFacilityIdByDiagnosisId(12L)).thenReturn("facility01");
         when(karteServiceBean.addDocument(any(DocumentModel.class))).thenReturn(99L);
         when(karteServiceBean.postPutSendDiagnosis(any(DiagnosisSendWrapper.class))).thenReturn(Collections.emptyList());
 

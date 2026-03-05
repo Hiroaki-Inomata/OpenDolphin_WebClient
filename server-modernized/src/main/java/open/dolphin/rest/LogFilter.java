@@ -328,6 +328,24 @@ public class LogFilter implements Filter {
         }
     }
 
+    private static final class BasicCredentials {
+        private final String user;
+        private final String password;
+
+        private BasicCredentials(String user, String password) {
+            this.user = user;
+            this.password = password;
+        }
+
+        private String user() {
+            return user;
+        }
+
+        private String password() {
+            return password;
+        }
+    }
+
     private void logUnauthorized(HttpServletRequest req, String user, String traceId) {
         StringBuilder sbd = new StringBuilder(UNAUTHORIZED_USER);
         sbd.append(user != null ? user : "unknown");
@@ -360,12 +378,8 @@ public class LogFilter implements Filter {
             SECURITY_LOGGER.fine("Basic auth header missing separator");
             return Optional.empty();
         }
-        String rawUser = decoded.substring(0, sep).trim();
-        String rawPass = decoded.substring(sep + 1);
-        if (!isCompositePrincipal(rawUser) || rawPass == null || userService == null) {
-            return Optional.empty();
-        }
-        String compositeUser = normalize(rawUser);
+        String compositeUser = credentials.user();
+        String rawPass = credentials.password();
         if (compositeUser == null) {
             return Optional.empty();
         }
@@ -403,6 +417,40 @@ public class LogFilter implements Filter {
         } catch (IllegalArgumentException ex) {
             return null;
         }
+    }
+
+    private BasicCredentials resolveCompositeCredentials(String decoded) {
+        if (decoded == null) {
+            return null;
+        }
+        int firstSeparator = decoded.indexOf(':');
+        if (firstSeparator < 0) {
+            return null;
+        }
+        BasicCredentials firstParsed = parseCredentials(decoded, firstSeparator);
+        if (firstParsed != null && isCompositePrincipal(firstParsed.user())) {
+            return firstParsed;
+        }
+        int lastSeparator = decoded.lastIndexOf(':');
+        if (lastSeparator > firstSeparator) {
+            BasicCredentials lastParsed = parseCredentials(decoded, lastSeparator);
+            if (lastParsed != null && isCompositePrincipal(lastParsed.user())) {
+                return lastParsed;
+            }
+        }
+        return null;
+    }
+
+    private BasicCredentials parseCredentials(String decoded, int separatorIndex) {
+        if (decoded == null || separatorIndex < 0 || separatorIndex >= decoded.length()) {
+            return null;
+        }
+        String user = normalize(decoded.substring(0, separatorIndex));
+        if (user == null) {
+            return null;
+        }
+        String password = decoded.substring(separatorIndex + 1);
+        return new BasicCredentials(user, password);
     }
 
     private void sendUnauthorized(HttpServletRequest request, HttpServletResponse response, String errorCode,

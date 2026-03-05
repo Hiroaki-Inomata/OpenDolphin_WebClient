@@ -1,0 +1,76 @@
+name: web-client-test-shards
+
+on:
+  workflow_dispatch:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            web-client/package-lock.json
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Install dependencies (web-client)
+        run: npm ci
+        working-directory: web-client
+
+      - name: Lint web-client
+        run: npm run lint
+        working-directory: web-client
+
+  test-shards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - "1/8"
+          - "2/8"
+          - "3/8"
+          - "4/8"
+          - "5/8"
+          - "6/8"
+          - "7/8"
+          - "8/8"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            web-client/package-lock.json
+
+      - name: Install dependencies (root)
+        run: npm ci
+
+      - name: Install dependencies (web-client)
+        run: npm ci
+        working-directory: web-client
+
+      - name: Verify no public secrets
+        run: npm run verify:no-public-secrets
+        working-directory: web-client
+
+      - name: Run shard ${{ matrix.shard }}
+        run: npm run test:ci -- --shard=${{ matrix.shard }}
+        working-directory: web-client

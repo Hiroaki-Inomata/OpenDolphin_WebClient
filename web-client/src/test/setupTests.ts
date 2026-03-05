@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest';
+import { beforeEach } from 'vitest';
 
 // BroadcastChannel が Node 環境で Event インスタンスを要求して失敗するため、テストでは簡易モックを適用
 class MockBroadcastChannel {
@@ -16,3 +17,34 @@ class MockBroadcastChannel {
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 globalThis.BroadcastChannel = MockBroadcastChannel;
+
+if (typeof window !== 'undefined' && typeof window.PointerEvent === 'undefined') {
+  class MockPointerEvent extends MouseEvent {
+    pointerId: number;
+
+    constructor(type: string, params: MouseEventInit & { pointerId?: number } = {}) {
+      super(type, params);
+      this.pointerId = params.pointerId ?? 1;
+    }
+  }
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  window.PointerEvent = MockPointerEvent;
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  globalThis.PointerEvent = MockPointerEvent;
+}
+
+beforeEach(() => {
+  if (typeof document === 'undefined') return;
+  let meta = document.querySelector("meta[name='csrf-token']");
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.setAttribute('name', 'csrf-token');
+    document.head.appendChild(meta);
+  }
+  if (!(meta instanceof HTMLMetaElement)) return;
+  if (!meta.content.trim()) {
+    meta.content = 'test-csrf-token';
+  }
+});

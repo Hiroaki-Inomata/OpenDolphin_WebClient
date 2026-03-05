@@ -2364,7 +2364,7 @@ export function DocumentCreatePanel({
                           <button type="button" onClick={() => appNav.openReception()}>
                             再取得（Reception）
                           </button>
-                          <a href={PRINT_HELP_URL} target="_blank" rel="noreferrer">
+                          <a href={PRINT_HELP_URL} target="_blank" rel="noopener noreferrer">
                             印刷ヘルプ
                           </a>
                         </div>

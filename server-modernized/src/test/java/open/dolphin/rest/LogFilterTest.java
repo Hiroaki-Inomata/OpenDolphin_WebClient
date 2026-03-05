@@ -121,6 +121,41 @@ class LogFilterTest {
     }
 
     @Test
+    void basicAuthCompositeCredentialIsParsedWithLastSeparator() throws Exception {
+        UserServiceBean userService = mock(UserServiceBean.class);
+        setField("userService", userService);
+        String compositeUser = "1.3.6.1.4.1.9414.10.1:ormaster";
+        String password = "change_me";
+        when(userService.authenticate(compositeUser, password)).thenReturn(true);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+
+        Map<String, Object> attributes = new HashMap<>();
+        doAnswer(invocation -> {
+            attributes.put(invocation.getArgument(0, String.class), invocation.getArgument(1));
+            return null;
+        }).when(request).setAttribute(anyString(), any());
+        when(request.getAttribute(anyString())).thenAnswer(invocation -> attributes.get(invocation.getArgument(0, String.class)));
+
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Authorization", buildBasicAuthHeader(compositeUser, password));
+        when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/user/" + compositeUser);
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRemoteAddr()).thenReturn("192.0.2.40");
+
+        filter.doFilter(request, response, chain);
+
+        ArgumentCaptor<ServletRequest> wrappedReqCaptor = ArgumentCaptor.forClass(ServletRequest.class);
+        verify(chain).doFilter(wrappedReqCaptor.capture(), eq(response));
+        HttpServletRequest wrapped = (HttpServletRequest) wrappedReqCaptor.getValue();
+        assertEquals(compositeUser, wrapped.getRemoteUser());
+        verify(userService).authenticate(compositeUser, password);
+    }
+
+    @Test
     void unauthorizedRequestGeneratesTraceIdAndLogs() throws Exception {
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);

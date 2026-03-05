@@ -31,17 +31,18 @@ export type PatientImageUploadResult = {
   error?: string;
 };
 
-const FEATURE_HEADER_NAME = 'X-Feature-Images';
+const FEATURE_HEADER_NAME = 'X-Client-Feature-Images';
 const FEATURE_HEADER_VALUE = '1';
 
-const buildGateHeaders = (init?: RequestInit) => {
+const buildGateHeaders = (init?: RequestInit, pathname?: string) => {
+  // NOTE: このヘッダは UI 機能フラグであり、認可境界ではない。認可判定は必ずサーバ側で実施する。
   const headers = buildHttpHeaders({
     ...(init ?? {}),
     headers: {
       ...(init?.headers ?? {}),
       [FEATURE_HEADER_NAME]: FEATURE_HEADER_VALUE,
     },
-  });
+  }, pathname);
   return headers;
 };
 
@@ -58,7 +59,7 @@ export async function fetchPatientImageList(patientId: string): Promise<PatientI
   const endpoint = `/patients/${encodeURIComponent(patientId)}/images`;
   const response = await httpFetch(endpoint, {
     method: 'GET',
-    headers: buildGateHeaders(),
+    headers: buildGateHeaders({ method: 'GET' }, endpoint),
   });
   const parsed = await parseMaybeJson(response);
   const payload = parsed.json;
@@ -130,7 +131,7 @@ export function uploadPatientImageViaXhr(params: {
     xhr.open('POST', endpoint, true);
 
     // NOTE: Do not set Content-Type for multipart/form-data; the browser will set boundary.
-    const headers = buildGateHeaders({ method: 'POST' });
+    const headers = buildGateHeaders({ method: 'POST' }, endpoint);
     Object.entries(headers).forEach(([key, value]) => {
       if (!value) return;
       if (key.toLowerCase() === 'content-type') return;

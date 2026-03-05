@@ -12,7 +12,7 @@ import open.dolphin.rest.AbstractResource;
  */
 public final class PhrRequestContextExtractor {
 
-    private static final String TRACE_ID_ATTRIBUTE = open.dolphin.rest.LogFilter.class.getName() + ".TRACE_ID";
+    private static final String TRACE_ID_ATTRIBUTE = LogFilter.TRACE_ID_ATTRIBUTE;
     private static final String HEADER_TRACE_ID = "X-Trace-Id";
     private static final String HEADER_REQUEST_ID = "X-Request-Id";
 

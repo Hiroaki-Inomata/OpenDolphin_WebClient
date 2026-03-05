@@ -555,6 +555,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
       readChartsPatientTabsStorage(storageScope) ?? {
         version: 1,
         updatedAt: new Date().toISOString(),
+        savedAt: new Date().toISOString(),
         activeKey: undefined,
         tabs: [],
       }
@@ -569,6 +570,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
       {
         ...patientTabsState,
         updatedAt: new Date().toISOString(),
+        savedAt: patientTabsState.savedAt,
       },
       storageScope,
     );

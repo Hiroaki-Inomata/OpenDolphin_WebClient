@@ -1,25 +1,42 @@
 #!/usr/bin/env node
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = path.dirname(scriptPath);
-const webClientDir = path.resolve(scriptDir, '..');
-const repoRootDir = path.resolve(webClientDir, '..');
+const repoRootDir = path.resolve(scriptDir, '..', '..');
 
+const PUBLIC_PREFIX = ['VITE', ''].join('_');
 const KEYWORDS = ['PASSWORD', 'PASS', 'SECRET', 'TOKEN', 'APIKEY', 'API_KEY', 'PRIVATE', 'CREDENTIAL'];
 const ENV_KEY_PATTERN = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/;
 
-const listEnvFiles = (dir) =>
-  readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.startsWith('.env'))
-    .map((entry) => path.join(dir, entry.name));
+const isTrackedEnvFile = (relativePath) => /^\.env(?:\..*)?$/.test(path.posix.basename(relativePath));
+
+const listTrackedEnvFiles = () => {
+  try {
+    const output = execFileSync('git', ['-C', repoRootDir, 'ls-files', '-z'], {
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    return output
+      .split('\0')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .filter((entry) => isTrackedEnvFile(entry.replaceAll('\\', '/')))
+      .map((entry) => path.resolve(repoRootDir, entry));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error(`[verify:no-public-secrets] git ls-files の実行に失敗しました: ${reason}`);
+    process.exit(2);
+  }
+};
 
 const hasSecretLikeName = (key) => {
   const upper = key.toUpperCase();
-  return upper.startsWith('VITE_') && KEYWORDS.some((keyword) => upper.includes(keyword));
+  return upper.startsWith(PUBLIC_PREFIX) && KEYWORDS.some((keyword) => upper.includes(keyword));
 };
 
 const scanFile = (filePath) => {
@@ -39,7 +56,7 @@ const scanFile = (filePath) => {
   return findings;
 };
 
-const files = [...listEnvFiles(repoRootDir), ...listEnvFiles(webClientDir)];
+const files = listTrackedEnvFiles();
 const findings = files.flatMap((filePath) => scanFile(filePath));
 
 if (findings.length > 0) {

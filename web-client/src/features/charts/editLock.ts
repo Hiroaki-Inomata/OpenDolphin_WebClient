@@ -38,7 +38,8 @@ const safeJsonParse = (raw: string | null): unknown => {
   }
 };
 
-const stableHash = (value: string): string => {
+// Non-cryptographic hash for localStorage key compaction only. It is not a secrecy control.
+const nonCryptoHash = (value: string): string => {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i += 1) {
     hash ^= value.charCodeAt(i);
@@ -78,7 +79,7 @@ const buildHashedChartsTabLockStorageKey = (target: ChartsLockTarget, userScope?
   const encounterScope = buildEncounterScope(target, patientId);
   const facilityPart = facility ? `facility:${facility}` : 'facility:unknown';
   const scopedSuffix = buildScopedStorageKey(LOCK_BASE, LOCK_VERSION, userScope) ?? `${LOCK_BASE}:${LOCK_VERSION}`;
-  return `${scopedSuffix}:${facilityPart}:enc:${stableHash(encounterScope)}`;
+  return `${scopedSuffix}:${facilityPart}:enc:${nonCryptoHash(encounterScope)}`;
 };
 
 const migrateLegacyV2LockRecord = (legacyKey: string, storageKey: string) => {

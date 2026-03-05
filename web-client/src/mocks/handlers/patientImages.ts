@@ -10,7 +10,7 @@ type PatientImageItem = {
   downloadUrl?: string;
 };
 
-const FEATURE_HEADER = 'x-feature-images';
+const FEATURE_HEADER = 'x-client-feature-images';
 const FORCE_STATUS_HEADER = 'x-force-images-status';
 const FORCE_NETWORK_ERROR_HEADER = 'x-force-images-network-error';
 
