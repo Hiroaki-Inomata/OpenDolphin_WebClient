@@ -197,9 +197,9 @@ export const receptionStyles = css`
   .reception-page {
     --reception-floating-offset-right: max(1rem, calc(env(safe-area-inset-right) + 0.65rem));
     --reception-floating-offset-bottom: max(1rem, calc(env(safe-area-inset-bottom) + 0.65rem));
-    --reception-floating-stack-height: 3.9rem;
+    --reception-floating-stack-height: 0rem;
     min-height: 100vh;
-    padding: 3rem clamp(1rem, 4vw, 2.75rem) calc(3rem + var(--reception-floating-stack-height));
+    padding: 3rem clamp(1rem, 4vw, 2.75rem) 3rem;
     background: var(--ui-surface-muted);
     display: flex;
     flex-direction: column;
@@ -303,32 +303,6 @@ export const receptionStyles = css`
     min-width: 0;
   }
 
-  .reception-page__title-actions {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.7rem;
-    flex-wrap: wrap;
-  }
-
-  .reception-page__title-link {
-    border: 1px solid rgba(29, 78, 216, 0.25);
-    background: transparent;
-    color: #1d4ed8;
-    border-radius: 999px;
-    padding: 0.45rem 0.8rem;
-    font-weight: 800;
-    cursor: pointer;
-  }
-
-  .reception-page__title-link:hover {
-    background: rgba(239, 246, 255, 0.9);
-  }
-
-  .reception-page__title-link:focus-visible {
-    outline: 2px solid rgba(30, 64, 175, 0.45);
-    outline-offset: 2px;
-  }
-
   @keyframes reception-float-up {
     from {
       opacity: 0;
@@ -351,28 +325,61 @@ export const receptionStyles = css`
     }
   }
 
-  .reception-page__floating-actions {
-    position: fixed;
-    right: var(--reception-floating-offset-right);
-    bottom: var(--reception-floating-offset-bottom);
-    width: clamp(16rem, 34vw, 26rem);
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: end;
+  .reception-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 16px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+    padding: 0.9rem;
+  }
+
+  .reception-toolbar > form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: flex-end;
+  }
+
+  .reception-toolbar__group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
     gap: 0.55rem;
-    z-index: 10680;
-    pointer-events: none;
   }
 
-  .reception-page__floating-actions > * {
-    pointer-events: auto;
+  .reception-toolbar__advanced {
+    margin-top: -1rem;
+    background: #f8fafc;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 14px;
+    padding: 0.85rem;
   }
 
-  .reception-page__floating-calendar {
-    width: 100%;
+  .reception-toolbar__advanced-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.6rem;
+    align-items: end;
   }
 
-  .reception-page__floating-action,
+  .reception-toolbar__summary {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 1rem;
+    color: #475569;
+    font-size: 0.85rem;
+  }
+
+  .reception-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
   .reception-daily-calendar__trigger {
     border-radius: 16px;
     border: 1px solid rgba(148, 163, 184, 0.35);
@@ -383,25 +390,15 @@ export const receptionStyles = css`
     padding: 0.6rem 0.82rem;
     box-shadow: 0 10px 18px rgba(15, 23, 42, 0.1);
     backdrop-filter: blur(4px);
-  }
-
-  .reception-page__floating-action {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.45rem;
-    font-weight: 750;
     cursor: pointer;
-    text-align: center;
-    text-decoration: none;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0.2rem;
   }
 
-  .reception-page__floating-action:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .reception-page__floating-action:focus-visible,
   .reception-daily-calendar__trigger:focus-visible {
     outline: 3px solid rgba(37, 99, 235, 0.45);
     outline-offset: 2px;
@@ -427,13 +424,7 @@ export const receptionStyles = css`
   }
 
   .reception-daily-calendar__trigger {
-    cursor: pointer;
-    text-align: left;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 0.2rem;
+    min-width: 8.4rem;
   }
 
   .reception-daily-calendar__trigger-label {
@@ -2496,10 +2487,25 @@ export const receptionStyles = css`
 
   .reception-status-tabs {
     background: #ffffff;
-    border-radius: 12px;
+    border-radius: 14px;
     border: 1px solid rgba(148, 163, 184, 0.28);
-    padding: 0.65rem 0.75rem;
+    padding: 0.75rem 0.85rem;
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  }
+
+  .reception-status-tabs__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.65rem;
+  }
+
+  .reception-status-tabs__summary {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    min-width: 0;
   }
 
   .reception-status-tabs__list {
@@ -2523,11 +2529,6 @@ export const receptionStyles = css`
     cursor: pointer;
   }
 
-  .reception-status-tabs__tab strong {
-    font-size: 0.78rem;
-    color: #475569;
-  }
-
   .reception-status-tabs__tab.is-active {
     border-color: rgba(30, 64, 175, 0.62);
     background: #dbeafe;
@@ -2538,8 +2539,30 @@ export const receptionStyles = css`
     text-decoration-thickness: 2px;
   }
 
-  .reception-status-tabs__tab.is-active strong {
-    color: #1d4ed8;
+  .reception-status-tabs__dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    background: rgba(100, 116, 139, 0.85);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+  }
+
+  .reception-status-tabs__dot[data-tone='error'] {
+    background: #dc2626;
+  }
+
+  .reception-status-tabs__dot[data-tone='warning'] {
+    background: #d97706;
+  }
+
+  .reception-status-tabs__dot[data-tone='info'] {
+    background: #2563eb;
+  }
+
+  .reception-status-tabs__panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
   }
 
   .reception-board {
@@ -2560,10 +2583,11 @@ export const receptionStyles = css`
   }
 
   .reception-board__column {
-    flex: 0 0 360px;
-    max-width: 420px;
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: none;
     min-height: 240px;
-    max-height: clamp(420px, calc(100vh - 24rem), 860px);
+    max-height: none;
     border-radius: 20px;
     border: 1px solid rgba(148, 163, 184, 0.3);
     background: #ffffff;
@@ -4017,24 +4041,11 @@ export const receptionStyles = css`
     .reception-page {
       --reception-floating-offset-right: max(0.65rem, calc(env(safe-area-inset-right) + 0.45rem));
       --reception-floating-offset-bottom: max(0.65rem, calc(env(safe-area-inset-bottom) + 0.45rem));
-      --reception-floating-stack-height: 3.5rem;
+      --reception-floating-stack-height: 0rem;
     }
 
     .order-console__action {
       flex: 1 1 100%;
-    }
-
-    .reception-page__floating-actions {
-      right: var(--reception-floating-offset-right);
-      bottom: var(--reception-floating-offset-bottom);
-      width: min(22rem, calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 1.4rem));
-      gap: 0.5rem;
-    }
-
-    .reception-page__floating-action,
-    .reception-daily-calendar__trigger {
-      min-height: 2.95rem;
-      padding: 0.58rem 0.75rem;
     }
 
     .reception-page__meta-bar {
