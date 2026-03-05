@@ -562,6 +562,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
   });
   const patientTabs = patientTabsState.tabs;
   const activePatientTabKey = patientTabsState.activeKey ?? null;
+  const showPatientTabs = patientTabs.length >= 2;
 
   useEffect(() => {
     writeChartsPatientTabsStorage(
@@ -2780,6 +2781,11 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
     : tabLock.storageKey
       ? '編集中'
       : '—';
+  const editStateMeta = tabLock.isReadOnly
+    ? { value: editStatusValue, tone: 'warning' as const }
+    : approvalLocked
+      ? { value: approvalReason ?? '承認ロック中', tone: 'warning' as const }
+      : null;
   const lastUpdatedSummary = useMemo(
     () => ({
       message: formattedLastUpdated
@@ -4121,6 +4127,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
         data-charts-ui-opt-b={isChartsUiOptB ? '1' : '0'}
         data-charts-compact-header={isChartsCompactHeader ? '1' : '0'}
         data-charts-topbar-collapsed={isTopbarCollapsed ? '1' : '0'}
+        data-patient-tabs-visible={showPatientTabs ? '1' : '0'}
         aria-busy={lockState.locked}
       >
       {showOperationalMeta ? (
@@ -4191,12 +4198,14 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
               <section className="charts-page__meta-group" aria-label="監査サマリ">
                 <span className="charts-page__meta-title">監査サマリ</span>
                 <div className="charts-page__meta-row">
-                  <StatusPill
-                    className="charts-page__pill"
-                    label="編集状態"
-                    value={editStatusValue}
-                    tone={tabLock.isReadOnly ? 'warning' : 'info'}
-                  />
+                  {editStateMeta ? (
+                    <StatusPill
+                      className="charts-page__pill"
+                      label="編集状態"
+                      value={editStateMeta.value}
+                      tone={editStateMeta.tone}
+                    />
+                  ) : null}
                   <AuditSummaryInline
                     summary={lastUpdatedSummary}
                     className="charts-page__pill"
@@ -4462,7 +4471,7 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
                           onApprovalConfirmed={handleApprovalConfirmed}
                           onApprovalUnlock={handleApprovalUnlock}
                           onBeforeAction={handleBeforeChartsAction}
-                          showOperationalMeta={showOperationalMeta}
+                          showOperationalMeta={false}
                           onAfterSend={handleRefreshSummary}
                           onAfterStart={handleAfterStart}
                           onAfterPause={handleAfterPause}
@@ -4562,6 +4571,19 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
                       documentHistoryCopyRequest={documentHistoryCopyRequest}
                       onDocumentHistoryCopyConsumed={handleDocumentHistoryCopyConsumed}
                       documentPanel={documentPanel}
+                      orcaPanel={
+                        <OrcaSummary
+                          summary={orcaSummaryQuery.data}
+                          claim={claimQuery.data as ClaimOutpatientPayload | undefined}
+                          appointments={patientEntries}
+                          appointmentMeta={appointmentMeta}
+                          patientId={encounterContext.patientId}
+                          visitDate={encounterContext.visitDate}
+                          onRefresh={handleRefreshSummary}
+                          isRefreshing={isManualRefreshing}
+                          showOperationalMeta={false}
+                        />
+                      }
                       bottomOrderHubIntegrationEnabled={isBottomOrderHubIntegrationEnabled}
                       onOrderDockStateChange={handleOrderDockStateChange}
 			                      onDraftSnapshot={setSoapDraftSnapshot}
@@ -4631,24 +4653,13 @@ function ChartsContent({ onRequestHardReload }: { onRequestHardReload: () => voi
                     />
                   )}
 
-                  <div className="charts-column-header">
-                    <span className="charts-column-header__label">ORCAサマリ</span>
-                    <span className="charts-column-header__meta">会計 / 送信 / 確認</span>
-                  </div>
-
-                  <div className="charts-card" id="charts-orca-summary" tabIndex={-1} data-focus-anchor="true">
-                    <OrcaSummary
-                      summary={orcaSummaryQuery.data}
-                      claim={claimQuery.data as ClaimOutpatientPayload | undefined}
-                      appointments={patientEntries}
-                      appointmentMeta={appointmentMeta}
-                      patientId={encounterContext.patientId}
-                      visitDate={encounterContext.visitDate}
-                      onRefresh={handleRefreshSummary}
-                      isRefreshing={isManualRefreshing}
-                      showOperationalMeta={showOperationalMeta}
-                    />
-                  </div>
+                  <div
+                    className="charts-focus-anchor"
+                    id="charts-orca-summary"
+                    tabIndex={-1}
+                    data-focus-anchor="true"
+                    aria-hidden="true"
+                  />
 
                   {showDebugUi ? (
                     <>

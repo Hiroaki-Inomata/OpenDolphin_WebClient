@@ -157,16 +157,6 @@ export function PastHubPanel({
     setOpenDays({});
     setDoFeedback(null);
   }, [patientId]);
-  useEffect(() => {
-    if (!patientId) return;
-    if (Object.keys(openDays).length > 0) return;
-    if (dayGroups.length === 0) return;
-    const next: Record<string, boolean> = {};
-    dayGroups.slice(0, 2).forEach((group) => {
-      next[group.date] = true;
-    });
-    setOpenDays(next);
-  }, [dayGroups, openDays, patientId]);
 
   const from90Days = useMemo(() => makeFromDate(todayIso, 90), [todayIso]);
   const bundlesQuery = useQuery({
@@ -239,7 +229,7 @@ export function PastHubPanel({
       <header className="charts-past-hub__header">
         <div>
           <strong>Past Hub</strong>
-          <p className="charts-past-hub__desc">日付ごとに折りたたみ、左に過去カルテ、右にオーダー情報をまとめます（初期表示は直近2回）。</p>
+          <p className="charts-past-hub__desc">日付ごとに折りたたみ、左に過去カルテ、右にオーダー情報をまとめます（初期表示は全て閉じる）。</p>
         </div>
       </header>
 

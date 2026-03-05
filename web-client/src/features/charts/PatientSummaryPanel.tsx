@@ -31,12 +31,11 @@ const normalizeConfirmedLabel = (confirmed?: number | string): string | null => 
 
 export function PatientSummaryPanel({ patientId, readOnly = false, readOnlyReason }: PatientSummaryPanelProps) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [dirty, setDirty] = useState(false);
   const [statusNotice, setStatusNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
   const patientIdRef = useRef<string | undefined>(patientId);
-  const autoOpenPendingRef = useRef(true);
 
   const freeDocQuery = useQuery({
     queryKey: ['charts-free-document', patientId],
@@ -69,8 +68,6 @@ export function PatientSummaryPanel({ patientId, readOnly = false, readOnlyReaso
     setDraft('');
     setDirty(false);
     setStatusNotice(null);
-    setOpen(true);
-    autoOpenPendingRef.current = true;
   }, [patientId]);
 
   useEffect(() => {
@@ -80,10 +77,6 @@ export function PatientSummaryPanel({ patientId, readOnly = false, readOnlyReaso
     if (!freeDocQuery.data || !freeDocQuery.data.ok) return;
     if (dirty) return;
     setDraft(storedComment);
-    if (autoOpenPendingRef.current) {
-      setOpen(true);
-      autoOpenPendingRef.current = false;
-    }
   }, [dirty, freeDocQuery.data, freeDocQuery.isFetching, patientId, storedComment, supported]);
 
   const saveMutation = useMutation({

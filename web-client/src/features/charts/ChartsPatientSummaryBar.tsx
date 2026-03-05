@@ -83,7 +83,8 @@ export function ChartsPatientSummaryBar({
   const birthDate = birthIso ?? birthEra ?? '—';
   const zip = normalizeZip(patientDisplay.zip);
   const address = normalizeValue(patientDisplay.address);
-  const memo = normalizeMemo(patientDisplay.note) ?? '患者メモなし';
+  const memo = normalizeMemo(patientDisplay.note);
+  const hasMemo = Boolean(memo);
   const hasAddressMeta = Boolean(zip || address);
 
   return (
@@ -95,7 +96,7 @@ export function ChartsPatientSummaryBar({
       data-fallback-used={String(fallbackUsed ?? false)}
       data-source-transition={dataSourceTransition}
     >
-      <div className="charts-patient-summary__layout">
+      <div className="charts-patient-summary__layout" data-has-memo={hasMemo ? 'true' : 'false'}>
         <div className="charts-patient-summary__left">
           <div className="charts-patient-summary__primary-actions" role="group" aria-label="カルテ操作">
             <button
@@ -146,17 +147,23 @@ export function ChartsPatientSummaryBar({
             <p className="charts-patient-summary__kana">{kana ?? '—'}</p>
             <h2 className="charts-patient-summary__name">{displayName}</h2>
             {hasAddressMeta ? (
-              <p className="charts-patient-summary__address">
-                {[zip, address].filter(Boolean).join(' ')}
-              </p>
+              <details className="charts-patient-summary__extra">
+                <summary className="charts-patient-summary__extra-summary">詳細</summary>
+                <div className="charts-patient-summary__extra-body">
+                  {zip ? <p className="charts-patient-summary__address">{zip}</p> : null}
+                  {address ? <p className="charts-patient-summary__address">{address}</p> : null}
+                </div>
+              </details>
             ) : null}
           </section>
         </div>
 
-        <section className="charts-patient-summary__memo-panel" aria-label="患者メモ">
-          <h2 className="charts-patient-summary__memo-title">患者メモ</h2>
-          <p className="charts-patient-summary__memo-body">{memo}</p>
-        </section>
+        {hasMemo ? (
+          <section className="charts-patient-summary__memo-panel" aria-label="患者メモ">
+            <h2 className="charts-patient-summary__memo-title">患者メモ</h2>
+            <p className="charts-patient-summary__memo-body">{memo}</p>
+          </section>
+        ) : null}
       </div>
 
       {inlineActionBar ? <div className="charts-patient-summary__inline-actionbar">{inlineActionBar}</div> : null}

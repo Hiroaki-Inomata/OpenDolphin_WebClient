@@ -20,9 +20,11 @@ export function RightUtilityDock({ activeTool, onSelectTool }: RightUtilityDockP
               key={`right-dock-${item.tool}`}
               type="button"
               className="soap-note__right-dock-button order-dock__subtype-tab"
+              data-tool={item.tool}
               data-active={isActive ? 'true' : 'false'}
               aria-pressed={isActive}
               aria-label={`${resolveRightUtilityToolLabel(item.tool)}を開く`}
+              title={`${resolveRightUtilityToolLabel(item.tool)}を開く`}
               onClick={() => onSelectTool(item.tool)}
             >
               {item.label}

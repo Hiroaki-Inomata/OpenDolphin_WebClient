@@ -10,18 +10,12 @@ import {
   type OrderDetailDisplayCategoryViewModel,
   type OrderDetailDisplayViewModel,
 } from './orderDetailDisplayViewModel';
-import {
-  resolveRightUtilityToolLabel,
-  type RightUtilityTool,
-} from './rightUtilityTools';
 
 type OrderSummaryPaneProps = {
   orderBundles?: OrderBundle[];
   prescriptionBundles?: OrderBundle[];
   orderBundlesLoading?: boolean;
   orderBundlesError?: string;
-  activeTool?: RightUtilityTool;
-  onToolSelect?: (tool: RightUtilityTool) => void;
   onBundleSelect?: (payload: { group: OrderGroupKey; entity: OrderEntity; bundle: OrderBundle }) => void;
   onDocumentSelect?: () => void;
 };
@@ -64,8 +58,6 @@ export function OrderSummaryPane({
   prescriptionBundles,
   orderBundlesLoading = false,
   orderBundlesError,
-  activeTool,
-  onToolSelect,
   onBundleSelect,
   onDocumentSelect,
 }: OrderSummaryPaneProps) {
@@ -76,6 +68,7 @@ export function OrderSummaryPane({
 
   const contentDisabled = orderBundlesLoading || Boolean(orderBundlesError);
   const hasAnyOrderBundle = groupedBundles.some((group) => group.key !== 'document' && group.rows.length > 0);
+  const visibleCategories = groupedBundles.filter((category) => category.key === 'document' || category.rows.length > 0);
 
   return (
     <aside
@@ -100,87 +93,55 @@ export function OrderSummaryPane({
         <p className="soap-note__paper-empty">当日のオーダーはありません。</p>
       ) : null}
 
-      <div className="soap-note__order-groups">
-        {groupedBundles.map((category) => {
-          const selected = activeTool === category.key;
-          const toolLabel = resolveRightUtilityToolLabel(category.key as RightUtilityTool);
-          const isEmptyCategory = !contentDisabled && category.key !== 'document' && category.rows.length === 0;
-          return (
-            <section
-              key={`summary-group-${category.key}`}
-              className="soap-note__order-group"
-              data-group={category.key}
-              data-active={selected ? 'true' : 'false'}
-            >
-              <header className="soap-note__order-group-header">
-                <strong>{category.label}</strong>
-                <span className="soap-note__order-group-meta">
-                  {category.key === 'document' ? '編集' : `${category.rows.length}件`}
-                </span>
-              </header>
-              <button
-                type="button"
-                className="soap-note__order-group-rail soap-note__right-dock-button order-dock__subtype-tab"
-                data-active={selected ? 'true' : 'false'}
-                data-empty={isEmptyCategory ? 'true' : 'false'}
-                aria-pressed={selected}
-                aria-label={`${toolLabel}を開く`}
-                title={`${toolLabel}を開く`}
-                onClick={() => onToolSelect?.(category.key as RightUtilityTool)}
-              >
-                {toolLabel}
-              </button>
+      {!contentDisabled ? (
+        <div className="soap-note__order-groups">
+          {visibleCategories.map((category) => {
+            return (
+              <section key={`summary-group-${category.key}`} className="soap-note__order-group" data-group={category.key}>
+                <header className="soap-note__order-group-header">
+                  <strong>{category.label}</strong>
+                  <span className="soap-note__order-group-meta">
+                    {category.key === 'document' ? '編集' : `${category.rows.length}件`}
+                  </span>
+                </header>
 
-              {category.key === 'document' ? (
-                <button
-                  type="button"
-                  className="order-dock__search-result soap-note__summary-card"
-                  onClick={() => onDocumentSelect?.()}
-                  aria-label="文書を編集"
-                  title="文書を編集"
-                >
-                  <p className="soap-note__summary-meta">入力者不明 医師 日時不明</p>
-                  <div className="soap-note__summary-body">
-                    <p className="soap-note__summary-detail">文書名: 文書情報なし</p>
-                    <p className="soap-note__summary-detail">本文情報なし</p>
-                  </div>
-                </button>
-              ) : contentDisabled ? (
-                <article className="soap-note__summary-card soap-note__summary-card--empty">
-                  <p className="soap-note__summary-meta">—</p>
-                  <p className="soap-note__order-group-submeta">
-                    {orderBundlesLoading
-                      ? 'オーダー情報を取得しています...'
-                      : `取得に失敗しました: ${orderBundlesError ?? ''}`}
-                  </p>
-                </article>
-              ) : category.rows.length === 0 ? (
-                <article className="soap-note__summary-card soap-note__summary-card--empty">
-                  <p className="soap-note__summary-meta">入力者不明 医師 日時不明</p>
-                  <p className="soap-note__order-group-submeta">該当オーダーなし</p>
-                </article>
-              ) : (
-                <ul className="soap-note__order-list">
-                  {category.rows.map((row) => (
-                    <li key={`summary-bundle-${row.id}`} className="soap-note__order-item">
-                      <button
-                        type="button"
-                        className="order-dock__search-result soap-note__summary-card"
-                        onClick={() => onBundleSelect?.({ group: row.group, entity: row.entity, bundle: row.bundle })}
-                        aria-label={`${row.bundleLabel}を編集`}
-                        title={`${category.label}を編集`}
-                      >
-                        <p className="soap-note__summary-meta">{row.operatorLine}</p>
-                        {renderCardBody(row)}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          );
-        })}
-      </div>
+                {category.key === 'document' ? (
+                  <button
+                    type="button"
+                    className="order-dock__search-result soap-note__summary-card"
+                    onClick={() => onDocumentSelect?.()}
+                    aria-label="文書を編集"
+                    title="文書を編集"
+                  >
+                    <p className="soap-note__summary-meta">入力者不明 医師 日時不明</p>
+                    <div className="soap-note__summary-body">
+                      <p className="soap-note__summary-detail">文書名: 文書情報なし</p>
+                      <p className="soap-note__summary-detail">本文情報なし</p>
+                    </div>
+                  </button>
+                ) : (
+                  <ul className="soap-note__order-list">
+                    {category.rows.map((row) => (
+                      <li key={`summary-bundle-${row.id}`} className="soap-note__order-item">
+                        <button
+                          type="button"
+                          className="order-dock__search-result soap-note__summary-card"
+                          onClick={() => onBundleSelect?.({ group: row.group, entity: row.entity, bundle: row.bundle })}
+                          aria-label={`${row.bundleLabel}を編集`}
+                          title={`${category.label}を編集`}
+                        >
+                          <p className="soap-note__summary-meta">{row.operatorLine}</p>
+                          {renderCardBody(row)}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      ) : null}
     </aside>
   );
 }

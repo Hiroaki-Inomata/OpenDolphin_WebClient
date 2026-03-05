@@ -63,11 +63,10 @@ describe('SOAP note audit', () => {
       />,
     );
 
-    const selects = screen.getAllByLabelText('テンプレ');
-    await user.selectOptions(selects[1], 'TEMP-GENERAL-01');
-
-    const insertButtons = screen.getAllByRole('button', { name: 'テンプレ挿入' });
-    await user.click(insertButtons[1]);
+    await user.click(screen.getByRole('button', { name: 'テンプレ' }));
+    await user.selectOptions(screen.getByLabelText('対象セクション'), 'subjective');
+    await user.selectOptions(screen.getByLabelText('テンプレ'), 'TEMP-GENERAL-01');
+    await user.click(screen.getByRole('button', { name: '挿入' }));
 
     const subjectiveArea = screen.getByPlaceholderText('Subjective を記載してください。');
     await user.type(subjectiveArea, '追加記載');
@@ -117,11 +116,10 @@ describe('SOAP note audit', () => {
       />,
     );
 
-    const selects = screen.getAllByLabelText('テンプレ');
-    await user.selectOptions(selects[1], 'TEMP-GENERAL-01');
-
-    const insertButtons = screen.getAllByRole('button', { name: 'テンプレ挿入' });
-    await user.click(insertButtons[1]);
+    await user.click(screen.getByRole('button', { name: 'テンプレ' }));
+    await user.selectOptions(screen.getByLabelText('対象セクション'), 'subjective');
+    await user.selectOptions(screen.getByLabelText('テンプレ'), 'TEMP-GENERAL-01');
+    await user.click(screen.getByRole('button', { name: '挿入' }));
 
     const subjectiveArea = screen.getByPlaceholderText('Subjective を記載してください。');
     await user.type(subjectiveArea, 'SOAPテスト');

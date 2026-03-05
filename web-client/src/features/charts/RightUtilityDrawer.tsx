@@ -69,12 +69,13 @@ type RightUtilityDrawerProps = {
   onOrderBundleCreate?: (entity: OrderEntity) => void;
   onClose: () => void;
   documentPanel?: ReactNode;
+  orcaPanel?: ReactNode;
   documentHistoryCopyRequest?: { requestId: string; letterId: number } | null;
   onDocumentHistoryCopyConsumed?: (requestId: string) => void;
 };
 
 const resolveGroupByTool = (tool: RightUtilityTool) => {
-  if (tool === 'document') return null;
+  if (tool === 'document' || tool === 'orca') return null;
   return ORDER_GROUP_REGISTRY.find((spec) => spec.key === tool) ?? null;
 };
 
@@ -92,7 +93,7 @@ const belongsToSelectionEntity = (bundleEntity: OrderEntity, selectedEntity: Ord
   return bundleEntity === selectedEntity;
 };
 
-const isOrderTool = (tool: RightUtilityTool): tool is OrderGroupKey => tool !== 'document';
+const isOrderTool = (tool: RightUtilityTool): tool is OrderGroupKey => tool !== 'document' && tool !== 'orca';
 
 const resolveNextTabEntity = <T extends string>(key: string, entities: readonly T[], selected: T): T | null => {
   const selectedIndex = entities.indexOf(selected);
@@ -170,6 +171,7 @@ export function RightUtilityDrawer({
   onOrderBundleCreate,
   onClose,
   documentPanel,
+  orcaPanel,
   documentHistoryCopyRequest,
   onDocumentHistoryCopyConsumed,
 }: RightUtilityDrawerProps) {
@@ -258,8 +260,15 @@ export function RightUtilityDrawer({
     }
     return cloneDocumentPanelNode(documentPanel, documentHistoryCopyRequest, onDocumentHistoryCopyConsumed);
   }, [documentHistoryCopyRequest, documentPanel, onDocumentHistoryCopyConsumed]);
+  const orcaPanelNode = useMemo(() => {
+    if (!orcaPanel) {
+      return <p className="order-dock__empty">ORCAパネルが未接続です。</p>;
+    }
+    return orcaPanel;
+  }, [orcaPanel]);
 
   const isDocumentPanelActive = activeTool === 'document';
+  const isOrcaPanelActive = activeTool === 'orca';
   const activeOrderPanelContext = useMemo(() => {
     if (!isOrderPanel || !groupSpec || !selectedEntity || !selectedEntityMeta) return null;
     return {
@@ -269,6 +278,7 @@ export function RightUtilityDrawer({
     };
   }, [groupSpec, isOrderPanel, selectedEntity, selectedEntityMeta]);
   const isDocumentPanelVisible = open && isDocumentPanelActive;
+  const isOrcaPanelVisible = open && isOrcaPanelActive;
   const isOrderPanelVisible = open && Boolean(activeOrderPanelContext);
   const isPrescriptionPanel =
     Boolean(activeOrderPanelContext) && activeOrderPanelContext?.groupSpec.key === 'prescription';
@@ -292,6 +302,7 @@ export function RightUtilityDrawer({
       }) as CSSProperties,
     [visibleDrawerWidth],
   );
+  const activeToolTitle = activeTool === 'document' ? '文書' : activeTool === 'orca' ? 'ORCA' : groupSpec?.label ?? 'オーダー';
 
   const handleResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0 || typeof window === 'undefined') return;
@@ -392,7 +403,7 @@ export function RightUtilityDrawer({
       {!minimized ? (
         <>
           <header className="soap-note__right-drawer-header">
-            <strong>{activeTool === 'document' ? '文書' : groupSpec?.label ?? 'オーダー'}</strong>
+            <strong>{activeToolTitle}</strong>
             <div className="soap-note__right-drawer-header-controls">
               <button
                 type="button"
@@ -448,26 +459,35 @@ export function RightUtilityDrawer({
           </div>
 
           <div className="soap-note__right-drawer-content">
-        {isDocumentPanelActive ? (
-          <section
-            key="drawer-document-panel"
-            className="soap-note__right-drawer-panel soap-note__right-drawer-panel--document"
-            data-active={isDocumentPanelVisible ? 'true' : 'false'}
-            aria-hidden={isDocumentPanelVisible ? 'false' : 'true'}
-          >
-            <div className="soap-note__right-drawer-switch">{documentPanelNode}</div>
-          </section>
-        ) : null}
-
-        {activeOrderPanelContext ? (
-          <section
-            key={`drawer-order-panel-${activeTool}-${activeOrderPanelContext.selectedEntity}`}
-            className="soap-note__right-drawer-panel soap-note__right-drawer-panel--order"
-            data-active={isOrderPanelVisible ? 'true' : 'false'}
-            aria-hidden={isOrderPanelVisible ? 'false' : 'true'}
-          >
-            <div className="soap-note__right-drawer-switch soap-note__right-drawer-order-layout">
-              <div className="soap-note__right-drawer-order-editor">
+            {isDocumentPanelActive ? (
+              <section
+                key="drawer-document-panel"
+                className="soap-note__right-drawer-panel soap-note__right-drawer-panel--document"
+                data-active={isDocumentPanelVisible ? 'true' : 'false'}
+                aria-hidden={isDocumentPanelVisible ? 'false' : 'true'}
+              >
+                <div className="soap-note__right-drawer-switch">{documentPanelNode}</div>
+              </section>
+            ) : null}
+            {isOrcaPanelActive ? (
+              <section
+                key="drawer-orca-panel"
+                className="soap-note__right-drawer-panel soap-note__right-drawer-panel--document"
+                data-active={isOrcaPanelVisible ? 'true' : 'false'}
+                aria-hidden={isOrcaPanelVisible ? 'false' : 'true'}
+              >
+                <div className="soap-note__right-drawer-switch">{orcaPanelNode}</div>
+              </section>
+            ) : null}
+            {activeOrderPanelContext ? (
+              <section
+                key={`drawer-order-panel-${activeTool}-${activeOrderPanelContext.selectedEntity}`}
+                className="soap-note__right-drawer-panel soap-note__right-drawer-panel--order"
+                data-active={isOrderPanelVisible ? 'true' : 'false'}
+                aria-hidden={isOrderPanelVisible ? 'false' : 'true'}
+              >
+                <div className="soap-note__right-drawer-switch soap-note__right-drawer-order-layout">
+                  <div className="soap-note__right-drawer-order-editor">
                 {activeOrderPanelContext.groupSpec.entities.length > 1 ? (
                   <div
                     className="order-dock__subtype-tabs"
@@ -546,22 +566,22 @@ export function RightUtilityDrawer({
                 )}
               </div>
 
-              <section
-                id="soap-note-right-drawer-order-preview"
-                className="soap-note__right-drawer-order-preview"
-                role="tabpanel"
-                aria-label={`${activeOrderPanelContext.groupSpec.label}既存一覧`}
-              >
-                <div className="soap-note__right-drawer-order-preview-header">
-                  <strong>既存オーダー</strong>
-                  <button
-                    type="button"
-                    className="order-dock__bundle-action"
-                    onClick={() => onOrderBundleCreate?.(activeOrderPanelContext.selectedEntity)}
+                  <section
+                    id="soap-note-right-drawer-order-preview"
+                    className="soap-note__right-drawer-order-preview"
+                    role="tabpanel"
+                    aria-label={`${activeOrderPanelContext.groupSpec.label}既存一覧`}
                   >
-                    新規
-                  </button>
-                </div>
+                    <div className="soap-note__right-drawer-order-preview-header">
+                      <strong>既存オーダー</strong>
+                      <button
+                        type="button"
+                        className="order-dock__bundle-action"
+                        onClick={() => onOrderBundleCreate?.(activeOrderPanelContext.selectedEntity)}
+                      >
+                        新規
+                      </button>
+                    </div>
 
                 {resolvedPanelLoading ? <p className="order-dock__empty">読み込み中...</p> : null}
                 {resolvedPanelError ? <p className="order-dock__empty">取得失敗: {resolvedPanelError}</p> : null}
@@ -640,10 +660,10 @@ export function RightUtilityDrawer({
                     })}
                   </div>
                 ) : null}
+                  </section>
+                </div>
               </section>
-            </div>
-          </section>
-        ) : null}
+            ) : null}
           </div>
         </>
       ) : null}

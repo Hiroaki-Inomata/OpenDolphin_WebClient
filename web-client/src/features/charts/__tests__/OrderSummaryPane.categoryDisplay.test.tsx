@@ -11,7 +11,7 @@ const requireElement = <T extends Element>(element: T | null): T => {
 };
 
 describe('OrderSummaryPane category display', () => {
-  it('右側サマリは6カテゴリ固定で詳細カードを表示する', () => {
+  it('右側サマリは非空カテゴリ+文書を表示し、詳細カードを表示する', () => {
     const prescriptionBundle: OrderBundle = {
       entity: 'medOrder',
       bundleName: '降圧薬RP',
@@ -64,7 +64,6 @@ describe('OrderSummaryPane category display', () => {
       <OrderSummaryPane
         orderBundles={[injectionBundle, treatmentBundle, testBundle, chargeBundle]}
         prescriptionBundles={[prescriptionBundle]}
-        activeTool="injection"
       />,
     );
 
@@ -86,9 +85,6 @@ describe('OrderSummaryPane category display', () => {
     expect(chargeGroup).toHaveTextContent('算定');
     expect(documentGroup).toHaveTextContent('文書');
 
-    expect(injectionGroup.getAttribute('data-active')).toBe('true');
-    expect(prescriptionGroup.getAttribute('data-active')).toBe('false');
-
     expect(summaryPane).not.toHaveTextContent('降圧薬RP');
     expect(summaryPane).not.toHaveTextContent('注射セットA');
 
@@ -97,6 +93,9 @@ describe('OrderSummaryPane category display', () => {
     expect(prescriptionGroup).toHaveTextContent('薬剤量: 1錠');
     expect(documentGroup).toHaveTextContent('文書名: 文書情報なし');
     expect(documentGroup).toHaveTextContent('本文情報なし');
+    expect(summaryPane.querySelector('.soap-note__order-group-rail')).toBeNull();
+    expect(summaryPane.querySelector('.soap-note__right-dock-button')).toBeNull();
+    expect(summaryPane.querySelector('.order-dock__subtype-tab')).toBeNull();
   });
 
   it('処方は prescriptionBundles を優先してクリック時に編集ペイロードを返す', async () => {

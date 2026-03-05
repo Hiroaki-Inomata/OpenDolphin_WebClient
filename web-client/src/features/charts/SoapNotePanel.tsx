@@ -24,6 +24,7 @@ import type { OrderBundle } from './orderBundleApi';
 import type { OrderBundleEditPanelRequest, OrderBundleEditingContext } from './OrderBundleEditPanel';
 import { OrderSummaryPane } from './OrderSummaryPane';
 import { RightUtilityDrawer, type RightUtilityTool } from './RightUtilityDrawer';
+import { RightUtilityDock } from './RightUtilityDock';
 import { resolveLatestBundle } from './orderDetailDisplayViewModel';
 import {
   ORDER_GROUP_REGISTRY,
@@ -86,6 +87,7 @@ type SoapNotePanelProps = {
   documentHistoryCopyRequest?: { requestId: string; letterId: number } | null;
   onDocumentHistoryCopyConsumed?: (requestId: string) => void;
   documentPanel?: ReactNode;
+  orcaPanel?: ReactNode;
   onOrderDockStateChange?: (next: SoapOrderDockState) => void;
   bottomOrderHubIntegrationEnabled?: boolean;
   onDraftSnapshot?: (draft: SoapDraft) => void;
@@ -128,6 +130,11 @@ const resolveAuthorLabel = (author: SoapNoteAuthor) => {
 
 const filterTemplatesForSection = (section: SoapSectionKey) =>
   SOAP_TEMPLATES.filter((template) => Boolean(template.sections[section]));
+const SOAP_TEMPLATE_LABEL_MAP = new Map(SOAP_TEMPLATES.map((template) => [template.id, template.label]));
+const resolveSoapTemplateLabel = (templateId?: string | null): string | null => {
+  if (!templateId) return null;
+  return SOAP_TEMPLATE_LABEL_MAP.get(templateId) ?? templateId;
+};
 
 const resolveSoapCategory = (section: SoapSectionKey): 'S' | 'O' | 'A' | 'P' | null => {
   switch (section) {
@@ -151,7 +158,7 @@ const EMPTY_ORDER_BUNDLE_EDITING_CONTEXT: OrderBundleEditingContext = {
   rpRequiredMissing: [],
 };
 
-const isOrderTool = (tool: RightUtilityTool): tool is OrderGroupKey => tool !== 'document';
+const isOrderTool = (tool: RightUtilityTool): tool is OrderGroupKey => tool !== 'document' && tool !== 'orca';
 
 const resolveGroupSpec = (groupKey: OrderGroupKey) => ORDER_GROUP_REGISTRY.find((spec) => spec.key === groupKey) ?? null;
 
@@ -240,6 +247,7 @@ export function SoapNotePanel({
   documentHistoryCopyRequest,
   onDocumentHistoryCopyConsumed,
   documentPanel,
+  orcaPanel,
   onOrderDockStateChange,
   onDraftSnapshot,
   replaceDraftRequest,
@@ -295,8 +303,10 @@ export function SoapNotePanel({
     }
   }, [historyView]);
   const [draft, setDraft] = useState<SoapDraft>(() => buildSoapDraftFromHistory(history));
-  const [selectedTemplate, setSelectedTemplate] = useState<Partial<Record<SoapSectionKey, string>>>({});
   const [pendingTemplate, setPendingTemplate] = useState<Partial<Record<SoapSectionKey, string>>>({});
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templateTargetSection, setTemplateTargetSection] = useState<SoapSectionKey>('subjective');
+  const [templateSelection, setTemplateSelection] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
   const [syncState, setSyncState] = useState<{
     localSaved: boolean;
@@ -316,31 +326,6 @@ export function SoapNotePanel({
   const [saveRequestTokenHandled, setSaveRequestTokenHandled] = useState<string | null>(null);
 
   const latestBySection = useMemo(() => getLatestSoapEntries(history), [history]);
-  const firstBySection = useMemo(() => {
-    const map = new Map<SoapSectionKey, SoapEntry>();
-    const timestampBySection = new Map<SoapSectionKey, number>();
-    history.forEach((entry) => {
-      const tsRaw = Date.parse(entry.authoredAt);
-      const ts = Number.isNaN(tsRaw) ? Number.POSITIVE_INFINITY : tsRaw;
-      const current = timestampBySection.get(entry.section);
-      if (typeof current === 'number' && current <= ts) return;
-      timestampBySection.set(entry.section, ts);
-      map.set(entry.section, entry);
-    });
-    return map;
-  }, [history]);
-  const historyBySection = useMemo(() => {
-    const map = new Map<SoapSectionKey, SoapEntry[]>();
-    history.forEach((entry) => {
-      const list = map.get(entry.section);
-      if (list) {
-        list.push(entry);
-      } else {
-        map.set(entry.section, [entry]);
-      }
-    });
-    return map;
-  }, [history]);
   const visibleSections = useMemo<SoapSectionKey[]>(() => {
     switch (viewMode) {
       case 'soap':
@@ -351,6 +336,21 @@ export function SoapNotePanel({
         return SOAP_SECTIONS;
     }
   }, [viewMode]);
+  useEffect(() => {
+    if (SOAP_SECTIONS.includes(templateTargetSection)) return;
+    setTemplateTargetSection(SOAP_SECTIONS[0] ?? 'subjective');
+  }, [templateTargetSection]);
+  const templateOptions = useMemo(() => filterTemplatesForSection(templateTargetSection), [templateTargetSection]);
+  useEffect(() => {
+    if (!templateSelection) return;
+    const matched = templateOptions.some((item) => item.id === templateSelection);
+    if (matched) return;
+    setTemplateSelection('');
+  }, [templateOptions, templateSelection]);
+  const selectedTemplateOption = useMemo(
+    () => templateOptions.find((item) => item.id === templateSelection) ?? null,
+    [templateOptions, templateSelection],
+  );
   const authoredMeta = useMemo(() => {
     if (history.length === 0) return { first: null as SoapEntry | null, last: null as SoapEntry | null };
     let first = history[0];
@@ -496,33 +496,61 @@ export function SoapNotePanel({
   const openDocumentTool = useCallback(() => {
     setActiveTool('document');
     setDrawerOpen(true);
+    setActiveOrderEntity(null);
+    setActiveOrderRequest(null);
     setActiveOrderSource(null);
+    setActiveOrderContext(EMPTY_ORDER_BUNDLE_EDITING_CONTEXT);
   }, []);
 
-  const handleDockToolSelect = useCallback(
-    (tool: RightUtilityTool) => {
+  const openOrcaTool = useCallback(() => {
+    setActiveTool('orca');
+    setDrawerOpen(true);
+    setActiveOrderEntity(null);
+    setActiveOrderRequest(null);
+    setActiveOrderSource(null);
+    setActiveOrderContext(EMPTY_ORDER_BUNDLE_EDITING_CONTEXT);
+  }, []);
+
+  const selectUtilityTool = useCallback(
+    (tool: RightUtilityTool, source: SoapOrderDockState['source']) => {
       if (tool === 'document') {
         openDocumentTool();
         return;
       }
-      openOrderCategoryFromTool(tool, 'right-panel');
+      if (tool === 'orca') {
+        openOrcaTool();
+        return;
+      }
+      openOrderCategoryFromTool(tool, source);
     },
-    [openDocumentTool, openOrderCategoryFromTool],
+    [openDocumentTool, openOrcaTool, openOrderCategoryFromTool],
   );
 
-  const handleSummaryRailSelect = useCallback(
+  const handleDockToolSelect = useCallback(
     (tool: RightUtilityTool) => {
       if (drawerOpen && tool === activeTool) {
         setDrawerPeek(false);
-        if (effectiveMode === 'dock') setDrawerMinimized((prev) => !prev);
-        else setDrawerOpen(false);
+        if (effectiveMode === 'dock') {
+          setDrawerMinimized((prev) => !prev);
+        } else {
+          setDrawerOpen(false);
+        }
         return;
       }
       setDrawerPeek(false);
       setDrawerMinimized(false);
-      handleDockToolSelect(tool);
+      selectUtilityTool(tool, 'right-panel');
     },
-    [activeTool, drawerOpen, effectiveMode, handleDockToolSelect],
+    [activeTool, drawerOpen, effectiveMode, selectUtilityTool],
+  );
+
+  const handleDrawerToolSelect = useCallback(
+    (tool: RightUtilityTool) => {
+      setDrawerPeek(false);
+      setDrawerMinimized(false);
+      selectUtilityTool(tool, 'right-panel');
+    },
+    [selectUtilityTool],
   );
 
   const handleOrderSummaryBundleSelect = useCallback(
@@ -702,7 +730,8 @@ export function SoapNotePanel({
 
   useEffect(() => {
     setDraft(buildSoapDraftFromHistory(history));
-    setSelectedTemplate({});
+    setTemplateSelection('');
+    setTemplateDialogOpen(false);
     setPendingTemplate({});
     setFeedback(null);
     setSyncState({
@@ -850,8 +879,7 @@ export function SoapNotePanel({
   );
 
   const handleTemplateInsert = useCallback(
-    (section: SoapSectionKey) => {
-      const templateId = selectedTemplate[section];
+    (section: SoapSectionKey, templateId: string) => {
       if (!templateId) {
         setFeedback('テンプレートを選択してください。');
         return;
@@ -868,7 +896,7 @@ export function SoapNotePanel({
         return { ...prev, [section]: next };
       });
       setPendingTemplate((prev) => ({ ...prev, [section]: templateId }));
-      setSelectedTemplate((prev) => ({ ...prev, [section]: '' }));
+      setTemplateSelection('');
       markDirtyPendingSync();
       const authoredAt = new Date().toISOString();
       recordChartsAuditEvent({
@@ -918,7 +946,6 @@ export function SoapNotePanel({
       meta.runId,
       meta.visitDate,
       onDraftDirtyChange,
-      selectedTemplate,
     ],
   );
 
@@ -1251,7 +1278,8 @@ export function SoapNotePanel({
       plan: '',
     });
     setPendingTemplate({});
-    setSelectedTemplate({});
+    setTemplateSelection('');
+    setTemplateDialogOpen(false);
     setSyncState({
       localSaved: false,
       serverSynced: true,
@@ -1285,6 +1313,21 @@ export function SoapNotePanel({
         return '両方';
     }
   }, [viewMode]);
+  const handleTemplateDialogOpen = useCallback(() => {
+    setTemplateSelection('');
+    if (!SOAP_SECTIONS.includes(templateTargetSection)) {
+      setTemplateTargetSection(SOAP_SECTIONS[0] ?? 'subjective');
+    }
+    setTemplateDialogOpen(true);
+  }, [templateTargetSection]);
+  const handleTemplateDialogApply = useCallback(() => {
+    if (!templateSelection) {
+      setFeedback('テンプレートを選択してください。');
+      return;
+    }
+    handleTemplateInsert(templateTargetSection, templateSelection);
+    setTemplateDialogOpen(false);
+  }, [handleTemplateInsert, templateSelection, templateTargetSection]);
 
   const resolveEntryActor = (entry?: SoapEntry | null): string => {
     if (!entry) return '—';
@@ -1295,12 +1338,9 @@ export function SoapNotePanel({
 
   const authoredFirst = authoredMeta.first;
   const authoredLast = authoredMeta.last;
-  const authoredSummary =
-    authoredFirst && authoredLast
-      ? `初回: ${formatSoapAuthoredAt(authoredFirst.authoredAt)} / ${resolveEntryActor(authoredFirst)}  最終: ${formatSoapAuthoredAt(authoredLast.authoredAt)} / ${resolveEntryActor(authoredLast)}`
-      : null;
-
-  const freeHistoryEntries = historyBySection.get('free') ?? [];
+  const authoredSummary = authoredLast
+    ? `最終更新: ${formatSoapAuthoredAt(authoredLast.authoredAt)} / ${resolveEntryActor(authoredLast)}`
+    : '記載履歴なし';
 
   useEffect(() => {
     if (!historyView) return;
@@ -1423,6 +1463,7 @@ export function SoapNotePanel({
     onOrderBundleCreate: handleDrawerOrderBundleCreate,
     onClose: handleDrawerClose,
     documentPanel,
+    orcaPanel,
     documentHistoryCopyRequest: pendingDocumentHistoryCopyRequest,
     onDocumentHistoryCopyConsumed: handleDocumentHistoryCopyConsumed,
     mode: effectiveMode,
@@ -1431,7 +1472,7 @@ export function SoapNotePanel({
     onMinimizedChange: setDrawerMinimized,
     onPeekChange: setDrawerPeek,
     onWidthChange: handleDrawerWidthChange,
-    onToolSelect: handleDockToolSelect,
+    onToolSelect: handleDrawerToolSelect,
   };
 
   return (
@@ -1448,25 +1489,32 @@ export function SoapNotePanel({
       <header className="soap-note__header">
         <div>
           <h2>SOAP 記載</h2>
-          <p className="soap-note__subtitle">
-            記載者: {resolveAuthorLabel(author)} ／ role: {author.role} ／ 受付: {meta.receptionId ?? '—'}
-          </p>
-          {authoredSummary ? <p className="soap-note__subtitle soap-note__subtitle--meta">{authoredSummary}</p> : null}
+          <p className="soap-note__subtitle soap-note__subtitle--meta">{authoredSummary}</p>
+          <details className="soap-note__meta-details">
+            <summary className="soap-note__subtitle">記載情報</summary>
+            <p className="soap-note__subtitle">
+              記載者: {resolveAuthorLabel(author)} ／ role: {author.role} ／ 受付ID: {meta.receptionId ?? '—'} ／ 初回:{' '}
+              {authoredFirst ? `${formatSoapAuthoredAt(authoredFirst.authoredAt)} / ${resolveEntryActor(authoredFirst)}` : '—'} ／
+              最終: {authoredLast ? `${formatSoapAuthoredAt(authoredLast.authoredAt)} / ${resolveEntryActor(authoredLast)}` : '—'}
+            </p>
+          </details>
           <div className="soap-note__sync" role="status" aria-live={resolveAriaLive(syncState.error ? 'error' : 'info')}>
             <span
               className={`soap-note__sync-badge${
                 syncState.serverSynced ? ' soap-note__sync-badge--synced' : syncState.localSaved ? ' soap-note__sync-badge--local' : ''
               }${syncState.error ? ' soap-note__sync-badge--error' : ''}`}
+              title={syncState.savedAt ? `最終保存: ${formatSoapAuthoredAt(syncState.savedAt)}` : undefined}
             >
               {syncState.isSaving
                 ? '保存中'
+                : syncState.error
+                  ? '保存エラー'
                 : syncState.serverSynced
-                  ? 'サーバ反映済'
+                  ? '保存済'
                   : syncState.localSaved
                     ? 'ローカル保存済 / サーバ未反映'
                     : '未保存'}
             </span>
-            {syncState.savedAt ? <span className="soap-note__sync-meta">保存時刻: {formatSoapAuthoredAt(syncState.savedAt)}</span> : null}
           </div>
         </div>
         <div className="soap-note__actions">
@@ -1486,6 +1534,21 @@ export function SoapNotePanel({
             title={historyView ? '履歴表示中は変更できません。' : '表示モードを切り替えます（SOAPのみ / FREEのみ / 両方）'}
           >
             表示:{viewModeLabel}
+          </button>
+          <button
+            type="button"
+            onClick={handleTemplateDialogOpen}
+            className="soap-note__ghost"
+            disabled={readOnly || historyView}
+            title={
+              readOnly
+                ? readOnlyReason ?? '読み取り専用のためテンプレ操作できません。'
+                : historyView
+                  ? '履歴表示中はテンプレ操作できません。'
+                  : '共通テンプレダイアログを開きます。'
+            }
+          >
+            テンプレ
           </button>
           <button
             type="button"
@@ -1580,6 +1643,66 @@ export function SoapNotePanel({
           </div>
         </section>
       </FocusTrapDialog>
+      <FocusTrapDialog
+        open={templateDialogOpen}
+        title="テンプレ挿入"
+        description="対象セクションとテンプレートを選択して挿入します。"
+        onClose={() => setTemplateDialogOpen(false)}
+        testId="soap-template-dialog"
+      >
+        <section className="charts-tab-guard" aria-label="SOAPテンプレ操作">
+          <div className="soap-note__template-dialog-fields">
+            <label>
+              対象セクション
+              <select
+                value={templateTargetSection}
+                onChange={(event) => setTemplateTargetSection(event.target.value as SoapSectionKey)}
+                disabled={readOnly}
+              >
+                {SOAP_SECTIONS.map((section) => (
+                  <option key={`template-section-${section}`} value={section}>
+                    {SOAP_SECTION_LABELS[section]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              テンプレ
+              <select
+                value={templateSelection}
+                onChange={(event) => setTemplateSelection(event.target.value)}
+                disabled={readOnly}
+              >
+                <option value="">選択してください</option>
+                {templateOptions.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {selectedTemplateOption ? (
+            <p className="soap-note__subtitle soap-note__subtitle--meta">選択中: {selectedTemplateOption.label}</p>
+          ) : null}
+          {pendingTemplate[templateTargetSection] ? (
+            <p className="soap-note__subtitle">挿入待ち: {pendingTemplate[templateTargetSection]}</p>
+          ) : null}
+          <div className="charts-tab-guard__actions soap-note__template-dialog-actions" role="group" aria-label="SOAPテンプレ操作">
+            <button type="button" onClick={() => setTemplateDialogOpen(false)}>
+              キャンセル
+            </button>
+            <button
+              type="button"
+              onClick={handleTemplateDialogApply}
+              disabled={readOnly || !templateSelection}
+              title={readOnly ? readOnlyReason ?? '読み取り専用のため挿入できません。' : undefined}
+            >
+              挿入
+            </button>
+          </div>
+        </section>
+      </FocusTrapDialog>
       {readOnly ? (
         <p className="soap-note__guard">読み取り専用: {readOnlyReason ?? '編集はロック中です。'}</p>
       ) : null}
@@ -1643,10 +1766,8 @@ export function SoapNotePanel({
               <div className="soap-note__grid">
                 {visibleSections.map((section) => {
                   const latest = latestBySection.get(section);
-                  const first = firstBySection.get(section);
-                  const templateOptions = filterTemplatesForSection(section);
-                  const templateLabel = latest?.templateId ? `template=${latest.templateId}` : 'templateなし';
-                  const hasOrigin = Boolean(first && latest && first.id !== latest.id);
+                  const templateId = pendingTemplate[section] ?? latest?.templateId ?? null;
+                  const templateLabel = resolveSoapTemplateLabel(templateId);
                   const textareaRows = (() => {
                     if (section === 'free') return viewMode === 'free' ? 6 : 4;
                     return viewMode === 'soap' ? 4 : 2;
@@ -1655,17 +1776,11 @@ export function SoapNotePanel({
                     <article key={section} className="soap-note__section" data-section={section}>
                       <div className="soap-note__section-header">
                         <strong>{SOAP_SECTION_LABELS[section]}</strong>
+                        {templateLabel ? <span className="soap-note__section-chip">テンプレ: {templateLabel}</span> : null}
                         {latest ? (
-                          <>
-                            <span>
-                              最終: {formatSoapAuthoredAt(latest.authoredAt)} ／ {resolveEntryActor(latest)} ／ {templateLabel}
-                            </span>
-                            {hasOrigin && first ? (
-                              <span>
-                                初回: {formatSoapAuthoredAt(first.authoredAt)} ／ {resolveEntryActor(first)}
-                              </span>
-                            ) : null}
-                          </>
+                          <span>
+                            最終更新: {formatSoapAuthoredAt(latest.authoredAt)} ／ {resolveEntryActor(latest)}
+                          </span>
                         ) : (
                           <span>記載履歴なし</span>
                         )}
@@ -1681,33 +1796,6 @@ export function SoapNotePanel({
                         aria-readonly={readOnly}
                       />
                       <div className="soap-note__section-actions">
-                        <label>
-                          テンプレ
-                          <select
-                            id={`soap-note-template-${section}`}
-                            name={`soapNoteTemplate-${section}`}
-                            value={selectedTemplate[section] ?? ''}
-                            onChange={(event) => setSelectedTemplate((prev) => ({ ...prev, [section]: event.target.value }))}
-                            disabled={readOnly}
-                            title={readOnly ? readOnlyReason ?? '読み取り専用のため選択できません。' : undefined}
-                          >
-                            <option value="">選択してください</option>
-                            {templateOptions.map((template) => (
-                              <option key={template.id} value={template.id}>
-                                {template.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => handleTemplateInsert(section)}
-                          className="soap-note__ghost"
-                          disabled={readOnly}
-                          title={readOnly ? readOnlyReason ?? '読み取り専用のため挿入できません。' : undefined}
-                        >
-                          テンプレ挿入
-                        </button>
                         {section === 'free' ? (
                           <button
                             type="button"
@@ -1719,26 +1807,7 @@ export function SoapNotePanel({
                             新規カード
                           </button>
                         ) : null}
-                        {pendingTemplate[section] ? <span className="soap-note__template-tag">挿入中: {pendingTemplate[section]}</span> : null}
                       </div>
-                      {section === 'free' && freeHistoryEntries.length > 0 ? (
-                        <details className="soap-note__history" aria-label="Free 履歴">
-                          <summary className="soap-note__history-summary">Free履歴（{freeHistoryEntries.length}）</summary>
-                          <div className="soap-note__history-list" role="list">
-                            {freeHistoryEntries
-                              .slice()
-                              .reverse()
-                              .map((entry) => (
-                                <div key={entry.id} className="soap-note__history-card" role="listitem">
-                                  <div className="soap-note__history-meta">
-                                    {formatSoapAuthoredAt(entry.authoredAt)} ／ {resolveEntryActor(entry)} ／ {entry.action}
-                                  </div>
-                                  <div className="soap-note__history-body">{entry.body}</div>
-                                </div>
-                              ))}
-                          </div>
-                        </details>
-                      ) : null}
                     </article>
                   );
                 })}
@@ -1772,11 +1841,12 @@ export function SoapNotePanel({
           orderBundlesLoading={resolvedOrderBundlesLoading}
           orderBundlesError={resolvedOrderBundlesError}
           prescriptionBundles={prescriptionBundles}
-          activeTool={activeTool}
-          onToolSelect={handleSummaryRailSelect}
           onBundleSelect={handleOrderSummaryBundleSelect}
           onDocumentSelect={openDocumentTool}
         />
+        <div className="soap-note__right-dock-area">
+          <RightUtilityDock activeTool={activeTool} onSelectTool={handleDockToolSelect} />
+        </div>
         <RightUtilityDrawer {...rightUtilityDrawerProps} />
       </div>
     </section>

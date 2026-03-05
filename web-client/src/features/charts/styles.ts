@@ -335,6 +335,10 @@ export const chartsStyles = css`
     align-items: start;
   }
 
+  .charts-encounter-header:not(:has(.charts-edit-state-bar)) {
+    gap: var(--charts-space-xs);
+  }
+
   .charts-edit-state-bar {
     grid-column: 1 / -1;
     border-radius: var(--charts-radius-sm);
@@ -695,9 +699,16 @@ export const chartsStyles = css`
 
   .charts-patient-summary__layout {
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
     gap: var(--charts-space-sm);
     align-items: stretch;
+  }
+
+  .charts-patient-summary__layout[data-has-memo='true'] {
+    grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  }
+
+  .charts-patient-summary__layout[data-has-memo='false'] {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .charts-patient-summary__left {
@@ -819,6 +830,24 @@ export const chartsStyles = css`
     font-size: 0.74rem;
     line-height: 1.35;
     word-break: break-word;
+  }
+
+  .charts-patient-summary__extra {
+    margin: 0;
+  }
+
+  .charts-patient-summary__extra-summary {
+    cursor: pointer;
+    color: #334155;
+    font-size: 0.76rem;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  .charts-patient-summary__extra-body {
+    margin-top: var(--charts-space-2xs);
+    display: grid;
+    gap: 2px;
   }
 
   .charts-patient-summary__memo-panel {
@@ -5565,6 +5594,9 @@ export const chartsStyles = css`
 
   .soap-note__right-dock-area {
     grid-column: 3;
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-xs);
     align-self: start;
     position: sticky;
     top: var(--charts-space-sm);
@@ -6231,6 +6263,32 @@ export const chartsStyles = css`
     border: 1px solid #cbd5f5;
     padding: var(--charts-space-xs) var(--charts-space-xs);
     font-family: inherit;
+  }
+
+  .soap-note__template-dialog-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--charts-space-sm);
+    margin-bottom: var(--charts-space-sm);
+  }
+
+  .soap-note__template-dialog-fields label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--charts-space-2xs);
+    font-size: 0.85rem;
+    color: #475569;
+  }
+
+  .soap-note__template-dialog-fields select {
+    border-radius: var(--charts-radius-sm);
+    border: 1px solid #cbd5f5;
+    padding: var(--charts-space-xs) var(--charts-space-xs);
+    font-family: inherit;
+  }
+
+  .soap-note__template-dialog-actions {
+    margin-top: var(--charts-space-sm);
   }
 
   .soap-note__template-tag {
@@ -7287,7 +7345,7 @@ export const chartsStyles = css`
   }
 
   .soap-note__paper-empty {
-    margin: 0;
+    margin: var(--charts-space-xs) 0 0;
     color: #64748b;
     font-size: 0.85rem;
   }
@@ -7295,7 +7353,7 @@ export const chartsStyles = css`
   .soap-note__order-groups {
     display: flex;
     flex-direction: column;
-    gap: var(--charts-space-md);
+    gap: var(--charts-space-sm);
     min-width: 0;
   }
 
@@ -7305,7 +7363,7 @@ export const chartsStyles = css`
     display: flex;
     flex-direction: column;
     gap: var(--charts-space-xs);
-    padding-right: calc(72px + var(--charts-space-md));
+    padding-right: 0;
   }
 
   .soap-note__order-group + .soap-note__order-group {
@@ -7431,6 +7489,39 @@ export const chartsStyles = css`
     color: #475569;
     line-height: 1.45;
     word-break: break-word;
+  }
+
+  .soap-note__section-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+    background: #f8fafc;
+    color: #334155;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .soap-note__meta-details {
+    margin-top: var(--charts-space-2xs);
+  }
+
+  .soap-note__meta-details > summary {
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .soap-note__meta-details > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .soap-note__meta-details .soap-note__subtitle {
+    margin-top: var(--charts-space-2xs);
+    font-size: 0.8rem;
+    color: #64748b;
   }
 
   .soap-note__summary-body {
@@ -7711,6 +7802,10 @@ export const chartsStyles = css`
   .soap-note__tabs {
     display: flex;
     gap: var(--charts-space-xs);
+  }
+
+  .soap-note__tabs:has(> .soap-note__tab:only-child) {
+    display: none;
   }
 
   .soap-note__tab {
