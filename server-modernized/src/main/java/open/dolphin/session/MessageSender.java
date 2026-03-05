@@ -1,23 +1,21 @@
 package open.dolphin.session;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ejb.ActivationConfigProperty;
 import jakarta.ejb.MessageDriven;
 import jakarta.inject.Inject;
 import jakarta.jms.JMSException;
 import jakarta.jms.Message;
 import jakarta.jms.MessageListener;
-import jakarta.jms.ObjectMessage;
+import jakarta.jms.TextMessage;
 import java.io.BufferedReader;
 import java.io.StringReader;
 import java.util.Collection;
 import java.util.Properties;
-import open.dolphin.audit.AuditEventEnvelope;
-import open.dolphin.infomodel.ActivityModel;
 import open.dolphin.infomodel.HealthInsuranceModel;
 import open.dolphin.infomodel.PatientVisitModel;
 import open.dolphin.mbean.PVTBuilder;
-import open.dolphin.msg.OidSender;
-import open.dolphin.msg.dto.AccountSummaryMessage;
+import open.dolphin.msg.dto.JmsEnvelopeMessage;
 import open.dolphin.msg.gateway.MessagingHeaders;
 import open.orca.rest.ORCAConnection;
 import org.slf4j.Logger;
@@ -36,6 +34,7 @@ public class MessageSender implements MessageListener {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MessageSender.class);
     private static final String TRACE_ID_PROPERTY = MessagingHeaders.TRACE_ID;
+    private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
 
     @Inject
     private PVTServiceBean pvtServiceBean;
@@ -44,33 +43,44 @@ public class MessageSender implements MessageListener {
     public void onMessage(Message message) {
         String traceId = readTraceId(message);
         try {
-            if (message instanceof ObjectMessage objectMessage) {
-                Object payload = objectMessage.getObject();
-                handlePayload(payload, traceId);
-            } else {
+            if (!(message instanceof TextMessage textMessage)) {
                 LOGGER.warn("Unsupported JMS message type received: {}", message.getClass().getName());
+                return;
             }
+            String body = textMessage.getText();
+            if (body == null || body.isBlank()) {
+                LOGGER.warn("Empty JMS TextMessage body was rejected [traceId={}]", traceId);
+                return;
+            }
+            JmsEnvelopeMessage envelope = JSON.readValue(body, JmsEnvelopeMessage.class);
+            handleEnvelope(envelope, traceId);
         } catch (Exception ex) {
-            LOGGER.error("MessageSender processing failure [traceId={}]", traceId, ex);
-            throw new RuntimeException("Failed to process messaging payload", ex);
+            LOGGER.warn("MessageSender rejected JMS message [traceId={}]", traceId, ex);
         }
     }
 
-    private void handlePayload(Object payload, String traceId) throws Exception {
-        if (payload instanceof String pvtXml) {
-            handlePvt(pvtXml, traceId);
-        } else if (payload instanceof AccountSummaryMessage summary) {
-            handleAccountSummary(summary, traceId);
-        } else if (payload instanceof ActivityModel[] activities) {
-            handleActivityReport(activities, traceId);
-        } else if (payload instanceof AuditEventEnvelope envelope) {
-            handleAuditEvent(envelope, traceId);
-        } else {
-            LOGGER.warn("Unsupported payload received on JMS queue: {}", payload.getClass().getName());
+    private void handleEnvelope(JmsEnvelopeMessage envelope, String traceId) throws Exception {
+        if (envelope == null || envelope.getType() == null || envelope.getType().isBlank()) {
+            LOGGER.warn("JMS envelope without type was rejected [traceId={}]", traceId);
+            return;
         }
+        String type = envelope.getType().trim();
+        if (JmsEnvelopeMessage.TYPE_PVT_XML.equals(type)) {
+            handlePvt(envelope.getPvtXml(), traceId);
+            return;
+        }
+        if (JmsEnvelopeMessage.TYPE_AUDIT_EVENT.equals(type)) {
+            handleAuditEvent(envelope.getAudit(), traceId);
+            return;
+        }
+        LOGGER.warn("Unsupported JMS envelope type was rejected [traceId={}, type={}]", traceId, type);
     }
 
-    private void handleAuditEvent(AuditEventEnvelope envelope, String traceId) {
+    private void handleAuditEvent(JmsEnvelopeMessage.AuditMessage envelope, String traceId) {
+        if (envelope == null) {
+            LOGGER.warn("Audit envelope payload was empty [traceId={}]", traceId);
+            return;
+        }
         LOGGER.info("Audit envelope drained from JMS queue [traceId={}, action={}, resource={}, outcome={}]",
                 traceId,
                 envelope.getAction(),
@@ -79,6 +89,10 @@ public class MessageSender implements MessageListener {
     }
 
     private void handlePvt(String pvtXml, String traceId) throws Exception {
+        if (pvtXml == null || pvtXml.isBlank()) {
+            LOGGER.warn("PVT XML payload was empty [traceId={}]", traceId);
+            return;
+        }
         String facilityId = resolveFacilityId();
         if (facilityId == null || facilityId.isBlank()) {
             LOGGER.warn("Facility ID unavailable; skipping PVT import [traceId={}]", traceId);
@@ -91,18 +105,6 @@ public class MessageSender implements MessageListener {
             return;
         }
         pvtServiceBean.addPvt(model);
-    }
-
-    private void handleAccountSummary(AccountSummaryMessage summary, String traceId) throws Exception {
-        LOGGER.info("Processing AccountSummary JMS message [traceId={}]", traceId);
-        OidSender sender = new OidSender();
-        sender.send(summary);
-    }
-
-    private void handleActivityReport(ActivityModel[] activities, String traceId) throws Exception {
-        LOGGER.info("Processing ActivityModel JMS message [traceId={}]", traceId);
-        OidSender sender = new OidSender();
-        sender.sendActivity(activities);
     }
 
     private PatientVisitModel parsePvt(String pvtXml, String facilityId) throws Exception {

@@ -871,7 +871,7 @@ public class DolphinResource extends AbstractResource {
             int firstResult = parseInt(params[1], "firstResult", endpoint);
             int maxResult = parseInt(params[2], "maxResult", endpoint);
 
-            TouchModuleDtos.Page<TouchModuleDtos.RpModule> page = moduleService.getRpModules(patientPk, firstResult, maxResult);
+            TouchModuleDtos.Page<TouchModuleDtos.RpModule> page = moduleService.getRpModules(servletReq, patientPk, firstResult, maxResult);
             Response response = okNoStore(page);
             TouchModuleAuditLogger.success(endpoint, traceId, () -> "items=" + size(page.items()));
             return response;
@@ -974,7 +974,7 @@ public class DolphinResource extends AbstractResource {
             int firstResult = parseInt(params[2], "firstResult", endpoint);
             int maxResult = parseInt(params[3], "maxResult", endpoint);
 
-            TouchModuleDtos.Page<TouchModuleDtos.Module> page = moduleService.getModules(patientPk, entity, firstResult, maxResult);
+            TouchModuleDtos.Page<TouchModuleDtos.Module> page = moduleService.getModules(servletReq, patientPk, entity, firstResult, maxResult);
             Response response = okNoStore(page);
             TouchModuleAuditLogger.success(endpoint, traceId, () -> "entity=" + entity + " items=" + size(page.items()));
             return response;
@@ -1071,7 +1071,7 @@ public class DolphinResource extends AbstractResource {
             int firstResult = parseInt(params[1], "firstResult", endpoint);
             int maxResult = parseInt(params[2], "maxResult", endpoint);
 
-            TouchModuleDtos.Page<TouchModuleDtos.Diagnosis> page = moduleService.getDiagnoses(patientPk, firstResult, maxResult);
+            TouchModuleDtos.Page<TouchModuleDtos.Diagnosis> page = moduleService.getDiagnoses(servletReq, patientPk, firstResult, maxResult);
             Response response = okNoStore(page);
             TouchModuleAuditLogger.success(endpoint, traceId, () -> "items=" + size(page.items()));
             return response;
@@ -1095,7 +1095,7 @@ public class DolphinResource extends AbstractResource {
             int firstResult = parseInt(params[1], "firstResult", endpoint);
             int maxResult = parseInt(params[2], "maxResult", endpoint);
 
-            TouchModuleDtos.Page<TouchModuleDtos.Schema> page = moduleService.getSchemas(patientPk, firstResult, maxResult);
+            TouchModuleDtos.Page<TouchModuleDtos.Schema> page = moduleService.getSchemas(servletReq, patientPk, firstResult, maxResult);
             Response response = okNoStore(page);
             TouchModuleAuditLogger.success(endpoint, traceId, () -> "items=" + size(page.items()));
             return response;

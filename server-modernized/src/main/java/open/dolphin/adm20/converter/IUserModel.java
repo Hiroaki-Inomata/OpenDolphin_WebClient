@@ -31,10 +31,6 @@ public final class IUserModel implements IInfoModelConverter, java.io.Serializab
         return model.getUserId();
     }
 
-    public String getPassword() {
-        return model.getPassword();
-    }
-
     public String getSirName() {
         return model.getSirName();
     }

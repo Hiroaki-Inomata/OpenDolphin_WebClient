@@ -7,12 +7,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.WebApplicationException;
 import java.util.List;
 import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.session.UserServiceBean;
+import open.dolphin.touch.JsonTouchSharedService;
 import open.dolphin.testsupport.RuntimeDelegateTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,6 +41,31 @@ class UserResourceTest extends RuntimeDelegateTestSupport {
     void setUp() throws Exception {
         resource = new UserResource();
         setField(resource, "userServiceBean", userServiceBean);
+    }
+
+    @Test
+    void getUserReturnsSafeDtoWithoutPassword() throws Exception {
+        when(request.getRemoteUser()).thenReturn(USER_01);
+        when(userServiceBean.getUser(USER_01)).thenReturn(userWithRole(USER_01, "user"));
+        JsonTouchSharedService.SafeUserResponse response = resource.getUser(request, USER_01);
+        String json = new ObjectMapper().writeValueAsString(response);
+        assertThat(json)
+                .doesNotContain("password")
+                .doesNotContain("temporaryPassword")
+                .doesNotContain("credential")
+                .doesNotContain("hash")
+                .doesNotContain("salt");
+    }
+
+    @Test
+    void getUserReturns404WhenRequestingOtherUserWithoutAdmin() {
+        when(request.getRemoteUser()).thenReturn(USER_01);
+        when(userServiceBean.getUser(USER_02)).thenReturn(userWithRole(USER_02, "user"));
+        when(userServiceBean.isAdmin(USER_01)).thenReturn(false);
+
+        assertThatThrownBy(() -> resource.getUser(request, USER_02))
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> assertThat(((WebApplicationException) ex).getResponse().getStatus()).isEqualTo(404));
     }
 
     @Test
@@ -152,6 +179,14 @@ class UserResourceTest extends RuntimeDelegateTestSupport {
         RoleModel role = new RoleModel();
         role.setRole(value);
         return role;
+    }
+
+    private static UserModel userWithRole(String userId, String roleValue) {
+        UserModel user = new UserModel();
+        user.setUserId(userId);
+        user.setPassword("secret");
+        user.setRoles(List.of(role(roleValue)));
+        return user;
     }
 
     private static void setField(Object target, String fieldName, Object value) throws Exception {

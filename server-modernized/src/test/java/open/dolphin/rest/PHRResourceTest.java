@@ -223,10 +223,13 @@ class PHRResourceTest extends RuntimeDelegateTestSupport {
                 eq("null_result"),
                 argThat(details -> "RESTEASY".equals(details.get("signedUrlIssuer"))
                         && "FILESYSTEM".equals(details.get("storageType"))
-                        && "phr-container".equals(details.get("bandwidthProfile"))
                         && Long.valueOf(300L).equals(details.get("signedUrlTtlSeconds"))
-                        && ("/resources/20/adm/phr/export/" + jobId + "/artifact").equals(details.get("downloadUrl"))
-                        && "alias/opd/phr-export".equals(details.get("kmsKeyAlias"))));
+                        && jobId.toString().equals(details.get("jobId"))
+                        && jobId.toString().equals(details.get("artifactId"))
+                        && !details.containsKey("downloadUrl")
+                        && !details.containsKey("resultUri")
+                        && !details.containsKey("artifactPath")
+                        && !details.containsKey("kmsKeyAlias")));
     }
 
     @Test
@@ -248,14 +251,21 @@ class PHRResourceTest extends RuntimeDelegateTestSupport {
                 isNull(),
                 eq("IllegalStateException"),
                 argThat(details -> "RESTEASY".equals(details.get("signedUrlIssuer"))
-                        && fallbackUrl.equals(details.get("artifactPath"))
-                        && "PHR_EXPORT_SIGNING_SECRET missing".equals(details.get("message"))));
+                        && "IllegalStateException".equals(details.get("exception"))
+                        && !details.containsKey("downloadUrl")
+                        && !details.containsKey("resultUri")
+                        && !details.containsKey("artifactPath")
+                        && !details.containsKey("kmsKeyAlias")
+                        && !details.containsKey("message")));
         verify(auditHelper).recordFailure(any(),
                 eq("PHR_SIGNED_URL_NULL_FALLBACK"),
                 isNull(),
                 eq("signed_url_unavailable"),
-                argThat(details -> fallbackUrl.equals(details.get("downloadUrl"))
-                        && "signed_url_unavailable".equals(details.get("fallbackReason"))));
+                argThat(details -> "signed_url_unavailable".equals(details.get("fallbackReason"))
+                        && !details.containsKey("downloadUrl")
+                        && !details.containsKey("resultUri")
+                        && !details.containsKey("artifactPath")
+                        && !details.containsKey("kmsKeyAlias")));
     }
 
     @Test

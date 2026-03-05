@@ -20,7 +20,6 @@ import java.util.logging.Handler;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import open.dolphin.converter.StringListConverter;
-import open.dolphin.converter.UserModelConverter;
 import open.dolphin.adm10.session.ADM10_EHTServiceBean;
 import open.dolphin.infomodel.ChartEventModel;
 import open.dolphin.infomodel.DiagnosisSendWrapper;
@@ -76,16 +75,14 @@ class JsonTouchResourceParityTest {
         visit.setPatientModel(patient);
 
         UserModel user = new UserModel();
-        user.setUserId("doctor01");
-        UserModelConverter converter = new UserModelConverter();
-        converter.setModel(user);
+        user.setUserId("F001:doctor01");
 
         sharedService.snapshot = JsonTouchSharedService.snapshot(patient, 12345L);
         sharedService.patientList = Collections.singletonList(patient);
         sharedService.patientCount = 42;
         sharedService.kanaList = Collections.singletonList("タナカ タロウ");
         sharedService.visitPackage = visit;
-        sharedService.setUserConverter(converter);
+        sharedService.setUserResponse(JsonTouchSharedService.toSafeUserResponse(user));
 
         touchResource = new JsonTouchResource();
         adm10Resource = new open.dolphin.adm10.rest.JsonTouchResource();
@@ -129,12 +126,12 @@ class JsonTouchResourceParityTest {
 
     @Test
     void userParity() {
-        UserModelConverter touch = touchResource.getUserById("doctor01");
-        UserModelConverter adm10 = adm10Resource.getUserById("doctor01");
-        UserModelConverter adm20 = adm20Resource.getUserById("doctor01");
+        JsonTouchSharedService.SafeUserResponse touch = touchResource.getUserById(servletRequest, "doctor01");
+        JsonTouchSharedService.SafeUserResponse adm10 = adm10Resource.getUserById(servletRequest, "doctor01");
+        JsonTouchSharedService.SafeUserResponse adm20 = adm20Resource.getUserById(servletRequest, "doctor01");
 
-        assertEquals(touch.getUserId(), adm10.getUserId());
-        assertEquals(touch.getUserId(), adm20.getUserId());
+        assertEquals(touch.userId(), adm10.userId());
+        assertEquals(touch.userId(), adm20.userId());
     }
 
     @Test
@@ -588,15 +585,15 @@ class JsonTouchResourceParityTest {
         private int patientCount;
         private List<String> kanaList = Collections.emptyList();
         private VisitPackage visitPackage = new VisitPackage();
-        private UserModelConverter userConverter = new UserModelConverter();
+        private SafeUserResponse userResponse;
         private UserModel actorUserModel = new UserModel();
         private KarteBean actorKarte = new KarteBean();
         private long nextDocumentPk = 99L;
         private boolean failOnSaveDocument;
         private DocumentModel lastSavedDocument;
 
-        void setUserConverter(UserModelConverter converter) {
-            this.userConverter = converter;
+        void setUserResponse(SafeUserResponse response) {
+            this.userResponse = response;
         }
 
         void setNextDocumentPk(long nextDocumentPk) {
@@ -616,8 +613,8 @@ class JsonTouchResourceParityTest {
         }
 
         @Override
-        public UserModelConverter getUserById(String uid) {
-            return userConverter;
+        public SafeUserResponse getSafeUserById(String actorUserId, String uid) {
+            return userResponse;
         }
 
         @Override

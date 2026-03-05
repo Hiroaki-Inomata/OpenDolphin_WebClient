@@ -12,7 +12,6 @@ import {
   resetAccessUserPassword,
   updateAccessUser,
   type AccessManagedUser,
-  type AccessPasswordResetResponse,
   type AccessSex,
   type AccessUserUpsertPayload,
   type ApiFailure,
@@ -111,8 +110,8 @@ export function AccessManagementPanel({ runId, role, mode = 'full' }: AccessMana
   const [editDraft, setEditDraft] = useState<AccessUserUpsertPayload | null>(null);
 
   const [resetTarget, setResetTarget] = useState<AccessManagedUser | null>(null);
+  const [resetTemporaryPassword, setResetTemporaryPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
-  const [resetResult, setResetResult] = useState<AccessPasswordResetResponse | null>(null);
 
   const usersQuery = useQuery({
     queryKey: ['admin-access-users'],
@@ -184,18 +183,27 @@ export function AccessManagementPanel({ runId, role, mode = 'full' }: AccessMana
   });
 
   const resetMutation = useMutation({
-    mutationFn: (params: { userPk: number; totpCode: string }) =>
-      resetAccessUserPassword(params.userPk, { totpCode: params.totpCode }),
-    onSuccess: (result) => {
-      setResetResult(result);
+    mutationFn: (params: { userPk: number; totpCode: string; temporaryPassword: string; targetUserPk: number }) =>
+      resetAccessUserPassword(params.userPk, {
+        totpCode: params.totpCode,
+        temporaryPassword: params.temporaryPassword,
+      }),
+    onSuccess: (_unused, params) => {
       queryClient.invalidateQueries({ queryKey: ['admin-access-users'] });
-      setFeedback({ tone: 'success', message: '一時パスワードを発行しました（画面内で一度だけ表示します）。' });
+      setFeedback({ tone: 'success', message: 'パスワードをリセットしました。' });
       logAuditEvent({
         runId,
         source: 'admin/access',
         note: 'password reset',
-        payload: { operation: 'password-reset', actor: `${session.facilityId}:${session.userId}`, targetUserPk: result.userPk },
+        payload: {
+          operation: 'password-reset',
+          actor: `${session.facilityId}:${session.userId}`,
+          targetUserPk: params.targetUserPk,
+        },
       });
+      setResetTarget(null);
+      setResetTemporaryPassword('');
+      setTotpCode('');
     },
     onError: (error: unknown) => {
       const api = error as ApiFailure;
@@ -228,8 +236,8 @@ export function AccessManagementPanel({ runId, role, mode = 'full' }: AccessMana
     if (linkedOnlyMode) return;
     setFeedback(null);
     setResetTarget(user);
+    setResetTemporaryPassword('');
     setTotpCode('');
-    setResetResult(null);
   };
 
   const validateCreateDraft = (draft: AccessUserUpsertPayload): string | null => {
@@ -271,12 +279,22 @@ export function AccessManagementPanel({ runId, role, mode = 'full' }: AccessMana
 
   const handleSubmitReset = () => {
     if (!resetTarget) return;
+    const temporaryPassword = resetTemporaryPassword.trim();
     const code = totpCode.trim();
+    if (!temporaryPassword) {
+      setFeedback({ tone: 'error', message: '一時パスワードを入力してください。' });
+      return;
+    }
     if (!code) {
       setFeedback({ tone: 'error', message: 'TOTP コードを入力してください。' });
       return;
     }
-    resetMutation.mutate({ userPk: resetTarget.userPk, totpCode: code });
+    resetMutation.mutate({
+      userPk: resetTarget.userPk,
+      totpCode: code,
+      temporaryPassword,
+      targetUserPk: resetTarget.userPk,
+    });
   };
 
   const toggleRole = (draft: AccessUserUpsertPayload, roleId: string, enabled: boolean) => {
@@ -655,13 +673,24 @@ export function AccessManagementPanel({ runId, role, mode = 'full' }: AccessMana
           description={resetTarget ? `対象: ${resetTarget.loginId} / ${resetTarget.displayName ?? ''}` : undefined}
           onClose={() => {
             setResetTarget(null);
+            setResetTemporaryPassword('');
             setTotpCode('');
-            setResetResult(null);
           }}
           testId="admin-access-reset"
         >
           {resetTarget ? (
             <form className="admin-form" onSubmit={(e) => e.preventDefault()}>
+              <div className="admin-form__field">
+                <label htmlFor="admin-access-reset-temporary-password">一時パスワード</label>
+                <input
+                  id="admin-access-reset-temporary-password"
+                  type="text"
+                  value={resetTemporaryPassword}
+                  onChange={(event) => setResetTemporaryPassword(event.target.value)}
+                  placeholder="利用者へ通知する一時パスワード"
+                  autoComplete="new-password"
+                />
+              </div>
               <div className="admin-form__field">
                 <label htmlFor="admin-access-reset-totp">管理者 Authenticator（TOTP）コード</label>
                 <input
@@ -685,34 +714,20 @@ export function AccessManagementPanel({ runId, role, mode = 'full' }: AccessMana
                   onClick={handleSubmitReset}
                   disabled={resetMutation.isPending}
                 >
-                  一時パスワード発行
+                  パスワードリセット
                 </button>
-                <button type="button" className="admin-button admin-button--secondary" onClick={() => setResetTarget(null)}>
+                <button
+                  type="button"
+                  className="admin-button admin-button--secondary"
+                  onClick={() => {
+                    setResetTarget(null);
+                    setResetTemporaryPassword('');
+                    setTotpCode('');
+                  }}
+                >
                   閉じる
                 </button>
               </div>
-
-              {resetResult?.temporaryPassword ? (
-                <div className="admin-result admin-result--stack">
-                  <div>
-                    一時パスワード: <strong>{resetResult.temporaryPassword}</strong>
-                  </div>
-                  <button
-                    type="button"
-                    className="admin-button admin-button--secondary"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(resetResult.temporaryPassword ?? '');
-                        setFeedback({ tone: 'success', message: '一時パスワードをコピーしました。' });
-                      } catch {
-                        setFeedback({ tone: 'error', message: 'コピーに失敗しました（クリップボード権限を確認してください）。' });
-                      }
-                    }}
-                  >
-                    コピー
-                  </button>
-                </div>
-              ) : null}
             </form>
           ) : null}
         </FocusTrapDialog>

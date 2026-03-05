@@ -10,6 +10,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import open.dolphin.infomodel.PHRAsyncJob;
@@ -45,6 +46,7 @@ public class S3PhrExportStorage implements PhrExportStorage {
     private String accessKey;
     private String secretKey;
     private String serverSideEncryption;
+    private String normalizedPrefix = "";
 
     @PostConstruct
     void init() {
@@ -60,6 +62,7 @@ public class S3PhrExportStorage implements PhrExportStorage {
         accessKey = trimToNull(config.getS3AccessKey());
         secretKey = trimToNull(config.getS3SecretKey());
         serverSideEncryption = trimToNull(config.getS3ServerSideEncryption());
+        normalizedPrefix = normalizePrefix(prefix);
     }
 
     @PreDestroy
@@ -77,7 +80,7 @@ public class S3PhrExportStorage implements PhrExportStorage {
         S3Client client = ensureClient();
         String key = resolveObjectKey(job);
         if (size < 0) {
-            throw new IOException("Invalid content length for S3 upload (bucket=" + bucket + ", key=" + key + ", size=" + size + ").");
+            throw new IOException("Invalid content length for S3 upload.");
         }
         PutObjectRequest.Builder builder = PutObjectRequest.builder()
                 .bucket(bucket)
@@ -102,11 +105,10 @@ public class S3PhrExportStorage implements PhrExportStorage {
             // Stream upload: avoids buffering export content in memory.
             client.putObject(builder.build(), RequestBody.fromInputStream(data, size));
         } catch (Exception ex) {
-            throw new IOException("Failed to upload PHR export artifact to S3 bucket=" + bucket + ", key=" + key, ex);
+            throw new IOException("Failed to upload PHR export artifact to S3.", ex);
         }
-        String location = String.format("s3://%s/%s", bucket, key);
-        LOGGER.log(Level.FINE, "Stored PHR export artifact at {0}", location);
-        return new StorageResult(location, size);
+        LOGGER.log(Level.FINE, "Stored PHR export artifact for jobId={0}", job.getJobId());
+        return new StorageResult(key, size);
     }
 
     @Override
@@ -131,7 +133,7 @@ public class S3PhrExportStorage implements PhrExportStorage {
                     : "application/zip";
             return new StoredArtifact(tempFile, resolvedType);
         } catch (Exception ex) {
-            throw new IOException("Failed to download PHR export artifact from S3: " + objectLocation, ex);
+            throw new IOException("Failed to download PHR export artifact from S3.", ex);
         }
     }
 
@@ -189,42 +191,38 @@ public class S3PhrExportStorage implements PhrExportStorage {
         return kmsKeyIdValue != null ? ServerSideEncryption.AWS_KMS : null;
     }
 
-    private String resolveObjectKey(PHRAsyncJob job) {
-        String jobId = job.getJobId().toString();
-        String base = prefix == null ? "" : prefix;
-        boolean hasJobIdPlaceholder = base.contains("{jobId}");
-        String resolved = base.replace("{facilityId}", job.getFacilityId())
-                .replace("{jobId}", jobId);
-        if (resolved.isBlank()) {
-            return jobId + ".zip";
+    private String resolveObjectKey(PHRAsyncJob job) throws IOException {
+        if (job == null || job.getJobId() == null) {
+            throw new IOException("PHRAsyncJob is required for S3 storage.");
         }
-        if (hasJobIdPlaceholder || resolved.endsWith(".zip")) {
-            return resolved;
-        }
-        String normalized = resolved.endsWith("/") ? resolved : resolved + "/";
-        return normalized + jobId + ".zip";
+        String facility = trimToNull(job.getFacilityId());
+        String facilitySegment = facility != null ? sanitizePathSegment(facility) : "unknown-facility";
+        String key = normalizedPrefix + facilitySegment + "/" + job.getJobId() + ".zip";
+        ensureAllowedKey(key);
+        return key;
     }
 
     private S3ObjectLocation resolveLocation(PHRAsyncJob job, String location) throws IOException {
-        if (location.startsWith("s3://")) {
-            String withoutScheme = location.substring(5);
-            int slashIndex = withoutScheme.indexOf('/');
-            if (slashIndex <= 0 || slashIndex == withoutScheme.length() - 1) {
-                throw new IOException("Invalid S3 location: " + location);
-            }
-            String parsedBucket = withoutScheme.substring(0, slashIndex);
-            String key = withoutScheme.substring(slashIndex + 1);
-            return new S3ObjectLocation(parsedBucket, key);
-        }
         if (bucket == null || bucket.isBlank()) {
             throw new IOException("PHR_EXPORT_S3_BUCKET is not configured.");
         }
-        String normalized = location.startsWith("/") ? location.substring(1) : location;
-        if (normalized.isBlank()) {
+        String raw = trimToNull(location);
+        if (raw == null) {
             String fallbackKey = resolveObjectKey(job);
             return new S3ObjectLocation(bucket, fallbackKey);
         }
-        return new S3ObjectLocation(bucket, normalized);
+        if (raw.startsWith("s3://")) {
+            S3ObjectLocation parsed = parseS3Uri(raw);
+            ensureAllowedBucket(parsed.bucket);
+            ensureAllowedKey(parsed.key);
+            return parsed;
+        }
+        String key = normalizeKey(raw);
+        if (key.isBlank()) {
+            key = resolveObjectKey(job);
+        }
+        ensureAllowedKey(key);
+        return new S3ObjectLocation(bucket, key);
     }
 
     private URI parseEndpoint(String rawEndpoint) {
@@ -247,6 +245,88 @@ public class S3PhrExportStorage implements PhrExportStorage {
         return trimmed.isBlank() ? null : trimmed;
     }
 
+    private String normalizePrefix(String rawPrefix) {
+        if (rawPrefix == null || rawPrefix.isBlank()) {
+            return "";
+        }
+        String normalized = normalizeKey(rawPrefix);
+        if (normalized.isBlank()) {
+            return "";
+        }
+        return normalized.endsWith("/") ? normalized : normalized + "/";
+    }
+
+    private String normalizeKey(String key) {
+        if (key == null) {
+            return "";
+        }
+        String normalized = key.trim().replace('\\', '/');
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        while (normalized.contains("//")) {
+            normalized = normalized.replace("//", "/");
+        }
+        return normalized;
+    }
+
+    private S3ObjectLocation parseS3Uri(String raw) throws IOException {
+        String withoutScheme = raw.substring("s3://".length());
+        int slashIndex = withoutScheme.indexOf('/');
+        if (slashIndex <= 0 || slashIndex == withoutScheme.length() - 1) {
+            throw new IOException("Invalid S3 location.");
+        }
+        String parsedBucket = withoutScheme.substring(0, slashIndex).trim();
+        String key = normalizeKey(withoutScheme.substring(slashIndex + 1));
+        if (parsedBucket.isBlank() || key.isBlank()) {
+            throw new IOException("Invalid S3 location.");
+        }
+        return new S3ObjectLocation(parsedBucket, key);
+    }
+
+    private void ensureAllowedBucket(String candidateBucket) throws IOException {
+        if (candidateBucket == null || !bucket.equals(candidateBucket)) {
+            throw new IOException("S3 bucket is not allowed.");
+        }
+    }
+
+    private void ensureAllowedKey(String key) throws IOException {
+        if (key == null || key.isBlank()) {
+            throw new IOException("S3 key is missing.");
+        }
+        String normalized = normalizeKey(key);
+        if (normalized.isBlank()) {
+            throw new IOException("S3 key is invalid.");
+        }
+        if (normalized.contains("../") || normalized.startsWith("../") || normalized.equals("..")) {
+            throw new IOException("S3 key is invalid.");
+        }
+        if (!normalizedPrefix.isEmpty() && !normalized.startsWith(normalizedPrefix)) {
+            throw new IOException("S3 key is outside configured prefix.");
+        }
+    }
+
+    private String sanitizePathSegment(String value) {
+        String lower = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        StringBuilder sanitized = new StringBuilder(lower.length());
+        for (int i = 0; i < lower.length(); i++) {
+            char c = lower.charAt(i);
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+                sanitized.append(c);
+            } else {
+                sanitized.append('-');
+            }
+        }
+        String result = sanitized.toString().replaceAll("-{2,}", "-");
+        if (result.startsWith("-")) {
+            result = result.substring(1);
+        }
+        if (result.endsWith("-")) {
+            result = result.substring(0, result.length() - 1);
+        }
+        return result.isBlank() ? "unknown-facility" : result;
+    }
+
     private static final class S3ObjectLocation {
         private final String bucket;
         private final String key;
@@ -254,11 +334,6 @@ public class S3PhrExportStorage implements PhrExportStorage {
         private S3ObjectLocation(String bucket, String key) {
             this.bucket = bucket;
             this.key = key;
-        }
-
-        @Override
-        public String toString() {
-            return String.format("s3://%s/%s", bucket, key);
         }
     }
 }

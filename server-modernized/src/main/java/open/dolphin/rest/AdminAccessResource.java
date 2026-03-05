@@ -4,6 +4,7 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
@@ -15,7 +16,6 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.sql.Timestamp;
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -55,9 +55,11 @@ public class AdminAccessResource extends AbstractResource {
     private static final Logger LOGGER = Logger.getLogger(AdminAccessResource.class.getName());
 
     private static final Set<String> ALLOWED_SEX = Set.of("M", "F", "O");
-    private static final int DEFAULT_TEMP_PASSWORD_LENGTH = 14;
-    private static final String TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
     private static final Pattern ORCA_USER_ID_PATTERN = Pattern.compile("^[A-Za-z0-9_]+$");
+    private static final Pattern UPPERCASE_PATTERN = Pattern.compile(".*[A-Z].*");
+    private static final Pattern LOWERCASE_PATTERN = Pattern.compile(".*[a-z].*");
+    private static final Pattern DIGIT_PATTERN = Pattern.compile(".*\\d.*");
+    private static final Pattern SYMBOL_PATTERN = Pattern.compile(".*[^A-Za-z0-9].*");
     private static final String BASELINE_ROLE = "user";
 
     @PersistenceContext
@@ -187,7 +189,7 @@ public class AdminAccessResource extends AbstractResource {
         // so ensure the shadow row exists before we insert roles.
         upsertPublicShadowUser(user);
         persistRoles(user, roles);
-        UserAccessProfileRow profile = upsertProfile(user.getId(), sex, staffRole, Instant.now());
+        UserAccessProfileRow profile = upsertProfile(user.getId(), sex, staffRole, null, Instant.now());
         OrcaLinkStatus orcaLink = null;
         if (orcaUserId != null) {
             orcaLink = upsertOrcaLink(request, user.getId(), orcaUserId, actor);
@@ -283,7 +285,7 @@ public class AdminAccessResource extends AbstractResource {
         }
 
         Instant now = Instant.now();
-        UserAccessProfileRow profile = upsertProfile(userPk, sexToken, staffRole, now);
+        UserAccessProfileRow profile = upsertProfile(userPk, sexToken, staffRole, null, now);
         if (orcaLink == null) {
             orcaLink = findOrcaLinkByUserPk(userPk);
         }
@@ -328,26 +330,36 @@ public class AdminAccessResource extends AbstractResource {
         long actorPk = resolveActorUserPk(actor);
         verifyAdminTotp(request, actorPk, totpCode);
 
-        String tempPassword = generateTemporaryPassword(DEFAULT_TEMP_PASSWORD_LENGTH);
+        if (payload == null) {
+            throw restError(request, Response.Status.BAD_REQUEST, "payload_required", "payload が必要です。");
+        }
+        String tempPassword = trimToNull(asString(payload.get("temporaryPassword")));
+        if (tempPassword == null) {
+            throw restError(request, Response.Status.BAD_REQUEST, "temporary_password_required",
+                    "temporaryPassword は必須です。");
+        }
+        validateTemporaryPassword(request, tempPassword);
+
         target.setPassword(passwordHashService.hashForStorage(tempPassword));
         em.merge(target);
         upsertPublicShadowUser(target);
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("runId", runId);
-        body.put("ok", true);
-        body.put("userPk", userPk);
-        body.put("loginId", extractLoginId(target.getUserId()));
-        body.put("temporaryPassword", tempPassword);
+        upsertProfile(userPk, null, null, Boolean.TRUE, Instant.now());
+        boolean sessionInvalidated = invalidateCurrentSession(request);
 
         Map<String, Object> resetAuditDetails = new LinkedHashMap<>();
         resetAuditDetails.put("operation", "password-reset");
         resetAuditDetails.put("facilityId", facilityId);
         resetAuditDetails.put("targetUserPk", userPk);
         resetAuditDetails.put("targetLoginId", extractLoginId(target.getUserId()));
+        resetAuditDetails.put("mustChangePassword", Boolean.TRUE);
+        resetAuditDetails.put("sessionInvalidated", sessionInvalidated);
         recordAudit(request, "ADMIN_ACCESS_PASSWORD_RESET", AuditEventEnvelope.Outcome.SUCCESS, runId, resetAuditDetails, null, null);
 
-        return Response.ok(body).header("x-run-id", runId).build();
+        return Response.noContent()
+                .header("x-run-id", runId)
+                .header("Cache-Control", "no-store")
+                .header("Pragma", "no-cache")
+                .build();
     }
 
     private String requireAdminActor(HttpServletRequest request, String runId) {
@@ -386,7 +398,7 @@ public class AdminAccessResource extends AbstractResource {
         return !list.isEmpty();
     }
 
-    private void upsertPublicShadowUser(UserModel user) {
+    protected void upsertPublicShadowUser(UserModel user) {
         if (user == null) {
             return;
         }
@@ -466,7 +478,7 @@ public class AdminAccessResource extends AbstractResource {
         return !list.isEmpty();
     }
 
-    private long resolveActorUserPk(String actorUserId) {
+    protected long resolveActorUserPk(String actorUserId) {
         UserModel actor = em.createQuery("from UserModel u where u.userId=:uid", UserModel.class)
                 .setParameter("uid", actorUserId)
                 .getSingleResult();
@@ -487,13 +499,13 @@ public class AdminAccessResource extends AbstractResource {
             return Map.of();
         }
         List<?> rows = em.createNativeQuery(
-                        "select user_pk, sex, staff_role, created_at, updated_at "
+                        "select user_pk, sex, staff_role, must_change_password, created_at, updated_at "
                                 + "from opendolphin.d_user_access_profile where user_pk in :ids")
                 .setParameter("ids", userPks)
                 .getResultList();
         Map<Long, UserAccessProfileRow> map = new HashMap<>();
         for (Object rowObj : rows) {
-            if (!(rowObj instanceof Object[] row) || row.length < 5) {
+            if (!(rowObj instanceof Object[] row) || row.length < 6) {
                 continue;
             }
             Long userPk = asLong(row[0]);
@@ -502,8 +514,9 @@ public class AdminAccessResource extends AbstractResource {
                         userPk,
                         trimToNull(asString(row[1])),
                         trimToNull(asString(row[2])),
-                        asInstant(row[3]),
-                        asInstant(row[4])));
+                        asBoolean(row[3]),
+                        asInstant(row[4]),
+                        asInstant(row[5])));
             }
         }
         return map;
@@ -573,11 +586,13 @@ public class AdminAccessResource extends AbstractResource {
         if (profile != null) {
             row.put("sex", profile.sex());
             row.put("staffRole", profile.staffRole());
+            row.put("mustChangePassword", profile.mustChangePassword());
             row.put("profileCreatedAt", profile.createdAt() != null ? profile.createdAt().toString() : null);
             row.put("profileUpdatedAt", profile.updatedAt() != null ? profile.updatedAt().toString() : null);
         } else {
             row.put("sex", null);
             row.put("staffRole", null);
+            row.put("mustChangePassword", Boolean.FALSE);
             row.put("profileCreatedAt", null);
             row.put("profileUpdatedAt", null);
         }
@@ -652,7 +667,7 @@ public class AdminAccessResource extends AbstractResource {
         em.merge(user);
     }
 
-    private UserAccessProfileRow upsertProfile(long userPk, String sex, String staffRole, Instant now) {
+    protected UserAccessProfileRow upsertProfile(long userPk, String sex, String staffRole, Boolean mustChangePassword, Instant now) {
         if (!isUserAccessProfileTablePresent()) {
             return null;
         }
@@ -661,16 +676,23 @@ public class AdminAccessResource extends AbstractResource {
                 : (existing != null ? existing.sex() : null);
         String effectiveStaffRole = staffRole != null ? (staffRole.isBlank() ? null : staffRole)
                 : (existing != null ? existing.staffRole() : null);
+        boolean effectiveMustChange = mustChangePassword != null
+                ? mustChangePassword
+                : (existing != null && existing.mustChangePassword());
         Instant createdAt = existing != null && existing.createdAt() != null ? existing.createdAt() : now;
 
         em.createNativeQuery(
-                        "insert into opendolphin.d_user_access_profile (user_pk, sex, staff_role, created_at, updated_at) "
-                                + "values (:userPk, :sex, :staffRole, :createdAt, :updatedAt) "
+                        "insert into opendolphin.d_user_access_profile "
+                                + "(user_pk, sex, staff_role, must_change_password, created_at, updated_at) "
+                                + "values (:userPk, :sex, :staffRole, :mustChangePassword, :createdAt, :updatedAt) "
                                 + "on conflict (user_pk) do update set "
-                                + "sex=excluded.sex, staff_role=excluded.staff_role, updated_at=excluded.updated_at")
+                                + "sex=excluded.sex, staff_role=excluded.staff_role, "
+                                + "must_change_password=excluded.must_change_password, "
+                                + "updated_at=excluded.updated_at")
                 .setParameter("userPk", userPk)
                 .setParameter("sex", effectiveSex)
                 .setParameter("staffRole", effectiveStaffRole)
+                .setParameter("mustChangePassword", effectiveMustChange)
                 .setParameter("createdAt", Timestamp.from(createdAt))
                 .setParameter("updatedAt", Timestamp.from(now))
                 .executeUpdate();
@@ -679,6 +701,7 @@ public class AdminAccessResource extends AbstractResource {
                 userPk,
                 effectiveSex,
                 effectiveStaffRole,
+                effectiveMustChange,
                 createdAt,
                 now);
     }
@@ -688,7 +711,7 @@ public class AdminAccessResource extends AbstractResource {
             return null;
         }
         List<?> rows = em.createNativeQuery(
-                        "select user_pk, sex, staff_role, created_at, updated_at "
+                        "select user_pk, sex, staff_role, must_change_password, created_at, updated_at "
                                 + "from opendolphin.d_user_access_profile where user_pk=:userPk")
                 .setParameter("userPk", userPk)
                 .setMaxResults(1)
@@ -697,7 +720,7 @@ public class AdminAccessResource extends AbstractResource {
             return null;
         }
         Object rowObj = rows.get(0);
-        if (!(rowObj instanceof Object[] row) || row.length < 5) {
+        if (!(rowObj instanceof Object[] row) || row.length < 6) {
             return null;
         }
         Long foundUserPk = asLong(row[0]);
@@ -708,11 +731,12 @@ public class AdminAccessResource extends AbstractResource {
                 foundUserPk,
                 trimToNull(asString(row[1])),
                 trimToNull(asString(row[2])),
-                asInstant(row[3]),
-                asInstant(row[4]));
+                asBoolean(row[3]),
+                asInstant(row[4]),
+                asInstant(row[5]));
     }
 
-    private void verifyAdminTotp(HttpServletRequest request, long actorPk, String totpCode) {
+    protected void verifyAdminTotp(HttpServletRequest request, long actorPk, String totpCode) {
         if (totpCode == null || totpCode.isBlank()) {
             throw restError(request, Response.Status.PRECONDITION_FAILED, "totp_required",
                     "パスワードリセットには管理者の Authenticator（TOTP）コードが必要です。");
@@ -904,6 +928,19 @@ public class AdminAccessResource extends AbstractResource {
         }
     }
 
+    private boolean asBoolean(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value instanceof Number number) {
+            return number.intValue() != 0;
+        }
+        if (value instanceof String text) {
+            return Boolean.parseBoolean(text);
+        }
+        return false;
+    }
+
     private boolean containsAdminRole(List<String> roles) {
         for (String role : roles) {
             String normalized = normalizeRoleKey(role);
@@ -987,15 +1024,39 @@ public class AdminAccessResource extends AbstractResource {
         return trimmed;
     }
 
-    private String generateTemporaryPassword(int length) {
-        int safeLength = Math.max(10, Math.min(length, 32));
-        SecureRandom random = new SecureRandom();
-        StringBuilder sb = new StringBuilder(safeLength);
-        for (int i = 0; i < safeLength; i++) {
-            int idx = random.nextInt(TEMP_PASSWORD_ALPHABET.length());
-            sb.append(TEMP_PASSWORD_ALPHABET.charAt(idx));
+    private void validateTemporaryPassword(HttpServletRequest request, String temporaryPassword) {
+        String candidate = trimToNull(temporaryPassword);
+        if (candidate == null) {
+            throw restError(request, Response.Status.BAD_REQUEST, "temporary_password_required",
+                    "temporaryPassword は必須です。");
         }
-        return sb.toString();
+        if (candidate.length() < 12) {
+            throw restError(request, Response.Status.BAD_REQUEST, "temporary_password_weak",
+                    "temporaryPassword は 12 文字以上で指定してください。");
+        }
+        if (!UPPERCASE_PATTERN.matcher(candidate).matches()
+                || !LOWERCASE_PATTERN.matcher(candidate).matches()
+                || !DIGIT_PATTERN.matcher(candidate).matches()
+                || !SYMBOL_PATTERN.matcher(candidate).matches()) {
+            throw restError(request, Response.Status.BAD_REQUEST, "temporary_password_weak",
+                    "temporaryPassword は英大文字・英小文字・数字・記号をすべて含めてください。");
+        }
+    }
+
+    private boolean invalidateCurrentSession(HttpServletRequest request) {
+        if (request == null) {
+            return false;
+        }
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            return false;
+        }
+        try {
+            session.invalidate();
+            return true;
+        } catch (IllegalStateException ex) {
+            return false;
+        }
     }
 
     private void recordAudit(HttpServletRequest request,
@@ -1027,10 +1088,11 @@ public class AdminAccessResource extends AbstractResource {
     ) {
     }
 
-    private record UserAccessProfileRow(
+    protected record UserAccessProfileRow(
             Long userPk,
             String sex,
             String staffRole,
+            boolean mustChangePassword,
             Instant createdAt,
             Instant updatedAt
     ) {

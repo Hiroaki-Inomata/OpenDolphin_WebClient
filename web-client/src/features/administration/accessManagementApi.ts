@@ -46,14 +46,7 @@ export type AccessUserUpsertPayload = {
 
 export type AccessPasswordResetPayload = {
   totpCode: string;
-};
-
-export type AccessPasswordResetResponse = {
-  runId?: string;
-  ok: boolean;
-  userPk: number;
-  loginId?: string;
-  temporaryPassword?: string;
+  temporaryPassword: string;
 };
 
 export type ApiFailure = Error & { status?: number; errorCode?: string };
@@ -130,12 +123,14 @@ export async function updateAccessUser(userPk: number, payload: AccessUserUpsert
 export async function resetAccessUserPassword(
   userPk: number,
   payload: AccessPasswordResetPayload,
-): Promise<AccessPasswordResetResponse> {
+): Promise<void> {
   const response = await httpFetch(`${ACCESS_USERS_ENDPOINT}/${encodeURIComponent(String(userPk))}/password-reset`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload ?? {}),
     notifySessionExpired: false,
   });
-  return await requireOkJson<AccessPasswordResetResponse>(response);
+  if (!response.ok) {
+    throw await readApiError(response);
+  }
 }

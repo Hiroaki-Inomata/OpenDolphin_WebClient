@@ -31,7 +31,6 @@ import open.dolphin.adm10.converter.IOSHelper;
 import open.dolphin.adm10.converter.IMKDocument;
 import open.dolphin.adm10.converter.IMKDocument2;
 import open.dolphin.converter.StringListConverter;
-import open.dolphin.converter.UserModelConverter;
 import open.dolphin.infomodel.DiagnosisSendWrapper;
 import open.dolphin.infomodel.DocInfoModel;
 import open.dolphin.infomodel.DocumentModel;
@@ -109,8 +108,14 @@ public class JsonTouchResource extends open.dolphin.rest.AbstractResource {
     @GET
     @Path("/user/{uid}")
     @Produces(MediaType.APPLICATION_JSON)
-    public UserModelConverter getUserById(@PathParam("uid") String uid) {
-        return sharedService.getUserById(uid);
+    public JsonTouchSharedService.SafeUserResponse getUserById(@Context HttpServletRequest servletReq,
+            @PathParam("uid") String uid) {
+        String actor = servletReq != null ? servletReq.getRemoteUser() : null;
+        JsonTouchSharedService.SafeUserResponse response = sharedService.getSafeUserById(actor, uid);
+        if (response == null) {
+            throw restError(servletReq, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
+        }
+        return response;
     }
 
     @GET

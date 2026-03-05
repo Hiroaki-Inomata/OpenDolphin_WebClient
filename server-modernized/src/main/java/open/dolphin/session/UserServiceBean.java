@@ -1,5 +1,6 @@
 package open.dolphin.session;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -12,6 +13,7 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import open.dolphin.infomodel.*;
+import open.dolphin.security.auth.LoginAttemptPolicyService;
 import open.dolphin.security.auth.PasswordHashService;
 import open.dolphin.session.framework.SessionOperation;
 
@@ -43,10 +45,30 @@ public class UserServiceBean {
     @Inject
     private PasswordHashService passwordHashService;
 
-    
     public boolean authenticate(String userName, String password) {
+        return authenticateWithPolicy(userName, password, null).authenticated();
+    }
+
+    public AuthenticationResult authenticateWithPolicy(String userName, String password, String clientIp) {
         if (userName == null || userName.isBlank() || password == null) {
-            return false;
+            LoginAttemptPolicyService.FailureResult failure = registerFailure(userName, clientIp, Instant.now());
+            if (failure.ipThrottled()) {
+                return AuthenticationResult.ipThrottled(failure.retryAfterSeconds());
+            }
+            return AuthenticationResult.failure();
+        }
+
+        Instant now = Instant.now();
+        LoginAttemptPolicyService.PreCheckResult preCheck = preCheck(userName, clientIp, now);
+        if (preCheck.ipThrottled()) {
+            return AuthenticationResult.ipThrottled(preCheck.retryAfterSeconds());
+        }
+        if (preCheck.accountLocked()) {
+            LoginAttemptPolicyService.FailureResult failure = registerFailure(userName, clientIp, now);
+            if (failure.ipThrottled()) {
+                return AuthenticationResult.ipThrottled(failure.retryAfterSeconds());
+            }
+            return AuthenticationResult.failure();
         }
 
         try {
@@ -58,7 +80,11 @@ public class UserServiceBean {
             PasswordHashService.VerificationResult verification = hashService()
                     .verify(user.getPassword(), password);
             if (!verification.matched()) {
-                return false;
+                LoginAttemptPolicyService.FailureResult failure = registerFailure(userName, clientIp, now);
+                if (failure.ipThrottled()) {
+                    return AuthenticationResult.ipThrottled(failure.retryAfterSeconds());
+                }
+                return AuthenticationResult.failure();
             }
 
             if (verification.requiresUpgrade()) {
@@ -67,9 +93,14 @@ public class UserServiceBean {
                 user.setPassword(upgraded);
                 em.merge(user);
             }
-            return true;
+            registerSuccess(userName, now);
+            return AuthenticationResult.success();
         } catch (Exception e) {
-            return false;
+            LoginAttemptPolicyService.FailureResult failure = registerFailure(userName, clientIp, now);
+            if (failure.ipThrottled()) {
+                return AuthenticationResult.ipThrottled(failure.retryAfterSeconds());
+            }
+            return AuthenticationResult.failure();
         }
     }
 
@@ -286,6 +317,19 @@ public class UserServiceBean {
         em.merge(updateFacility );
         return 1;
     }
+
+    /**
+     * 旧パスワード保存形式ユーザー数（新方式以外）を返す。
+     */
+    public long countLegacyPasswordHashUsers() {
+        Number count = em.createQuery(
+                        "select count(u.id) from UserModel u "
+                                + "where u.password is null or u.password not like :prefix",
+                        Number.class)
+                .setParameter("prefix", PasswordHashService.FORMAT_PREFIX + "$%")
+                .getSingleResult();
+        return count != null ? count.longValue() : 0L;
+    }
     
 //s.oh^ 脆弱性対応
     public String getUserName(String userId) {
@@ -346,6 +390,34 @@ public class UserServiceBean {
         return passwordHashService;
     }
 
+    private LoginAttemptPolicyService rateLimitService() {
+        return loginAttemptPolicyService;
+    }
+
+    private LoginAttemptPolicyService.PreCheckResult preCheck(String userName, String clientIp, Instant now) {
+        LoginAttemptPolicyService service = rateLimitService();
+        if (service == null) {
+            return LoginAttemptPolicyService.PreCheckResult.allowed();
+        }
+        return service.preCheck(userName, clientIp, now);
+    }
+
+    private LoginAttemptPolicyService.FailureResult registerFailure(String userName, String clientIp, Instant now) {
+        LoginAttemptPolicyService service = rateLimitService();
+        if (service == null) {
+            return new LoginAttemptPolicyService.FailureResult(false, false, 0L);
+        }
+        return service.registerFailure(userName, clientIp, now);
+    }
+
+    private void registerSuccess(String userName, Instant now) {
+        LoginAttemptPolicyService service = rateLimitService();
+        if (service == null) {
+            return;
+        }
+        service.registerSuccess(userName, now);
+    }
+
     private String normalizePasswordForStorage(String requestedPassword, String currentPassword) {
         if (requestedPassword == null || requestedPassword.isBlank()) {
             return currentPassword;
@@ -366,6 +438,23 @@ public class UserServiceBean {
                 || normalized.equals("system-admin")
                 || normalized.equals("system-administrator")
                 || normalized.equals("system_administrator");
+    }
+
+    @Inject
+    private LoginAttemptPolicyService loginAttemptPolicyService;
+
+    public record AuthenticationResult(boolean authenticated, boolean ipThrottled, long retryAfterSeconds) {
+        public static AuthenticationResult success() {
+            return new AuthenticationResult(true, false, 0L);
+        }
+
+        public static AuthenticationResult failure() {
+            return new AuthenticationResult(false, false, 0L);
+        }
+
+        public static AuthenticationResult ipThrottled(long retryAfterSeconds) {
+            return new AuthenticationResult(false, true, Math.max(1L, retryAfterSeconds));
+        }
     }
 //s.oh$
 }
