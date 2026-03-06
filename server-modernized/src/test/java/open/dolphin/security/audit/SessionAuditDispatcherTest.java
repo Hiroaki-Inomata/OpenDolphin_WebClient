@@ -46,7 +46,7 @@ class SessionAuditDispatcherTest {
     }
 
     @Test
-    void recordBackfillsPatientIdFromDetails() {
+    void recordDoesNotBackfillPatientIdFromDetails() {
         RecordingDispatcher dispatcher = new RecordingDispatcher();
 
         AuditEventPayload payload = new AuditEventPayload();
@@ -60,11 +60,12 @@ class SessionAuditDispatcherTest {
         AuditEventEnvelope envelope = dispatcher.record(payload, AuditEventEnvelope.Outcome.SUCCESS, null, null);
 
         assertNotNull(envelope);
-        assertEquals("P0001", envelope.getPatientId());
+        assertEquals(null, envelope.getPatientId());
+        assertEquals(null, envelope.getDetails().get("patientId"));
     }
 
     @Test
-    void recordRedactsSensitiveTokenInDetails() {
+    void recordDropsUnallowlistedSensitiveDetails() {
         RecordingDispatcher dispatcher = new RecordingDispatcher();
 
         AuditEventPayload payload = new AuditEventPayload();
@@ -81,7 +82,7 @@ class SessionAuditDispatcherTest {
         AuditEventEnvelope envelope = dispatcher.record(payload, AuditEventEnvelope.Outcome.SUCCESS, null, null);
 
         assertNotNull(envelope);
-        assertEquals("***", envelope.getDetails().get("consentToken"));
+        assertEquals(null, envelope.getDetails().get("consentToken"));
         assertEquals("abc123", envelope.getDetails().get("tokenHash"));
     }
 

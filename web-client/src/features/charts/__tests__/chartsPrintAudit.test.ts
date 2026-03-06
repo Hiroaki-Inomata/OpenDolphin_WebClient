@@ -8,7 +8,7 @@ afterEach(() => {
 });
 
 describe('Charts print/export audit', () => {
-  it('PRINT_OUTPATIENT は actor/runId/patientId を details に含める', () => {
+  it('PRINT_OUTPATIENT は actor/runId を details に含め、patientId は残さない', () => {
     recordChartsAuditEvent({
       action: 'PRINT_OUTPATIENT',
       outcome: 'started',
@@ -29,8 +29,8 @@ describe('Charts print/export audit', () => {
     const payload = events[0]?.payload as any;
     expect(payload.action).toBe('PRINT_OUTPATIENT');
     expect(payload.details.runId).toBe('RUN-PRINT');
-    expect(payload.details.patientId).toBe('000123');
     expect(payload.details.actor).toBe('0001:doctor01');
+    expect(payload.details.patientId).toBeUndefined();
   });
 
   it('PRINT_DOCUMENT は document 情報を details に含める', () => {
@@ -60,10 +60,10 @@ describe('Charts print/export audit', () => {
     const payload = events[0]?.payload as any;
     expect(payload.action).toBe('PRINT_DOCUMENT');
     expect(payload.details.runId).toBe('RUN-DOC-PRINT');
-    expect(payload.details.patientId).toBe('000123');
     expect(payload.details.actor).toBe('0001:doctor01');
     expect(payload.details.documentType).toBe('referral');
     expect(payload.details.templateId).toBe('REF-ODT-STD');
     expect(payload.details.documentId).toBe('DOC-001');
+    expect(payload.details.patientId).toBeUndefined();
   });
 });

@@ -49,7 +49,7 @@ public class AuditTrailService implements open.dolphin.audit.AuditTrailService {
                 .findFirst()
                 .orElse("");
 
-        Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(payload.getDetails());
+        Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(payload.getAction(), payload.getDetails());
         String serializedPayload = serializePayload(sanitizedDetails);
         String payloadHash = hash(serializedPayload);
 

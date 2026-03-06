@@ -1,11 +1,24 @@
 type MaskedValue = string | number | boolean | null | undefined | Record<string, unknown> | MaskedValue[];
 
-const REDACT_KEYS = new Set([
-  'facilityid',
-  'userid',
+const DROP_KEYS = new Set([
   'patientid',
   'appointmentid',
   'claimid',
+  'receptionid',
+  'query',
+  'querystring',
+  'query_string',
+  'rawquery',
+  'rawxml',
+  'xml',
+  'authorization',
+  'cookie',
+  'email',
+]);
+
+const REDACT_KEYS = new Set([
+  'facilityid',
+  'userid',
   'actor',
   'displayname',
   'commonname',
@@ -36,13 +49,17 @@ const REDACT_KEYS = new Set([
   'client_secret',
   'authkey',
   'auth_key',
-  'authorization',
-  'cookie',
   'session',
-  'email',
   'password',
   'passwordmd5',
 ]);
+
+const DROP_KEYWORDS = [
+  'query',
+  'xml',
+  'authorization',
+  'cookie',
+];
 
 const REDACT_KEYWORDS = [
   'password',
@@ -63,14 +80,17 @@ const REDACT_KEYWORDS = [
   'client_secret',
   'clientsecret',
   'bearer',
-  'authorization',
-  'cookie',
   'session',
   'sessionid',
   'clientuuid',
-  'email',
   'csrf',
 ];
+
+const shouldDropKey = (key: string) => {
+  const normalized = key.toLowerCase();
+  if (DROP_KEYS.has(normalized)) return true;
+  return DROP_KEYWORDS.some((keyword) => normalized.includes(keyword));
+};
 
 const shouldRedactKey = (key: string) => {
   const normalized = key.toLowerCase();
@@ -112,6 +132,9 @@ const maskValue = (value: unknown, visited: WeakMap<object, unknown>): MaskedVal
   const next: Record<string, unknown> = {};
   visited.set(value as object, next);
   Object.entries(value).forEach(([key, entryValue]) => {
+    if (shouldDropKey(key)) {
+      return;
+    }
     if (shouldRedactKey(key)) {
       next[key] = redactValue(entryValue);
     } else {

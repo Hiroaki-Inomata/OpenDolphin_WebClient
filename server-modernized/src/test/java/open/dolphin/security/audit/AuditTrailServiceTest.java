@@ -25,7 +25,7 @@ import org.mockito.ArgumentCaptor;
 class AuditTrailServiceTest {
 
     @Test
-    void recordBackfillsPatientIdAndRedactsSensitiveDetails() throws Exception {
+    void recordDropsUnallowlistedSensitiveDetailsAndDoesNotBackfillPatientId() throws Exception {
         AuditTrailService service = new AuditTrailService();
         EntityManager em = mock(EntityManager.class);
         @SuppressWarnings("unchecked")
@@ -59,12 +59,13 @@ class AuditTrailServiceTest {
 
         AuditEvent event = eventCaptor.getValue();
         assertNotNull(event);
-        assertEquals("P0001", event.getPatientId());
+        assertEquals(null, event.getPatientId());
         assertNotNull(event.getEventHash());
         assertNotNull(event.getPayloadHash());
         assertEquals("prev-hash", event.getPreviousHash());
+        assertFalse(event.getPayload().contains("\"patientId\""));
         assertFalse(event.getPayload().contains("raw-consent-token"));
-        assertTrueContains(event.getPayload(), "\"consentToken\":\"***\"");
+        assertFalse(event.getPayload().contains("\"consentToken\""));
         assertTrueContains(event.getPayload(), "\"tokenHash\":\"hash-value\"");
     }
 

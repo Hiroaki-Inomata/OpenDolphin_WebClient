@@ -22,6 +22,7 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
@@ -48,6 +49,7 @@ import org.mockito.ArgumentCaptor;
 class LogFilterTest {
 
     private static final String TRACE_ID_HEADER = "X-Trace-Id";
+    private static final String BASIC_FALLBACK_PROPERTY = "OPENDOLPHIN_AUTH_ALLOW_BASIC_FALLBACK";
 
     private LogFilter filter;
 
@@ -55,11 +57,13 @@ class LogFilterTest {
     void setUp() throws Exception {
         filter = new LogFilter();
         setField("securityContext", (SecurityContext) null);
+        System.clearProperty(BASIC_FALLBACK_PROPERTY);
     }
 
     @AfterEach
     void cleanUpMdc() {
         MDC.remove("traceId");
+        System.clearProperty(BASIC_FALLBACK_PROPERTY);
     }
 
     @Test
@@ -121,12 +125,32 @@ class LogFilterTest {
     }
 
     @Test
+    void sessionLoginIsAllowedWithoutAuthenticatedPrincipal() throws Exception {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+
+        when(request.getHeader(anyString())).thenReturn(null);
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/api/session/login");
+        when(request.getContextPath()).thenReturn("/openDolphin");
+        when(request.getMethod()).thenReturn("POST");
+        when(request.getRemoteAddr()).thenReturn("192.0.2.21");
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(any(ServletRequest.class), eq(response));
+        verify(response, never()).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+    }
+
+    @Test
     void basicAuthCompositeCredentialIsParsedWithLastSeparator() throws Exception {
+        System.setProperty(BASIC_FALLBACK_PROPERTY, "true");
         UserServiceBean userService = mock(UserServiceBean.class);
         setField("userService", userService);
         String compositeUser = "1.3.6.1.4.1.9414.10.1:ormaster";
         String password = "change_me";
-        when(userService.authenticate(compositeUser, password)).thenReturn(true);
+        when(userService.authenticateWithPolicy(compositeUser, password, "192.0.2.40"))
+                .thenReturn(UserServiceBean.AuthenticationResult.success());
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
@@ -140,7 +164,7 @@ class LogFilterTest {
         when(request.getAttribute(anyString())).thenAnswer(invocation -> attributes.get(invocation.getArgument(0, String.class)));
 
         Map<String, String> headers = new HashMap<>();
-        headers.put("Authorization", buildBasicAuthHeader(compositeUser, password));
+        headers.put("Authorization", basic(compositeUser, password));
         when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
         when(request.getRequestURI()).thenReturn("/openDolphin/resources/user/" + compositeUser);
         when(request.getMethod()).thenReturn("GET");
@@ -152,7 +176,7 @@ class LogFilterTest {
         verify(chain).doFilter(wrappedReqCaptor.capture(), eq(response));
         HttpServletRequest wrapped = (HttpServletRequest) wrappedReqCaptor.getValue();
         assertEquals(compositeUser, wrapped.getRemoteUser());
-        verify(userService).authenticate(compositeUser, password);
+        verify(userService).authenticateWithPolicy(compositeUser, password, "192.0.2.40");
     }
 
     @Test
@@ -246,6 +270,7 @@ class LogFilterTest {
 
     @Test
     void ipThrottledBasicAuthReturns429WithRetryAfter() throws Exception {
+        System.setProperty(BASIC_FALLBACK_PROPERTY, "true");
         UserServiceBean userService = mock(UserServiceBean.class);
         when(userService.authenticateWithPolicy(eq("F001:user01"), eq("RawPass123"), eq("192.0.2.35")))
                 .thenReturn(UserServiceBean.AuthenticationResult.ipThrottled(120));
@@ -278,6 +303,38 @@ class LogFilterTest {
     }
 
     @Test
+    void sessionUserIsResolvedBeforeSecurityPrincipal() throws Exception {
+        SecurityContext sc = mock(SecurityContext.class);
+        when(sc.getCallerPrincipal()).thenReturn(() -> "F001:principal");
+        setField("securityContext", sc);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        HttpSession session = mock(HttpSession.class);
+        when(session.getAttribute(AuthSessionSupport.AUTH_ACTOR_ID)).thenReturn("F001:session-user");
+        when(request.getSession(false)).thenReturn(session);
+
+        Map<String, Object> attributes = new HashMap<>();
+        doAnswer(invocation -> {
+            attributes.put(invocation.getArgument(0, String.class), invocation.getArgument(1));
+            return null;
+        }).when(request).setAttribute(anyString(), any());
+        when(request.getAttribute(anyString())).thenAnswer(invocation -> attributes.get(invocation.getArgument(0, String.class)));
+        when(request.getHeader(anyString())).thenReturn(null);
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/user/F001:session-user");
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRemoteAddr()).thenReturn("192.0.2.77");
+
+        filter.doFilter(request, response, chain);
+
+        ArgumentCaptor<ServletRequest> wrappedReqCaptor = ArgumentCaptor.forClass(ServletRequest.class);
+        verify(chain).doFilter(wrappedReqCaptor.capture(), eq(response));
+        HttpServletRequest wrapped = (HttpServletRequest) wrappedReqCaptor.getValue();
+        assertEquals("F001:session-user", wrapped.getRemoteUser());
+    }
+
+    @Test
     void errorResponseAuditUsesUnifiedFailureMetadata() throws Exception {
         SessionAuditDispatcher dispatcher = mock(SessionAuditDispatcher.class);
         setField("sessionAuditDispatcher", dispatcher);
@@ -293,6 +350,10 @@ class LogFilterTest {
             httpReq.setAttribute(AbstractResource.ERROR_MESSAGE_ATTRIBUTE, "mock failure");
             Map<String, Object> errorDetails = new HashMap<>();
             errorDetails.put("detailKey", "detailValue");
+            errorDetails.put("patientId", "P0001");
+            errorDetails.put("query", "name=secret");
+            errorDetails.put("rawXml", "<Patient_ID>P0001</Patient_ID>");
+            errorDetails.put("Authorization", "Bearer secret");
             httpReq.setAttribute(AbstractResource.ERROR_DETAILS_ATTRIBUTE, errorDetails);
             HttpServletResponse httpRes = (HttpServletResponse) res;
             httpRes.setStatus(HttpServletResponse.SC_BAD_REQUEST);
@@ -329,7 +390,11 @@ class LogFilterTest {
         assertEquals("mock_error", details.get("errorCode"));
         assertEquals("mock_error", details.get("reason"));
         assertEquals("mock failure", details.get("errorMessage"));
-        assertEquals("detailValue", details.get("detailKey"));
+        assertFalse(details.containsKey("detailKey"));
+        assertFalse(details.containsKey("patientId"));
+        assertFalse(details.containsKey("query"));
+        assertFalse(details.containsKey("rawXml"));
+        assertFalse(details.containsKey("Authorization"));
         assertEquals(Boolean.TRUE, details.get("validationError"));
     }
 

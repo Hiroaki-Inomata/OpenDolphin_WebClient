@@ -16,6 +16,7 @@ import jakarta.servlet.*;
 import jakarta.servlet.annotation.WebFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import jakarta.security.enterprise.SecurityContext;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.infomodel.IInfoModel;
@@ -50,6 +51,9 @@ public class LogFilter implements Filter {
     private static final String ERROR_AUDIT_RECORDED_ATTR = LogFilter.class.getName() + ".ERROR_AUDIT_RECORDED";
     private static final String IP_THROTTLED_RETRY_AFTER_ATTR = LogFilter.class.getName() + ".IP_THROTTLED_RETRY_AFTER";
     private static final String PRINCIPAL_FACILITY_DETAILS_KEY = "facilityId";
+    private static final String ALLOW_BASIC_FALLBACK_PROPERTY = "OPENDOLPHIN_AUTH_ALLOW_BASIC_FALLBACK";
+    private static final String SESSION_LOGIN_PATH = "/resources/api/session/login";
+    private static final String LOGOUT_PATH = "/resources/api/logout";
     private static final Pattern SAFE_TOKEN = Pattern.compile("^[A-Za-z0-9._-]{1,64}$");
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
 
@@ -64,7 +68,7 @@ public class LogFilter implements Filter {
 
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
-        // No runtime toggles; only principal and Basic authentication are supported.
+        // no-op
     }
 
     @Override
@@ -94,8 +98,19 @@ public class LogFilter implements Filter {
         BlockWrapper wrapper = null;
 
         try {
-            Optional<String> principalUser = resolvePrincipalUser();
+            if (isAnonymousAllowed(req)) {
+                wrapper = wrapForAnonymous(req, traceId, requestId, runId);
+                chain.doFilter(wrapper, response);
+                maybeLogFailedResponse(res, wrapper, traceId, requestId, runId, startedNanos);
+                maybeRecordErrorAudit(wrapper, res, null);
+                return;
+            }
+
+            Optional<String> principalUser = resolveSessionUser(req);
             if (principalUser.isEmpty()) {
+                principalUser = resolvePrincipalUser();
+            }
+            if (principalUser.isEmpty() && isBasicFallbackEnabled()) {
                 principalUser = authenticateWithBasicHeader(req);
             }
             if (principalUser.isEmpty()) {
@@ -170,6 +185,52 @@ public class LogFilter implements Filter {
             restoreMdcValue(requestIdSnapshot);
             restoreMdcValue(runIdSnapshot);
             restoreMdcValue(remoteUserSnapshot);
+        }
+    }
+
+    private boolean isAnonymousAllowed(HttpServletRequest request) {
+        String normalizedPath = normalizeRequestPath(request);
+        if (normalizedPath == null) {
+            return false;
+        }
+        return SESSION_LOGIN_PATH.equals(normalizedPath) || LOGOUT_PATH.equals(normalizedPath);
+    }
+
+    private String normalizeRequestPath(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String uri = request.getRequestURI();
+        if (uri == null || uri.isBlank()) {
+            return null;
+        }
+        String contextPath = request.getContextPath();
+        if (contextPath != null && !contextPath.isBlank() && uri.startsWith(contextPath)) {
+            String stripped = uri.substring(contextPath.length());
+            return stripped.isEmpty() ? "/" : stripped;
+        }
+        return uri;
+    }
+
+    private BlockWrapper wrapForAnonymous(HttpServletRequest request, String traceId, String requestId, String runId) {
+        BlockWrapper wrapper = new BlockWrapper(request);
+        wrapper.setHeader(TRACE_ID_HEADER, traceId);
+        wrapper.setHeader(REQUEST_ID_HEADER, requestId);
+        wrapper.setHeader(RUN_ID_HEADER, runId);
+        return wrapper;
+    }
+
+    private Optional<String> resolveSessionUser(HttpServletRequest request) {
+        if (request == null) {
+            return Optional.empty();
+        }
+        try {
+            HttpSession session = request.getSession(false);
+            String actorId = normalize(AuthSessionSupport.resolveActorId(session));
+            return actorId == null ? Optional.empty() : Optional.of(actorId);
+        } catch (IllegalStateException ex) {
+            SECURITY_LOGGER.log(Level.FINE, "Session unavailable while resolving actor", ex);
+            return Optional.empty();
         }
     }
 
@@ -378,6 +439,11 @@ public class LogFilter implements Filter {
             SECURITY_LOGGER.fine("Basic auth header missing separator");
             return Optional.empty();
         }
+        BasicCredentials credentials = resolveCompositeCredentials(decoded);
+        if (credentials == null) {
+            SECURITY_LOGGER.fine("Basic auth header did not contain a composite user");
+            return Optional.empty();
+        }
         String compositeUser = credentials.user();
         String rawPass = credentials.password();
         if (compositeUser == null) {
@@ -397,6 +463,9 @@ public class LogFilter implements Filter {
     }
 
     private String extractBasicAuthUserCandidate(HttpServletRequest request) {
+        if (!isBasicFallbackEnabled()) {
+            return null;
+        }
         String auth = safeHeader(request, "Authorization");
         if (auth == null) {
             return null;
@@ -513,6 +582,22 @@ public class LogFilter implements Filter {
         return candidate.contains(IInfoModel.COMPOSITE_KEY_MAKER);
     }
 
+    private boolean isBasicFallbackEnabled() {
+        return isTruthy(System.getProperty(ALLOW_BASIC_FALLBACK_PROPERTY))
+                || isTruthy(System.getenv(ALLOW_BASIC_FALLBACK_PROPERTY));
+    }
+
+    private boolean isTruthy(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = value.trim();
+        return "1".equals(normalized)
+                || "true".equalsIgnoreCase(normalized)
+                || "yes".equalsIgnoreCase(normalized)
+                || "on".equalsIgnoreCase(normalized);
+    }
+
     private String extractFacilitySegment(String candidate) {
         if (candidate == null) {
             return null;
@@ -582,7 +667,7 @@ public class LogFilter implements Filter {
         if (principal != null && !principal.isBlank()) {
             details.put("principal", principal);
         }
-        Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(details);
+        Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(payload.getAction(), details);
         payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, sanitizedDetails));
         payload.setDetails(sanitizedDetails);
         sessionAuditDispatcher.record(payload, AuditEventEnvelope.Outcome.FAILURE,
@@ -654,7 +739,7 @@ public class LogFilter implements Filter {
                 details.put("exceptionMessage", failure.getMessage());
             }
         }
-        Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(details);
+        Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(payload.getAction(), details);
         payload.setPatientId(AuditDetailSanitizer.resolvePatientId(null, sanitizedDetails));
         payload.setDetails(sanitizedDetails);
         sessionAuditDispatcher.record(payload, AuditEventEnvelope.Outcome.FAILURE, errorCode, errorMessage);
