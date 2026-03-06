@@ -6,13 +6,16 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.StampModel;
 import open.dolphin.infomodel.UserModel;
+import open.dolphin.infomodel.VitalModel;
 import open.dolphin.rest.AbstractResource;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.UserServiceBean;
@@ -27,6 +30,8 @@ public class TouchAccessGuard {
     private static final Logger LOGGER = Logger.getLogger(TouchAccessGuard.class.getName());
     private static final String QUERY_USER_BY_COMPOSITE_ID = "from UserModel u where u.userId=:userId";
     private static final String QUERY_USER_BY_PK = "select u from UserModel u where u.id=:id";
+    private static final String QUERY_PATIENT_BY_FACILITY_AND_PATIENT_ID =
+            "select p from PatientModel p where p.facilityId=:facilityId and p.patientId=:patientId";
 
     @Inject
     KarteServiceBean karteServiceBean;
@@ -72,6 +77,35 @@ public class TouchAccessGuard {
     public void requireFacilityEqualsActor(HttpServletRequest request, String requestedFacilityId, String idName, Object idValue) {
         String actorFacility = requireActorFacility(request);
         requireSameFacilityOrNotFound(actorFacility, requestedFacilityId, idName, idValue);
+    }
+
+    public void requireFacilityPatId(HttpServletRequest request, String facilityPatId) {
+        String actorFacility = requireActorFacility(request);
+        FacilityPatKey key = parseFacilityPatId(facilityPatId);
+        requireSameFacilityOrNotFound(actorFacility, key.facilityId(), "facilityPatId", facilityPatId);
+        PatientModel patient = findPatient(key.facilityId(), key.patientId());
+        if (patient == null) {
+            denyAsNotFound("patient_not_found", "facilityPatId", facilityPatId, actorFacility);
+        }
+    }
+
+    public void requireVitalFacility(HttpServletRequest request, long vitalId) {
+        String actorFacility = requireActorFacility(request);
+        VitalModel vital = findVital(vitalId);
+        if (vital == null || vital.getFacilityPatId() == null || vital.getFacilityPatId().isBlank()) {
+            denyAsNotFound("vital_not_found", "vitalId", vitalId, actorFacility);
+        }
+        String targetFacility = extractFacilityId(vital.getFacilityPatId());
+        if (targetFacility == null) {
+            denyAsNotFound("vital_not_found", "vitalId", vitalId, actorFacility);
+        }
+        requireSameFacilityOrNotFound(actorFacility, targetFacility, "vitalId", vitalId);
+    }
+
+    public void requireObservationFacility(HttpServletRequest request, long observationId) {
+        String actorFacility = requireActorFacility(request);
+        String targetFacility = karteServiceBean.findFacilityIdByObservationId(observationId);
+        requireSameFacilityOrNotFound(actorFacility, targetFacility, "observationId", observationId);
     }
 
     public void requireUserSelfOrFacilityAdmin(TouchRequestContext context, long targetUserPk) {
@@ -158,6 +192,27 @@ public class TouchAccessGuard {
         return em.find(StampModel.class, stampId);
     }
 
+    private PatientModel findPatient(String facilityId, String patientId) {
+        if (facilityId == null || facilityId.isBlank() || patientId == null || patientId.isBlank()) {
+            return null;
+        }
+        try {
+            return em.createQuery(QUERY_PATIENT_BY_FACILITY_AND_PATIENT_ID, PatientModel.class)
+                    .setParameter("facilityId", facilityId)
+                    .setParameter("patientId", patientId)
+                    .getSingleResult();
+        } catch (NoResultException ex) {
+            return null;
+        }
+    }
+
+    private VitalModel findVital(long vitalId) {
+        if (vitalId <= 0) {
+            return null;
+        }
+        return em.find(VitalModel.class, vitalId);
+    }
+
     private boolean isFacilityAdmin(String actorCompositeUserId, String actorFacility) {
         return actorCompositeUserId != null
                 && !actorCompositeUserId.isBlank()
@@ -191,7 +246,40 @@ public class TouchAccessGuard {
         throw new NotFoundException("Requested resource was not found.");
     }
 
+    private FacilityPatKey parseFacilityPatId(String facilityPatId) {
+        if (facilityPatId == null || facilityPatId.isBlank()) {
+            throw badRequest("facilityPatId_missing", "facilityPatId", facilityPatId);
+        }
+        int separator = facilityPatId.indexOf(':');
+        if (separator <= 0 || separator >= facilityPatId.length() - 1
+                || separator != facilityPatId.lastIndexOf(':')) {
+            throw badRequest("facilityPatId_invalid", "facilityPatId", facilityPatId);
+        }
+        String facilityId = facilityPatId.substring(0, separator).trim();
+        String patientId = facilityPatId.substring(separator + 1).trim();
+        if (facilityId.isEmpty() || patientId.isEmpty()) {
+            throw badRequest("facilityPatId_invalid", "facilityPatId", facilityPatId);
+        }
+        return new FacilityPatKey(facilityId, patientId);
+    }
+
+    private String extractFacilityId(String facilityPatId) {
+        try {
+            return parseFacilityPatId(facilityPatId).facilityId();
+        } catch (BadRequestException ex) {
+            return null;
+        }
+    }
+
+    private BadRequestException badRequest(String reason, String idName, Object idValue) {
+        LOGGER.log(Level.INFO, "Touch bad request reason={0} {1}={2}", new Object[]{reason, idName, idValue});
+        return new BadRequestException(Response.status(Response.Status.BAD_REQUEST).build());
+    }
+
     private WebApplicationException unauthorized() {
         return new WebApplicationException(Response.status(Response.Status.UNAUTHORIZED).build());
+    }
+
+    private record FacilityPatKey(String facilityId, String patientId) {
     }
 }

@@ -114,6 +114,7 @@ class JsonTouchResourceSecurityTest extends RuntimeDelegateTestSupport {
 
     @Test
     void userEndpointAllowsSelfAndHidesPasswordField() throws Exception {
+        when(servletRequest.getRemoteUser()).thenReturn("F001:doctor01");
         UserModel actor = user("F001:doctor01", "F001", "doctor");
         actor.setPassword("secret-value");
         actor.setEmail("doctor@example.com");
@@ -128,6 +129,9 @@ class JsonTouchResourceSecurityTest extends RuntimeDelegateTestSupport {
                 .doesNotContain("credential")
                 .doesNotContain("salt")
                 .doesNotContain("hash")
+                .doesNotContain("memo")
+                .doesNotContain("orcaId")
+                .doesNotContain("useDrugId")
                 .contains("doctor@example.com");
     }
 

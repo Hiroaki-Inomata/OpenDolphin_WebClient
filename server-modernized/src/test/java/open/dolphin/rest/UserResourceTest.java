@@ -3,6 +3,7 @@ package open.dolphin.rest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -252,7 +253,7 @@ class UserResourceTest extends RuntimeDelegateTestSupport {
     @Test
     void systemAdminDoesNotBypassFacilityBoundary() throws Exception {
         when(request.getRemoteUser()).thenReturn(SYSTEM_ADMIN);
-        when(userServiceBean.getUserByPk(2L)).thenReturn(userWithRole(USER_02, "F001", 2L, "user"));
+        lenient().when(userServiceBean.getUserByPk(2L)).thenReturn(userWithRole(USER_02, "F001", 2L, "user"));
 
         String payload = """
                 {

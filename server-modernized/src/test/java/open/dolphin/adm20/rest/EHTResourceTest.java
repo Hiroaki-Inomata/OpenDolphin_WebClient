@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.core.StreamingOutput;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
@@ -97,6 +99,7 @@ class EHTResourceTest {
 
         assertThat(baos.toString(StandardCharsets.UTF_8)).isEqualTo("\"1\"");
         verify(ehtService, times(1)).addVital(any(VitalModel.class));
+        verify(accessGuard).requireFacilityPatId(request, "facility01:patient99");
 
         ArgumentCaptor<AuditEventPayload> payloadCaptor = ArgumentCaptor.forClass(AuditEventPayload.class);
         verify(auditTrailService, times(1)).record(payloadCaptor.capture());
@@ -131,6 +134,7 @@ class EHTResourceTest {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         output.write(baos);
 
+        verify(accessGuard).requireFacilityPatId(request, "facility01:patient88");
         ArgumentCaptor<AuditEventPayload> payloadCaptor = ArgumentCaptor.forClass(AuditEventPayload.class);
         verify(dispatcher, times(1)).record(payloadCaptor.capture());
         verify(auditTrailService, never()).record(any());
@@ -138,6 +142,21 @@ class EHTResourceTest {
         assertThat(payload.getRunId()).isEqualTo("run-123");
         assertThat(payload.getDetails()).containsEntry("runId", "run-123");
         assertThat(payload.getAction()).isEqualTo("EHT_VITAL_CREATE");
+    }
+
+    @Test
+    void postVitalRejectsCrossFacilityFacilityPatId() throws Exception {
+        IVitalModel vital = new IVitalModel();
+        vital.setFacilityPatId("facility99:patient88");
+        String json = mapper.writeValueAsString(vital);
+        doThrow(new NotFoundException()).when(accessGuard).requireFacilityPatId(request, "facility99:patient88");
+
+        StreamingOutput output = resource.postVital(json);
+
+        org.junit.jupiter.api.Assertions.assertThrows(NotFoundException.class,
+                () -> output.write(new ByteArrayOutputStream()));
+        verify(accessGuard).requireFacilityPatId(request, "facility99:patient88");
+        verify(ehtService, never()).addVital(any(VitalModel.class));
     }
 
     @Test
@@ -158,6 +177,7 @@ class EHTResourceTest {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         output.write(baos);
 
+        verify(accessGuard).requireKarteFacility(request, 222L);
         ArgumentCaptor<AuditEventPayload> payloadCaptor = ArgumentCaptor.forClass(AuditEventPayload.class);
         verify(auditTrailService, times(1)).record(payloadCaptor.capture());
         AuditEventPayload payload = payloadCaptor.getValue();
@@ -185,6 +205,7 @@ class EHTResourceTest {
 
         assertThat(baos.toString(StandardCharsets.UTF_8)).isEqualTo("\"2\"");
         verify(ehtService, times(1)).addObservations(anyList());
+        verify(accessGuard).requireKarteFacility(request, 321L);
 
         ArgumentCaptor<AuditEventPayload> payloadCaptor = ArgumentCaptor.forClass(AuditEventPayload.class);
         verify(auditTrailService, times(1)).record(payloadCaptor.capture());
@@ -207,6 +228,92 @@ class EHTResourceTest {
         verify(accessGuard).requirePatientFacility(request, 101L);
         verify(accessGuard).requireFacilityEqualsActor(request, "F001", "patientPk", 101L);
         verify(ehtService).getLastDateCount(101L, "F001:P001");
+    }
+
+    @Test
+    void removeVitalRequiresVitalFacilityGuard() throws Exception {
+        when(ehtService.removeVital("77")).thenReturn(1);
+
+        StreamingOutput output = resource.removeVital("\"77\"");
+        output.write(new ByteArrayOutputStream());
+
+        verify(accessGuard).requireVitalFacility(request, 77L);
+        verify(ehtService).removeVital("77");
+    }
+
+    @Test
+    void removeVitalRejectsCrossFacilityVitalId() throws Exception {
+        doThrow(new NotFoundException()).when(accessGuard).requireVitalFacility(request, 77L);
+
+        StreamingOutput output = resource.removeVital("\"77\"");
+
+        org.junit.jupiter.api.Assertions.assertThrows(NotFoundException.class,
+                () -> output.write(new ByteArrayOutputStream()));
+        verify(accessGuard).requireVitalFacility(request, 77L);
+        verify(ehtService, never()).removeVital("77");
+    }
+
+    @Test
+    void getKartePhysicalRequiresKarteFacilityGuard() throws Exception {
+        when(ehtService.getPhysicals(456L)).thenReturn(java.util.List.of());
+
+        StreamingOutput output = resource.getKartePhysical("456");
+        output.write(new ByteArrayOutputStream());
+
+        verify(accessGuard).requireKarteFacility(request, 456L);
+        verify(ehtService).getPhysicals(456L);
+    }
+
+    @Test
+    void getKartePhysicalRejectsCrossFacilityKarteId() throws Exception {
+        doThrow(new NotFoundException()).when(accessGuard).requireKarteFacility(request, 456L);
+
+        StreamingOutput output = resource.getKartePhysical("456");
+
+        org.junit.jupiter.api.Assertions.assertThrows(NotFoundException.class,
+                () -> output.write(new ByteArrayOutputStream()));
+        verify(accessGuard).requireKarteFacility(request, 456L);
+        verify(ehtService, never()).getPhysicals(456L);
+    }
+
+    @Test
+    void postPhysicalRejectsCrossFacilityKartePk() throws Exception {
+        IPhysicalModel physical = new IPhysicalModel();
+        physical.setKartePK(321L);
+        String json = mapper.writeValueAsString(physical);
+        doThrow(new NotFoundException()).when(accessGuard).requireKarteFacility(request, 321L);
+
+        StreamingOutput output = resource.postPhysical(json);
+
+        org.junit.jupiter.api.Assertions.assertThrows(NotFoundException.class,
+                () -> output.write(new ByteArrayOutputStream()));
+        verify(accessGuard).requireKarteFacility(request, 321L);
+        verify(ehtService, never()).addObservations(anyList());
+    }
+
+    @Test
+    void removePhysicalRequiresAllObservationFacilities() throws Exception {
+        when(ehtService.removeObservations(anyList())).thenReturn(2);
+
+        StreamingOutput output = resource.removePhysical("11,12");
+        output.write(new ByteArrayOutputStream());
+
+        verify(accessGuard).requireObservationFacility(request, 11L);
+        verify(accessGuard).requireObservationFacility(request, 12L);
+        verify(ehtService).removeObservations(java.util.List.of(11L, 12L));
+    }
+
+    @Test
+    void removePhysicalRejectsCrossFacilityObservationBeforeDelete() throws Exception {
+        doThrow(new NotFoundException()).when(accessGuard).requireObservationFacility(request, 12L);
+
+        StreamingOutput output = resource.removePhysical("11,12");
+
+        org.junit.jupiter.api.Assertions.assertThrows(NotFoundException.class,
+                () -> output.write(new ByteArrayOutputStream()));
+        verify(accessGuard).requireObservationFacility(request, 11L);
+        verify(accessGuard).requireObservationFacility(request, 12L);
+        verify(ehtService, never()).removeObservations(anyList());
     }
 
     private static void setField(Object target, String name, Object value) throws Exception {

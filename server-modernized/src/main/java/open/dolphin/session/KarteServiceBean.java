@@ -73,9 +73,12 @@ public class KarteServiceBean {
     private static final String QUERY_FACILITY_BY_KARTE_ID = "select k.patient.facilityId from KarteBean k where k.id=:id";
     private static final String QUERY_FACILITY_BY_DOC_ID = "select d.karte.patient.facilityId from DocumentModel d where d.id=:id";
     private static final String QUERY_FACILITY_BY_ATTACHMENT_ID = "select a.document.karte.patient.facilityId from AttachmentModel a where a.id=:id";
+    private static final String QUERY_FACILITY_BY_SCHEMA_ID = "select s.karte.patient.facilityId from SchemaModel s where s.id=:id";
     private static final String QUERY_FACILITY_BY_PVT_ID = "select p.facilityId from PatientVisitModel p where p.id=:id";
     private static final String QUERY_FACILITY_BY_DIAGNOSIS_ID =
             "select r.karte.patient.facilityId from RegisteredDiagnosisModel r where r.id=:id";
+    private static final String QUERY_FACILITY_BY_OBSERVATION_ID =
+            "select o.karte.patient.facilityId from ObservationModel o where o.id=:id";
     private static final String QUERY_FACILITY_BY_ONDOBAN_ID =
             "select o.karte.patient.facilityId from OndobanModel o where o.id=:id";
     private static final String QUERY_FACILITY_BY_NURSE_PROGRESS_COURSE_ID =
@@ -488,12 +491,20 @@ public class KarteServiceBean {
         return findFacilityIdById(QUERY_FACILITY_BY_ATTACHMENT_ID, attachmentId);
     }
 
+    public String findFacilityIdBySchemaId(long schemaId) {
+        return findFacilityIdById(QUERY_FACILITY_BY_SCHEMA_ID, schemaId);
+    }
+
     public String findFacilityIdByPvtId(long pvtId) {
         return findFacilityIdById(QUERY_FACILITY_BY_PVT_ID, pvtId);
     }
 
     public String findFacilityIdByDiagnosisId(long diagnosisId) {
         return findFacilityIdById(QUERY_FACILITY_BY_DIAGNOSIS_ID, diagnosisId);
+    }
+
+    public String findFacilityIdByObservationId(long observationId) {
+        return findFacilityIdById(QUERY_FACILITY_BY_OBSERVATION_ID, observationId);
     }
 
     public String findFacilityIdByOndobanId(long ondobanId) {

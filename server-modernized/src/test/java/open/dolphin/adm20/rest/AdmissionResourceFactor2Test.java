@@ -15,6 +15,7 @@ import jakarta.persistence.NoResultException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
+import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,7 @@ import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.security.fido.Fido2Config;
 import open.dolphin.security.totp.TotpRegistrationResult;
 import open.dolphin.security.totp.TotpSecretProtector;
+import open.dolphin.session.UserServiceBean;
 import open.dolphin.touch.JsonTouchSharedService;
 import open.dolphin.testsupport.RuntimeDelegateTestSupport;
 import org.junit.jupiter.api.BeforeEach;
@@ -86,12 +88,13 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
         setField(resource, "sessionAuditDispatcher", sessionAuditDispatcher);
         setField(resource, "httpRequest", httpRequest);
 
-        lenient().when(httpRequest.getRemoteUser()).thenReturn("legacy-user");
+        lenient().when(httpRequest.getRemoteUser()).thenReturn(ACTOR_REMOTE_USER);
         lenient().when(httpRequest.getRemoteAddr()).thenReturn("127.0.0.1");
         lenient().when(httpRequest.getHeader("User-Agent")).thenReturn("JUnit");
         lenient().when(httpRequest.getHeader("X-Request-Id")).thenReturn("trace-001");
         lenient().when(httpRequest.getHeader("X-Run-Id")).thenReturn("run-001");
         lenient().when(httpRequest.isUserInRole("ADMIN")).thenReturn(false);
+        lenient().when(userServiceBean.getUser(ACTOR_REMOTE_USER)).thenReturn(actorUser());
     }
 
     @Test
@@ -117,7 +120,10 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
                 .doesNotContain("temporaryPassword")
                 .doesNotContain("credential")
                 .doesNotContain("salt")
-                .doesNotContain("hash");
+                .doesNotContain("hash")
+                .doesNotContain("memo")
+                .doesNotContain("orcaId")
+                .doesNotContain("useDrugId");
     }
 
     @Test
@@ -502,6 +508,13 @@ class AdmissionResourceFactor2Test extends RuntimeDelegateTestSupport {
                 + runId + ", details=" + detailRunId);
         assertThat(runId).isEqualTo("run-001");
         assertThat(detailRunId).isEqualTo("run-001");
+    }
+
+    private static UserModel actorUser() {
+        UserModel actor = new UserModel();
+        actor.setId(ACTOR_USER_PK);
+        actor.setUserId(ACTOR_REMOTE_USER);
+        return actor;
     }
 
     private static void setField(Object target, String fieldName, Object value) throws Exception {

@@ -132,6 +132,10 @@ class JsonTouchResourceParityTest {
 
         assertEquals(touch.userId(), adm10.userId());
         assertEquals(touch.userId(), adm20.userId());
+        String json = assertDoesNotThrow(() -> new ObjectMapper().writeValueAsString(touch));
+        assertFalse(json.contains("memo"));
+        assertFalse(json.contains("orcaId"));
+        assertFalse(json.contains("useDrugId"));
     }
 
     @Test

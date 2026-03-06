@@ -1295,6 +1295,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 IVitalModel imodel = touchJsonConverter.readLegacy(json, IVitalModel.class);
                 VitalModel model = imodel.toModel();
+                accessGuard.requireFacilityPatId(servletReq, model.getFacilityPatId());
                 int cnt = ehtService.addVital(model);
 
                 ObjectMapper mapper = getSerializeMapper();
@@ -1306,12 +1307,14 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
     @Path("/vital/id/{param}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_OCTET_STREAM)
-    public StreamingOutput removeVital(final String json) {
+    public StreamingOutput removeVital(final @PathParam("param") String param) {
         
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-                int cnt = ehtService.removeVital(json);
+                String vitalId = param.replace("\"", "").trim();
+                accessGuard.requireVitalFacility(servletReq, Long.parseLong(vitalId));
+                int cnt = ehtService.removeVital(vitalId);
                 ObjectMapper mapper = getSerializeMapper();
                 mapper.writeValue(os, String.valueOf(cnt));
             }
@@ -1326,6 +1329,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 long karteId = Long.parseLong(param);
+                accessGuard.requireKarteFacility(servletReq, karteId);
                 List<IPhysicalModel> result = ehtService.getPhysicals(karteId);
                 ObjectMapper mapper = getSerializeMapper();
                 mapper.writeValue(os, result);
@@ -1342,7 +1346,7 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
                 IPhysicalModel physical = touchJsonConverter.readLegacy(json, IPhysicalModel.class);
-                int cnt = 0;
+                accessGuard.requireKarteFacility(servletReq, physical.getKartePK());
                 List<ObservationModel> om = physical.toObservationModel();
                 ehtService.addObservations(om);
                 
@@ -1355,15 +1359,19 @@ public class EHTResource extends open.dolphin.rest.AbstractResource {
     @Path("/physical/id/{param}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_OCTET_STREAM)
-    public StreamingOutput removePhysical(final String json) {
+    public StreamingOutput removePhysical(final @PathParam("param") String param) {
         
         return new StreamingOutput() {
             @Override
             public void write(OutputStream os) throws IOException, WebApplicationException {
-                String[] params = json.split(CAMMA);
+                String[] params = param.split(CAMMA);
                 List<Long> list = new ArrayList<Long>(params.length);
                 for (String s : params) {
-                    list.add(Long.parseLong(s));
+                    long observationId = Long.parseLong(s);
+                    list.add(observationId);
+                }
+                for (Long observationId : list) {
+                    accessGuard.requireObservationFacility(servletReq, observationId);
                 }
                 
                 int cnt = ehtService.removeObservations(list);

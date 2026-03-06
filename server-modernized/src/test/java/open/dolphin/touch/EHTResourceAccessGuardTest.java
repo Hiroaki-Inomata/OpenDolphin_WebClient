@@ -2,6 +2,10 @@ package open.dolphin.touch;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -14,6 +18,8 @@ import jakarta.ws.rs.core.StreamingOutput;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.util.List;
+import open.dolphin.touch.converter.IPhysicalModel;
+import open.dolphin.touch.converter.IVitalModel;
 import open.dolphin.touch.converter.IAllergyModel;
 import open.dolphin.touch.security.TouchAccessGuard;
 import open.dolphin.touch.session.EHTServiceBean;
@@ -60,6 +66,134 @@ class EHTResourceAccessGuardTest extends RuntimeDelegateTestSupport {
 
         verify(accessGuard).requirePatientFacility(request, 77L);
         verify(ehtService).getAllergies(77L);
+    }
+
+    @Test
+    void postVitalRequiresFacilityPatIdGuard() throws Exception {
+        IVitalModel vital = new IVitalModel();
+        vital.setFacilityPatId("F001:patient99");
+        String json = new ObjectMapper().writeValueAsString(vital);
+
+        StreamingOutput output = resource.postVital(json);
+        output.write(new ByteArrayOutputStream());
+
+        verify(accessGuard).requireFacilityPatId(request, "F001:patient99");
+        verify(ehtService).addVital(any());
+    }
+
+    @Test
+    void postVitalRejectsCrossFacilityFacilityPatId() throws Exception {
+        IVitalModel vital = new IVitalModel();
+        vital.setFacilityPatId("F999:patient99");
+        String json = new ObjectMapper().writeValueAsString(vital);
+        doThrow(new NotFoundException()).when(accessGuard).requireFacilityPatId(request, "F999:patient99");
+
+        StreamingOutput output = resource.postVital(json);
+
+        assertThrows(NotFoundException.class, () -> output.write(new ByteArrayOutputStream()));
+        verify(accessGuard).requireFacilityPatId(request, "F999:patient99");
+        verify(ehtService, never()).addVital(any());
+    }
+
+    @Test
+    void removeVitalRequiresVitalFacilityGuard() throws Exception {
+        when(ehtService.removeVital("55")).thenReturn(1);
+
+        StreamingOutput output = resource.removeVital("\"55\"");
+        output.write(new ByteArrayOutputStream());
+
+        verify(accessGuard).requireVitalFacility(request, 55L);
+        verify(ehtService).removeVital("55");
+    }
+
+    @Test
+    void removeVitalRejectsCrossFacilityVitalId() throws Exception {
+        doThrow(new NotFoundException()).when(accessGuard).requireVitalFacility(request, 55L);
+
+        StreamingOutput output = resource.removeVital("\"55\"");
+
+        assertThrows(NotFoundException.class, () -> output.write(new ByteArrayOutputStream()));
+        verify(accessGuard).requireVitalFacility(request, 55L);
+        verify(ehtService, never()).removeVital(any());
+    }
+
+    @Test
+    void getKartePhysicalRequiresKarteFacilityGuard() throws Exception {
+        when(ehtService.getPhysicals(88L)).thenReturn(List.of());
+
+        StreamingOutput output = resource.getKartePhysical(request, "88");
+        output.write(new ByteArrayOutputStream());
+
+        verify(accessGuard).requireKarteFacility(request, 88L);
+        verify(ehtService).getPhysicals(88L);
+    }
+
+    @Test
+    void getKartePhysicalRejectsCrossFacilityKarteId() throws Exception {
+        doThrow(new NotFoundException()).when(accessGuard).requireKarteFacility(request, 88L);
+
+        StreamingOutput output = resource.getKartePhysical(request, "88");
+
+        assertThrows(NotFoundException.class, () -> output.write(new ByteArrayOutputStream()));
+        verify(accessGuard).requireKarteFacility(request, 88L);
+        verify(ehtService, never()).getPhysicals(anyLong());
+    }
+
+    @Test
+    void postPhysicalRequiresKarteFacilityGuard() throws Exception {
+        IPhysicalModel model = new IPhysicalModel();
+        model.setKartePK(91L);
+        String json = new ObjectMapper().writeValueAsString(model);
+
+        StreamingOutput output = resource.postPhysical(json);
+        output.write(new ByteArrayOutputStream());
+
+        verify(accessGuard).requireKarteFacility(request, 91L);
+        verify(ehtService).addObservations(any());
+    }
+
+    @Test
+    void postPhysicalRejectsCrossFacilityKartePk() throws Exception {
+        IPhysicalModel model = new IPhysicalModel();
+        model.setKartePK(91L);
+        String json = new ObjectMapper().writeValueAsString(model);
+        doThrow(new NotFoundException()).when(accessGuard).requireKarteFacility(request, 91L);
+
+        StreamingOutput output = resource.postPhysical(json);
+
+        assertThrows(NotFoundException.class, () -> output.write(new ByteArrayOutputStream()));
+        verify(accessGuard).requireKarteFacility(request, 91L);
+        verify(ehtService, never()).addObservations(any());
+    }
+
+    @Test
+    void removePhysicalValidatesAllObservationIdsBeforeDelete() throws Exception {
+        when(ehtService.removeObservations(List.of(11L, 12L))).thenReturn(2);
+
+        StreamingOutput output = resource.removePhysical("11,12");
+        output.write(new ByteArrayOutputStream());
+
+        verify(accessGuard).requireObservationFacility(request, 11L);
+        verify(accessGuard).requireObservationFacility(request, 12L);
+        verify(ehtService).removeObservations(List.of(11L, 12L));
+    }
+
+    @Test
+    void removePhysicalRejectsCrossFacilityObservationBeforeDelete() throws Exception {
+        doAnswer(invocation -> {
+            long observationId = invocation.getArgument(1, Long.class);
+            if (observationId == 12L) {
+                throw new NotFoundException();
+            }
+            return null;
+        }).when(accessGuard).requireObservationFacility(eq(request), anyLong());
+
+        StreamingOutput output = resource.removePhysical("11,12");
+
+        assertThrows(NotFoundException.class, () -> output.write(new ByteArrayOutputStream()));
+        verify(accessGuard).requireObservationFacility(request, 11L);
+        verify(accessGuard).requireObservationFacility(request, 12L);
+        verify(ehtService, never()).removeObservations(any());
     }
 
     @Test

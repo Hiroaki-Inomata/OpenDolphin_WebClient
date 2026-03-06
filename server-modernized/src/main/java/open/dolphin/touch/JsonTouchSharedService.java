@@ -57,11 +57,8 @@ public class JsonTouchSharedService {
                                    SafeFacility facility,
                                    List<SafeRole> roles,
                                    String memberType,
-                                   String memo,
                                    java.util.Date registeredDate,
-                                   String email,
-                                   String orcaId,
-                                   String useDrugId) {
+                                   String email) {
     }
 
     public record SafeLicense(String code, String description) {
@@ -216,11 +213,8 @@ public class JsonTouchSharedService {
                 facility,
                 roles,
                 user.getMemberType(),
-                user.getMemo(),
                 user.getRegisteredDate(),
-                user.getEmail(),
-                user.getOrcaId(),
-                user.getUseDrugId());
+                user.getEmail());
     }
 
     public KarteBean findKarteByPatient(String facilityId, String patientId) {
