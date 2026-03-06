@@ -2,6 +2,7 @@ package open.dolphin.rest;
 
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
@@ -49,6 +50,9 @@ public class PatientImagesResource extends AbstractResource {
 
     private static final String FEATURE_ENV = "OPENDOLPHIN_PATIENT_IMAGES_ENABLED";
     private static final String FEATURE_PROPERTY = "opendolphin.patient.images.enabled";
+    private static final String CACHE_CONTROL_NO_STORE = "private, no-store, max-age=0, must-revalidate";
+    private static final String PRAGMA_NO_CACHE = "no-cache";
+    private static final String EXPIRES_IMMEDIATELY = "0";
 
     private static final String MAX_BYTES_ENV = "OPENDOLPHIN_IMAGES_MAX_BYTES";
     private static final String MAX_BYTES_PROPERTY = "opendolphin.images.max.bytes";
@@ -74,6 +78,9 @@ public class PatientImagesResource extends AbstractResource {
 
     @Context
     private HttpServletRequest httpServletRequest;
+
+    @Context
+    private HttpServletResponse httpServletResponse;
 
     @POST
     @Consumes(MediaType.MULTIPART_FORM_DATA)
@@ -120,7 +127,7 @@ public class PatientImagesResource extends AbstractResource {
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
-    public List<PatientImageEntryResponse> list(@PathParam("patientId") String patientId) {
+    public Response list(@PathParam("patientId") String patientId) {
         requireFeatureEnabled();
         String fid = resolveFacilityId();
         requirePatientAccessible(fid, patientId);
@@ -130,7 +137,8 @@ public class PatientImagesResource extends AbstractResource {
                 item.setDownloadUrl("/openDolphin/resources/patients/" + patientId + "/images/" + item.getImageId());
             }
         }
-        return items;
+        applyNoStoreHeaders(httpServletResponse);
+        return noStore(Response.ok(items)).build();
     }
 
     @GET
@@ -171,14 +179,15 @@ public class PatientImagesResource extends AbstractResource {
                 "size", bytes.length
         ));
 
-        return Response.ok(bytes, contentType)
+        applyNoStoreHeaders(httpServletResponse);
+        return noStore(Response.ok(bytes, contentType))
                 .header("Content-Disposition", "attachment; filename=\"" + fileName + "\"")
                 .build();
     }
 
     private void requireFeatureEnabled() {
         String fromProperty = System.getProperty(FEATURE_PROPERTY);
-        String fromEnv = System.getenv(FEATURE_ENV);
+        String fromEnv = readEnvironmentValue(FEATURE_ENV);
         if (isTruthy(fromProperty) || isTruthy(fromEnv)) {
             return;
         }
@@ -188,28 +197,20 @@ public class PatientImagesResource extends AbstractResource {
                 null);
     }
 
-    // Client feature header is a rollout hint for UI compatibility, not an authorization boundary.
-    // Authorization is enforced independently in requirePatientAccessible.
-    private void requireClientFeatureHeaderHint() {
-        String headerValue = httpServletRequest != null ? httpServletRequest.getHeader(FEATURE_CLIENT_HEADER) : null;
-        if (isTruthy(headerValue)) {
+    private Response.ResponseBuilder noStore(Response.ResponseBuilder builder) {
+        return builder
+                .header("Cache-Control", CACHE_CONTROL_NO_STORE)
+                .header("Pragma", PRAGMA_NO_CACHE)
+                .header("Expires", EXPIRES_IMMEDIATELY);
+    }
+
+    private void applyNoStoreHeaders(HttpServletResponse response) {
+        if (response == null) {
             return;
         }
-
-        Map<String, Object> details = new HashMap<>();
-        details.put("requiredEnv", FEATURE_ENV);
-        details.put("requiredHeader", FEATURE_CLIENT_HEADER);
-
-        String legacyHeaderValue = httpServletRequest != null
-                ? httpServletRequest.getHeader(LEGACY_FEATURE_CLIENT_HEADER)
-                : null;
-        if (legacyHeaderValue != null && !legacyHeaderValue.isBlank()) {
-            details.put("unsupportedHeader", LEGACY_FEATURE_CLIENT_HEADER);
-        }
-
-        throw restError(httpServletRequest, Response.Status.NOT_FOUND,
-                "feature_disabled", "Images PhaseA is disabled",
-                details, null);
+        response.setHeader("Cache-Control", CACHE_CONTROL_NO_STORE);
+        response.setHeader("Pragma", PRAGMA_NO_CACHE);
+        response.setHeader("Expires", EXPIRES_IMMEDIATELY);
     }
 
     String readEnvironmentValue(String key) {
