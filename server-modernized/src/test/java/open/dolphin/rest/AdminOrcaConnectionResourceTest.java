@@ -14,6 +14,7 @@ import java.lang.reflect.Field;
 import java.util.Map;
 import open.dolphin.orca.config.OrcaConnectionConfigRecord;
 import open.dolphin.orca.config.OrcaConnectionConfigStore;
+import open.dolphin.orca.transport.OrcaConnectionPolicyException;
 import open.dolphin.orca.transport.RestOrcaTransport;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.session.UserServiceBean;
@@ -94,6 +95,23 @@ class AdminOrcaConnectionResourceTest {
         assertEquals("trial", body.get("username"));
         assertEquals(Boolean.TRUE, body.get("passwordConfigured"));
         assertTrue(!body.containsKey("password"));
+    }
+
+    @Test
+    void testConnectionReturnsBadRequestForPolicyViolation() {
+        when(request.getHeader("X-Run-Id")).thenReturn("RUN-ORCA");
+        when(request.getRemoteUser()).thenReturn("FACILITY:admin");
+        when(userServiceBean.isAdmin("FACILITY:admin")).thenReturn(true);
+        when(configStore.resolve("FACILITY"))
+                .thenThrow(new OrcaConnectionPolicyException("insecure_http_disallowed", "本番環境では ORCA の insecure HTTP は許可されていません。"));
+
+        Response response = resource.testConnection(request);
+
+        assertEquals(400, response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        assertEquals(Boolean.FALSE, body.get("ok"));
+        assertEquals("insecure_http_disallowed", body.get("errorCategory"));
     }
 
     private static void setField(Object target, String name, Object value) throws Exception {

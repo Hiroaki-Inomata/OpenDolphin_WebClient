@@ -121,7 +121,7 @@ public final class OrcaTransportSettings {
             port = isHttpsScheme(scheme) ? 443 : 80;
         }
 
-        return new OrcaTransportSettings(
+        OrcaTransportSettings settings = new OrcaTransportSettings(
                 host,
                 port,
                 scheme,
@@ -135,6 +135,8 @@ public final class OrcaTransportSettings {
                 baseUrl,
                 mode
         );
+        settings.validateSecurityPolicy();
+        return settings;
     }
 
     /**
@@ -157,7 +159,7 @@ public final class OrcaTransportSettings {
         int port = spec != null ? spec.portOverride : -1;
         String mode = useWeborca ? "weborca" : "onprem";
         boolean autoApiPrefixEnabled = true;
-        return new OrcaTransportSettings(
+        OrcaTransportSettings settings = new OrcaTransportSettings(
                 host,
                 port,
                 scheme,
@@ -171,6 +173,8 @@ public final class OrcaTransportSettings {
                 resolvedBaseUrl,
                 mode
         );
+        settings.validateSecurityPolicy();
+        return settings;
     }
 
     public boolean isReady() {
@@ -248,6 +252,14 @@ public final class OrcaTransportSettings {
 
     private boolean hasBaseUrl() {
         return baseUrl != null && !baseUrl.isBlank();
+    }
+
+    private void validateSecurityPolicy() {
+        if (!hasBaseUrl() && (host == null || host.isBlank())) {
+            return;
+        }
+        String effectiveBaseUrl = hasBaseUrl() ? baseUrl : buildOrcaUrl("");
+        OrcaTransportSecurityPolicy.validateBaseUrl(effectiveBaseUrl, isWebOrca());
     }
 
     private boolean isHttps() {
@@ -476,6 +488,7 @@ public final class OrcaTransportSettings {
         String host = trimmed;
         int portOverride = -1;
         String pathPrefixOverride = null;
+        boolean parsedUri = false;
         if (trimmed.contains("://")) {
             try {
                 java.net.URI uri = new java.net.URI(trimmed);
@@ -483,19 +496,24 @@ public final class OrcaTransportSettings {
                 host = uri.getHost();
                 portOverride = uri.getPort();
                 pathPrefixOverride = normalizePathPrefix(uri.getPath());
+                parsedUri = host != null && !host.isBlank();
+                if (!parsedUri) {
+                    host = uri.getRawAuthority();
+                }
             } catch (java.net.URISyntaxException ex) {
                 LOGGER.log(Level.WARNING, "Invalid ORCA host spec: {0}", trimmed);
             }
         }
-        if (host != null && host.contains("/") && !host.startsWith("http")) {
-            String[] parts = host.split("/", 2);
-            host = parts[0];
-            pathPrefixOverride = normalizePathPrefix("/" + parts[1]);
-        }
-        if (host != null && host.contains(":")) {
-            String[] parts = host.split(":", 2);
-            host = parts[0];
-            portOverride = parsePort(parts[1]);
+        if (!parsedUri) {
+            HostPortSpec hostPort = extractHostPort(host);
+            host = hostPort.host;
+            if (hostPort.portOverride > 0 && portOverride <= 0) {
+                portOverride = hostPort.portOverride;
+            }
+            if ((pathPrefixOverride == null || pathPrefixOverride.isBlank())
+                    && hostPort.pathPrefixOverride != null) {
+                pathPrefixOverride = hostPort.pathPrefixOverride;
+            }
         }
         if (schemeOverride == null && fallbackScheme != null && !fallbackScheme.isBlank()) {
             schemeOverride = fallbackScheme;
@@ -503,7 +521,62 @@ public final class OrcaTransportSettings {
         if (host == null || host.isBlank()) {
             return null;
         }
-        return new HostSpec(host, schemeOverride, portOverride, pathPrefixOverride);
+        return new HostSpec(stripIpv6Brackets(host), schemeOverride, portOverride, pathPrefixOverride);
+    }
+
+    private static HostPortSpec extractHostPort(String raw) {
+        String value = trim(raw);
+        if (value == null || value.isBlank()) {
+            return new HostPortSpec(null, -1, null);
+        }
+        String pathPrefixOverride = null;
+        String hostValue = value;
+        int slashIndex = hostValue.indexOf('/');
+        if (slashIndex >= 0) {
+            pathPrefixOverride = normalizePathPrefix(hostValue.substring(slashIndex));
+            hostValue = hostValue.substring(0, slashIndex);
+        }
+
+        int portOverride = -1;
+        String host = hostValue;
+        if (hostValue.startsWith("[")) {
+            int end = hostValue.indexOf(']');
+            if (end > 0) {
+                host = hostValue.substring(1, end);
+                if (end + 1 < hostValue.length() && hostValue.charAt(end + 1) == ':') {
+                    portOverride = parsePort(hostValue.substring(end + 2));
+                }
+            }
+        } else if (countChar(hostValue, ':') == 1) {
+            String[] parts = hostValue.split(":", 2);
+            host = parts[0];
+            portOverride = parsePort(parts[1]);
+        }
+        return new HostPortSpec(host, portOverride, pathPrefixOverride);
+    }
+
+    private static int countChar(String value, char needle) {
+        if (value == null || value.isBlank()) {
+            return 0;
+        }
+        int count = 0;
+        for (int i = 0; i < value.length(); i++) {
+            if (value.charAt(i) == needle) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static String stripIpv6Brackets(String value) {
+        String normalized = trim(value);
+        if (normalized == null || normalized.length() < 2) {
+            return normalized;
+        }
+        if (normalized.startsWith("[") && normalized.endsWith("]")) {
+            return normalized.substring(1, normalized.length() - 1);
+        }
+        return normalized;
     }
 
     private static String trimSlashes(String value) {
@@ -598,6 +671,18 @@ public final class OrcaTransportSettings {
         private PrefixSpec(String pathPrefix, boolean autoApiPrefixEnabled) {
             this.pathPrefix = pathPrefix;
             this.autoApiPrefixEnabled = autoApiPrefixEnabled;
+        }
+    }
+
+    private static final class HostPortSpec {
+        private final String host;
+        private final int portOverride;
+        private final String pathPrefixOverride;
+
+        private HostPortSpec(String host, int portOverride, String pathPrefixOverride) {
+            this.host = host;
+            this.portOverride = portOverride;
+            this.pathPrefixOverride = pathPrefixOverride;
         }
     }
 }

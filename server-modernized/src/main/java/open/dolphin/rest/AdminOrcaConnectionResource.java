@@ -31,6 +31,7 @@ import open.dolphin.orca.OrcaGatewayException;
 import open.dolphin.orca.config.OrcaConnectionConfigRecord;
 import open.dolphin.orca.config.OrcaConnectionConfigStore;
 import open.dolphin.orca.transport.OrcaEndpoint;
+import open.dolphin.orca.transport.OrcaConnectionPolicyException;
 import open.dolphin.orca.transport.OrcaTransportRequest;
 import open.dolphin.orca.transport.OrcaTransportResult;
 import open.dolphin.orca.transport.RestOrcaTransport;
@@ -170,6 +171,9 @@ public class AdminOrcaConnectionResource extends AbstractResource {
             if (restOrcaTransport == null) {
                 throw new IllegalStateException("ORCA transport is not available");
             }
+            if (orcaConnectionConfigStore != null) {
+                orcaConnectionConfigStore.resolve(facilityId);
+            }
             restOrcaTransport.reloadSettings(facilityId);
 
             String payload = buildSystemListRequestXml("04");
@@ -199,6 +203,20 @@ public class AdminOrcaConnectionResource extends AbstractResource {
                     ok ? null : apiMessage);
 
             return Response.ok(body).header("x-run-id", runId).build();
+        } catch (OrcaConnectionPolicyException ex) {
+            body.put("ok", false);
+            body.put("errorCategory", ex.getErrorCategory());
+            body.put("error", ex.getMessage());
+            body.put("testedAt", Instant.now().toString());
+
+            details.put("status", "failed");
+            details.put("errorCategory", ex.getErrorCategory());
+            details.put("error", ex.getMessage());
+            recordAudit(request, "ADMIN_ORCA_CONNECTION_TEST", details,
+                    AuditEventEnvelope.Outcome.FAILURE,
+                    "orca.connection.test.policy_violation",
+                    ex.getMessage());
+            return Response.status(Response.Status.BAD_REQUEST).entity(body).header("x-run-id", runId).build();
         } catch (RuntimeException ex) {
             Failure failure = classifyFailure(ex);
             body.put("ok", false);

@@ -54,6 +54,7 @@ import open.dolphin.adm20.session.ADM20_EHTServiceBean;
 import open.dolphin.infomodel.CarePlanModel;
 import open.dolphin.infomodel.ChartEventModel;
 import open.dolphin.infomodel.DiagnosisSendWrapper;
+import open.dolphin.infomodel.AttachmentModel;
 
 import open.dolphin.infomodel.DocInfoModel;
 import open.dolphin.infomodel.DocumentModel;

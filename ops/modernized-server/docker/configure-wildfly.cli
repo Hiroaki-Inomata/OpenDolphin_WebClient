@@ -86,6 +86,13 @@ end-if
 /subsystem=undertow/server=default-server/http-listener=default:write-attribute(name=redirect-socket,value=https)
 /subsystem=undertow/server=default-server/http-listener=default:write-attribute(name=proxy-address-forwarding,value=true)
 
+if (outcome != success) of /subsystem=undertow/servlet-container=default/setting=session-cookie:read-resource()
+    /subsystem=undertow/servlet-container=default/setting=session-cookie:add(http-only=true,secure=true)
+else
+    /subsystem=undertow/servlet-container=default/setting=session-cookie:write-attribute(name=http-only,value=true)
+    /subsystem=undertow/servlet-container=default/setting=session-cookie:write-attribute(name=secure,value=true)
+end-if
+
 if (outcome == success) of /subsystem=undertow/configuration=filter/response-header=hsts:read-resource()
     /subsystem=undertow/configuration=filter/response-header=hsts:write-attribute(name=header-value,value="max-age=63072000; includeSubDomains")
 else

@@ -11,8 +11,6 @@ import jakarta.ws.rs.core.UriInfo;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -24,29 +22,16 @@ import open.dolphin.rest.dto.orca.OrcaMasterMeta;
 import open.dolphin.rest.dto.orca.OrcaInsurerEntry;
 import open.dolphin.rest.dto.orca.OrcaTensuEntry;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class OrcaMasterResourceTest {
 
     private static final String TEST_USER = "1.3.6.1.4.1.9414.70.1:admin";
-    private static final String TEST_PASSWORD = "21232f297a57a5a743894a0e4a801fc3";
-    private static final String MASTER_USER_PROPERTY = "ORCA_MASTER_BASIC_USER";
-    private static final String MASTER_PASSWORD_PROPERTY = "ORCA_MASTER_BASIC_PASSWORD";
     private static final String MASTER_SNAPSHOT_ROOT_PROPERTY = "ORCA_MASTER_SNAPSHOT_ROOT";
     private static final String MASTER_FIXTURE_ROOT_PROPERTY = "ORCA_MASTER_FIXTURE_ROOT";
 
-    @BeforeEach
-    void setUpMasterAuthProperties() {
-        System.setProperty(MASTER_USER_PROPERTY, TEST_USER);
-        System.setProperty(MASTER_PASSWORD_PROPERTY, TEST_PASSWORD);
-    }
-
     @AfterEach
-    void clearMasterAuthProperties() {
-        System.clearProperty(MASTER_USER_PROPERTY);
-        System.clearProperty(MASTER_PASSWORD_PROPERTY);
+    void clearFixtureRootProperties() {
         System.clearProperty(MASTER_SNAPSHOT_ROOT_PROPERTY);
         System.clearProperty(MASTER_FIXTURE_ROOT_PROPERTY);
     }
@@ -68,7 +53,7 @@ class OrcaMasterResourceTest {
         OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
         UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
 
-        Response response = resource.getGenericClass(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getGenericClass(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
@@ -111,7 +96,7 @@ class OrcaMasterResourceTest {
         params.add("keyword", "ゲンタ");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getDrug(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getDrug(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
@@ -142,7 +127,7 @@ class OrcaMasterResourceTest {
         params.add("keyword", "ゲンタ");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getDrug(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getDrug(null, uriInfo, authenticatedRequest());
 
         assertEquals(503, response.getStatus());
         OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
@@ -171,7 +156,7 @@ class OrcaMasterResourceTest {
         params.add("keyword", "別途");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getComment(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getComment(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
@@ -201,7 +186,7 @@ class OrcaMasterResourceTest {
         params.add("keyword", "別途");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getComment(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getComment(null, uriInfo, authenticatedRequest());
 
         assertEquals(503, response.getStatus());
         OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
@@ -230,7 +215,7 @@ class OrcaMasterResourceTest {
         params.add("keyword", "膝");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getBodypart(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getBodypart(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
@@ -260,7 +245,7 @@ class OrcaMasterResourceTest {
         params.add("keyword", "膝");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getBodypart(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getBodypart(null, uriInfo, authenticatedRequest());
 
         assertEquals(503, response.getStatus());
         OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
@@ -275,7 +260,7 @@ class OrcaMasterResourceTest {
         params.add("srycd", "12345");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getGenericPrice(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getGenericPrice(null, uriInfo, authenticatedRequest());
 
         assertEquals(422, response.getStatus());
         OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
@@ -304,7 +289,7 @@ class OrcaMasterResourceTest {
         String expectedRunId = "TEST-RUN-ID-123";
         HttpServletRequest request = createRequestWithRunId(expectedRunId, "/orca/master/generic-class");
 
-        Response response = resource.getGenericClass(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, request);
+        Response response = resource.getGenericClass(null, uriInfo, request);
 
         assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
@@ -332,21 +317,21 @@ class OrcaMasterResourceTest {
         OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
         UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
 
-        Response initial = resource.getGenericClass(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response initial = resource.getGenericClass(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, initial.getStatus());
         EntityTag etag = initial.getEntityTag();
         assertNotNull(etag);
         String ifNoneMatch = "\"" + etag.getValue() + "\"";
 
-        Response cached = resource.getGenericClass(resolveExpectedUser(), resolveExpectedPassword(), ifNoneMatch, uriInfo, null);
+        Response cached = resource.getGenericClass(ifNoneMatch, uriInfo, authenticatedRequest());
 
         assertEquals(304, cached.getStatus());
         assertNull(cached.getEntity());
         assertNotNull(cached.getEntityTag());
         assertEquals(etag.getValue(), cached.getEntityTag().getValue());
         assertEquals("public, max-age=300, stale-while-revalidate=86400", cached.getHeaderString("Cache-Control"));
-        assertEquals("userName,password", cached.getHeaderString("Vary"));
+        assertNull(cached.getHeaderString("Vary"));
     }
 
     @Test
@@ -362,7 +347,7 @@ class OrcaMasterResourceTest {
         params.add("srycd", "999999999");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getGenericPrice(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getGenericPrice(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         OrcaDrugMasterEntry payload = (OrcaDrugMasterEntry) response.getEntity();
@@ -390,7 +375,7 @@ class OrcaMasterResourceTest {
         OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
         UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
 
-        Response response = resource.getYouhou(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getYouhou(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
@@ -425,7 +410,7 @@ class OrcaMasterResourceTest {
         params.add("keyword", "カテーテル");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getMaterial(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getMaterial(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
@@ -461,7 +446,7 @@ class OrcaMasterResourceTest {
         params.add("keyword", "血液");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getKensaSort(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getKensaSort(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
@@ -500,7 +485,7 @@ class OrcaMasterResourceTest {
         OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
         UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
 
-        Response response = resource.getHokenja(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getHokenja(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
@@ -525,7 +510,7 @@ class OrcaMasterResourceTest {
         params.add("zip", "123");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getAddress(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getAddress(null, uriInfo, authenticatedRequest());
 
         assertEquals(422, response.getStatus());
         OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
@@ -558,7 +543,7 @@ class OrcaMasterResourceTest {
         params.add("zip", "1000001");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getAddress(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getAddress(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         OrcaAddressEntry payload = (OrcaAddressEntry) response.getEntity();
@@ -580,7 +565,7 @@ class OrcaMasterResourceTest {
         params.add("zip", "9999999");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getAddress(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getAddress(null, uriInfo, authenticatedRequest());
 
         assertEquals(404, response.getStatus());
         OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
@@ -599,7 +584,7 @@ class OrcaMasterResourceTest {
         params.add("keyword", "no-such-entry");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getEtensu(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getEtensu(null, uriInfo, authenticatedRequest());
 
         assertEquals(404, response.getStatus());
         OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
@@ -629,7 +614,7 @@ class OrcaMasterResourceTest {
         }, new OrcaMasterDao());
         UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
 
-        Response response = resource.getEtensu(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getEtensu(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
@@ -667,14 +652,14 @@ class OrcaMasterResourceTest {
         }, new OrcaMasterDao());
         UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
 
-        Response initial = resource.getEtensu(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response initial = resource.getEtensu(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, initial.getStatus());
         EntityTag etag = initial.getEntityTag();
         assertNotNull(etag);
         String ifNoneMatch = "\"" + etag.getValue() + "\"";
 
-        Response cached = resource.getEtensu(resolveExpectedUser(), resolveExpectedPassword(), ifNoneMatch, uriInfo, null);
+        Response cached = resource.getEtensu(ifNoneMatch, uriInfo, authenticatedRequest());
 
         assertEquals(304, cached.getStatus());
         assertNull(cached.getEntity());
@@ -693,7 +678,7 @@ class OrcaMasterResourceTest {
         }, new OrcaMasterDao());
         UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
 
-        Response response = resource.getEtensu(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getEtensu(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
@@ -716,7 +701,7 @@ class OrcaMasterResourceTest {
         }, new OrcaMasterDao());
         UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
 
-        Response response = resource.getEtensu(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getEtensu(null, uriInfo, authenticatedRequest());
 
         assertEquals(200, response.getStatus());
         @SuppressWarnings("unchecked")
@@ -743,7 +728,7 @@ class OrcaMasterResourceTest {
         params.add("category", "2");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getEtensu(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getEtensu(null, uriInfo, authenticatedRequest());
 
         assertEquals(404, response.getStatus());
         OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
@@ -758,7 +743,7 @@ class OrcaMasterResourceTest {
         params.add("category", "ABC");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getEtensu(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getEtensu(null, uriInfo, authenticatedRequest());
 
         assertEquals(422, response.getStatus());
         OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
@@ -773,7 +758,7 @@ class OrcaMasterResourceTest {
         params.add("asOf", "2024-01-01");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getEtensu(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getEtensu(null, uriInfo, authenticatedRequest());
 
         assertEquals(422, response.getStatus());
         OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
@@ -788,7 +773,7 @@ class OrcaMasterResourceTest {
         params.add("tensuVersion", "2024-04");
         UriInfo uriInfo = createUriInfo(params);
 
-        Response response = resource.getEtensu(resolveExpectedUser(), resolveExpectedPassword(), null, uriInfo, null);
+        Response response = resource.getEtensu(null, uriInfo, authenticatedRequest());
 
         assertEquals(422, response.getStatus());
         OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
@@ -797,93 +782,33 @@ class OrcaMasterResourceTest {
     }
 
     @Test
-    void isAuthorized_acceptsBasicHeaderWhenUserPasswordMissing() throws Exception {
-        OrcaMasterResource resource = new OrcaMasterResource();
-        Method method = OrcaMasterResource.class.getDeclaredMethod(
-                "isAuthorized",
-                HttpServletRequest.class,
-                String.class,
-                String.class
-        );
-        method.setAccessible(true);
-        String expectedUser = resolveExpectedUser();
-        String expectedPassword = resolveExpectedPassword();
-        HttpServletRequest request = createRequestWithAuthorization(buildBasicAuth(expectedUser, expectedPassword));
-
-        boolean authorized = (Boolean) method.invoke(resource, request, null, null);
-
-        assertTrue(authorized);
+    void isAuthorized_acceptsAuthenticatedRemoteUser() {
+        assertTrue(OrcaMasterAuthSupport.isAuthorized(authenticatedRequest()));
     }
 
     @Test
-    void isAuthorized_rejectsWhenExpectedCredentialsNotConfigured() throws Exception {
-        Assumptions.assumeTrue(firstNonBlank(System.getenv(MASTER_USER_PROPERTY), System.getenv(MASTER_PASSWORD_PROPERTY)) == null);
-        System.clearProperty(MASTER_USER_PROPERTY);
-        System.clearProperty(MASTER_PASSWORD_PROPERTY);
-        OrcaMasterResource resource = new OrcaMasterResource();
-        Method method = OrcaMasterResource.class.getDeclaredMethod(
-                "isAuthorized",
-                HttpServletRequest.class,
-                String.class,
-                String.class
-        );
-        method.setAccessible(true);
-        HttpServletRequest request = createRequestWithAuthorization(buildBasicAuth(TEST_USER, TEST_PASSWORD));
-
-        boolean authorized = (Boolean) method.invoke(resource, request, null, null);
-
-        assertFalse(authorized);
+    void isAuthorized_acceptsAuthenticatedPrincipal() {
+        assertTrue(OrcaMasterAuthSupport.isAuthorized(createRequestWithPrincipal(TEST_USER)));
     }
 
     @Test
-    void isAuthorized_rejectsInvalidBasicHeader() throws Exception {
-        OrcaMasterResource resource = new OrcaMasterResource();
-        Method method = OrcaMasterResource.class.getDeclaredMethod(
-                "isAuthorized",
-                HttpServletRequest.class,
-                String.class,
-                String.class
-        );
-        method.setAccessible(true);
-        HttpServletRequest request = createRequestWithAuthorization("Basic !!!");
-
-        boolean authorized = (Boolean) method.invoke(resource, request, null, null);
-
-        assertFalse(authorized);
+    void isAuthorized_rejectsBasicHeaderWithoutPrincipal() {
+        assertFalse(OrcaMasterAuthSupport.isAuthorized(createRequestWithAuthorization("Basic ignored")));
     }
 
     @Test
-    void isAuthorized_prefersExplicitHeadersOverBasic() throws Exception {
-        OrcaMasterResource resource = new OrcaMasterResource();
-        Method method = OrcaMasterResource.class.getDeclaredMethod(
-                "isAuthorized",
-                HttpServletRequest.class,
-                String.class,
-                String.class
-        );
-        method.setAccessible(true);
-        HttpServletRequest request = createRequestWithAuthorization(buildBasicAuth("invalid-user", "invalid-password"));
-
-        boolean authorized = (Boolean) method.invoke(resource, request, resolveExpectedUser(), resolveExpectedPassword());
-
-        assertTrue(authorized);
+    void isAuthorized_rejectsMissingRequest() {
+        assertFalse(OrcaMasterAuthSupport.isAuthorized(null));
     }
 
     @Test
-    void isAuthorized_acceptsAuthenticatedPrincipalWithoutMasterHeaders() throws Exception {
-        OrcaMasterResource resource = new OrcaMasterResource();
-        Method method = OrcaMasterResource.class.getDeclaredMethod(
-                "isAuthorized",
-                HttpServletRequest.class,
-                String.class,
-                String.class
-        );
-        method.setAccessible(true);
-        HttpServletRequest request = createRequestWithRemoteUser("1.3.6.1.4.1.9414.72.103:doctor1");
+    void getGenericClass_rejectsMissingPrincipal() {
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
+        UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
 
-        boolean authorized = (Boolean) method.invoke(resource, request, null, null);
+        Response response = resource.getGenericClass(null, uriInfo, null);
 
-        assertTrue(authorized);
+        assertEquals(401, response.getStatus());
     }
 
     @Test
@@ -939,6 +864,8 @@ class OrcaMasterResourceTest {
                             return null;
                         case "getRemoteAddr":
                             return "127.0.0.1";
+                        case "getRemoteUser":
+                            return TEST_USER;
                         case "getRequestURI":
                             return requestUri;
                         default:
@@ -946,6 +873,10 @@ class OrcaMasterResourceTest {
                     }
                 }
         );
+    }
+
+    private HttpServletRequest authenticatedRequest() {
+        return createRequestWithRemoteUser(TEST_USER);
     }
 
     private HttpServletRequest createRequestWithAuthorization(String authorization) {
@@ -964,6 +895,19 @@ class OrcaMasterResourceTest {
         );
     }
 
+    private HttpServletRequest createRequestWithPrincipal(String principalName) {
+        return (HttpServletRequest) Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class[]{HttpServletRequest.class},
+                (proxy, method, args) -> {
+                    if ("getUserPrincipal".equals(method.getName())) {
+                        return (java.security.Principal) () -> principalName;
+                    }
+                    return null;
+                }
+        );
+    }
+
     private HttpServletRequest createRequestWithRemoteUser(String remoteUser) {
         return (HttpServletRequest) Proxy.newProxyInstance(
                 getClass().getClassLoader(),
@@ -975,32 +919,6 @@ class OrcaMasterResourceTest {
                     return null;
                 }
         );
-    }
-
-    private String buildBasicAuth(String user, String password) {
-        String raw = String.format("%s:%s", user, password);
-        String encoded = Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
-        return "Basic " + encoded;
-    }
-
-    private String resolveExpectedUser() {
-        return firstNonBlank(System.getenv(MASTER_USER_PROPERTY), System.getProperty(MASTER_USER_PROPERTY));
-    }
-
-    private String resolveExpectedPassword() {
-        return firstNonBlank(System.getenv(MASTER_PASSWORD_PROPERTY), System.getProperty(MASTER_PASSWORD_PROPERTY));
-    }
-
-    private String firstNonBlank(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return null;
     }
 
     private static final Pattern RUN_ID_PATTERN = Pattern.compile("\\\\d{8}T\\\\d{6}Z");

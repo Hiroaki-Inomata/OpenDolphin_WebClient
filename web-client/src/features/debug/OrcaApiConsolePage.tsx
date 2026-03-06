@@ -25,7 +25,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
       label: 'patientgetv2',
       method: 'GET',
       path: '/orca/patientgetv2',
-      defaultQuery: 'id=00002',
+      defaultQuery: 'id=',
       description: '患者基本情報の取得（GET）。',
     },
     {
@@ -33,7 +33,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
       label: 'patientgetv2 (JSON)',
       method: 'GET',
       path: '/orca/patientgetv2',
-      defaultQuery: 'id=00002&format=json',
+      defaultQuery: 'id=&format=json',
       description: '患者基本情報の取得（JSON）。',
     },
     {
@@ -45,7 +45,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
         '<data>',
         '  <patientlst7req type="record">',
         '    <Request_Number type="string">01</Request_Number>',
-        '    <Patient_ID type="string">00002</Patient_ID>',
+        '    <Patient_ID type="string"></Patient_ID>',
         `    <Base_Date type="string">${escapeXml(today)}</Base_Date>`,
         '    <Department_Code type="string"></Department_Code>',
         '    <Memo_Class type="string"></Memo_Class>',
@@ -63,7 +63,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
         '<data>',
         '  <patient_memomodreq type="record">',
         '    <Request_Number type="string">01</Request_Number>',
-        '    <Patient_ID type="string">00002</Patient_ID>',
+        '    <Patient_ID type="string"></Patient_ID>',
         `    <Perform_Date type="string">${escapeXml(today)}</Perform_Date>`,
         '    <Department_Code type="string">01</Department_Code>',
         '    <Memo_Class type="string">2</Memo_Class>',
@@ -96,7 +96,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
       defaultBody: [
         '<data>',
         '  <disease_inforeq type="record">',
-        '    <Patient_ID type="string">00002</Patient_ID>',
+        '    <Patient_ID type="string"></Patient_ID>',
         `    <Base_Date type="string">${escapeXml(baseMonth)}</Base_Date>`,
         '  </disease_inforeq>',
         '</data>',
@@ -111,7 +111,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
       defaultBody: [
         '<data>',
         '  <diseasereq type="record">',
-        '    <Patient_ID type="string">00002</Patient_ID>',
+        '    <Patient_ID type="string"></Patient_ID>',
         '    <Base_Month type="string"></Base_Month>',
         `    <Perform_Date type="string">${escapeXml(today)}</Perform_Date>`,
         '    <Perform_Time type="string"></Perform_Time>',
@@ -140,7 +140,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
         '<data>',
         '  <medicalgetreq type="record">',
         '    <InOut type="string">O</InOut>',
-        '    <Patient_ID type="string">00002</Patient_ID>',
+        '    <Patient_ID type="string"></Patient_ID>',
         `    <Perform_Date type="string">${escapeXml(today)}</Perform_Date>`,
         '    <For_Months type="string">12</For_Months>',
         '    <Medical_Information type="record">',
@@ -161,7 +161,7 @@ const buildDefaultRequests = (today: string): OrcaApiDefinition[] => {
       defaultBody: [
         '<data>',
         '  <medicalreq type="record">',
-        '    <Patient_ID type="string">00002</Patient_ID>',
+        '    <Patient_ID type="string"></Patient_ID>',
         `    <Perform_Date type="string">${escapeXml(today)}</Perform_Date>`,
         '    <Diagnosis_Information type="record">',
         '      <Department_Code type="string">01</Department_Code>',
@@ -225,8 +225,6 @@ const extractQueryParam = (query: string, key: string): string | undefined => {
   return value?.trim() || undefined;
 };
 
-const HISTORY_KEY = 'opendolphin:orca-api-console:history:v1';
-
 type OrcaConsoleHistory = {
   id: string;
   createdAt: string;
@@ -236,27 +234,6 @@ type OrcaConsoleHistory = {
   body: string;
   apiResult?: string;
   apiResultMessage?: string;
-};
-
-const loadHistory = (): OrcaConsoleHistory[] => {
-  if (typeof localStorage === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as OrcaConsoleHistory[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const saveHistory = (entries: OrcaConsoleHistory[]) => {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, 3)));
-  } catch {
-    // ignore storage errors
-  }
 };
 
 export function OrcaApiConsolePage() {
@@ -273,7 +250,8 @@ export function OrcaApiConsolePage() {
   const [response, setResponse] = useState<OrcaConsoleResponse | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [history, setHistory] = useState<OrcaConsoleHistory[]>(() => loadHistory());
+  // Debug request history is intentionally in-memory only.
+  const [history, setHistory] = useState<OrcaConsoleHistory[]>([]);
   const latestAuditEvent = useMemo(() => {
     const snapshot = getAuditEventLog();
     const latest = snapshot[snapshot.length - 1];
@@ -353,7 +331,6 @@ export function OrcaApiConsolePage() {
       };
       const mergedHistory = [nextHistory, ...history].slice(0, 3);
       setHistory(mergedHistory);
-      saveHistory(mergedHistory);
       setResponse({
         status: res.status,
         ok: res.ok && !error,

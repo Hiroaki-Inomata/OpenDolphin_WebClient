@@ -6,6 +6,7 @@ import java.util.Optional;
 import java.util.UUID;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.rest.AbstractResource;
+import open.dolphin.rest.LogFilter;
 
 /**
  * {@link HttpServletRequest} から {@link PhrRequestContext} を生成するユーティリティ。

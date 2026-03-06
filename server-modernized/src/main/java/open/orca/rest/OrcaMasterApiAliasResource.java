@@ -31,97 +31,81 @@ public class OrcaMasterApiAliasResource extends AbstractResource {
     @GET
     @Path("/generic-class")
     public Response getGenericClass(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        return masterResource.getGenericClass(userName, password, ifNoneMatch, uriInfo, request);
+        return masterResource.getGenericClass(ifNoneMatch, uriInfo, request);
     }
 
     @GET
     @Path("/generic-price")
     public Response getGenericPrice(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        return masterResource.getGenericPrice(userName, password, ifNoneMatch, uriInfo, request);
+        return masterResource.getGenericPrice(ifNoneMatch, uriInfo, request);
     }
 
     @GET
     @Path("/youhou")
     public Response getYouhou(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        return masterResource.getYouhou(userName, password, ifNoneMatch, uriInfo, request);
+        return masterResource.getYouhou(ifNoneMatch, uriInfo, request);
     }
 
     @GET
     @Path("/material")
     public Response getMaterial(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        return masterResource.getMaterial(userName, password, ifNoneMatch, uriInfo, request);
+        return masterResource.getMaterial(ifNoneMatch, uriInfo, request);
     }
 
     @GET
     @Path("/kensa-sort")
     public Response getKensaSort(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        return masterResource.getKensaSort(userName, password, ifNoneMatch, uriInfo, request);
+        return masterResource.getKensaSort(ifNoneMatch, uriInfo, request);
     }
 
     @GET
     @Path("/hokenja")
     public Response getHokenja(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        return masterResource.getHokenja(userName, password, ifNoneMatch, uriInfo, request);
+        return masterResource.getHokenja(ifNoneMatch, uriInfo, request);
     }
 
     @GET
     @Path("/address")
     public Response getAddress(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        return masterResource.getAddress(userName, password, ifNoneMatch, uriInfo, request);
+        return masterResource.getAddress(ifNoneMatch, uriInfo, request);
     }
 
     @GET
     @Path("/etensu")
     public Response redirectEtensu(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!OrcaMasterAuthSupport.isAuthorized(request, userName, password)) {
+        if (!OrcaMasterAuthSupport.isAuthorized(request)) {
             return unauthorized(request);
         }
         URI target = buildRedirectUri(uriInfo, "/orca/master/etensu");
@@ -131,7 +115,7 @@ public class OrcaMasterApiAliasResource extends AbstractResource {
     private Response unauthorized(HttpServletRequest request) {
         OrcaMasterErrorResponse response = new OrcaMasterErrorResponse();
         response.setCode("ORCA_MASTER_UNAUTHORIZED");
-        response.setMessage("Invalid Basic headers");
+        response.setMessage("Authenticated principal is required.");
         response.setRunId(AbstractOrcaRestResource.resolveRunIdValue(request));
         response.setTimestamp(Instant.now().toString());
         String traceId = resolveTraceId(request);
@@ -153,4 +137,3 @@ public class OrcaMasterApiAliasResource extends AbstractResource {
         return URI.create(url.toString());
     }
 }
-

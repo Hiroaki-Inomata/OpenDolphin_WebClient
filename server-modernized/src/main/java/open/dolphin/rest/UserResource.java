@@ -48,11 +48,7 @@ public class UserResource extends AbstractResource {
         if (result == null) {
             throw restError(servletReq, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
         }
-        boolean self = remoteUser.equals(result.getUserId());
-        boolean admin = userServiceBean.isAdmin(remoteUser);
-        boolean sameFacility = getRemoteFacility(remoteUser) != null
-                && getRemoteFacility(remoteUser).equals(getRemoteFacility(result.getUserId()));
-        if (!self && !(admin && sameFacility)) {
+        if (!canReadUser(remoteUser, result.getUserId())) {
             Logger.getLogger("open.dolphin").log(Level.WARNING, "Denied user read for actor={0}", new Object[]{remoteUser});
             throw restError(servletReq, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
         }
@@ -212,7 +208,15 @@ public class UserResource extends AbstractResource {
     @GET
     @Path("/name/{userId}")
     @Produces(MediaType.TEXT_PLAIN)
-    public String getUserName(@PathParam("userId") String userId) throws IOException {
+    public String getUserName(@Context HttpServletRequest servletReq, @PathParam("userId") String userId) throws IOException {
+        String remoteUser = servletReq != null ? servletReq.getRemoteUser() : null;
+        if (remoteUser == null || remoteUser.isBlank()) {
+            throw restError(servletReq, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
+        }
+        if (!canReadUser(remoteUser, userId)) {
+            Logger.getLogger("open.dolphin").log(Level.WARNING, "Denied user name read for actor={0}", new Object[]{remoteUser});
+            throw restError(servletReq, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
+        }
         return userServiceBean.getUserName(userId);
     }
 //s.oh$
@@ -227,6 +231,22 @@ public class UserResource extends AbstractResource {
 
     private boolean hasRoleChange(List<RoleModel> currentRoles, List<RoleModel> requestedRoles) {
         return !normalizeRoles(currentRoles).equals(normalizeRoles(requestedRoles));
+    }
+
+    private boolean canReadUser(String actorUserId, String targetUserId) {
+        if (actorUserId == null || actorUserId.isBlank() || targetUserId == null || targetUserId.isBlank()) {
+            return false;
+        }
+        if (actorUserId.equals(targetUserId)) {
+            return true;
+        }
+        boolean admin = userServiceBean.isAdmin(actorUserId);
+        if (!admin) {
+            return false;
+        }
+        String actorFacility = getRemoteFacility(actorUserId);
+        String targetFacility = getRemoteFacility(targetUserId);
+        return actorFacility != null && actorFacility.equals(targetFacility);
     }
 
     private Set<String> normalizeRoles(List<RoleModel> roles) {

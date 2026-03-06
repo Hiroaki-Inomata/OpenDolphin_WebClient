@@ -1,9 +1,5 @@
 import type { DataSourceTransition } from '../observability/types';
-import {
-  AUTH_BROADCAST_CHANNEL,
-  AUTH_FLAGS_STORAGE_KEY,
-  AUTH_SESSION_STORAGE_KEY,
-} from './authStorage';
+import { AUTH_BROADCAST_CHANNEL } from './authStorage';
 
 export type SharedAuthFlags = {
   runId: string;
@@ -16,7 +12,6 @@ export type SharedAuthFlags = {
 export type SharedAuthSession = {
   facilityId: string;
   userId: string;
-  role?: string;
   clientUuid?: string;
   runId: string;
 };
@@ -34,31 +29,12 @@ type AuthBroadcastMessage =
   | { version: 1; type: 'flags:update'; envelope: SharedEnvelope<SharedAuthFlags>; origin: string }
   | { version: 1; type: 'flags:clear'; origin: string };
 
-const SHARED_SESSION_KEY = 'opendolphin:web-client:auth:shared-session:v1';
-const SHARED_FLAGS_KEY = 'opendolphin:web-client:auth:shared-flags:v1';
-const SHARED_AUTH_TTL_MS = 60 * 60 * 1000;
-
 const TAB_ORIGIN =
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `tab-${Math.random().toString(16).slice(2)}-${Date.now().toString(16)}`;
 
 const nowIso = () => new Date().toISOString();
-
-const safeJsonParse = <T>(raw: string | null): T | null => {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-};
-
-const isExpired = (updatedAt: string, ttlMs: number) => {
-  const parsed = Date.parse(updatedAt);
-  if (Number.isNaN(parsed)) return true;
-  return Date.now() - parsed > ttlMs;
-};
 
 const buildSessionKey = (session: { facilityId?: string; userId?: string } | null | undefined) => {
   if (!session?.facilityId || !session?.userId) return undefined;
@@ -68,7 +44,6 @@ const buildSessionKey = (session: { facilityId?: string; userId?: string } | nul
 const toSharedSessionPayload = (session: SharedAuthSession): SharedAuthSession => ({
   facilityId: session.facilityId,
   userId: session.userId,
-  role: session.role,
   clientUuid: session.clientUuid,
   runId: session.runId,
 });
@@ -89,22 +64,21 @@ const validateSharedFlags = (flags: SharedAuthFlags | null | undefined): flags i
   );
 };
 
-const writeLocalStorage = (key: string, value: unknown) => {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // ignore write errors (quota/denied)
-  }
-};
+let latestSharedSessionEnvelope: SharedEnvelope<SharedAuthSession> | null = null;
+let latestSharedFlagsEnvelope: SharedEnvelope<SharedAuthFlags> | null = null;
 
-const removeLocalStorage = (key: string) => {
+const LEGACY_SHARED_SESSION_STORAGE_KEY = 'opendolphin:web-client:auth:shared-session:v1';
+const LEGACY_SHARED_FLAGS_STORAGE_KEY = 'opendolphin:web-client:auth:shared-flags:v1';
+
+const clearLegacySharedStorage = () => {
   if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    // ignore
-  }
+  [LEGACY_SHARED_SESSION_STORAGE_KEY, LEGACY_SHARED_FLAGS_STORAGE_KEY].forEach((key) => {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // ignore storage cleanup failures
+    }
+  });
 };
 
 const postAuthMessage = (message: AuthBroadcastMessage) => {
@@ -118,31 +92,8 @@ const postAuthMessage = (message: AuthBroadcastMessage) => {
   }
 };
 
-const readSharedSessionEnvelope = (): SharedEnvelope<SharedAuthSession> | null => {
-  if (typeof localStorage === 'undefined') return null;
-  const parsed = safeJsonParse<SharedEnvelope<SharedAuthSession>>(localStorage.getItem(SHARED_SESSION_KEY));
-  if (!parsed || parsed.version !== 1 || !parsed.payload || typeof parsed.updatedAt !== 'string') return null;
-  if (isExpired(parsed.updatedAt, SHARED_AUTH_TTL_MS)) {
-    removeLocalStorage(SHARED_SESSION_KEY);
-    return null;
-  }
-  if (!validateSharedSession(parsed.payload)) return null;
-  return parsed;
-};
-
-const readSharedFlagsEnvelope = (): SharedEnvelope<SharedAuthFlags> | null => {
-  if (typeof localStorage === 'undefined') return null;
-  const parsed = safeJsonParse<SharedEnvelope<SharedAuthFlags>>(localStorage.getItem(SHARED_FLAGS_KEY));
-  if (!parsed || parsed.version !== 1 || !parsed.payload || typeof parsed.updatedAt !== 'string') return null;
-  if (isExpired(parsed.updatedAt, SHARED_AUTH_TTL_MS)) {
-    removeLocalStorage(SHARED_FLAGS_KEY);
-    return null;
-  }
-  if (!validateSharedFlags(parsed.payload)) return null;
-  return parsed;
-};
-
 export function persistSharedSession(session: SharedAuthSession, origin = TAB_ORIGIN) {
+  clearLegacySharedStorage();
   const payload = toSharedSessionPayload(session);
   const envelope: SharedEnvelope<SharedAuthSession> = {
     version: 1,
@@ -150,72 +101,49 @@ export function persistSharedSession(session: SharedAuthSession, origin = TAB_OR
     payload,
     updatedAt: nowIso(),
   };
-  writeLocalStorage(SHARED_SESSION_KEY, envelope);
+  latestSharedSessionEnvelope = envelope;
   postAuthMessage({ version: 1, type: 'session:update', envelope, origin });
 }
 
 export function persistSharedAuthFlags(sessionKey: string | undefined, flags: SharedAuthFlags, origin = TAB_ORIGIN) {
   if (!sessionKey) return;
+  clearLegacySharedStorage();
   const envelope: SharedEnvelope<SharedAuthFlags> = {
     version: 1,
     sessionKey,
     payload: flags,
     updatedAt: nowIso(),
   };
-  writeLocalStorage(SHARED_FLAGS_KEY, envelope);
+  latestSharedFlagsEnvelope = envelope;
   postAuthMessage({ version: 1, type: 'flags:update', envelope, origin });
 }
 
 export function clearSharedAuth(origin = TAB_ORIGIN) {
-  removeLocalStorage(SHARED_SESSION_KEY);
-  removeLocalStorage(SHARED_FLAGS_KEY);
+  clearLegacySharedStorage();
+  latestSharedSessionEnvelope = null;
+  latestSharedFlagsEnvelope = null;
   postAuthMessage({ version: 1, type: 'session:clear', origin });
   postAuthMessage({ version: 1, type: 'flags:clear', origin });
 }
 
 export function clearSharedAuthFlags(origin = TAB_ORIGIN) {
-  removeLocalStorage(SHARED_FLAGS_KEY);
+  clearLegacySharedStorage();
+  latestSharedFlagsEnvelope = null;
   postAuthMessage({ version: 1, type: 'flags:clear', origin });
 }
 
 export function clearSharedAuthSession(origin = TAB_ORIGIN) {
-  removeLocalStorage(SHARED_SESSION_KEY);
+  clearLegacySharedStorage();
+  latestSharedSessionEnvelope = null;
   postAuthMessage({ version: 1, type: 'session:clear', origin });
 }
 
 export function restoreSharedAuthToSessionStorage(options?: { sessionKey?: string }) {
-  if (typeof sessionStorage === 'undefined') return { session: null, flags: null };
-  const sharedSession = readSharedSessionEnvelope();
+  clearLegacySharedStorage();
+  const sharedSession = latestSharedSessionEnvelope;
   const derivedSessionKey = buildSessionKey(sharedSession?.payload);
   const targetSessionKey = options?.sessionKey ?? derivedSessionKey;
-  const sharedFlags = readSharedFlagsEnvelope();
-
-  const sessionPresent = Boolean(sessionStorage.getItem(AUTH_SESSION_STORAGE_KEY));
-  if (!sessionPresent && sharedSession?.payload) {
-    try {
-      sessionStorage.setItem(AUTH_SESSION_STORAGE_KEY, JSON.stringify(sharedSession.payload));
-    } catch {
-      // ignore storage errors
-    }
-  }
-
-  const flagsPresent = Boolean(sessionStorage.getItem(AUTH_FLAGS_STORAGE_KEY));
-  if (!flagsPresent && sharedFlags && sharedFlags.payload && sharedFlags.sessionKey === targetSessionKey) {
-    const resolvedSharedFlags = sharedFlags;
-    try {
-      sessionStorage.setItem(
-        AUTH_FLAGS_STORAGE_KEY,
-        JSON.stringify({
-          sessionKey: resolvedSharedFlags.sessionKey,
-          flags: resolvedSharedFlags.payload,
-          updatedAt: resolvedSharedFlags.updatedAt,
-        }),
-      );
-    } catch {
-      // ignore storage errors
-    }
-  }
-
+  const sharedFlags = latestSharedFlagsEnvelope;
   const resolvedFlags = sharedFlags && sharedFlags.sessionKey === targetSessionKey ? sharedFlags.payload : null;
 
   return {
@@ -225,11 +153,11 @@ export function restoreSharedAuthToSessionStorage(options?: { sessionKey?: strin
 }
 
 export function resolveLatestSharedRunId(sessionKey?: string): string | undefined {
-  const flagsEnvelope = readSharedFlagsEnvelope();
+  const flagsEnvelope = latestSharedFlagsEnvelope;
   if (flagsEnvelope && (!sessionKey || flagsEnvelope.sessionKey === sessionKey)) {
     return flagsEnvelope.payload.runId;
   }
-  const sessionEnvelope = readSharedSessionEnvelope();
+  const sessionEnvelope = latestSharedSessionEnvelope;
   if (sessionEnvelope && (!sessionKey || sessionEnvelope.sessionKey === sessionKey)) {
     return sessionEnvelope.payload.runId;
   }
@@ -261,13 +189,19 @@ export function subscribeSharedAuth(options: {
     if (!payload || payload.version !== 1) return;
     switch (payload.type) {
       case 'session:update':
+        latestSharedSessionEnvelope = payload.envelope;
         handleSessionEnvelope(payload.envelope);
         break;
       case 'flags:update':
+        latestSharedFlagsEnvelope = payload.envelope;
         handleFlagsEnvelope(payload.envelope);
         break;
       case 'session:clear':
+        latestSharedSessionEnvelope = null;
+        onClear?.();
+        break;
       case 'flags:clear':
+        latestSharedFlagsEnvelope = null;
         onClear?.();
         break;
       default:
@@ -286,24 +220,6 @@ export function subscribeSharedAuth(options: {
     }
   } catch {
     // ignore broadcast errors
-  }
-
-  if (typeof window !== 'undefined') {
-    const onStorage = (event: StorageEvent) => {
-      if (!event.key) return;
-      if (event.key === SHARED_SESSION_KEY) {
-        const envelope = readSharedSessionEnvelope();
-        if (envelope) handleSessionEnvelope(envelope);
-        else onClear?.();
-      }
-      if (event.key === SHARED_FLAGS_KEY) {
-        const envelope = readSharedFlagsEnvelope();
-        if (envelope) handleFlagsEnvelope(envelope);
-        else onClear?.();
-      }
-    };
-    window.addEventListener('storage', onStorage);
-    handlers.push(() => window.removeEventListener('storage', onStorage));
   }
 
   return () => handlers.forEach((dispose) => dispose());
