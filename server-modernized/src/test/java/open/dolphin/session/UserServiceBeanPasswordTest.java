@@ -102,6 +102,7 @@ class UserServiceBeanPasswordTest {
 
         assertThat(result.authenticated()).isFalse();
         assertThat(result.ipThrottled()).isFalse();
+        assertThat(result.secondFactorRequired()).isFalse();
         verify(loginAttemptPolicyService).registerFailure(eq("F001:user01"), eq("192.0.2.40"), any());
     }
 
@@ -122,6 +123,51 @@ class UserServiceBeanPasswordTest {
         assertThat(result.authenticated()).isFalse();
         assertThat(result.ipThrottled()).isTrue();
         assertThat(result.retryAfterSeconds()).isEqualTo(120L);
+    }
+
+    @Test
+    void authenticateReturnsSecondFactorRequiredWhenFactor2Enabled() {
+        UserModel user = new UserModel();
+        user.setUserId("F001:user01");
+        user.setPassword("stored-hash");
+        user.setFactor2Auth("totp");
+        when(query.getSingleResult()).thenReturn(user);
+        when(passwordHashService.verify("stored-hash", "RawPass123"))
+                .thenReturn(PasswordHashService.VerificationResult.success());
+
+        UserServiceBean.AuthenticationResult result =
+                userServiceBean.authenticateWithPolicy("F001:user01", "RawPass123", "192.0.2.60");
+
+        assertThat(result.authenticated()).isFalse();
+        assertThat(result.secondFactorRequired()).isTrue();
+        assertThat(result.ipThrottled()).isFalse();
+        verify(loginAttemptPolicyService).registerSuccess(eq("F001:user01"), any());
+    }
+
+    @Test
+    void systemAdminAliasesAreRecognizedButAdminIsExcluded() {
+        when(query.getSingleResult()).thenReturn(userWithRoles("system_admin"));
+        assertThat(userServiceBean.isSystemAdmin("F001:user01")).isTrue();
+
+        when(query.getSingleResult()).thenReturn(userWithRoles("system-admin"));
+        assertThat(userServiceBean.isSystemAdmin("F001:user01")).isTrue();
+
+        when(query.getSingleResult()).thenReturn(userWithRoles("system-administrator"));
+        assertThat(userServiceBean.isSystemAdmin("F001:user01")).isTrue();
+
+        when(query.getSingleResult()).thenReturn(userWithRoles("system_administrator"));
+        assertThat(userServiceBean.isSystemAdmin("F001:user01")).isTrue();
+
+        when(query.getSingleResult()).thenReturn(userWithRoles("admin"));
+        assertThat(userServiceBean.isSystemAdmin("F001:user01")).isFalse();
+    }
+
+    private static UserModel userWithRoles(String roleName) {
+        UserModel user = new UserModel();
+        open.dolphin.infomodel.RoleModel role = new open.dolphin.infomodel.RoleModel();
+        role.setRole(roleName);
+        user.setRoles(java.util.List.of(role));
+        return user;
     }
 
     private static void setField(Object target, String fieldName, Object value) throws Exception {

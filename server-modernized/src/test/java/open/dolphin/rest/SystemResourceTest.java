@@ -80,7 +80,7 @@ class SystemResourceTest extends RuntimeDelegateTestSupport {
         when(httpServletRequest.getHeader("User-Agent")).thenReturn("JUnit");
         when(httpServletRequest.getHeader("X-Request-Id")).thenReturn(REQUEST_ID);
         when(httpServletRequest.isUserInRole("ADMIN")).thenReturn(true);
-        when(userServiceBean.isAdmin(REMOTE_USER)).thenReturn(true);
+        when(userServiceBean.isSystemAdmin(REMOTE_USER)).thenReturn(true);
         SessionTraceContext trace = new SessionTraceContext("trace-system", Instant.now(), "SYSTEM_OPERATION", Map.of());
         when(sessionTraceManager.current()).thenReturn(trace);
     }
@@ -108,9 +108,25 @@ class SystemResourceTest extends RuntimeDelegateTestSupport {
     }
 
     @Test
-    void checkLicense_rejectsWhenUserIsNotAdmin() {
+    void addFacilityAdmin_rejectsWhenUserIsOnlyAdmin() {
+        when(httpServletRequest.getRequestURI()).thenReturn("/dolphin");
+        when(userServiceBean.isAdmin(REMOTE_USER)).thenReturn(true);
+        when(userServiceBean.isSystemAdmin(REMOTE_USER)).thenReturn(false);
+
+        assertThatThrownBy(() -> resource.addFacilityAdmin("{\"userId\":\"manager01\"}"))
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> assertThat(((WebApplicationException) ex).getResponse().getStatus()).isEqualTo(403));
+
+        verify(auditTrailService).record(auditCaptor.capture());
+        Map<String, Object> details = auditCaptor.getValue().getDetails();
+        assertThat(details.get("deniedReason")).isEqualTo("system_admin_privilege_required");
+    }
+
+    @Test
+    void checkLicense_rejectsWhenUserIsNotSystemAdmin() {
         when(httpServletRequest.getRequestURI()).thenReturn("/dolphin/license");
-        when(userServiceBean.isAdmin(REMOTE_USER)).thenReturn(false);
+        when(userServiceBean.isAdmin(REMOTE_USER)).thenReturn(true);
+        when(userServiceBean.isSystemAdmin(REMOTE_USER)).thenReturn(false);
 
         assertThatThrownBy(() -> resource.checkLicense(LICENSE_SCOPE, "XYZ"))
                 .isInstanceOf(WebApplicationException.class)
@@ -118,7 +134,7 @@ class SystemResourceTest extends RuntimeDelegateTestSupport {
 
         verify(auditTrailService).record(auditCaptor.capture());
         Map<String, Object> details = auditCaptor.getValue().getDetails();
-        assertThat(details.get("deniedReason")).isEqualTo("admin_privilege_required");
+        assertThat(details.get("deniedReason")).isEqualTo("system_admin_privilege_required");
     }
 
     @Test
@@ -133,6 +149,21 @@ class SystemResourceTest extends RuntimeDelegateTestSupport {
         verify(auditTrailService).record(auditCaptor.capture());
         Map<String, Object> details = auditCaptor.getValue().getDetails();
         assertThat(details.get("deniedReason")).isEqualTo("remote_user_missing");
+    }
+
+    @Test
+    void sendCloudZeroMail_rejectsWhenUserIsOnlyAdmin() {
+        when(httpServletRequest.getRequestURI()).thenReturn("/dolphin/cloudzero/sendmail");
+        when(userServiceBean.isAdmin(REMOTE_USER)).thenReturn(true);
+        when(userServiceBean.isSystemAdmin(REMOTE_USER)).thenReturn(false);
+
+        assertThatThrownBy(() -> resource.sendCloudZeroMail())
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> assertThat(((WebApplicationException) ex).getResponse().getStatus()).isEqualTo(403));
+
+        verify(auditTrailService).record(auditCaptor.capture());
+        Map<String, Object> details = auditCaptor.getValue().getDetails();
+        assertThat(details.get("deniedReason")).isEqualTo("system_admin_privilege_required");
     }
 
     @Test

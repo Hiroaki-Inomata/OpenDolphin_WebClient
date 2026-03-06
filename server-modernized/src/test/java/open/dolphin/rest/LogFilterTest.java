@@ -126,7 +126,8 @@ class LogFilterTest {
         setField("userService", userService);
         String compositeUser = "1.3.6.1.4.1.9414.10.1:ormaster";
         String password = "change_me";
-        when(userService.authenticate(compositeUser, password)).thenReturn(true);
+        when(userService.authenticateWithPolicy(eq(compositeUser), eq(password), eq("192.0.2.40")))
+                .thenReturn(UserServiceBean.AuthenticationResult.success());
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
@@ -140,7 +141,7 @@ class LogFilterTest {
         when(request.getAttribute(anyString())).thenAnswer(invocation -> attributes.get(invocation.getArgument(0, String.class)));
 
         Map<String, String> headers = new HashMap<>();
-        headers.put("Authorization", buildBasicAuthHeader(compositeUser, password));
+        headers.put("Authorization", basic(compositeUser, password));
         when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
         when(request.getRequestURI()).thenReturn("/openDolphin/resources/user/" + compositeUser);
         when(request.getMethod()).thenReturn("GET");
@@ -152,7 +153,7 @@ class LogFilterTest {
         verify(chain).doFilter(wrappedReqCaptor.capture(), eq(response));
         HttpServletRequest wrapped = (HttpServletRequest) wrappedReqCaptor.getValue();
         assertEquals(compositeUser, wrapped.getRemoteUser());
-        verify(userService).authenticate(compositeUser, password);
+        verify(userService).authenticateWithPolicy(eq(compositeUser), eq(password), eq("192.0.2.40"));
     }
 
     @Test
@@ -275,6 +276,56 @@ class LogFilterTest {
         verify(response).setStatus(429);
         verify(response).setHeader("Retry-After", "120");
         verify(chain, never()).doFilter(any(ServletRequest.class), any(ServletResponse.class));
+    }
+
+    @Test
+    void factor2RequiredBasicAuthReturns401WithoutPrincipal() throws Exception {
+        UserServiceBean userService = mock(UserServiceBean.class);
+        when(userService.authenticateWithPolicy(eq("F001:user01"), eq("RawPass123"), eq("192.0.2.36")))
+                .thenReturn(UserServiceBean.AuthenticationResult.needsSecondFactor());
+        setField("userService", userService);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        when(response.isCommitted()).thenReturn(false);
+        when(response.getOutputStream()).thenReturn(new ServletOutputStream() {
+            @Override
+            public boolean isReady() {
+                return true;
+            }
+
+            @Override
+            public void setWriteListener(WriteListener listener) {
+            }
+
+            @Override
+            public void write(int b) {
+                out.write(b);
+            }
+        });
+
+        Map<String, Object> attributes = new HashMap<>();
+        doAnswer(invocation -> {
+            attributes.put(invocation.getArgument(0, String.class), invocation.getArgument(1));
+            return null;
+        }).when(request).setAttribute(anyString(), any());
+        when(request.getAttribute(anyString())).thenAnswer(invocation -> attributes.get(invocation.getArgument(0, String.class)));
+
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Authorization", basic("F001:user01", "RawPass123"));
+        when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/protected");
+        when(request.getMethod()).thenReturn("GET");
+        when(request.getRemoteAddr()).thenReturn("192.0.2.36");
+
+        filter.doFilter(request, response, chain);
+
+        verify(response).setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        verify(chain, never()).doFilter(any(ServletRequest.class), any(ServletResponse.class));
+        assertTrue(out.toString(StandardCharsets.UTF_8).contains("factor2_required"));
+        assertFalse(attributes.containsKey(LogFilter.class.getName() + ".IP_THROTTLED_RETRY_AFTER"));
     }
 
     @Test
@@ -571,6 +622,10 @@ class LogFilterTest {
     private String basic(String user, String password) {
         String raw = user + ":" + password;
         return "Basic " + Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String buildBasicAuthHeader(String user, String password) {
+        return basic(user, password);
     }
 
     private static final class TestLogHandler extends Handler {

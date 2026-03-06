@@ -2,6 +2,7 @@ package open.dolphin.rest;
 
 import java.io.IOException;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -13,6 +14,8 @@ import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import open.dolphin.infomodel.FacilityModel;
+import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.session.UserServiceBean;
@@ -136,30 +139,36 @@ public class UserResource extends AbstractResource {
         UserModel model = mapper.readValue(json, UserModel.class);
 
         HttpServletRequest req = (HttpServletRequest)servletReq;
-        String remoteUser = req.getRemoteUser();
-        if (remoteUser == null || remoteUser.isBlank()) {
-            throw restError(req, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
+        String remoteUser = requireRemoteUser(req);
+        String actorFacility = requireActorFacility(req);
+        UserModel current = loadUserByPkQuietly(model != null ? model.getId() : 0L);
+        if (current == null) {
+            throw userNotFound(req, model != null ? model.getId() : null);
         }
+        ensureFacilityMatchOr404(actorFacility, facilityIdOf(current), "userPk", current.getId(), req);
 
         boolean admin = userServiceBean.isAdmin(remoteUser);
         if (!admin) {
-            if (!remoteUser.equals(model.getUserId())) {
+            if (!remoteUser.equals(current.getUserId())) {
                 Logger.getLogger("open.dolphin").log(Level.WARNING, "User ID is different:{0},{1}",
-                        new Object[]{remoteUser, model.getUserId()});
+                        new Object[]{remoteUser, current.getUserId()});
                 throw restError(req, Response.Status.FORBIDDEN, "forbidden", "You can update only your own profile.");
             }
-            UserModel current = userServiceBean.getUser(model.getUserId());
             if (hasRoleChange(current.getRoles(), model.getRoles())) {
                 Logger.getLogger("open.dolphin").log(Level.WARNING, "Role update is forbidden for non-admin:{0}",
                         new Object[]{remoteUser});
                 throw restError(req, Response.Status.FORBIDDEN, "forbidden", "Role update requires administrator privilege.");
             }
         }
+        normalizeUserForUpdate(model, current);
         
         // 関係を構築する
         List<RoleModel> roles = model.getRoles();
         if (roles != null) {
-            roles.forEach(role -> role.setUserModel(model));
+            roles.forEach(role -> {
+                role.setUserModel(model);
+                role.setUserId(model.getUserId());
+            });
         }
 
         int result = userServiceBean.updateUser(model);
@@ -174,17 +183,15 @@ public class UserResource extends AbstractResource {
     public void deleteUser(@Context HttpServletRequest servletReq, @PathParam("userId") String userId) {
         
         HttpServletRequest req = (HttpServletRequest)servletReq;
-        String remoteUser = req.getRemoteUser();
-        if (remoteUser == null || remoteUser.isBlank()) {
-            throw restError(req, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
+        String remoteUser = requireAdmin(req, userServiceBean);
+        String actorFacility = requireActorFacility(req);
+        UserModel target = loadUserQuietly(userId);
+        if (target == null) {
+            throw userNotFound(req, userId);
         }
-        if (!userServiceBean.isAdmin(remoteUser)) {
-            Logger.getLogger("open.dolphin").log(Level.WARNING, "Not an administrator authority:{0}",
-                    new Object[]{remoteUser});
-            throw restError(req, Response.Status.FORBIDDEN, "forbidden", "Delete requires administrator privilege.");
-        }
+        ensureFacilityMatchOr404(actorFacility, facilityIdOf(target), "userId", userId, req);
 
-        int result = userServiceBean.removeUser(userId);
+        int result = userServiceBean.removeUser(target.getUserId());
 
         debug(String.valueOf(result));
     }
@@ -194,12 +201,22 @@ public class UserResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String putFacility(@Context HttpServletRequest servletReq, String json) throws IOException {
-        requireAdmin(servletReq, userServiceBean);
+        HttpServletRequest req = (HttpServletRequest) servletReq;
+        requireAdmin(req, userServiceBean);
+        String actorFacility = requireActorFacility(req);
         
         ObjectMapper mapper = new ObjectMapper();
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         UserModel model = mapper.readValue(json, UserModel.class);
+        FacilityModel requestedFacility = model != null ? model.getFacilityModel() : null;
+        FacilityModel currentFacility = loadFacilityByPkQuietly(requestedFacility != null ? requestedFacility.getId() : 0L);
+        if (currentFacility == null) {
+            throw facilityNotFound(req, requestedFacility != null ? requestedFacility.getId() : null);
+        }
+        ensureFacilityMatchOr404(actorFacility, currentFacility.getFacilityId(), "facilityPk", currentFacility.getId(), req);
+        requestedFacility.setId(currentFacility.getId());
+        requestedFacility.setFacilityId(actorFacility);
 
         int result = userServiceBean.updateFacility(model);
         String cntStr = String.valueOf(result);
@@ -223,6 +240,79 @@ public class UserResource extends AbstractResource {
         } catch (RuntimeException ex) {
             return null;
         }
+    }
+
+    private UserModel loadUserByPkQuietly(long userPk) {
+        try {
+            return userServiceBean.getUserByPk(userPk);
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private FacilityModel loadFacilityByPkQuietly(long facilityPk) {
+        try {
+            return userServiceBean.getFacilityByPk(facilityPk);
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private String facilityIdOf(UserModel user) {
+        if (user == null || user.getFacilityModel() == null) {
+            return null;
+        }
+        return user.getFacilityModel().getFacilityId();
+    }
+
+    private void normalizeUserForUpdate(UserModel requested, UserModel current) {
+        if (requested == null || current == null) {
+            return;
+        }
+        String currentFacility = facilityIdOf(current);
+        requested.setId(current.getId());
+        requested.setFacilityModel(current.getFacilityModel());
+        requested.setUserId(normalizeCompositeUserId(current.getUserId(), requested.getUserId(), currentFacility));
+    }
+
+    private String normalizeCompositeUserId(String currentUserId, String requestedUserId, String facilityId) {
+        if (currentUserId == null || currentUserId.isBlank()) {
+            return requestedUserId;
+        }
+        if (facilityId == null || facilityId.isBlank()) {
+            return currentUserId;
+        }
+        int currentSeparator = currentUserId.indexOf(IInfoModel.COMPOSITE_KEY_MAKER);
+        if (currentSeparator < 0) {
+            return currentUserId;
+        }
+        if (requestedUserId == null || requestedUserId.isBlank()) {
+            return currentUserId;
+        }
+        String normalized = requestedUserId.trim();
+        int requestedSeparator = normalized.indexOf(IInfoModel.COMPOSITE_KEY_MAKER);
+        String localPart = requestedSeparator >= 0 ? normalized.substring(requestedSeparator + 1) : normalized;
+        if (localPart == null || localPart.isBlank()) {
+            return currentUserId;
+        }
+        return facilityId + IInfoModel.COMPOSITE_KEY_MAKER + localPart.trim();
+    }
+
+    private WebApplicationException userNotFound(HttpServletRequest request, Object userIdentifier) {
+        return notFound(request, "userIdentifier", userIdentifier);
+    }
+
+    private WebApplicationException facilityNotFound(HttpServletRequest request, Object facilityIdentifier) {
+        return notFound(request, "facilityIdentifier", facilityIdentifier);
+    }
+
+    private WebApplicationException notFound(HttpServletRequest request, String key, Object value) {
+        LinkedHashMap<String, Object> details = new LinkedHashMap<>();
+        if (key != null && value != null) {
+            details.put(key, value);
+        }
+        return restError(request, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.",
+                details.isEmpty() ? null : details, null);
     }
 
     private boolean hasRoleChange(List<RoleModel> currentRoles, List<RoleModel> requestedRoles) {

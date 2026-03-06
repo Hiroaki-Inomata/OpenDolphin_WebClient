@@ -39,6 +39,8 @@ public class LogFilter implements Filter {
     private static final String TRACE_ID_HEADER = "X-Trace-Id";
     private static final String REQUEST_ID_HEADER = "X-Request-Id";
     private static final String RUN_ID_HEADER = "X-Run-Id";
+    public static final String FEATURE_CLIENT_HEADER = "X-Client-Feature-Images";
+    public static final String LEGACY_FEATURE_CLIENT_HEADER = "X-Feature-Images";
     public static final String TRACE_ID_ATTRIBUTE = LogFilter.class.getName() + ".TRACE_ID";
     public static final String REQUEST_ID_ATTRIBUTE = LogFilter.class.getName() + ".REQUEST_ID";
     public static final String RUN_ID_ATTRIBUTE = LogFilter.class.getName() + ".RUN_ID";
@@ -49,6 +51,8 @@ public class LogFilter implements Filter {
     private static final String AUTH_CHALLENGE = "Basic realm=\"OpenDolphin\"";
     private static final String ERROR_AUDIT_RECORDED_ATTR = LogFilter.class.getName() + ".ERROR_AUDIT_RECORDED";
     private static final String IP_THROTTLED_RETRY_AFTER_ATTR = LogFilter.class.getName() + ".IP_THROTTLED_RETRY_AFTER";
+    private static final String AUTH_FAILURE_CODE_ATTR = LogFilter.class.getName() + ".AUTH_FAILURE_CODE";
+    private static final String AUTH_FAILURE_MESSAGE_ATTR = LogFilter.class.getName() + ".AUTH_FAILURE_MESSAGE";
     private static final String PRINCIPAL_FACILITY_DETAILS_KEY = "facilityId";
     private static final Pattern SAFE_TOKEN = Pattern.compile("^[A-Za-z0-9._-]{1,64}$");
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
@@ -107,6 +111,17 @@ public class LogFilter implements Filter {
                             "Too many failed authentication attempts", "ip_throttled",
                             HTTP_TOO_MANY_REQUESTS);
                     sendTooManyRequests(req, res, retryAfter);
+                    return;
+                }
+                String authFailureCode = readAuthFailureCode(req);
+                String authFailureMessage = readAuthFailureMessage(req);
+                if (authFailureCode != null) {
+                    String candidateUser = extractBasicAuthUserCandidate(req);
+                    logUnauthorized(req, candidateUser, traceId);
+                    recordUnauthorizedAudit(req, traceId, candidateUser, authFailureCode,
+                            authFailureMessage, authFailureCode, HttpServletResponse.SC_UNAUTHORIZED);
+                    sendUnauthorized(req, res, authFailureCode, authFailureMessage,
+                            unauthorizedDetails(authFailureCode));
                     return;
                 }
                 String candidateUser = extractBasicAuthUserCandidate(req);
@@ -373,20 +388,25 @@ public class LogFilter implements Filter {
             SECURITY_LOGGER.log(Level.FINE, "Invalid Basic auth header", ex);
             return Optional.empty();
         }
-        int sep = decoded.lastIndexOf(':');
-        if (sep <= 0 || sep >= decoded.length() - 1) {
-            SECURITY_LOGGER.fine("Basic auth header missing separator");
+        BasicCredentials credentials = resolveCompositeCredentials(decoded);
+        if (credentials == null) {
+            SECURITY_LOGGER.fine("Basic auth header missing composite principal");
             return Optional.empty();
         }
         String compositeUser = credentials.user();
         String rawPass = credentials.password();
-        if (compositeUser == null) {
+        if (compositeUser == null || userService == null) {
             return Optional.empty();
         }
         String clientIp = AbstractResource.resolveClientIp(request);
         UserServiceBean.AuthenticationResult result = userService.authenticateWithPolicy(compositeUser, rawPass, clientIp);
         if (result.ipThrottled()) {
             request.setAttribute(IP_THROTTLED_RETRY_AFTER_ATTR, result.retryAfterSeconds());
+            return Optional.empty();
+        }
+        if (result.secondFactorRequired()) {
+            request.setAttribute(AUTH_FAILURE_CODE_ATTR, "factor2_required");
+            request.setAttribute(AUTH_FAILURE_MESSAGE_ATTR, "Second factor required.");
             return Optional.empty();
         }
         if (result.authenticated()) {
@@ -534,6 +554,22 @@ public class LogFilter implements Filter {
             return retryAfter > 0L ? retryAfter : null;
         }
         return null;
+    }
+
+    private String readAuthFailureCode(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        Object value = request.getAttribute(AUTH_FAILURE_CODE_ATTR);
+        return value instanceof String code && !code.isBlank() ? code : null;
+    }
+
+    private String readAuthFailureMessage(HttpServletRequest request) {
+        if (request == null) {
+            return "Authentication required";
+        }
+        Object value = request.getAttribute(AUTH_FAILURE_MESSAGE_ATTR);
+        return value instanceof String message && !message.isBlank() ? message : "Authentication required";
     }
 
     private Map<String, Object> unauthorizedDetails(String reason) {

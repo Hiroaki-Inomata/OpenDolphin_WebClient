@@ -93,6 +93,10 @@ public class UserServiceBean {
                 user.setPassword(upgraded);
                 em.merge(user);
             }
+            if (requiresSecondFactor(user)) {
+                registerSuccess(userName, now);
+                return AuthenticationResult.needsSecondFactor();
+            }
             registerSuccess(userName, now);
             return AuthenticationResult.success();
         } catch (Exception e) {
@@ -211,6 +215,13 @@ public class UserServiceBean {
             throw new SecurityException("Expired User");
         }
         return user;
+    }
+
+    public FacilityModel getFacilityByPk(long facilityPk) {
+        if (facilityPk <= 0) {
+            return null;
+        }
+        return em.find(FacilityModel.class, facilityPk);
     }
 
     /**
@@ -349,19 +360,11 @@ public class UserServiceBean {
     }
     
     public boolean isAdmin(String userId) {
-        boolean ret = false;
-        try {
-            UserModel user = (UserModel)em.createQuery(QUERY_USER_BY_UID).setParameter(UID, userId).getSingleResult();
-            for(RoleModel model : user.getRoles()) {
-                if (isAdminRole(model.getRole())) {
-                    ret = true;
-                    break;
-                }
-            }
-        } catch (Exception e) {
-        }
+        return hasRole(userId, true);
+    }
 
-        return ret;
+    public boolean isSystemAdmin(String userId) {
+        return hasRole(userId, false);
     }
 
     public boolean checkAuthority(String userId, String password, Collection<RoleModel> checkRoles) {
@@ -370,7 +373,7 @@ public class UserServiceBean {
             boolean admin = false;
             UserModel user = (UserModel)em.createQuery(QUERY_USER_BY_UID).setParameter(UID, userId).getSingleResult();
             for(RoleModel model : user.getRoles()) {
-                if (isAdminRole(model.getRole())) {
+                if (hasAdministrativePrivilegeRole(model.getRole())) {
                     admin = true;
                     break;
                 }
@@ -378,7 +381,7 @@ public class UserServiceBean {
             if(!admin) {
                 // ユーザがadmin権限以外の場合は不正のチェック
                 for(RoleModel model : checkRoles) {
-                    if (isAdminRole(model.getRole())) {
+                    if (hasAdministrativePrivilegeRole(model.getRole())) {
                         // 権限の昇格は不正
                         err = true;
                         break;
@@ -436,32 +439,97 @@ public class UserServiceBean {
         return hashService().hashForStorage(requestedPassword);
     }
 
+    private boolean requiresSecondFactor(UserModel user) {
+        if (user == null) {
+            return false;
+        }
+        String factor2Auth = user.getFactor2Auth();
+        return factor2Auth != null
+                && !factor2Auth.isBlank()
+                && !"off".equalsIgnoreCase(factor2Auth.trim());
+    }
+
     private boolean isAdminRole(String role) {
         if (role == null) {
             return false;
         }
         String normalized = role.trim().toLowerCase(java.util.Locale.ROOT);
-        return normalized.equals("admin")
-                || normalized.equals("system_admin")
+        return normalized.equals("admin");
+    }
+
+    private boolean isSystemAdminRole(String role) {
+        if (role == null) {
+            return false;
+        }
+        String normalized = role.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized.equals("system_admin")
                 || normalized.equals("system-admin")
                 || normalized.equals("system-administrator")
                 || normalized.equals("system_administrator");
     }
 
+    private boolean hasAdministrativePrivilegeRole(String role) {
+        return isAdminRole(role) || isSystemAdminRole(role);
+    }
+
+    private boolean hasRole(String userId, boolean includeAdmin) {
+        try {
+            UserModel user = (UserModel) em.createQuery(QUERY_USER_BY_UID).setParameter(UID, userId).getSingleResult();
+            for (RoleModel model : user.getRoles()) {
+                String role = model != null ? model.getRole() : null;
+                if (includeAdmin) {
+                    if (hasAdministrativePrivilegeRole(role)) {
+                        return true;
+                    }
+                    continue;
+                }
+                if (isSystemAdminRole(role)) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            return false;
+        }
+        return false;
+    }
+
     @Inject
     private LoginAttemptPolicyService loginAttemptPolicyService;
 
-    public record AuthenticationResult(boolean authenticated, boolean ipThrottled, long retryAfterSeconds) {
+    public enum AuthenticationState {
+        SUCCESS,
+        FAILURE,
+        IP_THROTTLED,
+        SECOND_FACTOR_REQUIRED
+    }
+
+    public record AuthenticationResult(AuthenticationState state, long retryAfterSeconds) {
         public static AuthenticationResult success() {
-            return new AuthenticationResult(true, false, 0L);
+            return new AuthenticationResult(AuthenticationState.SUCCESS, 0L);
         }
 
         public static AuthenticationResult failure() {
-            return new AuthenticationResult(false, false, 0L);
+            return new AuthenticationResult(AuthenticationState.FAILURE, 0L);
         }
 
         public static AuthenticationResult ipThrottled(long retryAfterSeconds) {
-            return new AuthenticationResult(false, true, Math.max(1L, retryAfterSeconds));
+            return new AuthenticationResult(AuthenticationState.IP_THROTTLED, Math.max(1L, retryAfterSeconds));
+        }
+
+        public static AuthenticationResult needsSecondFactor() {
+            return new AuthenticationResult(AuthenticationState.SECOND_FACTOR_REQUIRED, 0L);
+        }
+
+        public boolean authenticated() {
+            return state == AuthenticationState.SUCCESS;
+        }
+
+        public boolean ipThrottled() {
+            return state == AuthenticationState.IP_THROTTLED;
+        }
+
+        public boolean secondFactorRequired() {
+            return state == AuthenticationState.SECOND_FACTOR_REQUIRED;
         }
     }
 //s.oh$
