@@ -191,20 +191,22 @@ public class PatientImagesResource extends AbstractResource {
     // Client feature header is a rollout hint for UI compatibility, not an authorization boundary.
     // Authorization is enforced independently in requirePatientAccessible.
     private void requireClientFeatureHeaderHint() {
-        String headerValue = httpServletRequest != null ? httpServletRequest.getHeader(FEATURE_CLIENT_HEADER) : null;
+        String headerValue = httpServletRequest != null
+                ? httpServletRequest.getHeader(LogFilter.FEATURE_CLIENT_HEADER)
+                : null;
         if (isTruthy(headerValue)) {
             return;
         }
 
         Map<String, Object> details = new HashMap<>();
         details.put("requiredEnv", FEATURE_ENV);
-        details.put("requiredHeader", FEATURE_CLIENT_HEADER);
+        details.put("requiredHeader", LogFilter.FEATURE_CLIENT_HEADER);
 
         String legacyHeaderValue = httpServletRequest != null
-                ? httpServletRequest.getHeader(LEGACY_FEATURE_CLIENT_HEADER)
+                ? httpServletRequest.getHeader(LogFilter.LEGACY_FEATURE_CLIENT_HEADER)
                 : null;
         if (legacyHeaderValue != null && !legacyHeaderValue.isBlank()) {
-            details.put("unsupportedHeader", LEGACY_FEATURE_CLIENT_HEADER);
+            details.put("unsupportedHeader", LogFilter.LEGACY_FEATURE_CLIENT_HEADER);
         }
 
         throw restError(httpServletRequest, Response.Status.NOT_FOUND,
