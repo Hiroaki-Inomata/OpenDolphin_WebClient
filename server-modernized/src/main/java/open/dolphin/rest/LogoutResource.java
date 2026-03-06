@@ -14,12 +14,15 @@ import jakarta.ws.rs.core.Response;
 @Path("/api/logout")
 public class LogoutResource extends AbstractResource {
 
+    private static final String CACHE_CONTROL_VALUE = "private, no-store, max-age=0, must-revalidate";
+
     @POST
     public Response logout(@Context HttpServletRequest request) {
         if (request != null) {
             HttpSession session = request.getSession(false);
             if (session != null) {
                 try {
+                    AuthSessionSupport.clearSession(session);
                     session.invalidate();
                 } catch (IllegalStateException ignored) {
                     // already invalidated by concurrent logout
@@ -27,6 +30,9 @@ public class LogoutResource extends AbstractResource {
             }
         }
         return Response.noContent()
+                .header("Cache-Control", CACHE_CONTROL_VALUE)
+                .header("Pragma", "no-cache")
+                .header("Expires", "0")
                 .cookie(expiredSessionCookie(request))
                 .build();
     }

@@ -517,7 +517,7 @@ public class AbstractResource {
             }
             filtered.put(normalizedKey, value);
         });
-        Map<String, Object> sanitized = AuditDetailSanitizer.sanitizeDetails(filtered);
+        Map<String, Object> sanitized = AuditDetailSanitizer.sanitizeDetails("REST_ERROR_RESPONSE", filtered);
         return sanitized != null ? sanitized : filtered;
     }
 }

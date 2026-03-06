@@ -18,6 +18,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import open.dolphin.rest.AbstractResource;
 import open.dolphin.runtime.RuntimeConfigurationSupport;
 import open.dolphin.security.SecondFactorSecurityConfig;
+import open.dolphin.orca.transport.OrcaTransportSecurityPolicy;
 import open.dolphin.security.totp.TotpSecretProtector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -234,6 +235,7 @@ public class OrcaConnectionConfigStore {
         }
         validateReady(record);
         String baseUrl = buildBaseUrl(record.getServerUrl(), record.getPort(), Boolean.TRUE.equals(record.getUseWeborca()));
+        OrcaTransportSecurityPolicy.validateBaseUrl(baseUrl, Boolean.TRUE.equals(record.getUseWeborca()));
         String password = decryptToText(record.getPasswordEncrypted(), "passwordEncrypted");
         boolean clientAuthEnabled = Boolean.TRUE.equals(record.getClientAuthEnabled());
         byte[] p12 = null;
@@ -464,6 +466,8 @@ public class OrcaConnectionConfigStore {
         if (trimToNull(record.getUsername()) == null) {
             throw new IllegalArgumentException("ユーザー名は必須です。");
         }
+        String baseUrl = buildBaseUrl(record.getServerUrl(), record.getPort(), Boolean.TRUE.equals(record.getUseWeborca()));
+        OrcaTransportSecurityPolicy.validateBaseUrl(baseUrl, Boolean.TRUE.equals(record.getUseWeborca()));
         // Password can be omitted only when it was previously configured.
         if (record.getPasswordEncrypted() == null || record.getPasswordEncrypted().isBlank()) {
             throw new IllegalArgumentException("パスワードまたはAPIキーは必須です。");

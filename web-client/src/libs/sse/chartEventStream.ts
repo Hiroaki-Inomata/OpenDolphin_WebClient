@@ -15,6 +15,7 @@ export type ChartEventStreamMessage = {
 
 export type ChartEventStreamOptions = {
   facilityId: string;
+  userId: string;
   clientUuid?: string;
   apiBaseUrl?: string;
   retryDelayMs?: number;
@@ -23,33 +24,27 @@ export type ChartEventStreamOptions = {
   onError?: (error: Error) => void;
 };
 
-export const buildLastEventIdKey = (facilityId: string) => `${CHART_EVENT_LAST_EVENT_ID_PREFIX}:${facilityId}`;
+export const buildLastEventIdKey = (facilityId: string, userId: string, clientUuid: string) =>
+  `${CHART_EVENT_LAST_EVENT_ID_PREFIX}:${facilityId}:${userId}:${clientUuid}`;
 
-export const readStoredLastEventId = (facilityId: string): string | null => {
+export const readStoredLastEventId = (facilityId: string, userId: string, clientUuid: string): string | null => {
   if (typeof sessionStorage === 'undefined') return null;
   try {
-    return sessionStorage.getItem(buildLastEventIdKey(facilityId));
+    return sessionStorage.getItem(buildLastEventIdKey(facilityId, userId, clientUuid));
   } catch {
     return null;
   }
 };
 
-export const storeLastEventId = (facilityId: string, lastEventId: string) => {
+export const storeLastEventId = (facilityId: string, userId: string, clientUuid: string, lastEventId: string) => {
   if (typeof sessionStorage === 'undefined') return;
   const trimmed = lastEventId.trim();
   if (!trimmed) return;
   try {
-    sessionStorage.setItem(buildLastEventIdKey(facilityId), trimmed);
+    sessionStorage.setItem(buildLastEventIdKey(facilityId, userId, clientUuid), trimmed);
   } catch {
     // ignore storage errors
   }
-};
-
-const resolveClientUuid = (clientUuid?: string) => {
-  const trimmed = clientUuid?.trim();
-  if (trimmed) return trimmed;
-  if (typeof localStorage === 'undefined') return undefined;
-  return localStorage.getItem('devClientUuid')?.trim() || undefined;
 };
 
 const parseField = (line: string, field: string) => {
@@ -147,13 +142,15 @@ const streamEvents = async (
 
 export function handleChartEventStreamMessage(options: {
   facilityId: string;
+  userId: string;
+  clientUuid: string;
   message: ChartEventStreamMessage;
   onReplayGap?: (message: ChartEventStreamMessage) => void;
   onMessage?: (message: ChartEventStreamMessage) => void;
 }) {
-  const { facilityId, message, onReplayGap, onMessage } = options;
+  const { facilityId, userId, clientUuid, message, onReplayGap, onMessage } = options;
   if (message.id) {
-    storeLastEventId(facilityId, message.id);
+    storeLastEventId(facilityId, userId, clientUuid, message.id);
   }
   if (message.event === CHART_EVENT_REPLAY_GAP_EVENT) {
     onReplayGap?.(message);
@@ -164,6 +161,7 @@ export function handleChartEventStreamMessage(options: {
 export function startChartEventStream(options: ChartEventStreamOptions) {
   const {
     facilityId,
+    userId,
     clientUuid,
     apiBaseUrl = DEFAULT_API_BASE_URL,
     retryDelayMs = 3000,
@@ -183,11 +181,12 @@ export function startChartEventStream(options: ChartEventStreamOptions) {
   const run = async () => {
     while (!signal.aborted && !streamUnavailable) {
       try {
-        const resolvedClientUuid = resolveClientUuid(clientUuid);
-        if (!resolvedClientUuid) {
-          throw new Error('clientUUID is missing');
+        const resolvedUserId = userId?.trim();
+        const resolvedClientUuid = clientUuid?.trim();
+        if (!resolvedUserId || !resolvedClientUuid) {
+          throw new Error('chart-events actor context is missing');
         }
-        const lastEventId = readStoredLastEventId(facilityId);
+        const lastEventId = readStoredLastEventId(facilityId, resolvedUserId, resolvedClientUuid);
         const streamUrl = `${apiBaseUrl}${CHART_EVENT_STREAM_PATH}`;
         const headers = new Headers(
           buildHttpHeaders({
@@ -206,6 +205,7 @@ export function startChartEventStream(options: ChartEventStreamOptions) {
 
         const response = await fetch(streamUrl, {
           method: 'GET',
+          cache: 'no-store',
           headers,
           credentials: 'include',
           signal,
@@ -235,6 +235,8 @@ export function startChartEventStream(options: ChartEventStreamOptions) {
           (message) =>
             handleChartEventStreamMessage({
               facilityId,
+              userId: resolvedUserId,
+              clientUuid: resolvedClientUuid,
               message,
               onReplayGap,
               onMessage,

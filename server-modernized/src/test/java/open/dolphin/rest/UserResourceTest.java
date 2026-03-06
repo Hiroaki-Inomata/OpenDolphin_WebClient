@@ -83,6 +83,34 @@ class UserResourceTest extends RuntimeDelegateTestSupport {
     }
 
     @Test
+    void getUserNameRequiresAuthentication() {
+        when(request.getRemoteUser()).thenReturn(null);
+
+        assertThatThrownBy(() -> resource.getUserName(request, USER_02))
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> assertThat(((WebApplicationException) ex).getResponse().getStatus()).isEqualTo(401));
+    }
+
+    @Test
+    void getUserNameReturns404ForOtherUserWithoutAdmin() {
+        when(request.getRemoteUser()).thenReturn(USER_01);
+        when(userServiceBean.isAdmin(USER_01)).thenReturn(false);
+
+        assertThatThrownBy(() -> resource.getUserName(request, USER_02))
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> assertThat(((WebApplicationException) ex).getResponse().getStatus()).isEqualTo(404));
+    }
+
+    @Test
+    void sameFacilityAdminCanReadOtherUserName() throws Exception {
+        when(request.getRemoteUser()).thenReturn(ADMIN);
+        when(userServiceBean.isAdmin(ADMIN)).thenReturn(true);
+        when(userServiceBean.getUserName(USER_02)).thenReturn("User Two");
+
+        assertThat(resource.getUserName(request, USER_02)).isEqualTo("User Two");
+    }
+
+    @Test
     void nonAdminCannotUpdateOtherUser() throws Exception {
         when(request.getRemoteUser()).thenReturn(USER_01);
         when(userServiceBean.isAdmin(USER_01)).thenReturn(false);

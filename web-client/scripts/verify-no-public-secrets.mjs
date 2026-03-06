@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,31 +10,37 @@ const repoRootDir = path.resolve(scriptDir, '..', '..');
 
 const PUBLIC_PREFIX = ['VITE', ''].join('_');
 const KEYWORDS = ['PASSWORD', 'PASS', 'SECRET', 'TOKEN', 'APIKEY', 'API_KEY', 'PRIVATE', 'CREDENTIAL'];
+const DENYLIST = new Set(['VITE_ORCA_MASTER_USER', 'VITE_ORCA_MASTER_PASSWORD']);
 const ENV_KEY_PATTERN = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/;
+const ENV_FILE_PATTERN = /^\.env(?:\..*)?$/;
+const WALK_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'coverage', 'build']);
 
-const isTrackedEnvFile = (relativePath) => /^\.env(?:\..*)?$/.test(path.posix.basename(relativePath));
-
-const listTrackedEnvFiles = () => {
-  try {
-    const output = execFileSync('git', ['-C', repoRootDir, 'ls-files', '-z'], {
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    return output
-      .split('\0')
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .filter((entry) => isTrackedEnvFile(entry.replaceAll('\\', '/')))
-      .map((entry) => path.resolve(repoRootDir, entry));
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    console.error(`[verify:no-public-secrets] git ls-files の実行に失敗しました: ${reason}`);
-    process.exit(2);
-  }
+const listEnvFiles = (rootDir) => {
+  const found = [];
+  const walk = (currentDir) => {
+    const entries = readdirSync(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === '.' || entry.name === '..') continue;
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        if (WALK_SKIP_DIRS.has(entry.name)) continue;
+        walk(fullPath);
+        continue;
+      }
+      if (ENV_FILE_PATTERN.test(entry.name)) {
+        found.push(fullPath);
+      }
+    }
+  };
+  walk(rootDir);
+  return found;
 };
 
 const hasSecretLikeName = (key) => {
   const upper = key.toUpperCase();
+  if (DENYLIST.has(upper)) {
+    return true;
+  }
   return upper.startsWith(PUBLIC_PREFIX) && KEYWORDS.some((keyword) => upper.includes(keyword));
 };
 
@@ -56,7 +61,7 @@ const scanFile = (filePath) => {
   return findings;
 };
 
-const files = listTrackedEnvFiles();
+const files = listEnvFiles(repoRootDir);
 const findings = files.flatMap((filePath) => scanFile(filePath));
 
 if (findings.length > 0) {

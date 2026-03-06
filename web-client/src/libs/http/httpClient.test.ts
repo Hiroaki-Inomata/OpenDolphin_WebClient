@@ -12,25 +12,6 @@ const setSession = () => {
   );
 };
 
-const setDevAuth = (
-  storage: Storage = localStorage,
-  values: {
-    facilityId?: string;
-    userId?: string;
-    passwordPlain?: string;
-    clientUuid?: string;
-  } = {},
-) => {
-  const facilityId = values.facilityId ?? 'f001';
-  const userId = values.userId ?? 'user01';
-  const passwordPlain = values.passwordPlain ?? 'plain-password';
-
-  storage.setItem('devFacilityId', facilityId);
-  storage.setItem('devUserId', userId);
-  storage.setItem('devClientUuid', values.clientUuid ?? 'client-uuid-1');
-  return { facilityId, userId, passwordPlain };
-};
-
 const setCsrfMetaToken = (content: string) => {
   const existing = document.querySelector("meta[name='csrf-token']");
   if (existing) {
@@ -245,79 +226,50 @@ describe('httpFetch session expiry reasons', () => {
     expect(notifySpy).not.toHaveBeenCalled();
   });
 
-  it('attaches auth headers for ORCA/admin/realtime/chart/KARTE endpoints in DEV', async () => {
+  it('never attaches Authorization headers for same-origin endpoints', async () => {
     setSession();
-    const auth = setDevAuth();
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
-    const { httpClient, devAuthVolatile } = await importSubjects();
-    devAuthVolatile.setDevVolatilePlainPassword(auth);
-
-    const expectBasicAuthOnly = (headers: Headers, expectedDecoded = 'f001:user01:plain-password') => {
-      const authorization = headers.get('Authorization');
-      const authorizationText = typeof authorization === 'string' ? authorization : String(authorization ?? '');
-      expect(authorizationText).toMatch(/^Basic\s+/);
-      const token = authorizationText.replace(/^Basic\s+/i, '');
-      expect(atob(token)).toBe(expectedDecoded);
-      expect(headers.has('userName')).toBe(false);
-      expect(headers.has('password')).toBe(false);
-      expect(headers.has('clientUUID')).toBe(false);
-      expect(headers.has('X-Facility-Id')).toBe(false);
-    };
+    const { httpClient } = await importSubjects();
 
     await httpClient.httpFetch('/api/admin/orca/connection', { method: 'GET' });
     const adminHeaders = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expectBasicAuthOnly(adminHeaders);
+    expect(adminHeaders.get('Authorization')).toBeNull();
 
     await httpClient.httpFetch('/orca/appointments/list', { method: 'GET' });
     const orcaHeaders = new Headers((fetchSpy.mock.calls[1]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expectBasicAuthOnly(orcaHeaders);
+    expect(orcaHeaders.get('Authorization')).toBeNull();
 
     await httpClient.httpFetch('/api/chart-events', { method: 'GET' });
     const chartHeaders = new Headers((fetchSpy.mock.calls[2]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expectBasicAuthOnly(chartHeaders);
+    expect(chartHeaders.get('Authorization')).toBeNull();
 
     await httpClient.httpFetch('/api/realtime/reception', { method: 'GET' });
     const realtimeHeaders = new Headers((fetchSpy.mock.calls[3]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expectBasicAuthOnly(realtimeHeaders);
+    expect(realtimeHeaders.get('Authorization')).toBeNull();
 
     await httpClient.httpFetch('/karte/pid/00001,2000-01-01%2000%3A00%3A00', { method: 'GET' });
     const karteHeaders = new Headers((fetchSpy.mock.calls[4]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expectBasicAuthOnly(karteHeaders);
+    expect(karteHeaders.get('Authorization')).toBeNull();
 
     await httpClient.httpFetch('/api/healthz', { method: 'GET' });
     const nonOrcaHeaders = new Headers((fetchSpy.mock.calls[5]?.[1] as RequestInit | undefined)?.headers ?? {});
     expect(nonOrcaHeaders.has('Authorization')).toBe(false);
-    expect(nonOrcaHeaders.has('userName')).toBe(false);
-    expect(nonOrcaHeaders.has('password')).toBe(false);
-    expect(nonOrcaHeaders.has('clientUUID')).toBe(false);
   });
 
-  it('attaches auth headers for /api/orcaNN endpoints in DEV', async () => {
+  it('never attaches Authorization headers for /api/orcaNN endpoints', async () => {
     setSession();
-    const auth = setDevAuth();
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
-    const { httpClient, devAuthVolatile } = await importSubjects();
-    devAuthVolatile.setDevVolatilePlainPassword(auth);
+    const { httpClient } = await importSubjects();
 
     await httpClient.httpFetch('/api/orca102/medicatonmodv2', { method: 'POST' });
     const headers = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
-    const authorization = headers.get('Authorization');
-    const authorizationText = typeof authorization === 'string' ? authorization : String(authorization ?? '');
-    expect(authorizationText).toMatch(/^Basic\s+/);
-    const token = authorizationText.replace(/^Basic\s+/i, '');
-    expect(atob(token)).toBe('f001:user01:plain-password');
-    expect(headers.has('userName')).toBe(false);
-    expect(headers.has('password')).toBe(false);
-    expect(headers.has('clientUUID')).toBe(false);
-    expect(headers.has('X-Facility-Id')).toBe(false);
+    expect(headers.get('Authorization')).toBeNull();
   });
 
   it('does not attach Authorization to cross-origin absolute ORCA URLs in DEV', async () => {
     setSession();
-    const auth = setDevAuth();
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
-    const { httpClient, devAuthVolatile } = await importSubjects();
-    devAuthVolatile.setDevVolatilePlainPassword(auth);
+    const { httpClient } = await importSubjects();
 
     await httpClient.httpFetch('https://evil.example/orca/appointments/list', { method: 'GET' });
     const headers = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
@@ -354,45 +306,28 @@ describe('httpFetch session expiry reasons', () => {
     expect(headers.get('X-CSRF-Token')).toBeNull();
   });
 
-  it('does not attach Authorization when volatile plain password is unavailable', async () => {
+  it('uses credentials include for cookie-based session requests', async () => {
     setSession();
-    setDevAuth(localStorage);
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
     const { httpClient } = await importSubjects();
 
     await httpClient.httpFetch('/orca/appointments/list', { method: 'GET' });
-    const headers = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
-    expect(headers.get('Authorization')).toBeNull();
+    const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(requestInit?.credentials).toBe('include');
   });
 
-  it('prefers tab-local auth after re-login when localStorage has stale credentials', async () => {
+  it('applies no-store cache only to PHI GET requests', async () => {
     setSession();
-    setDevAuth(localStorage, {
-      userId: 'dolphindev',
-      passwordPlain: 'legacy-plain',
-      clientUuid: 'legacy-client',
-    });
-    const latestAuth = setDevAuth(sessionStorage, {
-      userId: 'ormaster',
-      passwordPlain: 'change_me',
-      clientUuid: 'latest-client',
-    });
-
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }));
-    const { httpClient, devAuthVolatile } = await importSubjects();
-    devAuthVolatile.setDevVolatilePlainPassword(latestAuth);
+    const { httpClient } = await importSubjects();
 
-    await httpClient.httpFetch('/orca/appointments/list', { method: 'GET' });
-    const headers = new Headers((fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined)?.headers ?? {});
-    const authorization = headers.get('Authorization');
-    const authorizationText = typeof authorization === 'string' ? authorization : String(authorization ?? '');
-    expect(authorizationText).toMatch(/^Basic\s+/);
-    const token = authorizationText.replace(/^Basic\s+/i, '');
-    expect(atob(token)).toBe('f001:ormaster:change_me');
-    expect(headers.has('userName')).toBe(false);
-    expect(headers.has('password')).toBe(false);
-    expect(headers.has('clientUUID')).toBe(false);
-    expect(headers.get('X-Facility-Id')).toBeNull();
+    await httpClient.httpFetch('/karte/pid/00001,2000-01-01%2000%3A00%3A00', { method: 'GET' });
+    const phiInit = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(phiInit?.cache).toBe('no-store');
+
+    await httpClient.httpFetch('/api/healthz', { method: 'GET' });
+    const nonPhiInit = fetchSpy.mock.calls[1]?.[1] as RequestInit | undefined;
+    expect(nonPhiInit?.cache).toBeUndefined();
   });
 
   it('does not notify for /api21 and /blobapi endpoints on 401/403', async () => {

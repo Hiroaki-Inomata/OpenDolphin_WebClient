@@ -76,13 +76,14 @@ export function ChartEventStreamBridge() {
   useEffect(() => {
     const stop = startChartEventStream({
       facilityId: session.facilityId,
+      userId: session.userId,
       clientUuid: session.clientUuid,
       onReplayGap: handleReplayGap,
       onError: (error) => {
-        if (error.message === 'clientUUID is missing') {
+        if (error.message === 'chart-events actor context is missing') {
           enqueue({
             tone: 'warning',
-            message: 'チャートイベントの再接続に必要な clientUUID が未取得です。',
+            message: 'チャートイベント再接続に必要なセッション情報が不足しています。',
             detail: '再ログイン後にストリームを再試行してください。',
           });
           return;
@@ -102,7 +103,7 @@ export function ChartEventStreamBridge() {
     });
 
     return () => stop();
-  }, [enqueue, handleReplayGap, session.clientUuid, session.facilityId]);
+  }, [enqueue, handleReplayGap, session.clientUuid, session.facilityId, session.userId]);
 
   return null;
 }

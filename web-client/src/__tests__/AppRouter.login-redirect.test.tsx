@@ -4,6 +4,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 
 import { AppRouterWithNavigation } from '../AppRouter';
+import { httpFetch } from '../libs/http/httpClient';
 
 // 軽量モック
 vi.mock('../styles/app-shell.css', () => ({}));
@@ -14,6 +15,10 @@ vi.mock('../libs/observability/observability', () => ({
 }));
 vi.mock('../libs/observability/runIdCopy', () => ({
   copyRunIdToClipboard: vi.fn().mockResolvedValue(undefined),
+  copyTextToClipboard: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('../libs/http/httpClient', () => ({
+  httpFetch: vi.fn(),
 }));
 vi.mock('../libs/audit/auditLogger', () => ({
   logAuditEvent: vi.fn(),
@@ -128,6 +133,33 @@ beforeEach(() => {
     runId: 'run-001',
     clientUuid: 'client-001',
   };
+  vi.mocked(httpFetch).mockImplementation(async (input, init) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.endsWith('/session/me')) {
+      const stored = sessionStorage.getItem(AUTH_STORAGE_KEY);
+      if (!stored) {
+        return new Response(null, { status: 401 });
+      }
+      const parsed = JSON.parse(stored) as Record<string, string | undefined>;
+      return new Response(
+        JSON.stringify({
+          facilityId: parsed.facilityId ?? '123',
+          userId: parsed.userId ?? 'user-1',
+          roles: [parsed.role ?? 'doctor'],
+          clientUuid: parsed.clientUuid ?? 'client-001',
+          runId: parsed.runId ?? 'run-001',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    if (url === '/api/logout' && init?.method === 'POST') {
+      return new Response(null, { status: 404 });
+    }
+    return new Response(null, { status: 404 });
+  });
 });
 
 afterEach(() => {
@@ -170,7 +202,7 @@ describe('AppRouter login redirect', () => {
     });
   });
 
-  it('ログイン済みで POP + from 付きで /login に戻った場合のみ LoginSwitchNotice を表示する', async () => {
+  it('ログイン済みで /login に戻った場合は server bootstrap 後に reception へ戻す', async () => {
     sessionStorage.setItem(
       AUTH_STORAGE_KEY,
       JSON.stringify({
@@ -188,8 +220,10 @@ describe('AppRouter login redirect', () => {
 
     render(<RouterProvider router={router} />);
 
-    expect(screen.getByText('ログイン中のため切替が必要です')).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe('/login');
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/f/123/reception');
+    });
+    expect(screen.queryByText('ログイン中のため切替が必要です')).not.toBeInTheDocument();
   });
 
   it('state.from が無い POP で /login に来た場合は即 reception に戻す', async () => {

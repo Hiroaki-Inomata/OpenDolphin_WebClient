@@ -11,7 +11,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedHashMap;
 import java.awt.Color;
@@ -23,6 +25,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import javax.imageio.ImageIO;
+import open.dolphin.infomodel.AttachmentModel;
+import open.dolphin.rest.dto.PatientImageEntryResponse;
 import open.dolphin.rest.dto.PatientImageUploadResponse;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.PatientImageServiceBean;
@@ -56,6 +60,9 @@ class PatientImagesResourceTest {
     private HttpServletRequest request;
 
     @Mock
+    private HttpServletResponse response;
+
+    @Mock
     private MultipartFormDataInput input;
 
     @Mock
@@ -65,14 +72,16 @@ class PatientImagesResourceTest {
     void setUp() throws Exception {
         System.setProperty("opendolphin.patient.images.enabled", "true");
         setField(resource, "httpServletRequest", request);
+        setField(resource, "httpServletResponse", response);
 
         when(request.getRemoteUser()).thenReturn("F001:user01");
         lenient().when(request.getRemoteAddr()).thenReturn("127.0.0.1");
-        when(request.getRequestURI()).thenReturn("/openDolphin/resources/patients/P001/images");
+        lenient().when(request.getRequestURI()).thenReturn("/openDolphin/resources/patients/P001/images");
         Map<String, String> headers = new java.util.HashMap<>();
         headers.put("User-Agent", "JUnit");
         headers.put("X-Request-Id", "req-1");
-        when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
+        lenient().when(request.getHeader(anyString()))
+                .thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
         lenient().when(request.isUserInRole("ADMIN")).thenReturn(false);
         lenient().when(patientServiceBean.getPatientById("F001", "P001"))
                 .thenReturn(new open.dolphin.infomodel.PatientModel());
@@ -168,6 +177,45 @@ class PatientImagesResourceTest {
                 .extracting(ex -> ((WebApplicationException) ex).getResponse().getStatus())
                 .isEqualTo(404);
         verify(patientImageServiceBean, never()).uploadImage(anyString(), anyString(), anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    void list_returnsNoStoreHeaders() {
+        PatientImageEntryResponse entry = new PatientImageEntryResponse();
+        entry.setImageId(10L);
+        when(patientImageServiceBean.listImages("F001", "P001")).thenReturn(List.of(entry));
+
+        Response actual = resource.list("P001");
+
+        assertThat(actual.getStatus()).isEqualTo(200);
+        assertThat(actual.getHeaderString("Cache-Control")).isEqualTo("private, no-store, max-age=0, must-revalidate");
+        assertThat(actual.getHeaderString("Pragma")).isEqualTo("no-cache");
+        assertThat(actual.getHeaderString("Expires")).isEqualTo("0");
+        @SuppressWarnings("unchecked")
+        List<PatientImageEntryResponse> items = (List<PatientImageEntryResponse>) actual.getEntity();
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).getDownloadUrl()).isEqualTo("/openDolphin/resources/patients/P001/images/10");
+        verify(response).setHeader("Cache-Control", "private, no-store, max-age=0, must-revalidate");
+    }
+
+    @Test
+    void download_returnsNoStoreHeaders() {
+        byte[] bytes = new byte[] {1, 2, 3};
+        AttachmentModel attachment = new AttachmentModel();
+        attachment.setBytes(bytes);
+        attachment.setContentType("image/png");
+        attachment.setFileName("test.png");
+        when(patientImageServiceBean.getImageForDownload("F001", "P001", 10L)).thenReturn(attachment);
+
+        Response actual = resource.download("P001", 10L);
+
+        assertThat(actual.getStatus()).isEqualTo(200);
+        assertThat(actual.getHeaderString("Cache-Control")).isEqualTo("private, no-store, max-age=0, must-revalidate");
+        assertThat(actual.getHeaderString("Pragma")).isEqualTo("no-cache");
+        assertThat(actual.getHeaderString("Expires")).isEqualTo("0");
+        assertThat(actual.getHeaderString("Content-Disposition")).isEqualTo("attachment; filename=\"test.png\"");
+        assertThat((byte[]) actual.getEntity()).containsExactly(bytes);
+        verify(response).setHeader("Cache-Control", "private, no-store, max-age=0, must-revalidate");
     }
 
     private static byte[] createPng(int width, int height) throws Exception {

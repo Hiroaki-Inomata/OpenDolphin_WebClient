@@ -9,24 +9,24 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Audit details の最小サニタイズと patientId 抽出ヘルパー。
+ * Audit details の allowlist サニタイズと patientId 正規化ヘルパー。
  */
 public final class AuditDetailSanitizer {
 
-    private static final String REDACTED = "***";
     private static final Set<String> ALLOWED_TOKEN_KEYS = Set.of(
             "tokenpresent",
             "tokenhash",
             "tokenhashalg",
             "tokenalgorithm");
-    private static final Set<String> PATIENT_ID_KEYS = Set.of(
-            "patientid",
-            "patient_id");
 
     private AuditDetailSanitizer() {
     }
 
     public static Map<String, Object> sanitizeDetails(Map<String, Object> details) {
+        return sanitizeDetails(null, details);
+    }
+
+    public static Map<String, Object> sanitizeDetails(String action, Map<String, Object> details) {
         if (details == null || details.isEmpty()) {
             return details;
         }
@@ -36,24 +36,29 @@ public final class AuditDetailSanitizer {
                 return;
             }
             String normalizedKey = normalizeKey(key);
-            if (isSensitiveKey(normalizedKey)) {
-                sanitized.put(key, REDACTED);
+            if (!AuditEventAllowlist.isAllowed(action, normalizedKey) || isSensitiveKey(normalizedKey)) {
                 return;
             }
-            sanitized.put(key, sanitizeValue(value));
+            Object sanitizedValue = sanitizeValue(action, value);
+            if (sanitizedValue == null) {
+                return;
+            }
+            if (sanitizedValue instanceof Map<?, ?> nested && nested.isEmpty()) {
+                return;
+            }
+            if (sanitizedValue instanceof List<?> list && list.isEmpty()) {
+                return;
+            }
+            sanitized.put(key, sanitizedValue);
         });
         return sanitized;
     }
 
     public static String resolvePatientId(String explicitPatientId, Map<String, Object> details) {
-        String normalized = trimToNull(explicitPatientId);
-        if (normalized != null) {
-            return normalized;
-        }
-        return resolvePatientIdFromValue(details);
+        return trimToNull(explicitPatientId);
     }
 
-    private static Object sanitizeValue(Object value) {
+    private static Object sanitizeValue(String action, Object value) {
         if (value instanceof Map<?, ?> mapValue) {
             Map<String, Object> nested = new LinkedHashMap<>();
             mapValue.forEach((key, nestedValue) -> {
@@ -62,18 +67,30 @@ public final class AuditDetailSanitizer {
                 }
                 String stringKey = key.toString();
                 String normalizedKey = normalizeKey(stringKey);
-                if (isSensitiveKey(normalizedKey)) {
-                    nested.put(stringKey, REDACTED);
+                if (!AuditEventAllowlist.isAllowed(action, normalizedKey) || isSensitiveKey(normalizedKey)) {
                     return;
                 }
-                nested.put(stringKey, sanitizeValue(nestedValue));
+                Object sanitizedValue = sanitizeValue(action, nestedValue);
+                if (sanitizedValue == null) {
+                    return;
+                }
+                if (sanitizedValue instanceof Map<?, ?> sanitizedMap && sanitizedMap.isEmpty()) {
+                    return;
+                }
+                if (sanitizedValue instanceof List<?> sanitizedList && sanitizedList.isEmpty()) {
+                    return;
+                }
+                nested.put(stringKey, sanitizedValue);
             });
             return nested;
         }
         if (value instanceof Iterable<?> iterable) {
             List<Object> sanitized = new ArrayList<>();
             for (Object item : iterable) {
-                sanitized.add(sanitizeValue(item));
+                Object sanitizedItem = sanitizeValue(action, item);
+                if (sanitizedItem != null) {
+                    sanitized.add(sanitizedItem);
+                }
             }
             return sanitized;
         }
@@ -81,64 +98,14 @@ public final class AuditDetailSanitizer {
             int length = Array.getLength(value);
             List<Object> sanitized = new ArrayList<>(length);
             for (int i = 0; i < length; i++) {
-                sanitized.add(sanitizeValue(Array.get(value, i)));
+                Object sanitizedItem = sanitizeValue(action, Array.get(value, i));
+                if (sanitizedItem != null) {
+                    sanitized.add(sanitizedItem);
+                }
             }
             return sanitized;
         }
         return value;
-    }
-
-    private static String resolvePatientIdFromValue(Object value) {
-        if (value instanceof Map<?, ?> mapValue) {
-            for (Map.Entry<?, ?> entry : mapValue.entrySet()) {
-                if (entry.getKey() == null) {
-                    continue;
-                }
-                String normalizedKey = normalizeKey(entry.getKey().toString());
-                Object nestedValue = entry.getValue();
-                if (PATIENT_ID_KEYS.contains(normalizedKey)) {
-                    String patientId = normalizePatientIdValue(nestedValue);
-                    if (patientId != null) {
-                        return patientId;
-                    }
-                }
-                String nested = resolvePatientIdFromValue(nestedValue);
-                if (nested != null) {
-                    return nested;
-                }
-            }
-            return null;
-        }
-        if (value instanceof Iterable<?> iterable) {
-            for (Object item : iterable) {
-                String nested = resolvePatientIdFromValue(item);
-                if (nested != null) {
-                    return nested;
-                }
-            }
-            return null;
-        }
-        if (value != null && value.getClass().isArray()) {
-            int length = Array.getLength(value);
-            for (int i = 0; i < length; i++) {
-                String nested = resolvePatientIdFromValue(Array.get(value, i));
-                if (nested != null) {
-                    return nested;
-                }
-            }
-            return null;
-        }
-        return null;
-    }
-
-    private static String normalizePatientIdValue(Object value) {
-        if (value instanceof String text) {
-            return trimToNull(text);
-        }
-        if (value instanceof Number number) {
-            return trimToNull(number.toString());
-        }
-        return null;
     }
 
     private static boolean isSensitiveKey(String normalizedKey) {
@@ -157,7 +124,7 @@ public final class AuditDetailSanitizer {
         return normalizedKey.contains("token");
     }
 
-    private static String normalizeKey(String key) {
+    static String normalizeKey(String key) {
         if (key == null) {
             return "";
         }

@@ -2,7 +2,13 @@ import { describe, beforeEach, it, expect, vi } from 'vitest';
 import { act, render, waitFor } from '@testing-library/react';
 import { applyObservabilityHeaders, updateObservabilityMeta } from '../../observability/observability';
 import { AuthServiceProvider } from '../../../features/charts/authService';
-import { clearSharedAuthFlags, persistSharedAuthFlags, persistSharedSession, restoreSharedAuthToSessionStorage } from '../authSync';
+import {
+  clearSharedAuth,
+  clearSharedAuthFlags,
+  persistSharedAuthFlags,
+  persistSharedSession,
+  restoreSharedAuthToSessionStorage,
+} from '../authSync';
 import { AUTH_FLAGS_STORAGE_KEY, AUTH_SESSION_STORAGE_KEY } from '../authStorage';
 
 class FakeBroadcastChannel {
@@ -92,6 +98,7 @@ describe('auth sync / runId propagation', () => {
     vi.restoreAllMocks();
     localStorage.clear();
     sessionStorage.clear();
+    clearSharedAuth();
     // @ts-expect-error test stub
     globalThis.BroadcastChannel = FakeBroadcastChannel;
     updateObservabilityMeta({ runId: undefined as unknown as string, traceId: undefined });
@@ -224,27 +231,22 @@ describe('auth sync / runId propagation', () => {
     persistSharedSession({
       facilityId: '0001',
       userId: 'user1',
-      role: 'doctor',
       clientUuid: 'client-1',
       runId: 'RUN-1',
     });
 
-    const raw = localStorage.getItem('opendolphin:web-client:auth:shared-session:v1');
-    expect(raw).toBeTruthy();
-    const parsed = JSON.parse(raw ?? '{}') as { payload?: Record<string, unknown> };
-    expect(parsed.payload).toMatchObject({
+    const restored = restoreSharedAuthToSessionStorage({ sessionKey: '0001:user1' });
+    expect(restored.session).toMatchObject({
       facilityId: '0001',
       userId: 'user1',
-      role: 'doctor',
       clientUuid: 'client-1',
       runId: 'RUN-1',
     });
-    expect(parsed.payload).not.toHaveProperty('displayName');
-    expect(parsed.payload).not.toHaveProperty('commonName');
-    expect(parsed.payload).not.toHaveProperty('roles');
+    expect(localStorage.getItem('opendolphin:web-client:auth:shared-session:v1')).toBeNull();
   });
 
-  it('expires shared auth session after 1 hour TTL', () => {
+  it('ignores stale localStorage payload because shared session is memory-only', () => {
+    clearSharedAuth();
     localStorage.setItem(
       'opendolphin:web-client:auth:shared-session:v1',
       JSON.stringify({
@@ -254,7 +256,6 @@ describe('auth sync / runId propagation', () => {
         payload: {
           facilityId: '0001',
           userId: 'user1',
-          role: 'doctor',
           runId: 'RUN-OLD',
         },
       }),
@@ -262,6 +263,5 @@ describe('auth sync / runId propagation', () => {
 
     const restored = restoreSharedAuthToSessionStorage({ sessionKey: '0001:user1' });
     expect(restored.session).toBeNull();
-    expect(localStorage.getItem('opendolphin:web-client:auth:shared-session:v1')).toBeNull();
   });
 });

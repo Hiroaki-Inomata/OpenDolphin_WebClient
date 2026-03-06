@@ -675,8 +675,6 @@ public class OrcaResource {
     @Path("/tensu/etensu")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getEtensu(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
@@ -684,7 +682,7 @@ public class OrcaResource {
         if (orcaMasterResource == null) {
             return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
         }
-        if (!OrcaMasterAuthSupport.isAuthorized(request, userName, password)) {
+        if (!OrcaMasterAuthSupport.isAuthorized(request)) {
             return Response.status(Response.Status.UNAUTHORIZED).build();
         }
         URI target = buildRedirectUri(uriInfo, "/orca/master/etensu");

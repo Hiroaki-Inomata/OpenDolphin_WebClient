@@ -4,7 +4,7 @@ import { useLocation, useNavigate, type Location } from 'react-router-dom';
 import { buildFacilityPath, normalizeFacilityId, parseFacilityPath } from '../../routes/facilityRoutes';
 import { FacilityLoginEntry } from './FacilityLoginEntry';
 import { isLegacyFrom, resolveFromState, resolveSwitchContext } from './loginRouteState';
-import { loadDevFacilityId, loadRecentFacilities } from './recentFacilityStore';
+import { loadRecentFacilities } from './recentFacilityStore';
 
 type FacilityJson = {
   facilityId?: unknown;
@@ -48,9 +48,6 @@ const resolveFacilityId = async (fromState?: string | Location): Promise<string 
   if (recentFacilities.length > 0) {
     return undefined;
   }
-
-  const devFacilityId = loadDevFacilityId();
-  if (devFacilityId) return devFacilityId;
 
   const envFacilityId = readDefaultFacilityId();
   if (envFacilityId) return envFacilityId;

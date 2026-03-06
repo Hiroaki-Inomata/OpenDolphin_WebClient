@@ -60,7 +60,7 @@ public class SessionAuditDispatcher {
         if (payload == null) {
             throw new IllegalArgumentException("AuditEventPayload must not be null");
         }
-        Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(payload.getDetails());
+        Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(payload.getAction(), payload.getDetails());
         AuditEventEnvelope.Builder builder = buildEnvelopeFromPayload(payload, sanitizedDetails);
         Outcome normalized = normalizeOutcome(payload, sanitizedDetails, overrideOutcome);
         if (normalized != null) {

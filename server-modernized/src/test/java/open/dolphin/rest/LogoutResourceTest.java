@@ -31,6 +31,11 @@ class LogoutResourceTest {
 
         Response response = resource.logout(request);
 
+        verify(session).removeAttribute(AuthSessionSupport.AUTH_ACTOR_ID);
+        verify(session).removeAttribute(AuthSessionSupport.AUTH_FACILITY_ID);
+        verify(session).removeAttribute(AuthSessionSupport.AUTH_LOGIN_ID);
+        verify(session).removeAttribute(AuthSessionSupport.AUTH_CLIENT_UUID);
+        verify(session).removeAttribute(AuthSessionSupport.AUTH_AUTHENTICATED_AT);
         verify(session).invalidate();
         assertThat(response.getStatus()).isEqualTo(Response.Status.NO_CONTENT.getStatusCode());
         NewCookie cookie = response.getCookies().get("JSESSIONID");
@@ -39,6 +44,9 @@ class LogoutResourceTest {
         assertThat(cookie.getPath()).isEqualTo("/openDolphin");
         assertThat(cookie.isHttpOnly()).isTrue();
         assertThat(cookie.isSecure()).isTrue();
+        assertThat(response.getHeaderString("Cache-Control")).isEqualTo("private, no-store, max-age=0, must-revalidate");
+        assertThat(response.getHeaderString("Pragma")).isEqualTo("no-cache");
+        assertThat(response.getHeaderString("Expires")).isEqualTo("0");
     }
 
     @Test

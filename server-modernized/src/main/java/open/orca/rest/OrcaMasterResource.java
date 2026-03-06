@@ -13,7 +13,6 @@ import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -57,8 +56,6 @@ import open.dolphin.rest.orca.AbstractOrcaRestResource;
 @Produces(MediaType.APPLICATION_JSON)
 public class OrcaMasterResource extends AbstractResource {
 
-    private static final String DEFAULT_USERNAME = "1.3.6.1.4.1.9414.70.1:admin";
-    private static final String DEFAULT_PASSWORD = "21232f297a57a5a743894a0e4a801fc3";
     private static final String DEFAULT_VERSION = "20240426";
     private static final String DEFAULT_VALID_FROM = "20240401";
     private static final String DEFAULT_VALID_TO = "99991231";
@@ -134,13 +131,11 @@ public class OrcaMasterResource extends AbstractResource {
     @GET
     @Path("/generic-class")
     public Response getGenericClass(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!isAuthorized(request, userName, password)) {
+        if (!isAuthorized(request)) {
             return unauthorized(request);
         }
         final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
@@ -216,13 +211,11 @@ public class OrcaMasterResource extends AbstractResource {
     @GET
     @Path("/drug")
     public Response getDrug(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!isAuthorized(request, userName, password)) {
+        if (!isAuthorized(request)) {
             return unauthorized(request);
         }
         final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
@@ -278,13 +271,11 @@ public class OrcaMasterResource extends AbstractResource {
     @GET
     @Path("/comment")
     public Response getComment(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!isAuthorized(request, userName, password)) {
+        if (!isAuthorized(request)) {
             return unauthorized(request);
         }
         final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
@@ -336,13 +327,11 @@ public class OrcaMasterResource extends AbstractResource {
     @GET
     @Path("/bodypart")
     public Response getBodypart(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!isAuthorized(request, userName, password)) {
+        if (!isAuthorized(request)) {
             return unauthorized(request);
         }
         final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
@@ -394,13 +383,11 @@ public class OrcaMasterResource extends AbstractResource {
     @GET
     @Path("/generic-price")
     public Response getGenericPrice(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!isAuthorized(request, userName, password)) {
+        if (!isAuthorized(request)) {
             return unauthorized(request);
         }
         final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
@@ -520,13 +507,11 @@ public class OrcaMasterResource extends AbstractResource {
     @GET
     @Path("/youhou")
     public Response getYouhou(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!isAuthorized(request, userName, password)) {
+        if (!isAuthorized(request)) {
             return unauthorized(request);
         }
         final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
@@ -588,13 +573,11 @@ public class OrcaMasterResource extends AbstractResource {
     @GET
     @Path("/material")
     public Response getMaterial(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!isAuthorized(request, userName, password)) {
+        if (!isAuthorized(request)) {
             return unauthorized(request);
         }
         final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
@@ -656,13 +639,11 @@ public class OrcaMasterResource extends AbstractResource {
     @GET
     @Path("/kensa-sort")
     public Response getKensaSort(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!isAuthorized(request, userName, password)) {
+        if (!isAuthorized(request)) {
             return unauthorized(request);
         }
         final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
@@ -725,13 +706,11 @@ public class OrcaMasterResource extends AbstractResource {
     @GET
     @Path("/hokenja")
     public Response getHokenja(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!isAuthorized(request, userName, password)) {
+        if (!isAuthorized(request)) {
             return unauthorized(request);
         }
         final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
@@ -788,13 +767,11 @@ public class OrcaMasterResource extends AbstractResource {
     @GET
     @Path("/address")
     public Response getAddress(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!isAuthorized(request, userName, password)) {
+        if (!isAuthorized(request)) {
             return unauthorized(request);
         }
         final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
@@ -850,13 +827,11 @@ public class OrcaMasterResource extends AbstractResource {
     @GET
     @Path("/etensu")
     public Response getEtensu(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!isAuthorized(request, userName, password)) {
+        if (!isAuthorized(request)) {
             return unauthorized(request);
         }
         final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
@@ -995,7 +970,7 @@ public class OrcaMasterResource extends AbstractResource {
         response.setCode("ORCA_MASTER_UNAUTHORIZED");
         response.setError("ORCA_MASTER_UNAUTHORIZED");
         response.setErrorCode("ORCA_MASTER_UNAUTHORIZED");
-        response.setMessage("Invalid Basic headers");
+        response.setMessage("Authenticated principal is required.");
         response.setStatus(Status.UNAUTHORIZED.getStatusCode());
         response.setRunId(resolveRunId(request));
         response.setTimestamp(Instant.now().toString());
@@ -1689,8 +1664,8 @@ public class OrcaMasterResource extends AbstractResource {
         return normalized.equals(entryVersion);
     }
 
-    private boolean isAuthorized(HttpServletRequest request, String userName, String password) {
-        return OrcaMasterAuthSupport.isAuthorized(request, userName, password);
+    private boolean isAuthorized(HttpServletRequest request) {
+        return OrcaMasterAuthSupport.isAuthorized(request);
     }
 
     private String firstNonBlank(String... candidates) {
@@ -2095,8 +2070,7 @@ public class OrcaMasterResource extends AbstractResource {
         EntityTag tag = new EntityTag(etagValue);
         Response.ResponseBuilder builder = Response.ok(entity)
                 .tag(tag)
-                .header("Cache-Control", cacheControlHeader(ttlSeconds))
-                .header("Vary", "userName,password");
+                .header("Cache-Control", cacheControlHeader(ttlSeconds));
         applyExtraHeaders(builder, extraHeaders);
         return builder.build();
     }
@@ -2105,8 +2079,7 @@ public class OrcaMasterResource extends AbstractResource {
         EntityTag tag = new EntityTag(etagValue);
         Response.ResponseBuilder builder = Response.status(Status.NOT_MODIFIED)
                 .tag(tag)
-                .header("Cache-Control", cacheControlHeader(ttlSeconds))
-                .header("Vary", "userName,password");
+                .header("Cache-Control", cacheControlHeader(ttlSeconds));
         applyExtraHeaders(builder, extraHeaders);
         return builder.build();
     }

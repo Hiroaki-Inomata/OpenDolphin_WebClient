@@ -8,6 +8,8 @@ import {
 } from '../chartEventStream';
 
 const facilityId = '1.3.6.1.4.1.9414.10.1';
+const userId = 'doctor-01';
+const clientUuid = 'client-01';
 
 beforeEach(() => {
   if (typeof sessionStorage !== 'undefined') {
@@ -19,6 +21,8 @@ describe('chartEventStream', () => {
   it('SSE 受信で Last-Event-ID が更新される', () => {
     handleChartEventStreamMessage({
       facilityId,
+      userId,
+      clientUuid,
       message: {
         id: '42',
         event: 'chart-event',
@@ -26,7 +30,7 @@ describe('chartEventStream', () => {
       },
     });
 
-    expect(readStoredLastEventId(facilityId)).toBe('42');
+    expect(readStoredLastEventId(facilityId, userId, clientUuid)).toBe('42');
   });
 
   it('replay-gap イベントで復元ハンドラが起動する', () => {
@@ -34,6 +38,8 @@ describe('chartEventStream', () => {
 
     handleChartEventStreamMessage({
       facilityId,
+      userId,
+      clientUuid,
       message: {
         event: CHART_EVENT_REPLAY_GAP_EVENT,
         data: '{"requiredAction":"reload"}',
@@ -52,6 +58,7 @@ describe('chartEventStream', () => {
     const onError = vi.fn();
     const stop = startChartEventStream({
       facilityId,
+      userId,
       clientUuid: 'dev-client',
       apiBaseUrl: 'http://localhost/api',
       retryDelayMs: 10,

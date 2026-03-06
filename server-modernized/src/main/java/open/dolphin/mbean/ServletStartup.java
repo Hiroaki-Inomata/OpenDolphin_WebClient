@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import open.dolphin.infrastructure.concurrent.ConcurrencyResourceNames;
+import open.dolphin.orca.transport.OrcaTransportSettings;
 import open.dolphin.orca.sync.OrcaPatientSyncScheduler;
 import open.dolphin.session.ChartEventServiceBean;
 import open.dolphin.session.SystemServiceBean;
@@ -34,6 +35,9 @@ public class ServletStartup {
     private static final Logger LOGGER = Logger.getLogger(ServletStartup.class.getSimpleName());
     private static final Logger DOLPHIN_LOGGER = Logger.getLogger("open.dolphin");
     private static final ZoneId DEFAULT_ZONE = RuntimeConfigurationSupport.resolveTimezone();
+    static final String ORCA_MASTER_BASIC_USER_KEY = "ORCA_MASTER_BASIC_USER";
+    static final String ORCA_MASTER_BASIC_PASSWORD_KEY = "ORCA_MASTER_BASIC_PASSWORD";
+    static final String AUTH_ALLOW_BASIC_FALLBACK_KEY = "OPENDOLPHIN_AUTH_ALLOW_BASIC_FALLBACK";
 
     @Resource(lookup = ConcurrencyResourceNames.DEFAULT_SCHEDULER)
     private ManagedScheduledExecutorService scheduler;
@@ -55,6 +59,7 @@ public class ServletStartup {
         contextHolder.ensureDateInitialized();
         eventServiceBean.ensureInitialized();
         ORCAConnection.getInstance().validateDatasourceSecretsOrThrow();
+        enforceStartupSecurityGuards();
         logRuntimeConfigurationSummary();
         if (scheduler == null) {
             LOGGER.warning("ManagedScheduledExecutorService is not available. Timed jobs will not be executed.");
@@ -156,6 +161,33 @@ public class ServletStartup {
                 + ", schedulers={orcaPatientSync:" + (orcaPatientSyncEnabled ? "on" : "off")
                 + ",masterUpdate:" + (masterUpdateSchedulerEnabled ? "on" : "off") + "}"
                 + ", configStorePath=" + configStorePath);
+    }
+
+    static void enforceStartupSecurityGuards() {
+        String environment = RuntimeConfigurationSupport.resolveEnvironment();
+        if (!RuntimeConfigurationSupport.isProductionLikeEnvironment(environment)) {
+            return;
+        }
+        failIfConfigured(ORCA_MASTER_BASIC_USER_KEY,
+                "ORCA master legacy credential is configured in a production-like environment. Remove the leaked value before startup.");
+        failIfConfigured(ORCA_MASTER_BASIC_PASSWORD_KEY,
+                "ORCA master legacy credential is configured in a production-like environment. Remove the leaked value before startup.");
+        String allowBasicFallback = resolveSetting(AUTH_ALLOW_BASIC_FALLBACK_KEY);
+        if (Boolean.TRUE.equals(RuntimeConfigurationSupport.parseBooleanFlag(allowBasicFallback))) {
+            throw new IllegalStateException(AUTH_ALLOW_BASIC_FALLBACK_KEY
+                    + "=true is not allowed in a production-like environment.");
+        }
+        OrcaTransportSettings.load();
+    }
+
+    private static void failIfConfigured(String key, String message) {
+        if (RuntimeConfigurationSupport.firstNonBlank(resolveSetting(key)) != null) {
+            throw new IllegalStateException(message + " key=" + key);
+        }
+    }
+
+    private static String resolveSetting(String key) {
+        return RuntimeConfigurationSupport.firstNonBlank(System.getProperty(key), System.getenv(key));
     }
 
     private static String safe(String value) {

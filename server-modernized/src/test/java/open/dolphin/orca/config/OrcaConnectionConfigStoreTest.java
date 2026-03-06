@@ -13,6 +13,9 @@ import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Base64;
+import open.dolphin.orca.transport.OrcaConnectionPolicyException;
+import open.dolphin.orca.transport.OrcaTransportSecurityPolicy;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 import open.dolphin.security.SecondFactorSecurityConfig;
 import open.dolphin.security.totp.TotpSecretProtector;
 import org.junit.jupiter.api.AfterEach;
@@ -33,6 +36,8 @@ class OrcaConnectionConfigStoreTest {
         } else {
             System.setProperty("jboss.server.data.dir", originalDataDir);
         }
+        System.clearProperty(RuntimeConfigurationSupport.PROP_ENVIRONMENT);
+        System.clearProperty(OrcaTransportSecurityPolicy.PROP_ALLOW_INSECURE_HTTP);
     }
 
     @Test
@@ -136,6 +141,33 @@ class OrcaConnectionConfigStoreTest {
         OrcaConnectionConfigStore.ResolvedOrcaConnection resolvedDefault = store.resolve();
         assertEquals("new-user", resolvedDefault.username());
         assertEquals("new-pass", resolvedDefault.password());
+    }
+
+    @Test
+    void updateRejectsInsecureHttpInProduction() throws Exception {
+        originalDataDir = System.getProperty("jboss.server.data.dir");
+        System.setProperty("jboss.server.data.dir", tempDir.toString());
+        System.setProperty(RuntimeConfigurationSupport.PROP_ENVIRONMENT, "production");
+
+        TotpSecretProtector protector = buildProtector();
+        OrcaConnectionConfigStore store = newStore(protector);
+
+        OrcaConnectionConfigStore.UpdateRequest update = new OrcaConnectionConfigStore.UpdateRequest(
+                Boolean.TRUE,
+                "http://weborca.example.test",
+                80,
+                "trial",
+                "weborcatrial",
+                Boolean.FALSE,
+                null
+        );
+
+        OrcaConnectionPolicyException ex = org.junit.jupiter.api.Assertions.assertThrows(
+                OrcaConnectionPolicyException.class,
+                () -> store.update(update, null, null, "RUN-TEST", "FACILITY:admin")
+        );
+
+        assertEquals("weborca_requires_https", ex.getErrorCategory());
     }
 
     private OrcaConnectionConfigStore newStore(TotpSecretProtector protector) throws Exception {

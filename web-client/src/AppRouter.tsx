@@ -21,7 +21,6 @@ import {
   Outlet,
   useLocation,
   useNavigate,
-  useNavigationType,
   useParams,
   type Location,
 } from 'react-router-dom';
@@ -32,10 +31,6 @@ import { ChartsOutpatientPrintPage } from './features/charts/pages/ChartsOutpati
 import { ChartsDocumentPrintPage } from './features/charts/pages/ChartsDocumentPrintPage';
 import { OrderSetEditorPage } from './features/charts/pages/OrderSetEditorPage';
 import { ReceptionPage } from './features/reception/pages/ReceptionPage';
-import { DebugHubPage } from './features/debug/DebugHubPage';
-import { OrcaApiConsolePage } from './features/debug/OrcaApiConsolePage';
-import { LegacyRestConsolePage } from './features/debug/LegacyRestConsolePage';
-import { MobilePatientPickerDemoPage } from './features/debug/MobilePatientPickerDemoPage';
 import { MobileImagesUploadPage } from './features/images/pages/MobileImagesUploadPage';
 import './styles/app-shell.css';
 import { getObservabilityMeta, resolveAriaLive, updateObservabilityMeta } from './libs/observability/observability';
@@ -80,11 +75,14 @@ import {
 } from './features/charts/encounterContext';
 import { saveDeepLinkContext } from './routes/deepLinkContextStorage';
 import { scrubSearch } from './routes/scrubSensitiveUrl';
+import { normalizeSessionResult, type SessionAuthResponse } from './LoginScreen';
 
 type Session = LoginResult;
 const AUTH_STORAGE_KEY = 'opendolphin:web-client:auth';
 const isMobileImagesUiEnabled = () => import.meta.env.VITE_PATIENT_IMAGES_MOBILE_UI === '1';
 const LOGOUT_ENDPOINT = (import.meta.env.VITE_LOGOUT_ENDPOINT ?? '/api/logout').trim() || '/api/logout';
+const API_BASE_URL = ((import.meta.env.VITE_API_BASE_URL ?? '/api').trim().replace(/\/$/, '')) || '/api';
+const SESSION_ME_ENDPOINT = `${API_BASE_URL}/session/me`;
 const normalizeBasePath = (value?: string | null): string => {
   if (!value) return '/';
   const trimmed = value.trim();
@@ -106,9 +104,19 @@ const loadStoredSession = (): Session | null => {
   };
   const resolveSession = (raw: string | null) => {
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Session;
+    const parsed = JSON.parse(raw) as Partial<Session>;
     if (!parsed?.facilityId || !parsed?.userId) return null;
-    return parsed;
+    return {
+      facilityId: parsed.facilityId,
+      userId: parsed.userId,
+      displayName: parsed.displayName,
+      commonName: parsed.commonName,
+      clientUuid: parsed.clientUuid ?? '',
+      runId: parsed.runId ?? '',
+      // Role claims are revalidated via /session/me and must not be restored from browser storage.
+      role: 'unknown',
+      roles: undefined,
+    };
   };
   try {
     const stored = resolveSession(readRaw());
@@ -141,7 +149,17 @@ const loadStoredSession = (): Session | null => {
 
 const persistSession = (session: Session) => {
   try {
-    sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    sessionStorage.setItem(
+      AUTH_STORAGE_KEY,
+      JSON.stringify({
+        facilityId: session.facilityId,
+        userId: session.userId,
+        displayName: session.displayName,
+        commonName: session.commonName,
+        clientUuid: session.clientUuid,
+        runId: session.runId,
+      }),
+    );
   } catch {
     // storage が使えない環境では保持せず、都度ログインし直す（セッションの永続化を避ける）。
   }
@@ -187,6 +205,27 @@ const clearStoredCredentials = () => {
     }
   }
   clearDevVolatilePlainPassword();
+};
+
+const fetchSessionMe = async (cachedSession?: Session | null): Promise<LoginResult | null> => {
+  const response = await httpFetch(SESSION_ME_ENDPOINT, {
+    method: 'GET',
+    notifySessionExpired: false,
+    cache: 'no-store',
+  });
+  if (response.status === 401) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`session/me failed: ${response.status}`);
+  }
+  const data = (await response.json()) as SessionAuthResponse;
+  return normalizeSessionResult(data, {
+    facilityId: data.facilityId ?? cachedSession?.facilityId ?? '',
+    userId: data.userId ?? cachedSession?.userId ?? '',
+    clientUuid: data.clientUuid ?? cachedSession?.clientUuid ?? '',
+    runId: data.runId ?? cachedSession?.runId ?? '',
+  });
 };
 
 const SessionContext = createContext<Session | null>(null);
@@ -303,6 +342,18 @@ const isSensitiveScrubPath = (pathname: string): boolean => {
 
 // Debug pages must never be exposed from production-like builds.
 const DEBUG_PAGES_ENABLED = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEBUG_PAGES === '1';
+const DebugHubPage = DEBUG_PAGES_ENABLED
+  ? lazy(() => import('./features/debug/DebugHubPage').then((m) => ({ default: m.DebugHubPage })))
+  : null;
+const OrcaApiConsolePage = DEBUG_PAGES_ENABLED
+  ? lazy(() => import('./features/debug/OrcaApiConsolePage').then((m) => ({ default: m.OrcaApiConsolePage })))
+  : null;
+const LegacyRestConsolePage = DEBUG_PAGES_ENABLED
+  ? lazy(() => import('./features/debug/LegacyRestConsolePage').then((m) => ({ default: m.LegacyRestConsolePage })))
+  : null;
+const MobilePatientPickerDemoPage = DEBUG_PAGES_ENABLED
+  ? lazy(() => import('./features/debug/MobilePatientPickerDemoPage').then((m) => ({ default: m.MobilePatientPickerDemoPage })))
+  : null;
 
 const buildSwitchContext = (
   session: Session,
@@ -327,7 +378,8 @@ export function AppRouter() {
 }
 
 export function AppRouterWithNavigation() {
-  const [session, setSession] = useState<Session | null>(() => loadStoredSession());
+  const [session, setSession] = useState<Session | null>(null);
+  const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
   const [pendingRedirect, setPendingRedirect] = useState<LoginRedirectIntent | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
@@ -467,11 +519,38 @@ export function AppRouterWithNavigation() {
   );
 
   useEffect(() => {
+    let active = true;
     const stored = loadStoredSession();
-    if (stored) {
-      setSession(stored);
+    if (stored?.runId) {
       updateObservabilityMeta({ runId: stored.runId });
     }
+    void (async () => {
+      try {
+        const restored = await fetchSessionMe(stored);
+        if (!active) return;
+        if (restored) {
+          persistSession(restored);
+          setSession(restored);
+          updateObservabilityMeta({ runId: restored.runId });
+        } else {
+          clearAllAuthShared();
+          clearStoredCredentials();
+          clearSession();
+          setSession(null);
+        }
+      } catch {
+        if (!active) return;
+        clearSession();
+        setSession(null);
+      } finally {
+        if (active) {
+          setSessionBootstrapped(true);
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -556,7 +635,15 @@ export function AppRouterWithNavigation() {
 
   return (
     <Routes>
-      <Route element={<FacilityGate session={session} onLogout={() => handleLogout('manual')} />}>
+      <Route
+        element={
+          <FacilityGate
+            session={session}
+            sessionBootstrapped={sessionBootstrapped}
+            onLogout={() => handleLogout('manual')}
+          />
+        }
+      >
         <Route path="login" element={<FacilityLoginResolver />} />
         {LEGACY_ROUTES.map((path) => (
           <Route key={path} path={path} element={<LegacyRootRedirect session={session} />} />
@@ -570,12 +657,21 @@ export function AppRouterWithNavigation() {
   );
 }
 
-function FacilityGate({ session, onLogout }: { session: Session | null; onLogout: () => void }) {
+function FacilityGate({
+  session,
+  sessionBootstrapped,
+  onLogout,
+}: {
+  session: Session | null;
+  sessionBootstrapped: boolean;
+  onLogout: () => void;
+}) {
   const location = useLocation();
-  const navigationType = useNavigationType();
   const loginRoute = isLoginRoute(location.pathname);
   const redirectIntent = resolveLoginRedirect(location);
-  const isBackNavigation = loginRoute && navigationType === 'POP' && Boolean(redirectIntent);
+  if (!sessionBootstrapped) {
+    return <SessionBootstrapScreen />;
+  }
   if (!session) {
     if (loginRoute) {
       return <Outlet />;
@@ -583,11 +679,8 @@ function FacilityGate({ session, onLogout }: { session: Session | null; onLogout
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
   if (loginRoute) {
-    if (!isBackNavigation) {
-      const nextPath = redirectIntent?.to ?? buildFacilityPath(session.facilityId, '/reception');
-      return <Navigate to={nextPath} state={redirectIntent?.state} replace />;
-    }
-    return <LoginSwitchNotice session={session} onLogout={onLogout} />;
+    const nextPath = redirectIntent?.to ?? buildFacilityPath(session.facilityId, '/reception');
+    return <Navigate to={nextPath} state={redirectIntent?.state} replace />;
   }
 
   return (
@@ -606,71 +699,6 @@ function FacilityGate({ session, onLogout }: { session: Session | null; onLogout
         </NavigationGuardProvider>
       </AuthServiceProvider>
     </SessionContext.Provider>
-  );
-}
-
-function LoginSwitchNotice({ session, onLogout }: { session: Session; onLogout: () => void }) {
-  const location = useLocation();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    logAuditEvent({
-      runId: session.runId,
-      source: 'authz',
-      note: 'login route blocked',
-      payload: {
-        action: 'login',
-        screen: 'login',
-        outcome: 'blocked',
-        facilityId: session.facilityId,
-        userId: session.userId,
-        role: session.role,
-      },
-    });
-  }, [session.facilityId, session.role, session.runId, session.userId]);
-
-  const handleReturn = () => {
-    navigate(buildFacilityPath(session.facilityId, '/reception'), { replace: true });
-  };
-
-  const handleSwitch = () => {
-    const switchContext = buildSwitchContext(session, 'manual');
-    logAuditEvent({
-      runId: session.runId,
-      source: 'auth',
-      note: 'switch initiated',
-      payload: {
-        action: 'role-switch',
-        screen: 'login',
-        reason: switchContext.reason,
-        previous: switchContext.actor,
-      },
-    });
-    onLogout();
-    navigate('/login', { state: { from: location, switchContext }, replace: true });
-  };
-
-  return (
-    <main className="login-shell">
-      <section className="login-card" aria-labelledby="login-switch-notice">
-        <header className="login-card__header">
-          <h1 id="login-switch-notice">ログイン中のため切替が必要です</h1>
-          <p>現在のセッションでは別施設/ユーザーへの切替はできません。権限境界を明示するため、ログアウト後に再ログインしてください。</p>
-        </header>
-        <div className="status-message is-error" role="status">
-          <p>現在のログイン: 施設ID={describeFacilityId(session.facilityId)}</p>
-          <p>ユーザー={session.userId} / role={session.role} / RUN_ID={session.runId}</p>
-        </div>
-        <div className="login-form__actions">
-          <button type="button" onClick={handleSwitch}>
-            ログアウトして切替
-          </button>
-          <button type="button" className="facility-entry__secondary" onClick={handleReturn}>
-            現在の施設へ戻る
-          </button>
-        </div>
-      </section>
-    </main>
   );
 }
 
@@ -699,19 +727,32 @@ function FacilityShell({ session }: { session: Session | null }) {
       {isMobileImagesUiEnabled() ? <Route path="m/images" element={<MobileImagesUploadPage />} /> : null}
       <Route path="patients" element={<ConnectedPatients />} />
       <Route path="administration" element={<AdministrationGate session={session} />} />
-      <Route path="debug" element={<DebugHubGate session={session} />} />
-      <Route
-        path="debug/outpatient-mock"
-        element={<DebugOutpatientMockGate session={session} />}
-      />
-      <Route
-        path="debug/mobile-patient-picker"
-        element={<DebugMobilePatientPickerGate session={session} />}
-      />
-      <Route path="debug/orca-api" element={<DebugOrcaApiGate session={session} />} />
-      <Route path="debug/legacy-rest" element={<DebugLegacyRestGate session={session} />} />
+      {DEBUG_PAGES_ENABLED ? <Route path="debug" element={<DebugHubGate session={session} />} /> : null}
+      {DEBUG_PAGES_ENABLED ? (
+        <Route path="debug/outpatient-mock" element={<DebugOutpatientMockGate session={session} />} />
+      ) : null}
+      {DEBUG_PAGES_ENABLED ? (
+        <Route path="debug/mobile-patient-picker" element={<DebugMobilePatientPickerGate session={session} />} />
+      ) : null}
+      {DEBUG_PAGES_ENABLED ? <Route path="debug/orca-api" element={<DebugOrcaApiGate session={session} />} /> : null}
+      {DEBUG_PAGES_ENABLED ? (
+        <Route path="debug/legacy-rest" element={<DebugLegacyRestGate session={session} />} />
+      ) : null}
       <Route path="*" element={<Navigate to={buildFacilityPath(session.facilityId, '/reception')} replace />} />
     </Routes>
+  );
+}
+
+function SessionBootstrapScreen() {
+  return (
+    <main className="login-shell">
+      <section className="login-card" aria-labelledby="session-bootstrap">
+        <header className="login-card__header">
+          <h1 id="session-bootstrap">セッションを確認中…</h1>
+          <p>現在のログイン状態をサーバーへ確認しています。</p>
+        </header>
+      </section>
+    </main>
   );
 }
 
@@ -970,7 +1011,12 @@ function DebugMobilePatientPickerGate({ session }: { session: Session }) {
     );
   }
 
-  return <MobilePatientPickerDemoPage />;
+  if (!MobilePatientPickerDemoPage) return null;
+  return (
+    <Suspense fallback={<div className="status-message">Mobile Patient Picker を読み込み中…</div>}>
+      <MobilePatientPickerDemoPage />
+    </Suspense>
+  );
 }
 
 function DebugHubGate({ session }: { session: Session }) {
@@ -1034,7 +1080,12 @@ function DebugHubGate({ session }: { session: Session }) {
     );
   }
 
-  return <DebugHubPage />;
+  if (!DebugHubPage) return null;
+  return (
+    <Suspense fallback={<div className="status-message">Debug Hub を読み込み中…</div>}>
+      <DebugHubPage />
+    </Suspense>
+  );
 }
 
 function DebugOrcaApiGate({ session }: { session: Session }) {
@@ -1098,7 +1149,12 @@ function DebugOrcaApiGate({ session }: { session: Session }) {
     );
   }
 
-  return <OrcaApiConsolePage />;
+  if (!OrcaApiConsolePage) return null;
+  return (
+    <Suspense fallback={<div className="status-message">ORCA API Console を読み込み中…</div>}>
+      <OrcaApiConsolePage />
+    </Suspense>
+  );
 }
 
 function DebugLegacyRestGate({ session }: { session: Session }) {
@@ -1162,7 +1218,12 @@ function DebugLegacyRestGate({ session }: { session: Session }) {
     );
   }
 
-  return <LegacyRestConsolePage />;
+  if (!LegacyRestConsolePage) return null;
+  return (
+    <Suspense fallback={<div className="status-message">Legacy REST Console を読み込み中…</div>}>
+      <LegacyRestConsolePage />
+    </Suspense>
+  );
 }
 
 function LegacyRootRedirect({ session }: { session: Session | null }) {

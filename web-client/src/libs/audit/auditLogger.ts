@@ -66,11 +66,116 @@ export type UiStateLog = {
 
 const uiStateLog: UiStateLog[] = [];
 const isDevRuntime = import.meta.env.DEV;
+const isAuditDevConsoleEnabled = isDevRuntime && import.meta.env.VITE_ENABLE_AUDIT_DEV_CONSOLE === '1';
+const ALLOWED_DETAIL_KEYS = new Set([
+  'action',
+  'actor',
+  'apiResult',
+  'apiResultMessage',
+  'authorName',
+  'authorRole',
+  'authoredAt',
+  'binarySize',
+  'cacheHit',
+  'contentType',
+  'controlId',
+  'dataSourceTransition',
+  'debugFeature',
+  'documentId',
+  'documentIssuedAt',
+  'documentTitle',
+  'documentType',
+  'durationMs',
+  'endpoint',
+  'error',
+  'errorCategory',
+  'facilityId',
+  'fallbackUsed',
+  'hasRawXml',
+  'httpStatus',
+  'inputSource',
+  'legacy',
+  'method',
+  'missingMaster',
+  'mode',
+  'note',
+  'ok',
+  'operation',
+  'outcome',
+  'outputMode',
+  'reason',
+  'requiredRole',
+  'resource',
+  'role',
+  'runId',
+  'screen',
+  'soapLength',
+  'source',
+  'status',
+  'statusText',
+  'subject',
+  'templateId',
+  'tone',
+  'traceId',
+]);
+const DROPPED_PAYLOAD_KEYS = new Set(['query', 'rawXml', 'xml', 'authorization', 'cookie']);
 
 const normalizeOptionalString = (value?: string | null): string | undefined => {
   if (typeof value !== 'string') return value ?? undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const sanitizePayloadString = (key: string, value: string) => {
+  if (key === 'endpoint' || key === 'path') {
+    const questionIndex = value.indexOf('?');
+    return questionIndex >= 0 ? value.slice(0, questionIndex) : value;
+  }
+  return value;
+};
+
+const sanitizeDetailValue = (key: string, value: unknown): unknown => {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') {
+    const sanitized = sanitizePayloadString(key, value);
+    return sanitized.length > 256 ? `${sanitized.slice(0, 256)}...` : sanitized;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) {
+    return value.slice(0, 10).map((entry) => sanitizeDetailValue(key, entry));
+  }
+  if (typeof value === 'object') {
+    return sanitizeAuditDetails(value as Record<string, unknown>);
+  }
+  return undefined;
+};
+
+const sanitizeAuditDetails = (details: Record<string, unknown>) =>
+  Object.fromEntries(
+    Object.entries(details)
+      .filter(([key]) => ALLOWED_DETAIL_KEYS.has(key) && !DROPPED_PAYLOAD_KEYS.has(key))
+      .map(([key, value]) => [key, sanitizeDetailValue(key, value)])
+      .filter(([, value]) => value !== undefined),
+  );
+
+const sanitizeAuditPayload = (payload?: Record<string, unknown>) => {
+  if (!payload) return payload;
+  const sanitized = { ...payload };
+  Object.keys(sanitized).forEach((key) => {
+    if (DROPPED_PAYLOAD_KEYS.has(key)) {
+      delete sanitized[key];
+      return;
+    }
+    const value = sanitized[key];
+    if (key === 'details' && value && typeof value === 'object' && !Array.isArray(value)) {
+      sanitized[key] = sanitizeAuditDetails(value as Record<string, unknown>);
+      return;
+    }
+    if (typeof value === 'string') {
+      sanitized[key] = sanitizePayloadString(key, value);
+    }
+  });
+  return sanitized;
 };
 
 const mergeDefined = <T extends Record<string, unknown>>(base: T, next?: Partial<T>): T => {
@@ -106,17 +211,7 @@ export function logUiState(entry: Omit<UiStateLog, 'timestamp'>) {
       : {};
   const resolvedFacilityId =
     normalizeOptionalString(merged.facilityId) ??
-    normalizeOptionalString(details.facilityId as string | undefined) ??
     actorMeta.facilityId;
-  const resolvedPatientId =
-    normalizeOptionalString(merged.patientId) ??
-    normalizeOptionalString(details.patientId as string | undefined);
-  const resolvedAppointmentId =
-    normalizeOptionalString(merged.appointmentId) ??
-    normalizeOptionalString(details.appointmentId as string | undefined);
-  const resolvedClaimId =
-    normalizeOptionalString(merged.claimId) ??
-    normalizeOptionalString(details.claimId as string | undefined);
   const resolvedRunId = normalizeOptionalString(merged.runId) ?? meta.runId;
   const resolvedTraceId = normalizeOptionalString(merged.traceId) ?? meta.traceId;
   const resolvedCacheHit = merged.cacheHit ?? meta.cacheHit ?? false;
@@ -127,7 +222,7 @@ export function logUiState(entry: Omit<UiStateLog, 'timestamp'>) {
     resolvedCacheHit,
     resolvedFallbackUsed,
   );
-  const normalizedDetails: Record<string, unknown> = { ...details };
+  const normalizedDetails: Record<string, unknown> = sanitizeAuditDetails(details);
   if (normalizedDetails.runId === undefined) normalizedDetails.runId = resolvedRunId;
   if (normalizedDetails.traceId === undefined) normalizedDetails.traceId = resolvedTraceId;
   if (normalizedDetails.cacheHit === undefined) normalizedDetails.cacheHit = resolvedCacheHit;
@@ -136,22 +231,12 @@ export function logUiState(entry: Omit<UiStateLog, 'timestamp'>) {
   if (normalizedDetails.dataSourceTransition === undefined) {
     normalizedDetails.dataSourceTransition = resolvedDataSourceTransition;
   }
-  if (normalizedDetails.facilityId === undefined) normalizedDetails.facilityId = resolvedFacilityId;
-  if (resolvedPatientId !== undefined && normalizedDetails.patientId === undefined) {
-    normalizedDetails.patientId = resolvedPatientId;
-  }
-  if (resolvedAppointmentId !== undefined && normalizedDetails.appointmentId === undefined) {
-    normalizedDetails.appointmentId = resolvedAppointmentId;
-  }
-  if (resolvedClaimId !== undefined && normalizedDetails.claimId === undefined) {
-    normalizedDetails.claimId = resolvedClaimId;
-  }
   const record: UiStateLog = {
     ...merged,
     facilityId: resolvedFacilityId,
-    patientId: resolvedPatientId,
-    appointmentId: resolvedAppointmentId,
-    claimId: resolvedClaimId,
+    patientId: undefined,
+    appointmentId: undefined,
+    claimId: undefined,
     runId: resolvedRunId,
     traceId: resolvedTraceId,
     cacheHit: resolvedCacheHit,
@@ -174,12 +259,8 @@ export function logUiState(entry: Omit<UiStateLog, 'timestamp'>) {
     console.warn('[audit] UI state schema warning', { missing, record: maskedRecord });
   }
   uiStateLog.push(record);
-  // 監査の目視突き合わせ用にブラウザコンソールと window へ露出する。
-  if (isDevRuntime && typeof console !== 'undefined') {
+  if (isAuditDevConsoleEnabled && typeof console !== 'undefined') {
     console.info('[audit] UI state', maskedRecord);
-  }
-  if (isDevRuntime && typeof window !== 'undefined') {
-    (window as any).__AUDIT_UI_STATE__ = uiStateLog.map((entry) => maskSensitiveLog(entry));
   }
   // tone 変更や runId 更新の副作用が meta に伝播するよう同期する。
   updateObservabilityMeta({
@@ -251,24 +332,10 @@ export function logAuditEvent(entry: Omit<AuditEventRecord, 'timestamp'>) {
     meta.dataSourceTransition ??
     resolveDataSourceTransition(undefined, resolvedCacheHit, resolvedFallbackUsed);
   const resolvedFacilityId =
-    (rawDetails.facilityId as string | undefined) ??
-    (payload?.facilityId as string | undefined) ??
     base.facilityId ??
     actorMeta.facilityId;
-  const resolvedPatientId =
-    (rawDetails.patientId as string | undefined) ??
-    (payload?.patientId as string | undefined) ??
-    base.patientId;
-  const resolvedAppointmentId =
-    (rawDetails.appointmentId as string | undefined) ??
-    (payload?.appointmentId as string | undefined) ??
-    base.appointmentId;
-  const resolvedClaimId =
-    (rawDetails.claimId as string | undefined) ??
-    (payload?.claimId as string | undefined) ??
-    base.claimId;
 
-  const normalizedDetails: Record<string, unknown> = { ...rawDetails };
+  const normalizedDetails: Record<string, unknown> = sanitizeAuditDetails(rawDetails);
   if (normalizedDetails.runId === undefined) normalizedDetails.runId = resolvedRunId;
   if (normalizedDetails.traceId === undefined) normalizedDetails.traceId = resolvedTraceId;
   if (normalizedDetails.dataSourceTransition === undefined) {
@@ -277,24 +344,13 @@ export function logAuditEvent(entry: Omit<AuditEventRecord, 'timestamp'>) {
   if (normalizedDetails.cacheHit === undefined) normalizedDetails.cacheHit = resolvedCacheHit;
   if (normalizedDetails.missingMaster === undefined) normalizedDetails.missingMaster = resolvedMissingMaster;
   if (normalizedDetails.fallbackUsed === undefined) normalizedDetails.fallbackUsed = resolvedFallbackUsed;
-  if (normalizedDetails.facilityId === undefined) normalizedDetails.facilityId = resolvedFacilityId;
-  if (resolvedPatientId !== undefined && normalizedDetails.patientId === undefined) {
-    normalizedDetails.patientId = resolvedPatientId;
-  }
-  if (resolvedAppointmentId !== undefined && normalizedDetails.appointmentId === undefined) {
-    normalizedDetails.appointmentId = resolvedAppointmentId;
-  }
-  if (resolvedClaimId !== undefined && normalizedDetails.claimId === undefined) {
-    normalizedDetails.claimId = resolvedClaimId;
-  }
-
   const normalizedPayload = payload
-    ? {
+    ? sanitizeAuditPayload({
         ...payload,
         runId: (payload.runId as string | undefined) ?? resolvedRunId,
         traceId: (payload.traceId as string | undefined) ?? resolvedTraceId,
         details: normalizedDetails,
-      }
+      })
     : payload;
 
   const record: AuditEventRecord = {
@@ -302,9 +358,9 @@ export function logAuditEvent(entry: Omit<AuditEventRecord, 'timestamp'>) {
     runId: resolvedRunId ?? base.runId,
     traceId: resolvedTraceId ?? base.traceId,
     facilityId: resolvedFacilityId ?? base.facilityId,
-    patientId: resolvedPatientId ?? base.patientId,
-    appointmentId: resolvedAppointmentId ?? base.appointmentId,
-    claimId: resolvedClaimId ?? base.claimId,
+    patientId: undefined,
+    appointmentId: undefined,
+    claimId: undefined,
     cacheHit: resolvedCacheHit,
     missingMaster: resolvedMissingMaster,
     fallbackUsed: resolvedFallbackUsed,
@@ -314,11 +370,8 @@ export function logAuditEvent(entry: Omit<AuditEventRecord, 'timestamp'>) {
   };
   auditEventLog.push(record);
   const maskedEvent = maskSensitiveLog(record);
-  if (isDevRuntime && typeof console !== 'undefined') {
+  if (isAuditDevConsoleEnabled && typeof console !== 'undefined') {
     console.info('[audit] event', maskedEvent);
-  }
-  if (isDevRuntime && typeof window !== 'undefined') {
-    (window as any).__AUDIT_EVENTS__ = auditEventLog.map((entry) => maskSensitiveLog(entry));
   }
   updateObservabilityMeta({
     runId: record.runId,

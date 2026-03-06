@@ -11,7 +11,7 @@ import { loadDeepLinkContext } from '../routes/deepLinkContextStorage';
 
 vi.mock('../styles/app-shell.css', () => ({}));
 vi.mock('../libs/http/httpClient', () => ({
-  httpFetch: vi.fn(async () => new Response(null, { status: 404 })),
+  httpFetch: vi.fn(),
 }));
 vi.mock('../libs/observability/observability', () => ({
   updateObservabilityMeta: vi.fn(),
@@ -152,8 +152,31 @@ describe('AppRouter charts query scrub', () => {
         userId: 'user-1',
         role: 'doctor',
         runId: 'run-001',
+        clientUuid: 'client-001',
       }),
     );
+    vi.mocked(httpFetch).mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.endsWith('/session/me')) {
+        return new Response(
+          JSON.stringify({
+            facilityId: '0001',
+            userId: 'user-1',
+            roles: ['doctor'],
+            clientUuid: 'client-001',
+            runId: 'run-001',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+      if (url === '/api/logout' && init?.method === 'POST') {
+        return new Response(null, { status: 404 });
+      }
+      return new Response(null, { status: 404 });
+    });
   });
 
   afterEach(() => {
@@ -198,12 +221,9 @@ describe('AppRouter charts query scrub', () => {
       receptionId: undefined,
       visitDate: undefined,
     });
-    expect(loadDeepLinkContext()?.values).toEqual(
-      expect.objectContaining({
-        patientId: '00002',
-        kw: '山田',
-      }),
-    );
+    expect(loadDeepLinkContext()?.values).toEqual({
+      patientId: '00002',
+    });
   });
 
   it('mobile images query から patientId を除去して context を保存する', async () => {
@@ -232,7 +252,6 @@ describe('AppRouter charts query scrub', () => {
   it('logout API が 404 でも /login へ遷移し、患者関連 storage を削除する', async () => {
     const user = userEvent.setup();
     const httpFetchMock = vi.mocked(httpFetch);
-    httpFetchMock.mockResolvedValueOnce(new Response(null, { status: 404 }));
     sessionStorage.setItem('opendolphin:web-client:charts:patient-tabs:v1:0001:user-1', '{"tabs":[]}');
     sessionStorage.setItem(
       'opendolphin:web-client:deeplink-context',
@@ -247,6 +266,9 @@ describe('AppRouter charts query scrub', () => {
     const router = buildRouter(['/f/0001/reception']);
     render(<RouterProvider router={router} />);
 
+    await waitFor(() => {
+      expect(screen.getByTestId('logout-trigger')).toBeInTheDocument();
+    });
     await user.click(screen.getByTestId('logout-trigger'));
 
     await waitFor(() => {

@@ -94,6 +94,7 @@
                 open.dolphin.rest.StampResource,
                 open.dolphin.rest.SystemResource,
                 open.dolphin.rest.UserResource,
+                open.dolphin.rest.SessionAuthResource,
                 open.dolphin.rest.LogoutResource,
                 open.dolphin.rest.ScheduleResource,
                 open.dolphin.rest.ChartEventResource,
@@ -196,8 +197,8 @@
         <url-pattern>/orca/*</url-pattern>
     </servlet-mapping>
   
-  <!-- session-config>
+  <session-config>
     <session-timeout>30</session-timeout>
-  </session-config -->
-  
+    <tracking-mode>COOKIE</tracking-mode>
+  </session-config>
 </web-app>

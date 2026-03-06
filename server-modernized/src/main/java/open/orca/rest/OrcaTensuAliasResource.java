@@ -36,13 +36,11 @@ public class OrcaTensuAliasResource extends AbstractResource {
     @GET
     @Path("/etensu")
     public Response redirectEtensu(
-            @HeaderParam("userName") String userName,
-            @HeaderParam("password") String password,
             @HeaderParam("If-None-Match") String ifNoneMatch,
             @Context UriInfo uriInfo,
             @Context HttpServletRequest request
     ) {
-        if (!OrcaMasterAuthSupport.isAuthorized(request, userName, password)) {
+        if (!OrcaMasterAuthSupport.isAuthorized(request)) {
             return unauthorized(request);
         }
         URI target = buildRedirectUri(uriInfo, "/orca/master/etensu");
@@ -52,7 +50,7 @@ public class OrcaTensuAliasResource extends AbstractResource {
     private Response unauthorized(HttpServletRequest request) {
         OrcaMasterErrorResponse response = new OrcaMasterErrorResponse();
         response.setCode("ORCA_MASTER_UNAUTHORIZED");
-        response.setMessage("Invalid Basic headers");
+        response.setMessage("Authenticated principal is required.");
         response.setRunId(AbstractOrcaRestResource.resolveRunIdValue(request));
         response.setTimestamp(Instant.now().toString());
         String traceId = resolveTraceId(request);

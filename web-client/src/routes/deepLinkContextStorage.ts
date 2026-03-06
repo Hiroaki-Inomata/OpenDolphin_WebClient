@@ -1,14 +1,10 @@
 export const DEEPLINK_CTX_KEY = 'opendolphin:web-client:deeplink-context';
 
-const DEEPLINK_CTX_TTL_MS = 2 * 60 * 60 * 1000;
 const DEEPLINK_VALUE_KEYS = [
   'patientId',
   'appointmentId',
   'receptionId',
   'visitDate',
-  'invoiceNumber',
-  'kw',
-  'keyword',
 ] as const;
 
 type DeepLinkValueKey = (typeof DEEPLINK_VALUE_KEYS)[number];
@@ -17,6 +13,8 @@ export type DeepLinkContext = {
   savedAt: string;
   values: Partial<Record<DeepLinkValueKey, string>>;
 };
+
+let volatileDeepLinkContext: DeepLinkContext | null = null;
 
 const parseSavedAtMs = (value: unknown): number | null => {
   if (typeof value !== 'string') return null;
@@ -43,7 +41,22 @@ const sanitizeValues = (source: unknown): DeepLinkContext['values'] => {
   return values;
 };
 
+const cloneContext = (context: DeepLinkContext): DeepLinkContext => ({
+  savedAt: context.savedAt,
+  values: { ...context.values },
+});
+
+const buildDeepLinkContext = (values: DeepLinkContext['values']): DeepLinkContext | null => {
+  const sanitized = sanitizeValues(values);
+  if (Object.keys(sanitized).length === 0) return null;
+  return {
+    savedAt: new Date().toISOString(),
+    values: sanitized,
+  };
+};
+
 export function clearDeepLinkContext(): void {
+  volatileDeepLinkContext = null;
   if (typeof sessionStorage === 'undefined') return;
   try {
     sessionStorage.removeItem(DEEPLINK_CTX_KEY);
@@ -53,6 +66,11 @@ export function clearDeepLinkContext(): void {
 }
 
 export function loadDeepLinkContext(): DeepLinkContext | null {
+  if (volatileDeepLinkContext) {
+    const context = cloneContext(volatileDeepLinkContext);
+    clearDeepLinkContext();
+    return context;
+  }
   if (typeof sessionStorage === 'undefined') return null;
   try {
     const raw = sessionStorage.getItem(DEEPLINK_CTX_KEY);
@@ -64,14 +82,16 @@ export function loadDeepLinkContext(): DeepLinkContext | null {
     }
     const record = parsed as Record<string, unknown>;
     const savedAtMs = parseSavedAtMs(record.savedAt);
-    if (savedAtMs === null || Date.now() - savedAtMs > DEEPLINK_CTX_TTL_MS) {
+    if (savedAtMs === null) {
       clearDeepLinkContext();
       return null;
     }
-    return {
+    const context: DeepLinkContext = {
       savedAt: new Date(savedAtMs).toISOString(),
       values: sanitizeValues(record.values),
     };
+    clearDeepLinkContext();
+    return context;
   } catch {
     clearDeepLinkContext();
     return null;
@@ -79,18 +99,16 @@ export function loadDeepLinkContext(): DeepLinkContext | null {
 }
 
 export function saveDeepLinkContext(values: DeepLinkContext['values']): void {
+  const nextContext = buildDeepLinkContext(values);
+  if (!nextContext) {
+    clearDeepLinkContext();
+    return;
+  }
+
+  volatileDeepLinkContext = cloneContext(nextContext);
   if (typeof sessionStorage === 'undefined') return;
   try {
-    const current = loadDeepLinkContext();
-    const nextValues: DeepLinkContext['values'] = {
-      ...(current?.values ?? {}),
-      ...sanitizeValues(values),
-    };
-    const payload: DeepLinkContext = {
-      savedAt: new Date().toISOString(),
-      values: nextValues,
-    };
-    sessionStorage.setItem(DEEPLINK_CTX_KEY, JSON.stringify(payload));
+    sessionStorage.removeItem(DEEPLINK_CTX_KEY);
   } catch {
     // ignore storage errors
   }

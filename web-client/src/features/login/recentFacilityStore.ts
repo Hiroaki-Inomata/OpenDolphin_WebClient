@@ -31,11 +31,6 @@ export const loadRecentFacilities = (): string[] => {
   return uniqueFacilities(stored).slice(0, MAX_RECENT_FACILITIES);
 };
 
-export const loadDevFacilityId = (): string | undefined => {
-  if (typeof localStorage === 'undefined') return undefined;
-  return normalizeFacilityId(localStorage.getItem('devFacilityId'));
-};
-
 export const addRecentFacility = (facilityId: string) => {
   if (typeof localStorage === 'undefined') return [];
   const normalized = normalizeFacilityId(facilityId);

@@ -69,15 +69,15 @@ describe('FacilityLoginResolver', () => {
     expect(router.state.location.pathname).toBe('/login');
   });
 
-  it('recentFacilities が空で devFacilityId がある場合は自動補完する', async () => {
-    localStorage.setItem('devFacilityId', 'DEV-01');
+  it('補完候補が無い場合は施設選択を表示する', async () => {
     const router = buildRouter();
 
     render(<RouterProvider router={router} />);
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/f/DEV-01/login');
+      expect(screen.getByText('OpenDolphin Web 施設選択')).toBeInTheDocument();
     });
+    expect(router.state.location.pathname).toBe('/login');
   });
 
   it('switchContext がある場合は自動補完せず施設選択を表示する', async () => {

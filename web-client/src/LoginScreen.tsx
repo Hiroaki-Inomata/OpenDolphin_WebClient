@@ -3,22 +3,14 @@ import type { ChangeEvent, FormEvent } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
 import { httpFetch } from './libs/http/httpClient';
-import { setDevVolatilePlainPassword } from './libs/http/devAuthVolatile';
 import { generateRunId, updateObservabilityMeta } from './libs/observability/observability';
 import { consumeSessionExpiredNotice } from './libs/session/sessionExpiry';
 import { logAuditEvent } from './libs/audit/auditLogger';
 import { resolveLoginFailureMessage } from './features/login/loginErrorMessage';
 
 const resolveApiBaseUrl = () => {
-  const raw = (import.meta.env.VITE_API_BASE_URL ?? '/api').replace(/\/$/, '');
-  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
-    // Always use the relative proxy on HTTPS to avoid mixed-content errors.
-    if (raw !== '/api') {
-      console.warn('[login] HTTPS page forces /api proxy for login endpoint.', { original: raw });
-    }
-    return '/api';
-  }
-  return raw;
+  const raw = (import.meta.env.VITE_API_BASE_URL ?? '/api').trim().replace(/\/$/, '');
+  return raw || '/api';
 };
 const API_BASE_URL = resolveApiBaseUrl();
 const SYSTEM_ICON_URL = `${import.meta.env.BASE_URL}LogoImage/MainLogo.png`;
@@ -33,8 +25,7 @@ const createClientUuid = (seed?: string) => {
   return uuidv4();
 };
 
-const formatEndpoint = (facilityId: string, userId: string) =>
-  `${API_BASE_URL}/user/${encodeURIComponent(facilityId)}:${encodeURIComponent(userId)}`;
+const SESSION_LOGIN_ENDPOINT = `${API_BASE_URL}/session/login`;
 
 const resolveLoginTimeoutMs = () => {
   const raw = import.meta.env.VITE_LOGIN_TIMEOUT_MS ?? import.meta.env.VITE_HTTP_TIMEOUT_MS ?? '';
@@ -71,12 +62,14 @@ type FieldKey = keyof LoginFormValues;
 
 type LoginStatus = 'idle' | 'loading' | 'success' | 'error';
 
-interface UserResourceResponse {
+export interface SessionAuthResponse {
   facilityId?: string;
   userId?: string;
   displayName?: string;
   commonName?: string;
   roles?: Array<string | { role?: string }>;
+  clientUuid?: string;
+  runId?: string;
 }
 
 export type LoginResult = {
@@ -88,6 +81,47 @@ export type LoginResult = {
   runId: string;
   role: string;
   roles?: string[];
+};
+
+const resolveAbsoluteApiBaseUrl = () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return new URL(API_BASE_URL, window.location.origin);
+  } catch {
+    return null;
+  }
+};
+
+const assertLoginTargetIsAllowed = () => {
+  if (typeof window === 'undefined' || window.location.protocol !== 'https:') {
+    return;
+  }
+  const absoluteBaseUrl = resolveAbsoluteApiBaseUrl();
+  if (absoluteBaseUrl?.protocol === 'http:') {
+    throw new Error('HTTPS 画面から HTTP 接続先へは送れません。設定を修正してください。');
+  }
+};
+
+export const normalizeSessionResult = (
+  data: SessionAuthResponse,
+  fallback: {
+    facilityId: string;
+    userId: string;
+    clientUuid: string;
+    runId: string;
+  },
+): LoginResult => {
+  const normalizedRoles = normalizeRoles(data.roles);
+  return {
+    facilityId: data.facilityId ?? fallback.facilityId,
+    userId: data.userId ?? fallback.userId,
+    displayName: data.displayName,
+    commonName: data.commonName,
+    clientUuid: data.clientUuid ?? fallback.clientUuid,
+    runId: data.runId ?? fallback.runId,
+    role: inferRole(fallback.userId, normalizedRoles),
+    roles: normalizedRoles,
+  };
 };
 
 type LoginScreenProps = {
@@ -211,37 +245,6 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
           roles: result.roles,
         },
       });
-      if (import.meta.env.DEV) {
-        const urlFacilityId = normalize(initialFacilityId ?? '');
-        const storedFacilityId = urlFacilityId || normalizedValues.facilityId;
-        setDevVolatilePlainPassword({
-          facilityId: storedFacilityId,
-          userId: normalizedValues.userId,
-          passwordPlain: normalizedValues.password,
-        });
-        try {
-          // サーバーからの result.userId は "facilityId:userId" 形式で返されるが、
-          // httpClient.ts は devFacilityId と devUserId を結合するため、
-          // ユーザー入力値 (normalizedValues) を保存しないと二重結合になる。
-          // facilityId は URL 由来の値を優先して保存し、遷移先と整合させる。
-          localStorage.setItem('devFacilityId', storedFacilityId);
-          localStorage.setItem('devUserId', normalizedValues.userId);
-          localStorage.setItem('devClientUuid', result.clientUuid);
-        } catch {
-          // keep login flow unchanged if local storage is unavailable
-        }
-        try {
-          if (typeof sessionStorage !== 'undefined') {
-            // 同一ブラウザで複数ユーザーを扱うケースでも、
-            // 現在タブは最新ログイン情報を優先して使えるよう sessionStorage を常に更新する。
-            sessionStorage.setItem('devFacilityId', storedFacilityId);
-            sessionStorage.setItem('devUserId', normalizedValues.userId);
-            sessionStorage.setItem('devClientUuid', result.clientUuid);
-          }
-        } catch {
-          // ignore fallback failures
-        }
-      }
       onLoginSuccess?.(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'ログインに失敗しました。';
@@ -359,46 +362,46 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
 
 const performLogin = async (payload: LoginFormValues, runId: string): Promise<LoginResult> => {
   const clientUuid = createClientUuid(payload.clientUuid);
-
-  const buildStandardHeaders = (): HeadersInit => {
-    // Basic 認証ユーザー名は常に facilityId:userId を使用し、パスワードは平文を送る。
-    const basicUser = `${payload.facilityId}:${payload.userId}`;
-    const token = btoa(unescape(encodeURIComponent(`${basicUser}:${payload.password}`)));
-    return {
-      Authorization: `Basic ${token}`,
-      'X-Run-Id': runId,
-    };
-  };
-
+  assertLoginTargetIsAllowed();
   const timeoutMs = resolveLoginTimeoutMs();
   const sendLogin = async (signal?: AbortSignal) =>
-    httpFetch(formatEndpoint(payload.facilityId, payload.userId), {
-      method: 'GET',
-      headers: buildStandardHeaders(),
+    httpFetch(SESSION_LOGIN_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
       credentials: 'include',
+      notifySessionExpired: false,
+      cache: 'no-store',
+      body: JSON.stringify({
+        facilityId: payload.facilityId,
+        userId: payload.userId,
+        password: payload.password,
+        clientUuid,
+      }),
       signal,
     });
 
   const executeWithTimeout = async () => {
-    const endpoint = formatEndpoint(payload.facilityId, payload.userId);
+    const endpoint = SESSION_LOGIN_ENDPOINT;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const abortListener = () => {
-      console.warn('[login][/api/user] aborted', {
+      console.warn('[login][/api/session/login] aborted', {
         endpoint,
         protocol: typeof window !== 'undefined' ? window.location.protocol : 'unknown',
         attempt: 'pending',
       });
     };
     controller.signal.addEventListener('abort', abortListener);
-    console.info('[login][/api/user] request start', {
+    console.info('[login][/api/session/login] request start', {
       endpoint,
       timeoutMs,
       protocol: typeof window !== 'undefined' ? window.location.protocol : 'unknown',
     });
     try {
       const response = await sendLogin(controller.signal);
-      console.info('[login][/api/user] request complete', {
+      console.info('[login][/api/session/login] request complete', {
         endpoint,
         status: response.status,
         ok: response.ok,
@@ -438,8 +441,8 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
         const errorMessage = error instanceof Error ? error.message : String(error);
         const errorStack = error instanceof Error ? error.stack : undefined;
         const currentProtocol = typeof window !== 'undefined' ? window.location.protocol : 'unknown';
-        console.warn('[login][/api/user] request failed', {
-          endpoint: formatEndpoint(payload.facilityId, payload.userId),
+        console.warn('[login][/api/session/login] request failed', {
+          endpoint: SESSION_LOGIN_ENDPOINT,
           protocol: currentProtocol,
           attempt,
           errorName,
@@ -455,11 +458,7 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
       }
       if (shouldRetry(error)) {
         const base = '通信がタイムアウトまたは中断されました。時間をおいて再試行してください。';
-        const hint =
-          typeof window !== 'undefined' && window.location.protocol === 'https:'
-            ? '（HTTPSページでHTTPの接続先が指定されている場合、混在コンテンツで遮断されることがあります）'
-            : '';
-        throw new Error(`${base}${hint}`);
+        throw new Error(base);
       }
       throw error;
     }
@@ -481,30 +480,11 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
     );
   }
 
-  const data = (await response.json()) as UserResourceResponse;
-  const normalizedRoles = normalizeRoles(data.roles);
-  const resolvedRole = inferRole(payload.userId, normalizedRoles);
-  if (import.meta.env.DEV) {
-    try {
-      localStorage.setItem('devRole', resolvedRole);
-    } catch {
-      try {
-        if (typeof sessionStorage !== 'undefined') {
-          sessionStorage.setItem('devRole', resolvedRole);
-        }
-      } catch {
-        // ignore fallback failures
-      }
-    }
-  }
-  return {
-    facilityId: data.facilityId ?? payload.facilityId,
-    userId: data.userId ?? payload.userId,
-    displayName: data.displayName,
-    commonName: data.commonName,
+  const data = (await response.json()) as SessionAuthResponse;
+  return normalizeSessionResult(data, {
+    facilityId: payload.facilityId,
+    userId: payload.userId,
     clientUuid,
     runId,
-    role: resolvedRole,
-    roles: normalizedRoles,
-  };
+  });
 };

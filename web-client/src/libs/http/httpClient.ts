@@ -1,64 +1,11 @@
 import { applyHeaderFlagsToInit } from './header-flags';
-import { getDevVolatilePlainPassword } from './devAuthVolatile';
 import { applyObservabilityHeaders, captureObservabilityFromResponse } from '../observability/observability';
 import { notifySessionExpired } from '../session/sessionExpiry';
 import { readStoredSession } from '../session/storedSession';
 import { readCsrfToken } from '../security/csrf';
 
-type StoredAuth = {
-  facilityId: string;
-  userId: string;
-  passwordPlain?: string;
-  clientUuid?: string;
-};
-
-const readAuthFromStorage = (storage: Storage | undefined): StoredAuth | null => {
-  if (!storage) return null;
-  try {
-    const facilityId = storage.getItem('devFacilityId');
-    const userId = storage.getItem('devUserId');
-    const clientUuid = storage.getItem('devClientUuid') ?? undefined;
-    if (!facilityId || !userId) {
-      return null;
-    }
-    return { facilityId, userId, clientUuid };
-  } catch {
-    return null;
-  }
-};
-
-function readStoredAuth(): StoredAuth | null {
-  if (!import.meta.env.DEV) return null;
-  const sessionAuth = readAuthFromStorage(typeof sessionStorage === 'undefined' ? undefined : sessionStorage);
-  const localAuth = readAuthFromStorage(typeof localStorage === 'undefined' ? undefined : localStorage);
-
-  // 再ログイン直後の最新資格情報はタブ単位の sessionStorage を優先する。
-  if (sessionAuth) {
-    return {
-      ...sessionAuth,
-      passwordPlain: getDevVolatilePlainPassword({
-        facilityId: sessionAuth.facilityId,
-        userId: sessionAuth.userId,
-      }),
-      clientUuid: sessionAuth.clientUuid ?? localAuth?.clientUuid,
-    };
-  }
-
-  if (!localAuth) {
-    return null;
-  }
-
-  return {
-    ...localAuth,
-    passwordPlain: getDevVolatilePlainPassword({
-      facilityId: localAuth.facilityId,
-      userId: localAuth.userId,
-    }),
-  };
-}
-
 export function hasStoredAuth(): boolean {
-  return readStoredAuth() !== null;
+  return readStoredSession() !== null;
 }
 
 const resolveBaseOrigin = (): string => {
@@ -92,26 +39,6 @@ const isSameOrigin = (url?: URL | null): boolean => {
   return url.origin === resolveBaseOrigin();
 };
 
-function applyAuthHeaders(init?: RequestInit, url?: URL | null): RequestInit {
-  if (!import.meta.env.DEV || !url || !isSameOrigin(url) || !isOrcaEndpoint(url)) {
-    return init ?? {};
-  }
-  const stored = readStoredAuth();
-  if (!stored) {
-    return init ?? {};
-  }
-
-  const headers = new Headers(init?.headers ?? {});
-
-  if (stored.passwordPlain && !headers.has('Authorization')) {
-    const username = `${stored.facilityId}:${stored.userId}`;
-    const token = btoa(unescape(encodeURIComponent(`${username}:${stored.passwordPlain}`)));
-    headers.set('Authorization', `Basic ${token}`);
-  }
-
-  return { ...(init ?? {}), headers };
-}
-
 const normalizeHeaders = (headers?: HeadersInit): Record<string, string> => {
   if (!headers) return {};
   if (headers instanceof Headers) {
@@ -134,8 +61,7 @@ export function buildHttpHeaders(init?: RequestInit, pathname?: string | null): 
   const url = resolveUrl(pathname);
   const withObservability = applyObservabilityHeaders(init);
   const withFlags = applyHeaderFlagsToInit(withObservability);
-  const withAuth = applyAuthHeaders(withFlags, url);
-  const withCsrf = applyCsrfHeaders(withAuth, url);
+  const withCsrf = applyCsrfHeaders(withFlags, url);
   return normalizeHeaders(withCsrf.headers);
 }
 
@@ -307,15 +233,18 @@ const isMissingCsrfAllowedRuntime = () => {
 
 const isOrcaEndpoint = (url?: URL | null): boolean => {
   if (!url) return false;
-  // NOTE:
-  // - `/orca*` / `/api01*` / `/api21` / `/blobapi` are ORCA-family endpoints.
-  // - `/karte` / `/odletter` / `/touch` / `/user` are legacy resources that, in DEV,
-  //   can also require explicit Basic auth headers when container principal is unavailable.
-  // These endpoints must not trigger global session-expired broadcast on 401/403 because
-  // they may fail for per-resource auth reasons while the app session is still valid.
+  // ORCA-family endpoints and legacy resources may return per-resource auth errors
+  // without meaning the app session itself is expired.
   const pattern =
     /^\/(orca\d*|api\/orca(?:\d+)?|api01(rv2)?|api21|blobapi|karte|odletter|touch|user|api\/admin|api\/chart-events|chart-events|api\/realtime|realtime)(\/|$)/;
   return pattern.test(url.pathname);
+};
+
+const shouldUseNoStoreCache = (url?: URL | null, method = 'GET') => {
+  if (!url || !isSameOrigin(url) || method !== 'GET') {
+    return false;
+  }
+  return /^\/(karte|odletter|patient|pvt|reporting|letter|lab|user|api\/session)(\/|$)/.test(url.pathname);
 };
 
 const applyCsrfHeaders = (init?: RequestInit, url?: URL | null): RequestInit => {
@@ -359,9 +288,10 @@ export async function httpFetch(input: RequestInfo | URL, init?: HttpFetchInit) 
     requestUrl ? requestUrl.toString() : undefined,
   );
   const initWithHeaders = { ...(init ?? {}), method: requestMethod, headers };
+  const cache = initWithHeaders.cache ?? (shouldUseNoStoreCache(requestUrl, requestMethod) ? 'no-store' : undefined);
   // 認証クッキー（JSESSIONID 等）を常に送るため、デフォルトで include を付与する。
   const credentials = initWithHeaders.credentials ?? 'include';
-  const response = await fetch(input, { ...initWithHeaders, credentials });
+  const response = await fetch(input, { ...initWithHeaders, cache, credentials });
   captureObservabilityFromResponse(response);
   const resolvedInit =
     init?.notifySessionExpired === undefined && isOrcaEndpoint(requestUrl)

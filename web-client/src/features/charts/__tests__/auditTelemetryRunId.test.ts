@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  clearUiStateLog,
   clearAuditEventLog,
   getAuditEventLog,
+  getUiStateLog,
   logAuditEvent,
   logUiState,
 } from '../../../libs/audit/auditLogger';
+import { maskSensitiveLog } from '../../../libs/logging/mask';
 import {
   clearOutpatientFunnelLog,
   getOutpatientFunnelLog,
@@ -32,6 +35,7 @@ describe('auditEvent と telemetry の runId 整合', () => {
   afterEach(() => {
     clearOutpatientFunnelLog();
     clearAuditEventLog();
+    clearUiStateLog();
   });
 
   it('主要操作(ORCA_SEND)で runId/traceId が一致する', () => {
@@ -64,7 +68,7 @@ describe('auditEvent と telemetry の runId 整合', () => {
     expect(auditDetails.traceId).toBe(TRACE_ID);
   });
 
-  it('__AUDIT_* は機微情報がマスクされている', () => {
+  it('監査ログはマスク済みビューで機微情報を露出しない', () => {
     logUiState({
       action: 'navigate',
       screen: 'test',
@@ -95,27 +99,63 @@ describe('auditEvent と telemetry の runId 整合', () => {
       },
     });
 
-    const uiState = (window as any).__AUDIT_UI_STATE__ ?? [];
-    const auditEvents = (window as any).__AUDIT_EVENTS__ ?? [];
+    expect((window as any).__AUDIT_UI_STATE__).toBeUndefined();
+    expect((window as any).__AUDIT_EVENTS__).toBeUndefined();
 
-    expect(Array.isArray(uiState)).toBeTruthy();
-    expect(Array.isArray(auditEvents)).toBeTruthy();
+    const latestUiEntry = maskSensitiveLog(getUiStateLog().slice(-1)[0]);
+    const eventEntry = maskSensitiveLog(getAuditEventLog().slice(-1)[0]);
 
-    const uiEntry = uiState[uiState.length - 1];
-    const eventEntry = auditEvents[auditEvents.length - 1];
+    expect(latestUiEntry?.details?.facilityId).toBe('[REDACTED]');
+    expect(latestUiEntry?.details?.patientId).toBeUndefined();
+    expect(latestUiEntry?.details?.appointmentId).toBeUndefined();
+    expect(latestUiEntry?.details?.actor).toBe('[REDACTED]');
+    expect(latestUiEntry?.details?.email).toBeUndefined();
 
-    expect(uiEntry?.details?.facilityId).toBe('[REDACTED]');
-    expect(uiEntry?.details?.patientId).toBe('[REDACTED]');
-    expect(uiEntry?.details?.appointmentId).toBe('[REDACTED]');
-    expect(uiEntry?.details?.actor).toBe('[REDACTED]');
-    expect(uiEntry?.details?.email).toBe('[REDACTED]');
-
-    const eventDetails = eventEntry?.payload?.details ?? {};
+    const eventDetails = (eventEntry?.payload?.details ?? {}) as Record<string, unknown>;
     expect(eventDetails?.facilityId).toBe('[REDACTED]');
-    expect(eventDetails?.patientId).toBe('[REDACTED]');
-    expect(eventDetails?.appointmentId).toBe('[REDACTED]');
+    expect(eventDetails?.patientId).toBeUndefined();
+    expect(eventDetails?.appointmentId).toBeUndefined();
     expect(eventDetails?.actor).toBe('[REDACTED]');
-    expect(eventDetails?.email).toBe('[REDACTED]');
-    expect(eventDetails?.passwordMd5).toBe('[REDACTED]');
+    expect(eventDetails?.email).toBeUndefined();
+    expect(eventDetails?.passwordMd5).toBeUndefined();
+  });
+
+  it('監査 payload は query/rawXml/authorization/cookie を保持しない', () => {
+    logAuditEvent({
+      runId: RUN_ID,
+      source: 'test',
+      note: 'payload-sanitize-check',
+      payload: {
+        action: 'TEST_ACTION',
+        endpoint: '/api/patient/search?query=alice',
+        query: 'alice',
+        rawXml: '<Patient><Patient_ID>0001</Patient_ID></Patient>',
+        authorization: 'Basic deadbeef',
+        cookie: 'JSESSIONID=secret',
+        details: {
+          endpoint: '/api/patient/search?query=alice',
+          query: 'alice',
+          rawXml: '<Patient><Patient_ID>0001</Patient_ID></Patient>',
+          authorization: 'Basic deadbeef',
+          cookie: 'JSESSIONID=secret',
+          facilityId: 'FAC-01',
+        },
+      },
+    });
+
+    const payload = getAuditEventLog()[0]?.payload as Record<string, unknown>;
+    const details = (payload?.details ?? {}) as Record<string, unknown>;
+
+    expect(payload?.endpoint).toBe('/api/patient/search');
+    expect(payload?.query).toBeUndefined();
+    expect(payload?.rawXml).toBeUndefined();
+    expect(payload?.authorization).toBeUndefined();
+    expect(payload?.cookie).toBeUndefined();
+    expect(details.endpoint).toBe('/api/patient/search');
+    expect(details.query).toBeUndefined();
+    expect(details.rawXml).toBeUndefined();
+    expect(details.authorization).toBeUndefined();
+    expect(details.cookie).toBeUndefined();
+    expect(details.facilityId).toBe('FAC-01');
   });
 });
