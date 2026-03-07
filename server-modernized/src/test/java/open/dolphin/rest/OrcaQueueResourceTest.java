@@ -91,6 +91,7 @@ class OrcaQueueResourceTest {
     void liveModeRetryReturnsNotImplemented() {
         when(userServiceBean.isAdmin("F001:admin")).thenReturn(true);
         when(adminConfigStore.getSnapshot()).thenReturn(snapshot(false, true));
+        when(request.getRequestURI()).thenReturn("/api/orca/queue");
 
         Response response = resource.getQueue(request, "P001", "1");
 
@@ -100,12 +101,17 @@ class OrcaQueueResourceTest {
         assertThat(body.get("retryApplied")).isEqualTo(false);
         assertThat(body.get("retryReason")).isEqualTo("not_implemented");
         assertThat(body.get("retrySupported")).isEqualTo(false);
+        assertThat(body.get("error")).isEqualTo("not_implemented");
+        assertThat(body.get("code")).isEqualTo("not_implemented");
+        assertThat(body.get("errorCategory")).isEqualTo("server_error");
+        assertThat(body.get("path")).isEqualTo("/api/orca/queue");
     }
 
     @Test
     void retryWithoutPatientIdReturnsBadRequest() {
         when(userServiceBean.isAdmin("F001:admin")).thenReturn(true);
         when(adminConfigStore.getSnapshot()).thenReturn(snapshot(false, true));
+        when(request.getRequestURI()).thenReturn("/api/orca/queue");
 
         Response response = resource.getQueue(request, null, "1");
 
@@ -114,6 +120,10 @@ class OrcaQueueResourceTest {
         assertThat(body.get("retryRequested")).isEqualTo(true);
         assertThat(body.get("retryApplied")).isEqualTo(false);
         assertThat(body.get("retryReason")).isEqualTo("patientId_required");
+        assertThat(body.get("error")).isEqualTo("patientId_required");
+        assertThat(body.get("code")).isEqualTo("patientId_required");
+        assertThat(body.get("errorCategory")).isEqualTo("validation_error");
+        assertThat(body.get("path")).isEqualTo("/api/orca/queue");
     }
 
     @Test

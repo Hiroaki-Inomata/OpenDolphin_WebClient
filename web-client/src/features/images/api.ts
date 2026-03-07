@@ -1,12 +1,12 @@
 import { logAuditEvent } from '../../libs/audit/auditLogger';
 import { buildHttpHeaders, httpFetch } from '../../libs/http/httpClient';
 import { captureObservabilityFromResponse, ensureObservabilityMeta, getObservabilityMeta } from '../../libs/observability/observability';
+import { fetchPatientImages } from './patientImagesApi';
 
-const IMAGE_LIST_ENDPOINT = '/karte/images';
-const IMAGE_LIST_TYPO_ENDPOINT = '/karte/iamges';
 const IMAGE_DETAIL_ENDPOINT = '/karte/image';
 const ATTACHMENT_ENDPOINT = '/karte/attachment';
 const DOCUMENT_ENDPOINT = '/karte/document';
+const INVALID_DOC_PK = -1;
 
 export type KarteImageListItem = {
   id: number;
@@ -26,10 +26,11 @@ export type KarteImageListResult = {
   page?: number;
   total?: number;
   meta?: Record<string, unknown>;
-  rawXml?: string;
   runId?: string;
   traceId?: string;
   error?: string;
+  errorCode?: string;
+  message?: string;
 };
 
 export type KarteImageDetailResult = {
@@ -111,6 +112,7 @@ export type KarteDocumentSendResult = {
   ok: boolean;
   status: number;
   endpoint: string;
+  docPk: number;
   payload?: Record<string, unknown>;
   rawText?: string;
   runId?: string;
@@ -185,6 +187,24 @@ const logImageApiAudit = (params: {
     },
   });
 };
+
+const parsePositiveDocPk = (value: unknown) => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && Number.isInteger(value) && value > 0 ? value : null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) return null;
+    const parsed = Number.parseInt(trimmed, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
+};
+
+const extractDocPk = (payload?: Record<string, unknown>, rawText?: string) =>
+  parsePositiveDocPk((payload?.payload as Record<string, unknown> | undefined)?.docPk) ??
+  parsePositiveDocPk(payload ? payload.docPk : undefined) ??
+  parsePositiveDocPk(rawText);
 
 // Validation policy:
 // - Missing extension is allowed only when contentType is image/* and maps to a known extension.
@@ -301,11 +321,15 @@ export const buildAttachmentReferencePayload = (params: {
 };
 
 const parseMaybeJson = async (response: Response) => {
-  const contentType = response.headers.get('Content-Type') ?? '';
-  if (contentType.includes('application/json')) {
-    return { json: (await response.json()) as Record<string, unknown> };
+  const text = await response.text();
+  if (!text) {
+    return { json: undefined as Record<string, unknown> | undefined, text: undefined as string | undefined };
   }
-  return { text: await response.text() };
+  try {
+    return { json: JSON.parse(text) as Record<string, unknown>, text };
+  } catch {
+    return { json: undefined as Record<string, unknown> | undefined, text };
+  }
 };
 
 export async function fetchKarteImageList(params: {
@@ -315,56 +339,56 @@ export async function fetchKarteImageList(params: {
   to?: string;
   allowTypoFallback?: boolean;
 }): Promise<KarteImageListResult> {
-  const metaBefore = ensureObservabilityMeta();
-  const query = new URLSearchParams();
-  if (params.chartId) query.set('chartId', params.chartId);
-  if (params.karteId) query.set('karteId', params.karteId);
-  if (params.from) query.set('from', params.from);
-  if (params.to) query.set('to', params.to);
-
-  const buildUrl = (endpoint: string) => (query.toString() ? `${endpoint}?${query.toString()}` : endpoint);
-
-  const primaryEndpoint = buildUrl(IMAGE_LIST_ENDPOINT);
-  let response = await httpFetch(primaryEndpoint, { method: 'GET' });
-  let endpointUsed = primaryEndpoint;
-
-  if (!response.ok && params.allowTypoFallback !== false) {
-    const fallbackEndpoint = buildUrl(IMAGE_LIST_TYPO_ENDPOINT);
-    response = await httpFetch(fallbackEndpoint, { method: 'GET' });
-    endpointUsed = fallbackEndpoint;
+  const patientId = params.chartId ?? params.karteId;
+  if (!patientId) {
+    const meta = ensureObservabilityMeta();
+    return {
+      ok: false,
+      status: 0,
+      endpoint: '/patients/{patientId}/images',
+      list: [],
+      runId: meta.runId,
+      traceId: meta.traceId,
+      error: 'patient_id_required',
+      errorCode: 'patient_id_required',
+      message: '患者IDが必要です。',
+    };
   }
-
-  const parsed = await parseMaybeJson(response);
-  const payload = parsed.json;
-  const list = Array.isArray(payload?.list) ? (payload?.list as KarteImageListItem[]) : [];
-  const page = typeof payload?.page === 'number' ? (payload.page as number) : undefined;
-  const total = typeof payload?.total === 'number' ? (payload.total as number) : undefined;
-  const metaAfter = getObservabilityMeta();
+  const response = await fetchPatientImages(patientId);
+  const list = response.list.map((item) => ({
+    id: item.imageId,
+    title: item.fileName,
+    fileName: item.fileName,
+    contentType: item.contentType,
+    contentSize: item.size,
+    recordedAt: item.createdAt,
+    thumbnailUrl: item.downloadUrl,
+  }));
   const result: KarteImageListResult = {
     ok: response.ok,
     status: response.status,
-    endpoint: endpointUsed,
+    endpoint: response.endpoint,
     list,
-    page,
-    total,
-    meta: typeof payload?.meta === 'object' && payload?.meta !== null ? (payload.meta as Record<string, unknown>) : undefined,
-    rawXml: parsed.text,
-    runId: metaAfter.runId ?? metaBefore.runId,
-    traceId: metaAfter.traceId ?? metaBefore.traceId,
-    error: response.ok ? undefined : `HTTP ${response.status}`,
+    page: 1,
+    total: list.length,
+    runId: response.runId,
+    traceId: response.traceId,
+    error: response.error,
+    errorCode: response.errorCode,
+    message: response.message,
   };
 
   logImageApiAudit({
     operation: 'list',
-    endpoint: endpointUsed,
+    endpoint: response.endpoint,
     ok: result.ok,
     status: result.status,
     runId: result.runId,
     traceId: result.traceId,
     details: {
       recordsReturned: list.length,
-      page,
-      total,
+      page: 1,
+      total: list.length,
     },
   });
 
@@ -450,6 +474,7 @@ export async function sendKarteDocumentWithAttachments(
       ok: false,
       status: 0,
       endpoint: DOCUMENT_ENDPOINT,
+      docPk: INVALID_DOC_PK,
       runId: metaAfter.runId ?? metaBefore.runId,
       traceId: metaAfter.traceId ?? metaBefore.traceId,
       error: 'validation_failed',
@@ -477,15 +502,18 @@ export async function sendKarteDocumentWithAttachments(
   });
   const parsed = await parseMaybeJson(response);
   const metaAfter = getObservabilityMeta();
+  const resolvedDocPk = response.ok ? extractDocPk(parsed.json, parsed.text) : null;
+  const ok = response.ok && resolvedDocPk !== null;
   const result: KarteDocumentSendResult = {
-    ok: response.ok,
+    ok,
     status: response.status,
     endpoint: DOCUMENT_ENDPOINT,
+    docPk: resolvedDocPk ?? INVALID_DOC_PK,
     payload: parsed.json,
     rawText: parsed.text,
     runId: metaAfter.runId ?? metaBefore.runId,
     traceId: metaAfter.traceId ?? metaBefore.traceId,
-    error: response.ok ? undefined : `HTTP ${response.status}`,
+    error: !response.ok ? `HTTP ${response.status}` : resolvedDocPk === null ? 'invalid_doc_pk' : undefined,
   };
 
   logImageApiAudit({
@@ -497,7 +525,7 @@ export async function sendKarteDocumentWithAttachments(
     traceId: result.traceId,
     details: {
       attachmentsSent: payload.attachment?.length ?? 0,
-      documentId: payload.id,
+      documentId: resolvedDocPk ?? payload.id,
     },
   });
 
@@ -572,27 +600,29 @@ export function sendKarteDocumentWithAttachmentsViaXhr(
       captureObservabilityFromResponse(response);
       const metaAfter = getObservabilityMeta();
       let payloadData: Record<string, unknown> | undefined;
-      let rawText: string | undefined;
-      const contentType = headers.get('Content-Type') ?? '';
-      if (contentType.includes('application/json')) {
+      let rawText = xhr.responseText ?? '';
+      if (rawText) {
         try {
-          payloadData = JSON.parse(xhr.responseText ?? '{}') as Record<string, unknown>;
+          payloadData = JSON.parse(rawText) as Record<string, unknown>;
         } catch {
-          rawText = xhr.responseText ?? '';
+          payloadData = undefined;
         }
-      } else {
-        rawText = xhr.responseText ?? '';
       }
+      const resolvedDocPk = xhr.status >= 200 && xhr.status < 300 ? extractDocPk(payloadData, rawText) : null;
+      const ok = xhr.status >= 200 && xhr.status < 300 && resolvedDocPk !== null;
 
       resolve({
-        ok: xhr.status >= 200 && xhr.status < 300,
+        ok,
         status: xhr.status,
         endpoint,
+        docPk: resolvedDocPk ?? INVALID_DOC_PK,
         payload: payloadData,
         rawText,
         runId: metaAfter.runId ?? metaBefore.runId,
         traceId: metaAfter.traceId ?? metaBefore.traceId,
-        error: xhr.status >= 200 && xhr.status < 300 ? undefined : `HTTP ${xhr.status}`,
+        error: xhr.status >= 200 && xhr.status < 300
+          ? resolvedDocPk === null ? 'invalid_doc_pk' : undefined
+          : `HTTP ${xhr.status}`,
         progressMode,
       });
     };
@@ -603,6 +633,7 @@ export function sendKarteDocumentWithAttachmentsViaXhr(
         ok: false,
         status: 0,
         endpoint,
+        docPk: INVALID_DOC_PK,
         runId: metaAfter.runId ?? metaBefore.runId,
         traceId: metaAfter.traceId ?? metaBefore.traceId,
         error: 'network_error',
@@ -616,6 +647,7 @@ export function sendKarteDocumentWithAttachmentsViaXhr(
         ok: false,
         status: 0,
         endpoint,
+        docPk: INVALID_DOC_PK,
         runId: metaAfter.runId ?? metaBefore.runId,
         traceId: metaAfter.traceId ?? metaBefore.traceId,
         error: 'timeout',

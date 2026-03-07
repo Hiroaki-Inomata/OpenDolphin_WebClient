@@ -3,20 +3,20 @@ import { useQuery } from '@tanstack/react-query';
 
 import {
   fetchKarteImageList,
-  sendKarteDocumentWithAttachmentsViaXhr,
   validateAttachmentPayload,
   IMAGE_ATTACHMENT_ALLOWED_EXTENSIONS,
   IMAGE_ATTACHMENT_MAX_SIZE_BYTES,
   type UploadProgressMode,
   type KarteImageListItem,
 } from '../api';
-import { buildAttachmentPayload, buildImageDocumentPayload, formatBytes } from '../imageUploader';
+import { buildAttachmentPayload, formatBytes } from '../imageUploader';
 import { logAuditEvent } from '../../../libs/audit/auditLogger';
 import { recordOutpatientFunnel } from '../../../libs/telemetry/telemetryClient';
 import { ensureObservabilityMeta, resolveAriaLive, resolveRunId } from '../../../libs/observability/observability';
 import { safeSameOriginHttpUrl } from '../../../libs/security/safeUrl';
 import { ImageCameraCapture } from './ImageCameraCapture';
 import { ImageDropzone } from './ImageDropzone';
+import { uploadPatientImageViaXhr } from '../mobileApi';
 
 type UploadStatus = 'queued' | 'uploading' | 'success' | 'error';
 
@@ -44,6 +44,7 @@ const formatRecordedAt = (value?: string) => {
 };
 
 const buildUploadId = () => `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const FEATURE_DISABLED_MESSAGE = '患者画像機能はサーバーで無効化されています。';
 
 export function ImageDockedPanel({
   patientId,
@@ -96,11 +97,12 @@ export function ImageDockedPanel({
 
   const imageListQuery = useQuery({
     queryKey: ['karte-image-list', patientId],
-    queryFn: () => fetchKarteImageList({ chartId: patientId, allowTypoFallback: true }),
+    queryFn: () => fetchKarteImageList({ chartId: patientId }),
     enabled: Boolean(patientId),
   });
 
   const listItems = imageListQuery.data?.list ?? [];
+  const imagesFeatureDisabled = imageListQuery.data?.errorCode === 'feature_disabled';
 
   const maxSizeLabel = useMemo(() => {
     return `最大 ${formatBytes(IMAGE_ATTACHMENT_MAX_SIZE_BYTES)}`;
@@ -207,14 +209,14 @@ export function ImageDockedPanel({
       recordTelemetry({
         outcome: 'started',
         contentSize: item.file.size,
-        endpoint: '/karte/document',
+        endpoint: '/patients/{patientId}/images',
         fileName: item.file.name,
         progressMode: startMode,
       });
       recordAudit({
         outcome: 'started',
         contentSize: item.file.size,
-        endpoint: '/karte/document',
+        endpoint: '/patients/{patientId}/images',
         fileName: item.file.name,
         progressMode: startMode,
       });
@@ -229,7 +231,7 @@ export function ImageDockedPanel({
           recordTelemetry({
             outcome: 'error',
             contentSize: item.file.size,
-            endpoint: '/karte/document',
+            endpoint: '/patients/{patientId}/images',
             reason: 'validation_failed',
             fileName: item.file.name,
             progressMode: resolveProgressMode(itemId),
@@ -237,7 +239,7 @@ export function ImageDockedPanel({
           recordAudit({
             outcome: 'error',
             contentSize: item.file.size,
-            endpoint: '/karte/document',
+            endpoint: '/patients/{patientId}/images',
             fileName: item.file.name,
             error: message,
             reason: 'validation_failed',
@@ -245,14 +247,9 @@ export function ImageDockedPanel({
           });
           return;
         }
-        const payload = buildImageDocumentPayload({
-          attachments: [attachment],
-          patientId,
-          // Use file name as a stable default title so list items are distinguishable even before server-side metadata is added.
-          title: item.file.name,
-        });
-        const result = await sendKarteDocumentWithAttachmentsViaXhr(payload, {
-          method: 'PUT',
+        const result = await uploadPatientImageViaXhr({
+          patientId: patientId ?? '',
+          file: item.file,
           onProgress: (event) => {
             updateUploadItem(itemId, (current) => ({
               ...current,
@@ -262,7 +259,7 @@ export function ImageDockedPanel({
           },
         });
         if (!result.ok) {
-          const message = result.error ?? `HTTP ${result.status}`;
+          const message = result.errorCode === 'feature_disabled' ? FEATURE_DISABLED_MESSAGE : result.error ?? `HTTP ${result.status}`;
           updateUploadItem(itemId, (current) => ({
             ...current,
             status: 'error',
@@ -324,7 +321,7 @@ export function ImageDockedPanel({
         recordTelemetry({
           outcome: 'error',
           contentSize: item.file.size,
-          endpoint: '/karte/document',
+          endpoint: '/patients/{patientId}/images',
           reason: 'upload_failed',
           fileName: item.file.name,
           progressMode: resolveProgressMode(itemId),
@@ -332,7 +329,7 @@ export function ImageDockedPanel({
         recordAudit({
           outcome: 'error',
           contentSize: item.file.size,
-          endpoint: '/karte/document',
+          endpoint: '/patients/{patientId}/images',
           fileName: item.file.name,
           error: message,
           reason: 'upload_failed',
@@ -450,7 +447,7 @@ export function ImageDockedPanel({
       ) : null}
 
       <div className="charts-image-panel__upload">
-        <ImageDropzone onFiles={enqueueFiles} disabled={!patientId} maxSizeLabel={maxSizeLabel} />
+        <ImageDropzone onFiles={enqueueFiles} disabled={!patientId || imagesFeatureDisabled} maxSizeLabel={maxSizeLabel} />
         <div className="charts-image-panel__queue" data-test-id="image-upload-queue">
           <h4>アップロード状況</h4>
           {uploadItems.length === 0 ? (
@@ -506,7 +503,7 @@ export function ImageDockedPanel({
         </div>
         <ImageCameraCapture
           onCapture={(file) => enqueueFiles([file])}
-          disabled={!patientId}
+          disabled={!patientId || imagesFeatureDisabled}
           onCameraError={(reason, message) => {
             setStatusMessage({ tone: 'error', message });
             recordTelemetry({
@@ -543,6 +540,10 @@ export function ImageDockedPanel({
           <p className="charts-image-panel__empty" role="status" aria-live={infoLive}>
             読み込み中…
           </p>
+        ) : imagesFeatureDisabled ? (
+          <div className="charts-image-panel__error" role="alert" aria-live="assertive">
+            {FEATURE_DISABLED_MESSAGE}
+          </div>
         ) : imageListQuery.isError || (imageListQuery.data && !imageListQuery.data.ok) ? (
           <div className="charts-image-panel__error" role="alert" aria-live="assertive">
             画像一覧の取得に失敗しました。再取得してください。

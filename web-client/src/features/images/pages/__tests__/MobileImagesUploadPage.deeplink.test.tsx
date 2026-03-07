@@ -88,4 +88,33 @@ describe('MobileImagesUploadPage deeplink fallback', () => {
     expect(document.querySelector('[data-test-id="mobile-image-file-input"]')).toBeDisabled();
     expect(vi.mocked(fetchPatientImageList)).not.toHaveBeenCalled();
   });
+
+  it('feature_disabled は専用メッセージを表示する', async () => {
+    vi.mocked(fetchPatientImageList).mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      endpoint: '/patients/123/images',
+      list: [],
+      error: 'HTTP 404',
+      errorCode: 'feature_disabled',
+    } as any);
+    sessionStorage.setItem(
+      DEEPLINK_CTX_KEY,
+      JSON.stringify({
+        savedAt: new Date().toISOString(),
+        values: { patientId: '123' },
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/f/0001/m/images']}>
+        <MobileImagesUploadPage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('患者画像機能はサーバーで無効化されています。')).toBeInTheDocument();
+    });
+    expect(document.querySelector('[data-test-id="mobile-image-send"]')).toBeDisabled();
+  });
 });

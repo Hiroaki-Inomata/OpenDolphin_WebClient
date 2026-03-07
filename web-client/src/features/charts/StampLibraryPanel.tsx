@@ -3,8 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 
 import { readStoredAuth } from '../../libs/auth/storedAuth';
 import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
+import { useOptionalSession } from '../../AppRouter';
+import { readStoredSession } from '../../libs/session/storedSession';
 import type { OrderBundleItem } from './orderBundleApi';
-import { fetchStampDetail, fetchStampTree, fetchUserProfile, type StampBundleJson, type StampTree } from './stampApi';
+import { fetchStampDetail, fetchStampTree, type StampBundleJson, type StampTree } from './stampApi';
 import {
   deleteLocalStamp,
   loadLocalStamps,
@@ -168,8 +170,19 @@ const toStampKey = (item: StampListItem) => (item.source === 'local' ? `local::$
 
 export function StampLibraryPanel({ phase }: StampLibraryPanelProps) {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const session = useOptionalSession();
   const storedAuth = useMemo(() => readStoredAuth(), []);
+  const storedSession = useMemo(() => readStoredSession(), []);
   const userName = storedAuth ? `${storedAuth.facilityId}:${storedAuth.userId}` : null;
+  const userPk = useMemo(() => {
+    if (typeof session?.userPk === 'number' && Number.isFinite(session.userPk) && session.userPk > 0) {
+      return session.userPk;
+    }
+    if (typeof storedSession?.userPk === 'number' && Number.isFinite(storedSession.userPk) && storedSession.userPk > 0) {
+      return storedSession.userPk;
+    }
+    return undefined;
+  }, [session?.userPk, storedSession?.userPk]);
 
   const [query, setQuery] = useState('');
   const [entityFilter, setEntityFilter] = useState<EntityFilter>('all');
@@ -197,24 +210,13 @@ export function StampLibraryPanel({ phase }: StampLibraryPanelProps) {
     setClipboard(loadStampClipboard(userName));
   }, [userName]);
 
-  const userProfileQuery = useQuery({
-    queryKey: ['stamp-library-profile', userName],
-    queryFn: () => {
-      if (!userName) throw new Error('userName is required');
-      return fetchUserProfile(userName);
-    },
-    enabled: Boolean(userName),
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const userPk = userProfileQuery.data?.id;
   const stampTreeQuery = useQuery({
     queryKey: ['stamp-library-tree', userPk],
     queryFn: () => {
       if (!userPk) throw new Error('userPk is required');
       return fetchStampTree(userPk);
     },
-    enabled: typeof userPk === 'number',
+    enabled: typeof userPk === 'number' && userPk > 0,
   });
 
   const trees = stampTreeQuery.data?.trees ?? [];
@@ -632,10 +634,8 @@ export function StampLibraryPanel({ phase }: StampLibraryPanelProps) {
 
       {!userName ? (
         <p className="charts-side-panel__message">ログイン情報が取得できないため、サーバースタンプは表示できません。</p>
-      ) : userProfileQuery.isError ? (
-        <p className="charts-side-panel__message">ユーザープロファイルの取得に失敗しました。ローカルのみ利用できます。</p>
-      ) : userProfileQuery.isSuccess && (!userProfileQuery.data?.ok || typeof userProfileQuery.data?.id !== 'number') ? (
-        <p className="charts-side-panel__message">ユーザー情報が見つからず、サーバースタンプは利用できません。</p>
+      ) : !userPk ? (
+        <p className="charts-side-panel__message">セッションに userPk が無いため、サーバースタンプは利用できません。</p>
       ) : null}
 
       <section>

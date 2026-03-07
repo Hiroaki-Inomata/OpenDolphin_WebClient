@@ -145,25 +145,22 @@ export const OUTPATIENT_API_ENDPOINTS: readonly HttpEndpointDefinition[] = [
 
 export const KARTE_IMAGE_API_ENDPOINTS: readonly HttpEndpointDefinition[] = [
   {
-    id: 'karteImages',
+    id: 'patientImagesList',
     group: 'images',
     method: 'GET',
-    path: '/karte/images',
-    purpose: 'カルテ画像の一覧（Charts 添付/画像タブ想定）を取得する。',
+    path: '/patients/{patientId}/images',
+    purpose: '患者画像の一覧を取得し、Charts / Mobile Images UI へ共通供給する。',
     auditMetadata: ['runId', 'traceId', 'recordsReturned', 'fetchedAt'],
-    sourceDocs: ['artifacts/api-stability/20251123T130134Z/mocks/images-placeholder.md'],
+    sourceDocs: ['docs/server-modernization/README.md', 'docs/web-client/CURRENT.md'],
   },
   {
-    id: 'karteIamgesTypo',
+    id: 'patientImagesUpload',
     group: 'images',
-    method: 'GET',
-    path: '/karte/iamges',
-    purpose: 'カルテ画像一覧の legacy typo エンドポイント（暫定互換）。',
-    auditMetadata: ['runId', 'traceId', 'recordsReturned', 'fetchedAt'],
-    sourceDocs: [
-      'src/server_modernized_gap_20251221/02_karte_gap/KRT_03_karte_image_PathParam修正.md',
-      'docs/web-client/architecture/karte-image-typo-support.md',
-    ],
+    method: 'POST',
+    path: '/patients/{patientId}/images',
+    purpose: '患者画像を multipart/form-data でアップロードする。',
+    auditMetadata: ['runId', 'traceId', 'patientId', 'imageId', 'documentId', 'fetchedAt'],
+    sourceDocs: ['docs/server-modernization/README.md', 'docs/web-client/CURRENT.md'],
   },
   {
     id: 'karteImageDetail',

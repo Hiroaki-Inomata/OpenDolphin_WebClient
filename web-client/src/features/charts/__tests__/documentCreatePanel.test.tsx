@@ -6,9 +6,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { DocumentCreatePanel } from '../DocumentCreatePanel';
 import { logUiState } from '../../../libs/audit/auditLogger';
 import { buildScopedStorageKey } from '../../../libs/session/storageScope';
+import { AUTH_SESSION_STORAGE_KEY } from '../../../libs/session/authStorage';
 import { IMAGE_ATTACHMENT_MAX_SIZE_BYTES, sendKarteDocumentWithAttachments } from '../../images/api';
 import { recordChartsAuditEvent } from '../audit';
-import { fetchUserProfile } from '../stampApi';
 import {
   deleteLetter,
   fetchKarteIdByPatientId,
@@ -43,10 +43,6 @@ vi.mock('../../../libs/audit/auditLogger', () => ({
 
 vi.mock('../audit', () => ({
   recordChartsAuditEvent: vi.fn(),
-}));
-
-vi.mock('../stampApi', () => ({
-  fetchUserProfile: vi.fn(),
 }));
 
 vi.mock('../letterApi', () => ({
@@ -141,7 +137,17 @@ const fillRequiredFields = async (user: ReturnType<typeof userEvent.setup>) => {
 beforeEach(() => {
   localStorage.setItem('devFacilityId', '0001');
   localStorage.setItem('devUserId', 'user01');
-  vi.mocked(fetchUserProfile).mockResolvedValue({ ok: true, id: 101, userId: 'user01' });
+  sessionStorage.setItem(
+    AUTH_SESSION_STORAGE_KEY,
+    JSON.stringify({
+      facilityId: '0001',
+      userId: 'user01',
+      userPk: 101,
+      role: 'doctor',
+      runId: 'RUN-DOC',
+      clientUuid: 'client-doc',
+    }),
+  );
   vi.mocked(fetchKarteIdByPatientId).mockResolvedValue({ ok: true, karteId: 201 });
   vi.mocked(fetchLetterList).mockResolvedValue({ ok: true, letters: [] });
   vi.mocked(fetchLetterDetail).mockResolvedValue({ ok: true, letter: makeReferralDetail() });
@@ -154,7 +160,6 @@ afterEach(() => {
   sessionStorage.clear();
   vi.mocked(recordChartsAuditEvent).mockReset();
   vi.mocked(sendKarteDocumentWithAttachments).mockReset();
-  vi.mocked(fetchUserProfile).mockReset();
   vi.mocked(fetchKarteIdByPatientId).mockReset();
   vi.mocked(fetchLetterList).mockReset();
   vi.mocked(fetchLetterDetail).mockReset();
@@ -446,6 +451,7 @@ describe('DocumentCreatePanel', () => {
       ok: true,
       status: 200,
       endpoint: '/karte/document',
+      docPk: 2001,
       payload: { docPk: 2001 },
     });
 
@@ -462,6 +468,9 @@ describe('DocumentCreatePanel', () => {
     const attachEvents = events.filter((event) => event.action === 'chart_image_attach');
     expect(attachEvents).toHaveLength(1);
     expect(attachEvents[0]?.outcome).toBe('success');
+    const savedPayload = vi.mocked(saveLetterModule).mock.calls.at(-1)?.[0] as { payload?: { letterItems?: Array<{ name?: string; value?: string }> } };
+    const documentIdItem = savedPayload.payload?.letterItems?.find((item) => item.name === 'webDocumentId');
+    expect(documentIdItem?.value).toBe('2001');
   });
 
   it('添付サイズ超過は aria-live で通知し監査ログを残す', async () => {
@@ -504,6 +513,7 @@ describe('DocumentCreatePanel', () => {
       ok: false,
       status: 500,
       endpoint: '/karte/document',
+      docPk: -1,
       error: 'HTTP 500',
     });
 

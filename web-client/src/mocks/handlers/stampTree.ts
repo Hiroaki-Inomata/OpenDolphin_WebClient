@@ -35,7 +35,7 @@ export const stampTreeHandlers = [
       200,
     );
   }),
-  http.get('/touch/stampTree/:userPk', ({ params, request }) => {
+  http.get('/stamp/tree/:userPk', ({ params, request }) => {
     const runId = generateRunId();
     const traceId = generateTraceId();
     const userPk = String(params.userPk ?? '');
@@ -76,7 +76,7 @@ export const stampTreeHandlers = [
       200,
     );
   }),
-  http.get('/touch/stamp/:stampId', ({ params }) => {
+  http.get('/stamp/id/:stampId', ({ params }) => {
     const runId = generateRunId();
     const traceId = generateTraceId();
     const stampId = String(params.stampId ?? '');

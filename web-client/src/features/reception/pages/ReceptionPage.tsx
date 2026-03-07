@@ -62,7 +62,7 @@ import { useAppNavigation } from '../../../routes/useAppNavigation';
 import type { ClaimBundle, ClaimQueueEntry, ClaimQueuePhase } from '../../outpatient/types';
 import { countAppointmentDataIntegrity, getAppointmentDataBanner } from '../../outpatient/appointmentDataBanner';
 import type { OrcaQueueEntry } from '../../outpatient/orcaQueueApi';
-import { fetchOrcaQueue, retryOrcaQueue } from '../../outpatient/orcaQueueApi';
+import { fetchOrcaQueue, resolveOrcaQueueRetryUiFeedback, retryOrcaQueue } from '../../outpatient/orcaQueueApi';
 import { ORCA_QUEUE_STALL_THRESHOLD_MS, resolveOrcaSendStatus, toClaimQueueEntryFromOrcaQueueEntry } from '../../outpatient/orcaQueueStatus';
 import {
   buildExceptionAuditDetails,
@@ -387,6 +387,8 @@ const resolveRec001MvpDecision = (options: {
   orcaQueueErrorMessage?: string;
   orcaQueueStatus: ReturnType<typeof resolveOrcaQueueStatus>;
   orcaQueueEntry?: OrcaQueueEntry;
+  isSystemAdmin: boolean;
+  retrySupported: boolean;
 }): Rec001MvpDecision => {
   if (options.missingMaster) {
     return {
@@ -416,26 +418,38 @@ const resolveRec001MvpDecision = (options: {
     };
   }
   if (options.orcaQueueEntry?.status === 'failed') {
-    const retryable = options.orcaQueueEntry.retryable !== false;
+    const retryable = options.isSystemAdmin && options.retrySupported && options.orcaQueueEntry.retryable !== false;
     return {
       label: options.orcaQueueStatus.label,
       tone: 'error',
       detail: options.orcaQueueStatus.detail,
-      nextAction: retryable ? '再送' : '原因確認',
+      nextAction: retryable ? '再送' : options.retrySupported ? '原因確認' : '再送未対応',
       canRetry: retryable,
-      retryTitle: retryable ? 'ORCA再送を要求します（/api/orca/queue?retry=1）' : 'retryable=false のため再送できません',
+      retryTitle: retryable
+        ? 'ORCA再送を要求します（/api/orca/queue?retry=1）'
+        : !options.isSystemAdmin
+          ? 'system_admin のみ再送できます'
+          : !options.retrySupported
+            ? 'この環境では ORCA 再送は未実装です'
+            : 'retryable=false のため再送できません',
     };
   }
   if (options.orcaQueueEntry?.status === 'pending') {
     const stalled = Boolean(resolveOrcaSendStatus(options.orcaQueueEntry)?.isStalled);
-    const retryable = stalled && options.orcaQueueEntry.retryable !== false;
+    const retryable = stalled && options.isSystemAdmin && options.retrySupported && options.orcaQueueEntry.retryable !== false;
     return {
       label: options.orcaQueueStatus.label,
       tone: 'warning',
       detail: options.orcaQueueStatus.detail,
-      nextAction: retryable ? '再送' : '待機/滞留確認',
+      nextAction: retryable ? '再送' : options.retrySupported ? '待機/滞留確認' : '再送未対応',
       canRetry: retryable,
-      retryTitle: retryable ? '滞留のため ORCA再送を要求します（/api/orca/queue?retry=1）' : undefined,
+      retryTitle: retryable
+        ? '滞留のため ORCA再送を要求します（/api/orca/queue?retry=1）'
+        : !options.isSystemAdmin
+          ? 'system_admin のみ再送できます'
+          : !options.retrySupported
+            ? 'この環境では ORCA 再送は未実装です'
+            : undefined,
     };
   }
   if (options.orcaQueueEntry?.status === 'delivered') {
@@ -3646,6 +3660,13 @@ export function ReceptionPage({
       }
       const patientId = entry.patientId;
       if (!patientId) return;
+      if (orcaQueueQuery.data?.retrySupported !== true) {
+        enqueue({
+          tone: 'info',
+          message: 'この環境では ORCA 再送は未実装です。',
+        });
+        return;
+      }
       const baseRunId = mergedMeta.runId ?? initialRunId ?? flags.runId;
       setRetryingPatientId(patientId);
       const started = performance.now();
@@ -3653,15 +3674,17 @@ export function ReceptionPage({
         const data = await retryOrcaQueue(patientId, { enabled: isSystemAdmin });
         queryClient.setQueryData(orcaQueueQueryKey, data);
         const durationMs = Math.round(performance.now() - started);
+        const feedback = resolveOrcaQueueRetryUiFeedback(data);
         const detailParts = [
+          feedback.detail,
           data.source ? `source=${data.source}` : undefined,
           `queue=${data.queue.length}`,
           data.verifyAdminDelivery ? 'verify=on' : undefined,
           `duration=${durationMs}ms`,
         ].filter((value): value is string => Boolean(value));
         enqueue({
-          tone: 'info',
-          message: 'ORCA再送を要求しました',
+          tone: feedback.tone,
+          message: feedback.message,
           detail: detailParts.join(' / '),
         });
         logUiState({
@@ -3685,11 +3708,13 @@ export function ReceptionPage({
           patientId,
           payload: {
             action: 'RECEPTION_QUEUE_RETRY',
-            result: 'success',
+            result: feedback.tone === 'success' ? 'success' : feedback.tone === 'error' ? 'error' : 'info',
             queueSource: data.source,
             queueEntries: data.queue.length,
             verifyAdminDelivery: data.verifyAdminDelivery,
             durationMs,
+            retryApplied: data.retryApplied,
+            retryReason: data.retryReason,
           },
         });
       } catch (error) {
@@ -3718,6 +3743,7 @@ export function ReceptionPage({
       mergedMeta.dataSourceTransition,
       mergedMeta.missingMaster,
       mergedMeta.runId,
+      orcaQueueQuery.data?.retrySupported,
       orcaQueueQueryKey,
       queryClient,
     ],
@@ -5159,6 +5185,8 @@ export function ReceptionPage({
                                 orcaQueueErrorMessage,
                                 orcaQueueStatus,
                                 orcaQueueEntry,
+                                isSystemAdmin,
+                                retrySupported: orcaQueueQuery.data?.retrySupported === true,
                               })
                             : null;
                           const cached = entry.patientId ? claimSendCache[entry.patientId] : null;
@@ -5542,6 +5570,8 @@ export function ReceptionPage({
                                   orcaQueueErrorMessage,
                                   orcaQueueStatus,
                                   orcaQueueEntry,
+                                  isSystemAdmin,
+                                  retrySupported: orcaQueueQuery.data?.retrySupported === true,
                                 })
                               : null;
                             const fallbackAppointmentId =

@@ -24,6 +24,15 @@ const respondJson = (body: Record<string, unknown>, headers: Record<string, stri
     },
   });
 
+const respondText = (body: string, headers: Record<string, string> = {}, status = 200) =>
+  new HttpResponse(body, {
+    status,
+    headers: {
+      'content-type': 'text/plain; charset=UTF-8',
+      ...headers,
+    },
+  });
+
 const logRequest = (label: string, request: Request) => {
   const { runId, traceId } = resolveAuditHeaders(request);
   if (typeof console !== 'undefined') {
@@ -36,16 +45,6 @@ const logRequest = (label: string, request: Request) => {
     });
   }
   return { runId, traceId };
-};
-
-const parseChartKey = (request: Request) => {
-  try {
-    const url = new URL(request.url);
-    // chartId is the patientId in this repo's client implementation.
-    return url.searchParams.get('chartId') ?? url.searchParams.get('karteId') ?? 'default';
-  } catch {
-    return 'default';
-  }
 };
 
 // NOTE: In-memory MSW store (dev-only). Supports "upload -> list contains it" proof while server API is pending.
@@ -80,46 +79,6 @@ const THUMBNAIL_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/axlN9cAAAAASUVORK5CYII=';
 
 export const karteImageHandlers = [
-  http.get('/karte/images', ({ request }) => {
-    const { runId, traceId } = logRequest('list', request);
-    const chartKey = parseChartKey(request);
-    ensureSeeded(chartKey);
-    const list = imageStoreByChart.get(chartKey) ?? [];
-    return respondJson(
-      {
-        ok: true,
-        list,
-        page: 1,
-        total: list.length,
-        meta: { placeholder: false, maxSizeBytes: 5 * 1024 * 1024 },
-        runId,
-        traceId,
-      },
-      {
-        'x-run-id': runId,
-        'x-trace-id': traceId,
-      },
-    );
-  }),
-  http.get('/karte/iamges', ({ request }) => {
-    const { runId, traceId } = logRequest('list-typo', request);
-    return respondJson(
-      {
-        ok: true,
-        list: [],
-        page: 1,
-        total: 0,
-        meta: { placeholder: true, maxSizeBytes: 5 * 1024 * 1024 },
-        runId,
-        traceId,
-      },
-      {
-        'x-run-id': runId,
-        'x-trace-id': traceId,
-        'x-compat-mode': 'legacy-iamges',
-      },
-    );
-  }),
   http.get('/karte/image/:id', ({ request, params }) => {
     const { runId, traceId } = logRequest('detail', request);
     return respondJson(
@@ -164,9 +123,6 @@ export const karteImageHandlers = [
     const { runId, traceId } = logRequest('document-put', request);
     const payload = await request.json().catch(() => null);
     const attachments = Array.isArray((payload as any)?.attachment) ? ((payload as any).attachment as unknown[]) : [];
-    const attachmentIds = attachments
-      .map((entry: any) => (typeof entry?.id === 'number' ? entry.id : null))
-      .filter((value): value is number => typeof value === 'number');
     if (!payload || attachments.length === 0) {
       return respondJson(
         { ok: false, reason: 'missing_attachment', runId, traceId },
@@ -194,8 +150,8 @@ export const karteImageHandlers = [
       });
     });
     imageStoreByChart.set(chartKey, list);
-    return respondJson(
-      { ok: true, docPk: 9024, receivedAttachments: attachments.length, attachmentIds, runId, traceId },
+    return respondText(
+      '9024',
       { 'x-run-id': runId, 'x-trace-id': traceId },
       200,
     );
@@ -204,9 +160,6 @@ export const karteImageHandlers = [
     const { runId, traceId } = logRequest('document-post', request);
     const payload = await request.json().catch(() => null);
     const attachments = Array.isArray((payload as any)?.attachment) ? ((payload as any).attachment as unknown[]) : [];
-    const attachmentIds = attachments
-      .map((entry: any) => (typeof entry?.id === 'number' ? entry.id : null))
-      .filter((value): value is number => typeof value === 'number');
     if (!payload || attachments.length === 0) {
       return respondJson(
         { ok: false, reason: 'missing_attachment', runId, traceId },
@@ -234,8 +187,8 @@ export const karteImageHandlers = [
       });
     });
     imageStoreByChart.set(chartKey, list);
-    return respondJson(
-      { ok: true, docPk: 9025, receivedAttachments: attachments.length, attachmentIds, runId, traceId },
+    return respondText(
+      '9025',
       { 'x-run-id': runId, 'x-trace-id': traceId },
       200,
     );

@@ -6,6 +6,7 @@ import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
@@ -107,11 +108,17 @@ public class OrcaQueueResource extends AbstractResource {
             } else {
                 retryReason = "not_implemented";
             }
+            boolean retryApplied = retryOutcome != null && retryOutcome.applied();
             body.put("retryRequested", true);
-            body.put("retryApplied", retryOutcome != null && retryOutcome.applied());
+            body.put("retryApplied", retryApplied);
             body.put("retryReason", retryReason);
-            LOGGER.info("Orca queue retry requested but not applied (patientId={}, source={}, reason={})",
-                    patientId, useMock ? "mock" : "live", retryReason);
+            if (retryApplied) {
+                LOGGER.info("Orca queue retry applied (patientId={}, source={}, reason={})",
+                        patientId, useMock ? "mock" : "live", retryReason);
+            } else {
+                LOGGER.info("Orca queue retry requested but not applied (patientId={}, source={}, reason={})",
+                        patientId, useMock ? "mock" : "live", retryReason);
+            }
         } else {
             body.put("retryRequested", false);
         }
@@ -122,13 +129,31 @@ public class OrcaQueueResource extends AbstractResource {
         Response.Status status = Response.Status.OK;
         if (retryRequested) {
             if (patientId == null || patientId.isBlank()) {
-                status = Response.Status.BAD_REQUEST;
+                return buildErrorResponse(request, Response.Status.BAD_REQUEST, "patientId_required",
+                        "patientId が必要です。", body, runId, traceId, useMock, verify);
             } else if (!retrySupported) {
-                status = Response.Status.NOT_IMPLEMENTED;
+                return buildErrorResponse(request, Response.Status.NOT_IMPLEMENTED, "not_implemented",
+                        "この環境では ORCA 再送は未実装です。", body, runId, traceId, useMock, verify);
             }
         }
 
         Response.ResponseBuilder builder = Response.status(status).entity(body);
+        builder.header("x-run-id", runId);
+        builder.header("x-trace-id", traceId);
+        builder.header("x-orca-queue-mode", useMock ? "mock" : "live");
+        builder.header("x-admin-delivery-verification", verify ? "enabled" : "disabled");
+        return builder.build();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Response buildErrorResponse(HttpServletRequest request, Response.Status status, String errorCode, String message,
+            Map<String, Object> queueBody, String runId, String traceId, boolean useMock, boolean verify) {
+        WebApplicationException exception = restError(request, status, errorCode, message, queueBody, null);
+        Response errorResponse = exception.getResponse();
+        Map<String, Object> errorBody = errorResponse.getEntity() instanceof Map<?, ?>
+                ? new LinkedHashMap<>((Map<String, Object>) errorResponse.getEntity())
+                : new LinkedHashMap<>();
+        Response.ResponseBuilder builder = Response.status(status).type(MediaType.APPLICATION_JSON_TYPE).entity(errorBody);
         builder.header("x-run-id", runId);
         builder.header("x-trace-id", traceId);
         builder.header("x-orca-queue-mode", useMock ? "mock" : "live");
