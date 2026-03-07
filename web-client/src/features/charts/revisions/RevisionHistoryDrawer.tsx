@@ -176,8 +176,8 @@ export function RevisionHistoryDrawer({ open, onClose, meta, soapHistory }: Revi
           <h3 className="revision-drawer__title">版履歴</h3>
           <p className="revision-drawer__desc">
             {isRevisionEditEnabled
-              ? 'Phase2: 改訂/restore 導線は feature flag で有効化されています（best-effort）。'
-              : 'Phase1: 履歴/差分の表示のみ。改訂/復元/競合は未実装です。'}
+              ? '改訂/restore 導線は feature flag で有効化されています（試験運用）。'
+              : '履歴/差分の表示のみ対応しています。'}
           </p>
         </div>
         <button type="button" className="revision-drawer__close" onClick={onClose} aria-label="閉じる">
@@ -318,14 +318,7 @@ export function RevisionHistoryDrawer({ open, onClose, meta, soapHistory }: Revi
                     ) : null}
                   </>
                 ) : (
-                  <>
-                    <button type="button" disabled title="Phase2で実装予定">
-                      この版を改訂（未実装）
-                    </button>
-                    <button type="button" disabled title="Phase3で実装予定">
-                      この版を復元（未実装）
-                    </button>
-                  </>
+                  <span className="revision-drawer__action-hint">操作は無効（履歴閲覧のみ）</span>
                 )}
               </div>
             </li>
