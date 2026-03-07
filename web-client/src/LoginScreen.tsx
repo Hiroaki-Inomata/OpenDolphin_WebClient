@@ -75,6 +75,7 @@ type PendingSecondFactorState = {
 export interface SessionAuthResponse {
   facilityId?: string;
   userId?: string;
+  userPk?: number;
   displayName?: string;
   commonName?: string;
   roles?: Array<string | { role?: string }>;
@@ -85,6 +86,7 @@ export interface SessionAuthResponse {
 export type LoginResult = {
   facilityId: string;
   userId: string;
+  userPk?: number;
   displayName?: string;
   commonName?: string;
   clientUuid: string;
@@ -120,11 +122,15 @@ const assertLoginTargetIsAllowed = () => {
   }
 };
 
+const parseUserPk = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+
 export const normalizeSessionResult = (
   data: SessionAuthResponse,
   fallback: {
     facilityId: string;
     userId: string;
+    userPk?: number;
     clientUuid: string;
     runId: string;
   },
@@ -133,6 +139,7 @@ export const normalizeSessionResult = (
   return {
     facilityId: data.facilityId ?? fallback.facilityId,
     userId: data.userId ?? fallback.userId,
+    userPk: parseUserPk(data.userPk) ?? parseUserPk(fallback.userPk),
     displayName: data.displayName,
     commonName: data.commonName,
     clientUuid: data.clientUuid ?? fallback.clientUuid,

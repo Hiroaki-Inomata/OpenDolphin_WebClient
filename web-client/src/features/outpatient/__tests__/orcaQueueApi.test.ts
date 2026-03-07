@@ -25,7 +25,7 @@ vi.mock('../../../libs/observability/observability', () => ({
 }));
 
 import { httpFetch } from '../../../libs/http/httpClient';
-import { fetchOrcaPushEvents, fetchOrcaQueue } from '../orcaQueueApi';
+import { fetchOrcaPushEvents, fetchOrcaQueue, resolveOrcaQueueRetryUiFeedback, retryOrcaQueue } from '../orcaQueueApi';
 
 const mockHttpFetch = vi.mocked(httpFetch);
 
@@ -162,22 +162,87 @@ describe('orcaQueueApi fetchOrcaQueue', () => {
     expect(result.traceId).toBe('TRACE-OLD');
   });
 
-  it('403 は未利用扱いとして空レスポンスを返す', async () => {
-    mockHttpFetch.mockResolvedValueOnce(new Response('{}', { status: 403, headers: { 'x-run-id': 'RUN-403' } }));
+  it('403 は status と権限エラーを保持する', async () => {
+    mockHttpFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: 'forbidden', message: 'Access denied' }),
+        { status: 403, headers: { 'x-run-id': 'RUN-403', 'Content-Type': 'application/json' } },
+      ),
+    );
 
     const result = await fetchOrcaQueue();
 
     expect(mockHttpFetch).toHaveBeenCalledTimes(1);
     expect(result.queue).toEqual([]);
-    expect(result.runId).toBe('RUN-OLD');
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(403);
+    expect(result.runId).toBe('RUN-403');
+    expect(result.message).toContain('権限');
   });
 
-  it('404 は未提供扱いとして空レスポンスを返す', async () => {
-    mockHttpFetch.mockResolvedValueOnce(new Response('{}', { status: 404 }));
+  it('retry response の capability と retry 結果を保持する', async () => {
+    mockHttpFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          retrySupported: true,
+          discardSupported: true,
+          adminOnly: true,
+          retryRequested: true,
+          retryApplied: false,
+          retryReason: 'mock_noop',
+          queue: [],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    const result = await retryOrcaQueue('P001');
+
+    expect(mockHttpFetch).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe(200);
+    expect(result.retrySupported).toBe(true);
+    expect(result.retryApplied).toBe(false);
+    expect(result.retryReason).toBe('mock_noop');
+  });
+
+  it('retry feedback は 200 + retryApplied=true のときだけ成功になる', () => {
+    expect(
+      resolveOrcaQueueRetryUiFeedback({
+        ok: true,
+        status: 200,
+        queue: [],
+        retryApplied: true,
+      }),
+    ).toMatchObject({ tone: 'success' });
+
+    expect(
+      resolveOrcaQueueRetryUiFeedback({
+        ok: true,
+        status: 200,
+        queue: [],
+        retryApplied: false,
+        retryReason: 'mock_noop',
+      }),
+    ).toMatchObject({ tone: 'info' });
+
+    expect(
+      resolveOrcaQueueRetryUiFeedback({
+        ok: false,
+        status: 501,
+        queue: [],
+        retryApplied: false,
+        retryReason: 'not_implemented',
+      }),
+    ).toMatchObject({ tone: 'info', message: 'この環境では ORCA 再送は未実装です。' });
+  });
+
+  it('404 は status を保持した空レスポンスを返す', async () => {
+    mockHttpFetch.mockResolvedValueOnce(new Response('{}', { status: 404, headers: { 'Content-Type': 'application/json' } }));
 
     const result = await fetchOrcaQueue();
 
-    expect(mockHttpFetch).toHaveBeenCalledTimes(1);
     expect(result.queue).toEqual([]);
+    expect(result.status).toBe(404);
+    expect(result.ok).toBe(false);
   });
 });

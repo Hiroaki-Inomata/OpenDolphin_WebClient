@@ -3,11 +3,15 @@ import { AUTH_SESSION_STORAGE_KEY } from './authStorage';
 export type StoredSession = {
   facilityId: string;
   userId: string;
+  userPk?: number;
   displayName?: string;
   commonName?: string;
   role?: string;
   runId?: string;
 };
+
+const parseUserPk = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 
 export function readStoredSession(): StoredSession | null {
   if (typeof sessionStorage === 'undefined') return null;
@@ -20,6 +24,7 @@ export function readStoredSession(): StoredSession | null {
     return {
       facilityId: parsed.facilityId,
       userId: parsed.userId,
+      userPk: parseUserPk(parsed.userPk),
       displayName: parsed.displayName,
       commonName: parsed.commonName,
       role: parsed.role,

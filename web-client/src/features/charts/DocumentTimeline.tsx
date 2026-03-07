@@ -7,11 +7,18 @@ import { MISSING_MASTER_RECOVERY_MESSAGE, MISSING_MASTER_RECOVERY_NEXT_ACTION } 
 import { useAuthService } from './authService';
 import { getChartToneDetails, type ChartTonePayload } from '../../ux/charts/tones';
 import { resolveAriaLive, resolveRunId } from '../../libs/observability/observability';
-import { httpFetch } from '../../libs/http/httpClient';
+import { useOptionalSession } from '../../AppRouter';
+import { isSystemAdminRole } from '../../libs/auth/roles';
 import type { ReceptionEntry, ReceptionStatus } from '../reception/api';
 import type { ClaimOutpatientPayload, ClaimBundle, ClaimBundleStatus } from '../outpatient/types';
 import type { AppointmentDataBanner } from '../outpatient/appointmentDataBanner';
-import type { OrcaPushEventResponse, OrcaQueueEntry, OrcaQueueResponse } from '../outpatient/orcaQueueApi';
+import {
+  resolveOrcaQueueRetryUiFeedback,
+  retryOrcaQueue,
+  type OrcaPushEventResponse,
+  type OrcaQueueEntry,
+  type OrcaQueueResponse,
+} from '../outpatient/orcaQueueApi';
 import { buildOrcaPushEventSummary, resolveOrcaPushEventTone, resolveOrcaSendStatus } from '../outpatient/orcaQueueStatus';
 import { resolveOutpatientFlags, type OutpatientFlagSource } from '../outpatient/flags';
 import { getOrcaClaimSendEntry } from './orcaClaimSendCache';
@@ -187,7 +194,9 @@ export function DocumentTimeline({
   onRetryClaim,
   onOpenReception,
 }: DocumentTimelineProps) {
+  const session = useOptionalSession();
   const { flags } = useAuthService();
+  const isSystemAdmin = isSystemAdminRole(session?.role);
   const effectiveClaimData = claimEnabled ? claimData : undefined;
   const effectiveClaimError = claimEnabled ? claimError : undefined;
   const effectiveClaimLoading = claimEnabled ? isClaimLoading : false;
@@ -218,6 +227,7 @@ export function DocumentTimeline({
     patientId?: string;
     message?: string;
   }>({ status: 'idle' });
+  const retryUiVisible = isSystemAdmin && orcaQueue?.retrySupported === true;
 
   const auditSummary = useMemo(() => {
     if (!auditEvent) return null;
@@ -287,28 +297,33 @@ export function DocumentTimeline({
       });
       return;
     }
+    if (!isSystemAdmin) {
+      setQueueRetryState({
+        status: 'error',
+        patientId,
+        message: 'ORCA再送の権限がありません。',
+      });
+      return;
+    }
+    if (!retryUiVisible) {
+      setQueueRetryState({
+        status: 'error',
+        patientId,
+        message: 'この環境では ORCA 再送を利用できません。',
+      });
+      return;
+    }
     setQueueRetryState({ status: 'loading', patientId });
     try {
-      const response = await httpFetch(`/api/orca/queue?patientId=${encodeURIComponent(patientId)}&retry=1`, {
-        method: 'GET',
-      });
-      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-      const retryApplied = typeof payload.retryApplied === 'boolean' ? payload.retryApplied : undefined;
-      const retryReason = typeof payload.retryReason === 'string' ? payload.retryReason : undefined;
-      const queueRunId = typeof payload.runId === 'string' ? payload.runId : undefined;
-      const queueTraceId = typeof payload.traceId === 'string' ? payload.traceId : undefined;
-      const message = [
-        retryApplied !== undefined ? `retryApplied=${retryApplied}` : undefined,
-        retryReason ? `reason=${retryReason}` : undefined,
-        queueRunId ? `runId=${queueRunId}` : undefined,
-        queueTraceId ? `traceId=${queueTraceId}` : undefined,
-      ]
+      const response = await retryOrcaQueue(patientId, { enabled: isSystemAdmin });
+      const feedback = resolveOrcaQueueRetryUiFeedback(response);
+      const detail = [feedback.detail, response.runId ? `runId=${response.runId}` : undefined, response.traceId ? `traceId=${response.traceId}` : undefined]
         .filter((part): part is string => Boolean(part))
         .join(' / ');
       setQueueRetryState({
-        status: response.ok ? 'success' : 'error',
+        status: feedback.tone === 'error' ? 'error' : 'success',
         patientId,
-        message: message || (response.ok ? '再送要求を送信しました。' : '再送要求に失敗しました。'),
+        message: detail ? `${feedback.message} / ${detail}` : feedback.message,
       });
     } catch {
       setQueueRetryState({
@@ -317,7 +332,7 @@ export function DocumentTimeline({
         message: '再送要求に失敗しました。',
       });
     }
-  }, []);
+  }, [isSystemAdmin, retryUiVisible]);
 
   const selectedSendStatus = useMemo(() => {
     if (!selectedPatientId) return undefined;
@@ -479,6 +494,9 @@ export function DocumentTimeline({
         };
       }
       if (hasSendFailure || hasSendDelay) {
+        if (!retryUiVisible) {
+          return null;
+        }
         return {
           label: 'ORCA再送を試行',
           tone: hasSendFailure ? ('error' as const) : ('warning' as const),
@@ -509,6 +527,7 @@ export function DocumentTimeline({
     queueRetryState.message,
     queueRetryState.patientId,
     queueRetryState.status,
+    retryUiVisible,
     resolvedFallbackUsed,
     resolvedMissingMaster,
     selectedEntry,
@@ -727,6 +746,7 @@ export function DocumentTimeline({
               !alertSummary &&
               !resolvedMissingMaster &&
               !resolvedFallbackUsed &&
+              retryUiVisible &&
               (sendStatus?.key === 'failure' || sendStatus?.isStalled);
             const claimNote = claimEnabled
               ? `請求: ${bundle?.claimStatusText ?? bundle?.claimStatus ?? '未取得'}`
@@ -840,6 +860,7 @@ export function DocumentTimeline({
     queuePhase,
     queueRetryState.patientId,
     queueRetryState.status,
+    retryUiVisible,
     resolvedFallbackUsed,
     resolvedMissingMaster,
     resolvedRunId,

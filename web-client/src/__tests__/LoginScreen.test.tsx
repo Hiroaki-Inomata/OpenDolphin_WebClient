@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { LoginScreen } from '../LoginScreen';
+import { LoginScreen, normalizeSessionResult } from '../LoginScreen';
 import { httpFetch } from '../libs/http/httpClient';
 
 vi.mock('../libs/http/httpClient', () => ({
@@ -228,5 +228,14 @@ describe('LoginScreen', () => {
     expect(window.location.search).toBe('');
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
+  });
+
+  it('normalizeSessionResult は server の userPk を保持する', () => {
+    const result = normalizeSessionResult(
+      { facilityId: '0001', userId: 'doctor01', userPk: 101, roles: ['doctor'] },
+      { facilityId: '0001', userId: 'doctor01', clientUuid: 'client-1', runId: 'RUN-1' },
+    );
+
+    expect(result.userPk).toBe(101);
   });
 });

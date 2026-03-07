@@ -7,14 +7,13 @@ import type { ReactElement } from 'react';
 import { StampLibraryPanel } from '../StampLibraryPanel';
 import { fetchStampDetail, fetchStampTree } from '../stampApi';
 import { loadLocalStamps, loadStampClipboard, saveLocalStamp } from '../stampStorage';
+import { AUTH_SESSION_STORAGE_KEY } from '../../../libs/session/authStorage';
 
 const FACILITY_ID = '0001';
 const USER_ID = 'user01';
 const USER_NAME = `${FACILITY_ID}:${USER_ID}`;
-const AUTH_STORAGE_KEY = 'opendolphin:web-client:auth';
 
 vi.mock('../stampApi', async () => ({
-  fetchUserProfile: vi.fn().mockResolvedValue({ ok: true, id: 1, userId: '0001:user01', status: 200 }),
   fetchStampTree: vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
@@ -85,15 +84,18 @@ const renderWithClient = (ui: ReactElement) => {
 };
 
 beforeEach(() => {
-  localStorage.clear();
+  localStorage.setItem('devFacilityId', FACILITY_ID);
+  localStorage.setItem('devUserId', USER_ID);
   sessionStorage.clear();
   sessionStorage.setItem(
-    AUTH_STORAGE_KEY,
+    AUTH_SESSION_STORAGE_KEY,
     JSON.stringify({
       facilityId: FACILITY_ID,
       userId: USER_ID,
-      clientUuid: 'client-001',
+      userPk: 101,
+      role: 'doctor',
       runId: 'RUN-STAMP',
+      clientUuid: 'client-stamp',
     }),
   );
 });
@@ -112,7 +114,7 @@ describe('StampLibraryPanel (STAMP-001 MVP)', () => {
 
     // server stamps appear after queries resolve
     await screen.findByText('サーバースタンプ');
-    await waitFor(() => expect(vi.mocked(fetchStampTree)).toHaveBeenCalled());
+    await waitFor(() => expect(vi.mocked(fetchStampTree)).toHaveBeenCalledWith(101));
 
     const stampButton = await screen.findByRole('button', { name: /降圧セット/ });
     await user.click(stampButton);

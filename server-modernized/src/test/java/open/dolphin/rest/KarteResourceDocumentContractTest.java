@@ -1,0 +1,67 @@
+package open.dolphin.rest;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import java.lang.reflect.Method;
+import open.dolphin.security.audit.AuditTrailService;
+import open.dolphin.session.KarteServiceBean;
+import open.dolphin.session.PVTServiceBean;
+import open.dolphin.session.framework.SessionTraceManager;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+@ExtendWith(MockitoExtension.class)
+class KarteResourceDocumentContractTest {
+
+    @Mock
+    KarteServiceBean karteServiceBean;
+
+    @Mock
+    PVTServiceBean pvtServiceBean;
+
+    @Mock
+    AuditTrailService auditTrailService;
+
+    @Mock
+    SessionTraceManager sessionTraceManager;
+
+    @InjectMocks
+    KarteResource resource;
+
+    @Test
+    void postDocumentReturnsPlainTextNumericPk() throws Exception {
+        when(karteServiceBean.addDocument(any())).thenReturn(123L);
+
+        String response = resource.postDocument("{}");
+
+        assertThat(response).isEqualTo("123");
+        assertProducesTextPlain("postDocument", String.class);
+        verify(karteServiceBean).addDocument(any());
+    }
+
+    @Test
+    void putDocumentReturnsPlainTextNumericPk() throws Exception {
+        when(karteServiceBean.updateDocument(any())).thenReturn(123L);
+
+        String response = resource.putDocument("{}");
+
+        assertThat(response).isEqualTo("123");
+        assertProducesTextPlain("putDocument", String.class);
+        verify(karteServiceBean).updateDocument(any());
+    }
+
+    private static void assertProducesTextPlain(String methodName, Class<?>... parameterTypes) throws Exception {
+        Method method = KarteResource.class.getMethod(methodName, parameterTypes);
+        Produces produces = method.getAnnotation(Produces.class);
+        assertThat(produces).isNotNull();
+        assertThat(produces.value()).contains(MediaType.TEXT_PLAIN);
+    }
+}

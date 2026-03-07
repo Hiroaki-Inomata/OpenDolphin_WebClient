@@ -217,6 +217,7 @@ final class AuthSessionSupport {
         return new SessionUserResponse(
                 facilityId,
                 safeUser.userId(),
+                safeUser.id(),
                 displayName,
                 safeUser.commonName(),
                 roles,
@@ -302,6 +303,7 @@ final class AuthSessionSupport {
     record SessionUserResponse(
             String facilityId,
             String userId,
+            long userPk,
             String displayName,
             String commonName,
             java.util.List<String> roles,

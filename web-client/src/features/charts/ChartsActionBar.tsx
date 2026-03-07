@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 
 import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 import { logAuditEvent, logUiState } from '../../libs/audit/auditLogger';
+import { isSystemAdminRole } from '../../libs/auth/roles';
 import { resolveAuditActor } from '../../libs/auth/storedAuth';
 import { httpFetch } from '../../libs/http/httpClient';
 import { getObservabilityMeta, resolveAriaLive } from '../../libs/observability/observability';
@@ -34,6 +35,7 @@ import { ORCA_SEND_ORDER_ENTITIES, isOrderEntity, type OrderEntity } from './ord
 import { buildRpRequiredBlockedMessage, collectRpRequiredIssues, RP_REQUIRED_NEXT_ACTION } from './orderRpRequirements';
 import { buildOrderHubEventId, recordOrderHubKpi } from './orderHubKpi';
 import { toMedicalModV2InformationWithSource } from './orderRpNormalization';
+import { retryOrcaQueue } from '../outpatient/orcaQueueApi';
 
 type ChartAction = 'start' | 'pause' | 'finish' | 'send' | 'draft' | 'cancel' | 'print';
 
@@ -289,6 +291,7 @@ export const ChartsActionBar = forwardRef<ChartsActionBarHandle, ChartsActionBar
   sendConfirmSummary,
 }: ChartsActionBarProps, ref) {
   const session = useOptionalSession();
+  const canRetryOrcaQueue = isSystemAdminRole(session?.role);
   const storageScope = useMemo(
     () => ({ facilityId: session?.facilityId, userId: session?.userId }),
     [session?.facilityId, session?.userId],
@@ -1556,21 +1559,15 @@ export const ChartsActionBar = forwardRef<ChartsActionBarHandle, ChartsActionBar
               detail: detailParts.join(' / '),
             });
           } else {
-            if (resolvedPatientId) {
+            if (resolvedPatientId && canRetryOrcaQueue) {
               try {
-                const retryResponse = await httpFetch(
-                  `/api/orca/queue?patientId=${encodeURIComponent(resolvedPatientId)}&retry=1`,
-                  {
-                    method: 'GET',
-                  },
-                );
-                const retryJson = (await retryResponse.json().catch(() => ({}))) as Record<string, unknown>;
+                const retryResponse = await retryOrcaQueue(resolvedPatientId, { enabled: canRetryOrcaQueue });
                 retryMeta = {
-                  retryRequested: true,
-                  retryApplied: Boolean(retryJson.retryApplied),
-                  retryReason: typeof retryJson.retryReason === 'string' ? retryJson.retryReason : undefined,
-                  queueRunId: typeof retryJson.runId === 'string' ? retryJson.runId : undefined,
-                  queueTraceId: typeof retryJson.traceId === 'string' ? retryJson.traceId : undefined,
+                  retryRequested: retryResponse.retryRequested,
+                  retryApplied: retryResponse.retryApplied,
+                  retryReason: retryResponse.retryReason,
+                  queueRunId: retryResponse.runId,
+                  queueTraceId: retryResponse.traceId,
                 };
               } catch {
                 retryMeta = { retryRequested: true, retryApplied: false, retryReason: 'retry_request_failed' };
@@ -2060,21 +2057,15 @@ export const ChartsActionBar = forwardRef<ChartsActionBarHandle, ChartsActionBar
         let retryDetail: string | undefined;
         let retryMeta: { retryRequested?: boolean; retryApplied?: boolean; retryReason?: string; queueRunId?: string; queueTraceId?: string } =
           {};
-        if (action === 'send' && resolvedPatientId) {
+        if (action === 'send' && resolvedPatientId && canRetryOrcaQueue) {
           try {
-            const retryResponse = await httpFetch(
-              `/api/orca/queue?patientId=${encodeURIComponent(resolvedPatientId)}&retry=1`,
-              {
-                method: 'GET',
-              },
-            );
-            const retryJson = (await retryResponse.json().catch(() => ({}))) as Record<string, unknown>;
-            const retryApplied = Boolean(retryJson.retryApplied);
-            const retryReason = typeof retryJson.retryReason === 'string' ? retryJson.retryReason : undefined;
-            const queueRunId = typeof retryJson.runId === 'string' ? retryJson.runId : undefined;
-            const queueTraceId = typeof retryJson.traceId === 'string' ? retryJson.traceId : undefined;
+            const retryResponse = await retryOrcaQueue(resolvedPatientId, { enabled: canRetryOrcaQueue });
+            const retryApplied = retryResponse.retryApplied === true;
+            const retryReason = retryResponse.retryReason;
+            const queueRunId = retryResponse.runId;
+            const queueTraceId = retryResponse.traceId;
             retryMeta = {
-              retryRequested: true,
+              retryRequested: retryResponse.retryRequested,
               retryApplied,
               retryReason,
               queueRunId,

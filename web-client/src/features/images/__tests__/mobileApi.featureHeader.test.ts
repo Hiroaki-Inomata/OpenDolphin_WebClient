@@ -45,6 +45,10 @@ describe('mobileApi feature header', () => {
 
     await fetchPatientImageList('123');
 
+    expect(mockHttpFetch).toHaveBeenCalledWith(
+      '/patients/123/images',
+      expect.objectContaining({ method: 'GET' }),
+    );
     const [init] = mockBuildHttpHeaders.mock.calls[0] ?? [];
     const headers = new Headers((init as RequestInit | undefined)?.headers ?? {});
     expect(headers.get('X-Client-Feature-Images')).toBe('1');
@@ -78,7 +82,10 @@ describe('mobileApi feature header', () => {
         return 'content-type: application/json';
       }
 
-      send() {
+      send(body?: Document | XMLHttpRequestBodyInit | null) {
+        expect(body).toBeInstanceOf(FormData);
+        const file = (body as FormData).get('file');
+        expect(file).toBeInstanceOf(File);
         this.onload?.();
       }
 
@@ -94,6 +101,10 @@ describe('mobileApi feature header', () => {
       file: new File(['hello'], 'test.png', { type: 'image/png' }),
     });
 
+    expect(mockBuildHttpHeaders).toHaveBeenCalledWith(
+      expect.objectContaining({ method: 'POST' }),
+      '/patients/123/images',
+    );
     expect(MockXMLHttpRequest.last?.readHeader('X-Client-Feature-Images')).toBe('1');
     expect(MockXMLHttpRequest.last?.readHeader('X-Feature-Images')).toBeUndefined();
   });

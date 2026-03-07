@@ -29,7 +29,7 @@ import {
 } from './print/documentPrintPreviewStorage';
 import { useOptionalSession } from '../../AppRouter';
 import { useAppNavigation } from '../../routes/useAppNavigation';
-import { fetchUserProfile } from './stampApi';
+import { readStoredSession } from '../../libs/session/storedSession';
 import {
   deleteLetter,
   type LetterDatePayload,
@@ -574,6 +574,7 @@ export function DocumentCreatePanel({
     const stored = readStoredAuth();
     return stored ? normalizeUserName(stored.facilityId, stored.userId) : null;
   }, [session?.facilityId, session?.userId]);
+  const storedSession = useMemo(() => readStoredSession(), []);
   const appNav = useAppNavigation({ facilityId: session?.facilityId, userId: session?.userId });
   const today = useMemo(() => formatLocalDateYmd(new Date()), []);
   const [activeType, setActiveType] = useState<DocumentType>('referral');
@@ -587,7 +588,6 @@ export function DocumentCreatePanel({
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [karteId, setKarteId] = useState<number | null | undefined>(undefined);
-  const [userPk, setUserPk] = useState<number | null>(null);
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
   const [filterType, setFilterType] = useState<DocumentType | 'all'>('all');
@@ -603,6 +603,15 @@ export function DocumentCreatePanel({
   const resolvedRunId = observability.runId ?? meta.runId;
   const hasPermission = useMemo(() => hasStoredAuth(), []);
   const attachmentsForDocument = useMemo(() => imageAttachments ?? [], [imageAttachments]);
+  const userPk = useMemo(() => {
+    if (typeof session?.userPk === 'number' && Number.isFinite(session.userPk) && session.userPk > 0) {
+      return session.userPk;
+    }
+    if (typeof storedSession?.userPk === 'number' && Number.isFinite(storedSession.userPk) && storedSession.userPk > 0) {
+      return storedSession.userPk;
+    }
+    return null;
+  }, [session?.userPk, storedSession?.userPk]);
   const blockReasons = useMemo(() => {
     const reasons: string[] = [];
     if (meta.readOnly) {
@@ -662,21 +671,6 @@ export function DocumentCreatePanel({
     meta.visitDate,
     resolvedRunId,
   ]);
-
-  useEffect(() => {
-    let active = true;
-    if (!userName) {
-      setUserPk(null);
-      return;
-    }
-    fetchUserProfile(userName).then((result) => {
-      if (!active) return;
-      setUserPk(result.ok ? result.id ?? null : null);
-    });
-    return () => {
-      active = false;
-    };
-  }, [userName]);
 
   useEffect(() => {
     historyPatientIdRef.current = patientId;
@@ -1332,7 +1326,7 @@ export function DocumentCreatePanel({
       documentEndpoint = result.endpoint;
       documentStatus = result.status;
       documentError = result.error;
-      documentId = typeof result.payload?.docPk === 'number' ? (result.payload?.docPk as number) : undefined;
+      documentId = result.docPk > 0 ? result.docPk : undefined;
       if (!result.ok) {
         setIsSaving(false);
         setNotice({

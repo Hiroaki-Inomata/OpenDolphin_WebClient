@@ -12,12 +12,30 @@ export type OrcaQueueEntry = {
 };
 
 export type OrcaQueueResponse = {
+  ok: boolean;
+  status: number;
+  error?: string;
+  message?: string;
   runId?: string;
   traceId?: string;
   fetchedAt?: string;
   source?: 'mock' | 'live';
   verifyAdminDelivery?: boolean;
+  patientId?: string;
+  retrySupported?: boolean;
+  discardSupported?: boolean;
+  adminOnly?: boolean;
+  retryRequested?: boolean;
+  retryApplied?: boolean;
+  retryReason?: string;
+  discardApplied?: boolean;
   queue: OrcaQueueEntry[];
+};
+
+export type OrcaQueueRetryUiFeedback = {
+  tone: 'success' | 'info' | 'warning' | 'error';
+  message: string;
+  detail?: string;
 };
 
 export type OrcaPushEvent = {
@@ -64,6 +82,8 @@ type OrcaQueueRequestOptions = {
 };
 
 const buildUnavailableQueueResponse = (): OrcaQueueResponse => ({
+  ok: false,
+  status: 0,
   runId: getObservabilityMeta().runId,
   traceId: getObservabilityMeta().traceId,
   fetchedAt: new Date().toISOString(),
@@ -84,6 +104,12 @@ const buildUnavailablePushEventResponse = (status = 0, warning?: string): OrcaPu
 const getString = (value: unknown) => (typeof value === 'string' ? value : undefined);
 const getBoolean = (value: unknown) => (typeof value === 'boolean' ? value : undefined);
 const getNumber = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
+const normalizeErrorCode = (value: unknown) => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed.toLowerCase();
+};
 const parseNumberHeader = (value: string | null) => {
   if (!value) return undefined;
   const parsed = Number(value);
@@ -119,12 +145,90 @@ const normalizeQueue = (json: unknown, headers: Headers): OrcaQueueResponse => {
   if (runId) updateObservabilityMeta({ runId });
 
   return {
+    ok: false,
+    status: 0,
     runId,
     traceId,
     fetchedAt: new Date().toISOString(),
     source: (getString(body.source) as 'mock' | 'live' | undefined) ?? 'live',
     verifyAdminDelivery: getBoolean(body.verifyAdminDelivery),
+    patientId: getString(body.patientId),
+    retrySupported: getBoolean(body.retrySupported),
+    discardSupported: getBoolean(body.discardSupported),
+    adminOnly: getBoolean(body.adminOnly),
+    retryRequested: getBoolean(body.retryRequested),
+    retryApplied: getBoolean(body.retryApplied),
+    retryReason:
+      getString(body.retryReason) ?? normalizeErrorCode(body.errorCode) ?? normalizeErrorCode(body.code) ?? normalizeErrorCode(body.error),
+    discardApplied: getBoolean(body.discardApplied),
+    message: getString(body.message),
     queue,
+  };
+};
+
+const buildQueueResponse = (response: Response, json: unknown): OrcaQueueResponse => {
+  const normalized = normalizeQueue(json, response.headers);
+  const localizedMessage =
+    response.status === 403
+      ? 'ORCA再送の権限がありません。'
+      : response.status === 404
+        ? 'ORCAキューが見つかりません。'
+        : response.status >= 500
+          ? 'ORCAキューの取得に失敗しました。'
+          : undefined;
+  return {
+    ...normalized,
+    ok: response.ok,
+    status: response.status,
+    error: response.ok ? undefined : `HTTP ${response.status}`,
+    message:
+      localizedMessage ??
+      normalized.message ??
+      getString(asRecord(json)?.message) ??
+      undefined,
+  };
+};
+
+const formatRetryReason = (reason?: string) => {
+  switch ((reason ?? '').trim().toLowerCase()) {
+    case 'patientid_required':
+    case 'patient_id_required':
+      return '患者IDが必要です。';
+    case 'not_implemented':
+      return 'この環境では ORCA 再送は未実装です。';
+    case 'mock_noop':
+      return '対象キューが見つからないため再送されませんでした。';
+    case 'retry_request_failed':
+      return 'ORCA 再送要求に失敗しました。';
+    default:
+      return reason?.trim() ? `reason=${reason}` : undefined;
+  }
+};
+
+export const resolveOrcaQueueRetryUiFeedback = (response: OrcaQueueResponse): OrcaQueueRetryUiFeedback => {
+  if (response.status === 400) {
+    return { tone: 'warning', message: 'ORCA再送に必要な患者IDが不足しています。', detail: formatRetryReason(response.retryReason) };
+  }
+  if (response.status === 403) {
+    return { tone: 'error', message: 'ORCA再送の権限がありません。' };
+  }
+  if (response.status === 501) {
+    return { tone: 'info', message: 'この環境では ORCA 再送は未実装です。', detail: formatRetryReason(response.retryReason) };
+  }
+  if (!response.ok || response.status >= 500 || response.status === 0) {
+    return {
+      tone: 'error',
+      message: 'ORCA再送に失敗しました。',
+      detail: formatRetryReason(response.retryReason) ?? response.error ?? response.message,
+    };
+  }
+  if (response.retryApplied === true) {
+    return { tone: 'success', message: 'ORCA再送を受け付けました。', detail: formatRetryReason(response.retryReason) };
+  }
+  return {
+    tone: 'info',
+    message: 'ORCA再送は実行されませんでした。',
+    detail: formatRetryReason(response.retryReason) ?? response.message,
   };
 };
 
@@ -228,50 +332,50 @@ const isQueueRequestDisabled = (options?: OrcaQueueRequestOptions) =>
 export async function fetchOrcaQueue(patientId?: string, options?: OrcaQueueRequestOptions): Promise<OrcaQueueResponse> {
   if (isQueueRequestDisabled(options)) return buildUnavailableQueueResponse();
   const endpoint = patientId ? `${ORCA_QUEUE_ENDPOINT}?patientId=${encodeURIComponent(patientId)}` : ORCA_QUEUE_ENDPOINT;
-  const response = await httpFetch(endpoint, { method: 'GET', notifySessionExpired: false });
-  if (response.status === 403) {
-    return buildUnavailableQueueResponse();
-  }
+  const response = await httpFetch(endpoint, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    notifySessionExpired: false,
+  });
   if (response.status === 404) {
     orcaQueueUnavailable = true;
-    return buildUnavailableQueueResponse();
   }
   const json = await response.json().catch(() => ({}));
-  return normalizeQueue(json, response.headers);
+  return buildQueueResponse(response, json);
 }
 
 export async function retryOrcaQueue(patientId: string, options?: OrcaQueueRequestOptions): Promise<OrcaQueueResponse> {
   if (isQueueRequestDisabled(options)) return buildUnavailableQueueResponse();
   const endpoint = `${ORCA_QUEUE_ENDPOINT}?patientId=${encodeURIComponent(patientId)}&retry=1`;
-  const response = await httpFetch(endpoint, { method: 'GET', notifySessionExpired: false });
-  if (response.status === 403) {
-    return buildUnavailableQueueResponse();
-  }
+  const response = await httpFetch(endpoint, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    notifySessionExpired: false,
+  });
   if (response.status === 404) {
     orcaQueueUnavailable = true;
-    return buildUnavailableQueueResponse();
   }
   const json = await response.json().catch(() => ({}));
-  return normalizeQueue(json, response.headers);
+  return buildQueueResponse(response, json);
 }
 
 export async function discardOrcaQueue(patientId: string, options?: OrcaQueueRequestOptions): Promise<OrcaQueueResponse> {
   if (isQueueRequestDisabled(options)) return buildUnavailableQueueResponse();
   const endpoint = `${ORCA_QUEUE_ENDPOINT}?patientId=${encodeURIComponent(patientId)}`;
-  const response = await httpFetch(endpoint, { method: 'DELETE', notifySessionExpired: false });
-  if (response.status === 403) {
-    return buildUnavailableQueueResponse();
-  }
+  const response = await httpFetch(endpoint, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+    notifySessionExpired: false,
+  });
   if (response.status === 404) {
     orcaQueueUnavailable = true;
-    return buildUnavailableQueueResponse();
   }
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
     // DELETE 未対応環境では 404/405 が返る可能性があるため、GET で再取得してフォールバックする。
     return fetchOrcaQueue(undefined, options);
   }
-  return normalizeQueue(json, response.headers);
+  return buildQueueResponse(response, json);
 }
 
 export async function fetchOrcaPushEvents(params?: OrcaPushEventRequestParams): Promise<OrcaPushEventResponse> {

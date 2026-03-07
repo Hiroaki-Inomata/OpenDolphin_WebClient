@@ -13,6 +13,7 @@ import {
 import { httpFetch } from '../../../libs/http/httpClient';
 import { updateObservabilityMeta } from '../../../libs/observability/observability';
 import { logAuditEvent } from '../../../libs/audit/auditLogger';
+import { fetchPatientImages } from '../patientImagesApi';
 
 vi.mock('../../../libs/http/httpClient', () => ({
   httpFetch: vi.fn(),
@@ -23,36 +24,54 @@ vi.mock('../../../libs/audit/auditLogger', () => ({
   logAuditEvent: vi.fn(),
 }));
 
+vi.mock('../patientImagesApi', () => ({
+  fetchPatientImages: vi.fn(),
+}));
+
 const mockHttpFetch = vi.mocked(httpFetch);
 const mockLogAuditEvent = vi.mocked(logAuditEvent);
+const mockFetchPatientImages = vi.mocked(fetchPatientImages);
 
 beforeEach(() => {
   mockHttpFetch.mockReset();
   mockLogAuditEvent.mockReset();
+  mockFetchPatientImages.mockReset();
   updateObservabilityMeta({ runId: 'RUN-IMAGE', traceId: 'TRACE-IMAGE' });
 });
 
 describe('image api', () => {
-  it('image list は typo fallback を試行する', async () => {
-    mockHttpFetch
-      .mockResolvedValueOnce(new Response('not found', { status: 404 }))
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            list: [{ id: 1, title: 'mock' }],
-            page: 1,
-            total: 1,
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-      );
+  it('image list は /patients/{patientId}/images を正規化する', async () => {
+    mockFetchPatientImages.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      endpoint: '/patients/100/images',
+      list: [
+        {
+          imageId: 1,
+          fileName: 'mock.png',
+          contentType: 'image/png',
+          size: 128,
+          createdAt: '2026-03-07T00:00:00Z',
+          downloadUrl: '/patients/100/images/1',
+        },
+      ],
+      runId: 'RUN-IMAGE',
+      traceId: 'TRACE-IMAGE',
+    });
 
-    const result = await fetchKarteImageList({ chartId: '100', allowTypoFallback: true });
+    const result = await fetchKarteImageList({ chartId: '100' });
 
-    expect(mockHttpFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetchPatientImages).toHaveBeenCalledTimes(1);
+    expect(mockFetchPatientImages).toHaveBeenCalledWith('100');
     expect(result.ok).toBe(true);
-    expect(result.endpoint).toContain('/karte/iamges');
+    expect(result.endpoint).toBe('/patients/100/images');
     expect(result.list).toHaveLength(1);
+    expect(result.list[0]).toMatchObject({
+      id: 1,
+      title: 'mock.png',
+      fileName: 'mock.png',
+      thumbnailUrl: '/patients/100/images/1',
+    });
     expect(result.runId).toBe('RUN-IMAGE');
     expect(result.traceId).toBe('TRACE-IMAGE');
     expect(mockLogAuditEvent).toHaveBeenCalled();
@@ -62,14 +81,25 @@ describe('image api', () => {
     expect(audit.payload?.details?.traceId).toBe('TRACE-IMAGE');
   });
 
-  it('image list は allowTypoFallback=false の場合に1回のみ呼び出す', async () => {
-    mockHttpFetch.mockResolvedValueOnce(new Response('not found', { status: 404 }));
+  it('image list は feature_disabled を空一覧扱いしない', async () => {
+    mockFetchPatientImages.mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      endpoint: '/patients/100/images',
+      list: [],
+      error: 'HTTP 404',
+      errorCode: 'feature_disabled',
+      message: 'Images PhaseA is disabled',
+      runId: 'RUN-IMAGE',
+      traceId: 'TRACE-IMAGE',
+    });
 
-    const result = await fetchKarteImageList({ chartId: '100', allowTypoFallback: false });
+    const result = await fetchKarteImageList({ chartId: '100' });
 
-    expect(mockHttpFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetchPatientImages).toHaveBeenCalledTimes(1);
     expect(result.ok).toBe(false);
-    expect(result.endpoint).toContain('/karte/images');
+    expect(result.endpoint).toBe('/patients/100/images');
+    expect(result.errorCode).toBe('feature_disabled');
   });
 
   it('添付のバリデーションでサイズ超過を検知する', async () => {
@@ -141,7 +171,59 @@ describe('image api', () => {
     const result = await sendKarteDocumentWithAttachments(payload, { method: 'PUT' });
 
     expect(result.ok).toBe(true);
+    expect(result.docPk).toBe(124);
     expect(mockHttpFetch).toHaveBeenCalled();
+  });
+
+  it('document 送信は plain text numeric PK を docPk に正規化する', async () => {
+    const payload: KarteDocumentAttachmentPayload = {
+      id: 10,
+      attachment: [{ id: 999 }],
+    };
+
+    mockHttpFetch.mockResolvedValueOnce(
+      new Response('123', { status: 200, headers: { 'Content-Type': 'text/plain' } }),
+    );
+
+    const result = await sendKarteDocumentWithAttachments(payload, { method: 'PUT' });
+
+    expect(result.ok).toBe(true);
+    expect(result.docPk).toBe(123);
+  });
+
+  it('document 送信は top-level docPk を docPk に正規化する', async () => {
+    const payload: KarteDocumentAttachmentPayload = {
+      id: 10,
+      attachment: [{ id: 999 }],
+    };
+
+    mockHttpFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ docPk: 123 }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+
+    const result = await sendKarteDocumentWithAttachments(payload, { method: 'PUT' });
+
+    expect(result.ok).toBe(true);
+    expect(result.docPk).toBe(123);
+  });
+
+  it('document 送信は payload.docPk を docPk に正規化する', async () => {
+    const payload: KarteDocumentAttachmentPayload = {
+      id: 10,
+      attachment: [{ id: 999 }],
+    };
+
+    mockHttpFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ payload: { docPk: 123 } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await sendKarteDocumentWithAttachments(payload, { method: 'PUT' });
+
+    expect(result.ok).toBe(true);
+    expect(result.docPk).toBe(123);
   });
 
   it('contentType と拡張子が不一致ならエラーにする', async () => {
@@ -205,6 +287,7 @@ describe('image api', () => {
     const result = await sendKarteDocumentWithAttachments(payload, { method: 'PUT' });
 
     expect(result.ok).toBe(true);
+    expect(result.docPk).toBe(456);
     expect(mockHttpFetch).toHaveBeenCalled();
   });
 
@@ -232,6 +315,7 @@ describe('image api', () => {
     const result = await sendKarteDocumentWithAttachments(payload, { method: 'PUT' });
 
     expect(result.ok).toBe(true);
+    expect(result.docPk).toBe(123);
     expect(mockHttpFetch).toHaveBeenCalledWith(
       '/karte/document',
       expect.objectContaining({
@@ -310,9 +394,9 @@ describe('image api', () => {
           : Object.assign(new Event('progress'), { lengthComputable: true, loaded: 5, total: 10 });
         this.upload.dispatchEvent(event);
         this.status = 200;
-        this.responseText = JSON.stringify({ ok: true });
+        this.responseText = '789';
         this.responseHeaders = {
-          'content-type': 'application/json',
+          'content-type': 'text/plain',
           'x-run-id': 'RUN-XHR',
           'x-trace-id': 'TRACE-XHR',
         };
@@ -340,10 +424,27 @@ describe('image api', () => {
     });
 
     expect(result.ok).toBe(true);
+    expect(result.docPk).toBe(789);
     expect(result.progressMode).toBe('real');
     expect(progressEvents.some((event) => event.mode === 'real')).toBe(true);
 
     globalThis.XMLHttpRequest = originalXhr;
+  });
+
+  it('document 送信は docPk が無い成功応答を成功扱いしない', async () => {
+    const payload: KarteDocumentAttachmentPayload = {
+      id: 10,
+      attachment: [{ id: 999 }],
+    };
+
+    mockHttpFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+
+    const result = await sendKarteDocumentWithAttachments(payload, { method: 'PUT' });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('invalid_doc_pk');
   });
 
   it('image detail はテキスト応答を rawText に格納する', async () => {

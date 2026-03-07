@@ -461,6 +461,7 @@ public class KarteResource extends AbstractResource {
     @Path("/iamges/{param}")
     @Produces(MediaType.APPLICATION_XML)
     public String getImages(@PathParam("param") String param) {
+        // Legacy XML endpoint. The modern web client uses PatientImagesResource instead.
 
         debug(param);
         String[] params = param.split(CAMMA);

@@ -16,6 +16,7 @@ type UploadStage = 'idle' | 'ready' | 'uploading' | 'success' | 'error';
 type MobileImagesLocationState = {
   patientId?: string;
 };
+const FEATURE_DISABLED_MESSAGE = '患者画像機能はサーバーで無効化されています。';
 
 const formatBytes = (value?: number) => {
   if (value === undefined || Number.isNaN(value)) return '―';
@@ -30,8 +31,8 @@ const formatBytes = (value?: number) => {
   return `${size.toFixed(size < 10 ? 1 : 0)} ${units[unitIndex]}`;
 };
 
-const buildErrorMessage = (status: number, error?: string) => {
-  if (status === 404) return '機能が無効のため送信できません（feature gate）。管理者に確認してください。';
+const buildErrorMessage = (status: number, error?: string, errorCode?: string) => {
+  if (errorCode === 'feature_disabled' || status === 404) return FEATURE_DISABLED_MESSAGE;
   if (status === 413) return '画像サイズが大きすぎます（容量超過: 413）。小さい画像で再試行してください。';
   if (status === 415) return '対応していない画像形式です（415）。jpg/png などで再試行してください。';
   if (status === 0 || error === 'network_error') return '通信に失敗しました。電波状況を確認して再試行してください。';
@@ -51,12 +52,17 @@ export function MobileImagesUploadPage() {
   const resolvedRunId = resolveRunId(flags.runId);
   const appNav = useAppNavigation({ facilityId: session?.facilityId, userId: session?.userId });
   const locationState = (location.state as MobileImagesLocationState | null) ?? null;
+  const queryParams = useMemo(
+    () => new URLSearchParams(location.search.startsWith('?') ? location.search.slice(1) : location.search),
+    [location.search],
+  );
+  const patientIdParam = useMemo(() => normalizePatientId(queryParams.get('patientId')), [queryParams]);
   const statePatientId = useMemo(() => normalizePatientId(locationState?.patientId), [locationState?.patientId]);
   const deepLinkPatientId = useMemo(
     () => normalizePatientId(loadDeepLinkContext()?.values.patientId),
     [location.search],
   );
-  const resolvedPatientId = statePatientId ?? deepLinkPatientId;
+  const resolvedPatientId = patientIdParam ?? statePatientId ?? deepLinkPatientId;
   const fallbackUrl = useMemo(() => {
     const facilityId = session?.facilityId;
     if (appNav.fromCandidate === 'reception') return buildFacilityPath(facilityId, '/reception');
@@ -71,6 +77,7 @@ export function MobileImagesUploadPage() {
   const [stage, setStage] = useState<UploadStage>('idle');
   const [statusText, setStatusText] = useState<string>('患者を選択してください。');
   const [lastError, setLastError] = useState<{ status: number; error?: string } | null>(null);
+  const [featureDisabled, setFeatureDisabled] = useState(false);
   const [progress, setProgress] = useState<{ mode: UploadProgressEvent['mode']; percent?: number }>({
     mode: 'indeterminate',
   });
@@ -100,9 +107,16 @@ export function MobileImagesUploadPage() {
     async (pid: string) => {
       const res = await fetchPatientImageList(pid);
       if (!res.ok) {
+        if (res.errorCode === 'feature_disabled') {
+          setFeatureDisabled(true);
+          setStage('error');
+          setStatusText(FEATURE_DISABLED_MESSAGE);
+          return;
+        }
         setStatusText(`画像一覧の取得に失敗しました（HTTP ${res.status}）。`);
         return;
       }
+      setFeatureDisabled(false);
       setListItems(res.list ?? []);
     },
     [],
@@ -111,6 +125,7 @@ export function MobileImagesUploadPage() {
   useEffect(() => {
     setSelectedFile(null);
     setLastError(null);
+    setFeatureDisabled(false);
     setListItems([]);
     if (!patientId) {
       setStage('error');
@@ -124,8 +139,8 @@ export function MobileImagesUploadPage() {
     });
   }, [patientId, refreshList]);
 
-  const canPickFile = Boolean(patientId) && stage !== 'uploading';
-  const canSend = Boolean(patientId) && Boolean(selectedFile) && stage !== 'uploading';
+  const canPickFile = Boolean(patientId) && stage !== 'uploading' && !featureDisabled;
+  const canSend = Boolean(patientId) && Boolean(selectedFile) && stage !== 'uploading' && !featureDisabled;
 
   const handleFilePicked = useCallback(
     (file: File | null) => {
@@ -155,13 +170,15 @@ export function MobileImagesUploadPage() {
     });
 
     if (!res.ok) {
-      const message = buildErrorMessage(res.status, res.error);
+      const message = buildErrorMessage(res.status, res.error, res.errorCode);
+      setFeatureDisabled(res.errorCode === 'feature_disabled');
       setStage('error');
       setLastError({ status: res.status, error: res.error });
       setStatusText(message);
       return;
     }
 
+    setFeatureDisabled(false);
     setStage('success');
     setStatusText('送信しました。');
     await refreshList(patientId);
@@ -422,11 +439,10 @@ export function MobileImagesUploadPage() {
         ) : (
           <ul data-test-id="mobile-images-list" style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.6rem' }}>
             {listItems.slice(0, 6).map((item) => {
-              const safeThumbnailUrl = safeSameOriginHttpUrl(item.thumbnailUrl);
               const safeDownloadUrl = safeSameOriginHttpUrl(item.downloadUrl);
               return (
                 <li
-                  key={item.id}
+                  key={item.imageId}
                   style={{
                     border: '1px solid rgba(0,0,0,0.08)',
                     borderRadius: 14,
@@ -436,12 +452,12 @@ export function MobileImagesUploadPage() {
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem' }}>
-                    <strong style={{ fontSize: '0.95rem' }}>{item.fileName ?? item.id}</strong>
-                    <span style={{ fontSize: '0.85rem', opacity: 0.75 }}>{formatBytes(item.contentSize)}</span>
+                    <strong style={{ fontSize: '0.95rem' }}>{item.fileName ?? item.imageId}</strong>
+                    <span style={{ fontSize: '0.85rem', opacity: 0.75 }}>{formatBytes(item.size)}</span>
                   </div>
-                  {safeThumbnailUrl ? (
+                  {safeDownloadUrl ? (
                     <img
-                      src={safeThumbnailUrl}
+                      src={safeDownloadUrl}
                       alt={item.fileName ?? 'thumbnail'}
                       style={{
                         width: '100%',

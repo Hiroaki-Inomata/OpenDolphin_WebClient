@@ -93,6 +93,8 @@ const normalizeBasePath = (value?: string | null): string => {
   return withoutTrailingSlash || '/';
 };
 const BASE_PATH = normalizeBasePath(import.meta.env.VITE_BASE_PATH);
+const parseUserPk = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 
 const loadStoredSession = (): Session | null => {
   const readRaw = () => {
@@ -109,6 +111,7 @@ const loadStoredSession = (): Session | null => {
     return {
       facilityId: parsed.facilityId,
       userId: parsed.userId,
+      userPk: parseUserPk(parsed.userPk),
       displayName: parsed.displayName,
       commonName: parsed.commonName,
       clientUuid: parsed.clientUuid ?? '',
@@ -154,6 +157,7 @@ const persistSession = (session: Session) => {
       JSON.stringify({
         facilityId: session.facilityId,
         userId: session.userId,
+        userPk: session.userPk,
         displayName: session.displayName,
         commonName: session.commonName,
         clientUuid: session.clientUuid,
@@ -223,6 +227,7 @@ const fetchSessionMe = async (cachedSession?: Session | null): Promise<LoginResu
   return normalizeSessionResult(data, {
     facilityId: data.facilityId ?? cachedSession?.facilityId ?? '',
     userId: data.userId ?? cachedSession?.userId ?? '',
+    userPk: cachedSession?.userPk,
     clientUuid: data.clientUuid ?? cachedSession?.clientUuid ?? '',
     runId: data.runId ?? cachedSession?.runId ?? '',
   });
