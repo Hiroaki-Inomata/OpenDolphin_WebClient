@@ -55,6 +55,7 @@ class SessionAuthResourceTest extends RuntimeDelegateTestSupport {
         AuthSessionSupport.SessionUserResponse entity = (AuthSessionSupport.SessionUserResponse) response.getEntity();
         assertThat(entity.facilityId()).isEqualTo("F001");
         assertThat(entity.userId()).isEqualTo(USER_ID);
+        assertThat(entity.userPk()).isEqualTo(101L);
         assertThat(entity.clientUuid()).isEqualTo("client-1");
         assertThat(entity.runId()).isEqualTo("run-123");
         assertThat(entity.roles()).containsExactly("system_admin");
@@ -101,6 +102,7 @@ class SessionAuthResourceTest extends RuntimeDelegateTestSupport {
 
         assertThat(response.getStatus()).isEqualTo(200);
         AuthSessionSupport.SessionUserResponse entity = (AuthSessionSupport.SessionUserResponse) response.getEntity();
+        assertThat(entity.userPk()).isEqualTo(101L);
         assertThat(entity.roles()).containsExactly("user");
         assertThat(entity.clientUuid()).isEqualTo("client-2");
     }
@@ -111,6 +113,7 @@ class SessionAuthResourceTest extends RuntimeDelegateTestSupport {
         FacilityModel facility = new FacilityModel();
         facility.setFacilityId("F001");
         UserModel user = new UserModel();
+        user.setId(101L);
         user.setUserId(userId);
         user.setCommonName("Doctor One");
         user.setFacilityModel(facility);

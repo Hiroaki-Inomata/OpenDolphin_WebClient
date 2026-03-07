@@ -59,14 +59,17 @@ public class OrcaQueueResource extends AbstractResource {
         boolean allowMock = isTruthyEnv(ALLOW_MOCK_ENV);
         boolean useMock = allowMock && Boolean.TRUE.equals(snapshot.getUseMockOrcaQueue());
         boolean verify = Boolean.TRUE.equals(snapshot.getVerified());
+        boolean retrySupported = useMock && queueStore != null;
+        boolean discardSupported = useMock && queueStore != null;
+        boolean retryRequested = isTrue(retry);
 
         OrcaQueueStore.RetryOutcome retryOutcome = null;
         boolean discardApplied = false;
-        if (useMock && queueStore != null) {
-            if (deleteRequested) {
+        if (retrySupported || discardSupported) {
+            if (deleteRequested && discardSupported) {
                 discardApplied = queueStore.discard(patientId);
             }
-            if (isTrue(retry)) {
+            if (retryRequested && retrySupported) {
                 retryOutcome = queueStore.retry(patientId);
             }
         }
@@ -87,17 +90,19 @@ public class OrcaQueueResource extends AbstractResource {
         body.put("fetchedAt", Instant.now().toString());
         body.put("source", useMock ? "mock" : "live");
         body.put("verifyAdminDelivery", verify);
+        body.put("retrySupported", retrySupported);
+        body.put("discardSupported", discardSupported);
+        body.put("adminOnly", true);
         body.put("queue", queue);
         if (patientId != null && !patientId.isBlank()) {
             body.put("patientId", patientId);
         }
 
-        boolean retryRequested = isTrue(retry);
         if (retryRequested) {
             String retryReason;
             if (patientId == null || patientId.isBlank()) {
                 retryReason = "patientId_required";
-            } else if (useMock) {
+            } else if (retrySupported) {
                 retryReason = retryOutcome != null ? retryOutcome.reason() : "mock_noop";
             } else {
                 retryReason = "not_implemented";
@@ -114,7 +119,16 @@ public class OrcaQueueResource extends AbstractResource {
             body.put("discardApplied", discardApplied);
         }
 
-        Response.ResponseBuilder builder = Response.ok(body);
+        Response.Status status = Response.Status.OK;
+        if (retryRequested) {
+            if (patientId == null || patientId.isBlank()) {
+                status = Response.Status.BAD_REQUEST;
+            } else if (!retrySupported) {
+                status = Response.Status.NOT_IMPLEMENTED;
+            }
+        }
+
+        Response.ResponseBuilder builder = Response.status(status).entity(body);
         builder.header("x-run-id", runId);
         builder.header("x-trace-id", traceId);
         builder.header("x-orca-queue-mode", useMock ? "mock" : "live");
@@ -159,7 +173,10 @@ public class OrcaQueueResource extends AbstractResource {
         if (key == null || key.isBlank()) {
             return false;
         }
-        String value = System.getenv(key);
+        String value = System.getProperty(key);
+        if (value == null) {
+            value = System.getenv(key);
+        }
         if (value == null) {
             return false;
         }
