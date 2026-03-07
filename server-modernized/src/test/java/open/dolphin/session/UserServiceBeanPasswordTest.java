@@ -1,10 +1,12 @@
 package open.dolphin.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,16 +32,15 @@ class UserServiceBeanPasswordTest {
     private Query query;
 
     @Mock
-    private PasswordHashService passwordHashService;
-
-    @Mock
     private LoginAttemptPolicyService loginAttemptPolicyService;
 
     private UserServiceBean userServiceBean;
+    private PasswordHashService passwordHashService;
 
     @BeforeEach
     void setUp() throws Exception {
         userServiceBean = new UserServiceBean();
+        passwordHashService = new PasswordHashService();
         setField(userServiceBean, "em", entityManager);
         setField(userServiceBean, "passwordHashService", passwordHashService);
         setField(userServiceBean, "loginAttemptPolicyService", loginAttemptPolicyService);
@@ -53,24 +54,63 @@ class UserServiceBeanPasswordTest {
     }
 
     @Test
-    void authenticateUpgradesLegacyPasswordOnSuccess() {
+    void authenticateSucceedsWithCurrentPasswordHash() {
         UserModel user = new UserModel();
         user.setUserId("F001:user01");
-        user.setPassword("legacy-md5-value");
+        user.setPassword(passwordHashService.hashForStorage("RawPass123"));
         when(query.getSingleResult()).thenReturn(user);
-        when(passwordHashService.verify("legacy-md5-value", "RawPass123"))
-                .thenReturn(PasswordHashService.VerificationResult.successWithUpgrade("pbkdf2_sha256_v1$310000$salt$hash"));
 
         boolean authenticated = userServiceBean.authenticate("F001:user01", "RawPass123");
 
         assertThat(authenticated).isTrue();
-        assertThat(user.getPassword()).isEqualTo("pbkdf2_sha256_v1$310000$salt$hash");
-        verify(entityManager).merge(user);
+        verify(entityManager, never()).merge(user);
         verify(loginAttemptPolicyService).registerSuccess(eq("F001:user01"), any());
     }
 
     @Test
-    void updateUserHashesNonManagedPasswordBeforeMerge() {
+    void authenticateRejectsLegacyMd5DigestWithoutUpgrade() {
+        UserModel user = new UserModel();
+        user.setUserId("F001:user01");
+        user.setPassword("21232f297a57a5a743894a0e4a801fc3");
+        when(query.getSingleResult()).thenReturn(user);
+
+        boolean authenticated = userServiceBean.authenticate("F001:user01", "admin");
+
+        assertThat(authenticated).isFalse();
+        assertThat(user.getPassword()).isEqualTo("21232f297a57a5a743894a0e4a801fc3");
+        verify(entityManager, never()).merge(user);
+    }
+
+    @Test
+    void authenticateRejectsLegacyPlainPasswordWithoutUpgrade() {
+        UserModel user = new UserModel();
+        user.setUserId("F001:user01");
+        user.setPassword("plain-password");
+        when(query.getSingleResult()).thenReturn(user);
+
+        boolean authenticated = userServiceBean.authenticate("F001:user01", "plain-password");
+
+        assertThat(authenticated).isFalse();
+        assertThat(user.getPassword()).isEqualTo("plain-password");
+        verify(entityManager, never()).merge(user);
+    }
+
+    @Test
+    void authenticateRejectsLegacyManagedHashWithoutUpgrade() {
+        UserModel user = new UserModel();
+        user.setUserId("F001:user01");
+        user.setPassword("pbkdf2_md5$200000$c2FsdA==$aGFzaA==");
+        when(query.getSingleResult()).thenReturn(user);
+
+        boolean authenticated = userServiceBean.authenticate("F001:user01", "RawPass123");
+
+        assertThat(authenticated).isFalse();
+        assertThat(user.getPassword()).isEqualTo("pbkdf2_md5$200000$c2FsdA==$aGFzaA==");
+        verify(entityManager, never()).merge(user);
+    }
+
+    @Test
+    void updateUserHashesPlainPasswordBeforeMerge() {
         UserModel current = new UserModel();
         current.setMemberType("FACILITY_USER");
         current.setRegisteredDate(new Date());
@@ -79,17 +119,47 @@ class UserServiceBeanPasswordTest {
 
         UserModel update = new UserModel();
         update.setId(10L);
-        update.setPassword("21232f297a57a5a743894a0e4a801fc3");
-
-        when(passwordHashService.isManagedHash("21232f297a57a5a743894a0e4a801fc3")).thenReturn(false);
-        when(passwordHashService.hashForStorage("21232f297a57a5a743894a0e4a801fc3"))
-                .thenReturn("pbkdf2_sha256_v1$310000$newSalt$newHash");
+        update.setPassword("NewPlainPassword123!");
 
         int result = userServiceBean.updateUser(update);
 
         assertThat(result).isEqualTo(1);
-        assertThat(update.getPassword()).isEqualTo("pbkdf2_sha256_v1$310000$newSalt$newHash");
+        assertThat(update.getPassword()).startsWith(PasswordHashService.FORMAT_PREFIX + "$");
         verify(entityManager).merge(update);
+    }
+
+    @Test
+    void updateUserRejectsLegacyMd5HashString() {
+        UserModel current = new UserModel();
+        current.setMemberType("FACILITY_USER");
+        current.setRegisteredDate(new Date());
+        current.setPassword(passwordHashService.hashForStorage("CurrentPassword123!"));
+        when(entityManager.find(UserModel.class, 10L)).thenReturn(current);
+
+        UserModel update = new UserModel();
+        update.setId(10L);
+        update.setPassword("21232f297a57a5a743894a0e4a801fc3");
+
+        assertThatThrownBy(() -> userServiceBean.updateUser(update))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(entityManager, never()).merge(update);
+    }
+
+    @Test
+    void updateUserRejectsLegacyManagedHashString() {
+        UserModel current = new UserModel();
+        current.setMemberType("FACILITY_USER");
+        current.setRegisteredDate(new Date());
+        current.setPassword(passwordHashService.hashForStorage("CurrentPassword123!"));
+        when(entityManager.find(UserModel.class, 10L)).thenReturn(current);
+
+        UserModel update = new UserModel();
+        update.setId(10L);
+        update.setPassword("pbkdf2_md5$200000$c2FsdA==$aGFzaA==");
+
+        assertThatThrownBy(() -> userServiceBean.updateUser(update))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(entityManager, never()).merge(update);
     }
 
     @Test
@@ -110,10 +180,8 @@ class UserServiceBeanPasswordTest {
     void authenticateReturnsIpThrottleWhenFailureTriggersIpLimit() {
         UserModel user = new UserModel();
         user.setUserId("F001:user01");
-        user.setPassword("stored-hash");
+        user.setPassword(passwordHashService.hashForStorage("RawPass123"));
         when(query.getSingleResult()).thenReturn(user);
-        when(passwordHashService.verify("stored-hash", "WrongPass!"))
-                .thenReturn(PasswordHashService.VerificationResult.failure());
         when(loginAttemptPolicyService.registerFailure(eq("F001:user01"), eq("192.0.2.50"), any()))
                 .thenReturn(new LoginAttemptPolicyService.FailureResult(false, true, 120L));
 
@@ -129,11 +197,9 @@ class UserServiceBeanPasswordTest {
     void authenticateReturnsSecondFactorRequiredWhenFactor2Enabled() {
         UserModel user = new UserModel();
         user.setUserId("F001:user01");
-        user.setPassword("stored-hash");
+        user.setPassword(passwordHashService.hashForStorage("RawPass123"));
         user.setFactor2Auth("totp");
         when(query.getSingleResult()).thenReturn(user);
-        when(passwordHashService.verify("stored-hash", "RawPass123"))
-                .thenReturn(PasswordHashService.VerificationResult.success());
 
         UserServiceBean.AuthenticationResult result =
                 userServiceBean.authenticateWithPolicy("F001:user01", "RawPass123", "192.0.2.60");

@@ -1,8 +1,6 @@
 package open.dolphin.security.auth;
 
 import jakarta.enterprise.context.ApplicationScoped;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
@@ -43,7 +41,19 @@ public class PasswordHashService {
     }
 
     public boolean isManagedHash(String storedPassword) {
-        return parseManagedHash(storedPassword) != null;
+        return isCurrentHash(storedPassword);
+    }
+
+    public boolean isCurrentHash(String storedPassword) {
+        return parseCurrentHash(storedPassword) != null;
+    }
+
+    public boolean isLegacyManagedHash(String storedPassword) {
+        return parseLegacyManagedHash(storedPassword) != null;
+    }
+
+    public boolean isLegacyMd5Digest(String storedPassword) {
+        return storedPassword != null && LEGACY_MD5_PATTERN.matcher(storedPassword).matches();
     }
 
     public VerificationResult verify(String storedPassword, String presentedPassword) {
@@ -51,47 +61,20 @@ public class PasswordHashService {
             return VerificationResult.failure();
         }
 
-        ParsedHash managed = parseManagedHash(storedPassword);
-        if (managed != null) {
-            return verifyManagedHash(managed, presentedPassword);
+        ParsedHash current = parseCurrentHash(storedPassword);
+        if (current != null) {
+            return verifyCurrentHash(current, presentedPassword);
         }
-
-        if (isLegacyMd5(storedPassword)) {
-            String expectedMd5 = md5Hex(presentedPassword);
-            if (!storedPassword.equalsIgnoreCase(expectedMd5)) {
-                return VerificationResult.failure();
-            }
-            return VerificationResult.successWithUpgrade(hashForStorage(presentedPassword));
-        }
-
-        if (!storedPassword.equals(presentedPassword)) {
-            return VerificationResult.failure();
-        }
-        return VerificationResult.successWithUpgrade(hashForStorage(presentedPassword));
+        return VerificationResult.failure();
     }
 
-    private VerificationResult verifyManagedHash(ParsedHash parsed, String presentedPassword) {
-        byte[] actual;
-        if (parsed.algorithm() == HashAlgorithm.PBKDF2_SHA256_RAW) {
-            actual = derive(presentedPassword, parsed.iterations(), parsed.salt());
-            boolean matched = MessageDigest.isEqual(parsed.hash(), actual);
-            if (!matched) {
-                return VerificationResult.failure();
-            }
-            boolean needsParamUpgrade = parsed.iterations() < MIN_ITERATIONS || parsed.salt().length < MIN_SALT_BYTES;
-            if (needsParamUpgrade) {
-                return VerificationResult.successWithUpgrade(hashForStorage(presentedPassword));
-            }
-            return VerificationResult.success();
-        }
-
-        String canonicalMd5 = md5Hex(presentedPassword);
-        actual = derive(canonicalMd5, parsed.iterations(), parsed.salt());
-        boolean matched = MessageDigest.isEqual(parsed.hash(), actual);
+    private VerificationResult verifyCurrentHash(ParsedHash parsed, String presentedPassword) {
+        byte[] actual = derive(presentedPassword, parsed.iterations(), parsed.salt());
+        boolean matched = java.security.MessageDigest.isEqual(parsed.hash(), actual);
         if (!matched) {
             return VerificationResult.failure();
         }
-        return VerificationResult.successWithUpgrade(hashForStorage(presentedPassword));
+        return VerificationResult.success();
     }
 
     private byte[] randomSalt(int length) {
@@ -120,7 +103,15 @@ public class PasswordHashService {
         }
     }
 
-    private ParsedHash parseManagedHash(String storedPassword) {
+    private ParsedHash parseCurrentHash(String storedPassword) {
+        return parseHash(storedPassword, FORMAT_PREFIX);
+    }
+
+    private ParsedHash parseLegacyManagedHash(String storedPassword) {
+        return parseHash(storedPassword, LEGACY_FORMAT_PREFIX);
+    }
+
+    private ParsedHash parseHash(String storedPassword, String expectedPrefix) {
         if (storedPassword == null) {
             return null;
         }
@@ -128,9 +119,7 @@ public class PasswordHashService {
         if (parts.length != 4) {
             return null;
         }
-
-        HashAlgorithm algorithm = resolveAlgorithm(parts[0]);
-        if (algorithm == null) {
+        if (!expectedPrefix.equals(parts[0])) {
             return null;
         }
 
@@ -150,37 +139,9 @@ public class PasswordHashService {
             if (salt.length == 0 || hash.length == 0) {
                 return null;
             }
-            return new ParsedHash(algorithm, iterations, salt, hash);
+            return new ParsedHash(iterations, salt, hash);
         } catch (IllegalArgumentException e) {
             return null;
-        }
-    }
-
-    private HashAlgorithm resolveAlgorithm(String prefix) {
-        if (FORMAT_PREFIX.equals(prefix)) {
-            return HashAlgorithm.PBKDF2_SHA256_RAW;
-        }
-        if (LEGACY_FORMAT_PREFIX.equals(prefix)) {
-            return HashAlgorithm.PBKDF2_SHA256_MD5;
-        }
-        return null;
-    }
-
-    private boolean isLegacyMd5(String value) {
-        return value != null && LEGACY_MD5_PATTERN.matcher(value).matches();
-    }
-
-    private String md5Hex(String raw) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("MD5");
-            byte[] bytes = digest.digest(raw.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(bytes.length * 2);
-            for (byte b : bytes) {
-                sb.append(String.format("%02x", b));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("MD5 algorithm is not available", e);
         }
     }
 
@@ -223,11 +184,6 @@ public class PasswordHashService {
         }
     }
 
-    private enum HashAlgorithm {
-        PBKDF2_SHA256_RAW,
-        PBKDF2_SHA256_MD5
-    }
-
-    private record ParsedHash(HashAlgorithm algorithm, int iterations, byte[] salt, byte[] hash) {
+    private record ParsedHash(int iterations, byte[] salt, byte[] hash) {
     }
 }

@@ -31,53 +31,42 @@ class PasswordHashServiceTest {
         assertThat(verification.matched()).isTrue();
         assertThat(verification.requiresUpgrade()).isFalse();
         assertThat(verification.upgradedHash()).isEmpty();
+        assertThat(service.isManagedHash(stored)).isTrue();
+        assertThat(service.isCurrentHash(stored)).isTrue();
     }
 
     @Test
-    void verifyRejectsMd5InputForManagedHash() {
-        String rawPassword = "CompatRawPass!";
-        String stored = service.hashForStorage(rawPassword);
-        String md5Password = md5(rawPassword);
-
-        PasswordHashService.VerificationResult verification = service.verify(stored, md5Password);
-
-        assertThat(verification.matched()).isFalse();
-        assertThat(verification.requiresUpgrade()).isFalse();
-    }
-
-    @Test
-    void legacyManagedMd5AuthenticationRequiresUpgrade() {
+    void verifyRejectsLegacyManagedHash() {
         String rawPassword = "LegacyManagedPass!";
         String legacy = legacyManagedHash(rawPassword, 200_000);
 
         PasswordHashService.VerificationResult verification = service.verify(legacy, rawPassword);
 
-        assertThat(verification.matched()).isTrue();
-        assertThat(verification.requiresUpgrade()).isTrue();
-        String upgraded = verification.upgradedHash().orElseThrow();
-        assertThat(upgraded).startsWith(PasswordHashService.FORMAT_PREFIX + "$");
-        assertThat(service.verify(upgraded, rawPassword).matched()).isTrue();
+        assertThat(verification.matched()).isFalse();
+        assertThat(verification.requiresUpgrade()).isFalse();
+        assertThat(service.isManagedHash(legacy)).isFalse();
+        assertThat(service.isLegacyManagedHash(legacy)).isTrue();
     }
 
     @Test
-    void legacyMd5AuthenticationRequiresUpgrade() {
+    void verifyRejectsRawMd5Digest() {
         String rawPassword = "LegacyPass!";
         String legacyMd5 = md5(rawPassword);
 
         PasswordHashService.VerificationResult verification = service.verify(legacyMd5, rawPassword);
 
-        assertThat(verification.matched()).isTrue();
-        assertThat(verification.requiresUpgrade()).isTrue();
-        assertThat(verification.upgradedHash()).isPresent();
+        assertThat(verification.matched()).isFalse();
+        assertThat(verification.requiresUpgrade()).isFalse();
+        assertThat(service.isLegacyMd5Digest(legacyMd5)).isTrue();
     }
 
     @Test
-    void legacyPlainAuthenticationRequiresUpgrade() {
+    void verifyRejectsPlainStoredPassword() {
         PasswordHashService.VerificationResult verification = service.verify("plain-password", "plain-password");
 
-        assertThat(verification.matched()).isTrue();
-        assertThat(verification.requiresUpgrade()).isTrue();
-        assertThat(verification.upgradedHash()).isPresent();
+        assertThat(verification.matched()).isFalse();
+        assertThat(verification.requiresUpgrade()).isFalse();
+        assertThat(service.isManagedHash("plain-password")).isFalse();
     }
 
     private String legacyManagedHash(String rawPassword, int iterations) {

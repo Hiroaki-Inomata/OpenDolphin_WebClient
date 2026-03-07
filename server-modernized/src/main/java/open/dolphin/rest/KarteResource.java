@@ -33,6 +33,7 @@ import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PVTServiceBean;
+import open.dolphin.session.UserServiceBean;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -59,6 +60,9 @@ public class KarteResource extends AbstractResource {
 
     @Inject
     private SessionTraceManager sessionTraceManager;
+
+    @Inject
+    private UserServiceBean userServiceBean;
 
     @Context
     private HttpServletRequest httpServletRequest;
@@ -403,8 +407,14 @@ public class KarteResource extends AbstractResource {
     @GET
     @Path("/userProperty/{userId}")
     @Produces(MediaType.APPLICATION_JSON)
-    public List<UserPropertyResponse> getUserProperties(@PathParam("userId") String userId) {
-        return karteServiceBean.getUserProperties(userId);
+    public List<UserPropertyResponse> getUserProperties(@Context HttpServletRequest request, @PathParam("userId") String userId) {
+        String actorId = requireRemoteUser(request);
+        String targetUserId = normalizeTargetUserId(actorId, userId);
+        if (targetUserId == null) {
+            return Collections.emptyList();
+        }
+        ensureUserPropertyAccess(request, actorId, targetUserId);
+        return karteServiceBean.getUserProperties(targetUserId);
     }
 
     //-------------------------------------------------------
@@ -882,6 +892,33 @@ public class KarteResource extends AbstractResource {
 
     private HttpServletRequest resolveRequest(HttpServletRequest explicit) {
         return explicit != null ? explicit : httpServletRequest;
+    }
+
+    private String normalizeTargetUserId(String actorId, String requestedUserId) {
+        if (requestedUserId == null || requestedUserId.isBlank()) {
+            return null;
+        }
+        String trimmed = requestedUserId.trim();
+        if (trimmed.contains(IInfoModel.COMPOSITE_KEY_MAKER)) {
+            return trimmed;
+        }
+        String facilityId = getRemoteFacility(actorId);
+        if (facilityId == null || facilityId.isBlank()) {
+            return null;
+        }
+        return facilityId + IInfoModel.COMPOSITE_KEY_MAKER + trimmed;
+    }
+
+    private void ensureUserPropertyAccess(HttpServletRequest request, String actorId, String targetUserId) {
+        boolean admin = userServiceBean != null && userServiceBean.isAdmin(actorId);
+        if (!admin && !actorId.equals(targetUserId)) {
+            throw AbstractResource.restError(request, Response.Status.FORBIDDEN, "forbidden", "Access denied");
+        }
+        String actorFacility = getRemoteFacility(actorId);
+        String targetFacility = getRemoteFacility(targetUserId);
+        if (admin && (actorFacility == null || !actorFacility.equals(targetFacility))) {
+            throw AbstractResource.restError(request, Response.Status.FORBIDDEN, "forbidden", "Access denied");
+        }
     }
 
     private void ensurePatientFacilityAccess(long patientPk, HttpServletRequest request) {
