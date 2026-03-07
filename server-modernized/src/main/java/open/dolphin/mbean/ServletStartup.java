@@ -37,7 +37,6 @@ public class ServletStartup {
     private static final ZoneId DEFAULT_ZONE = RuntimeConfigurationSupport.resolveTimezone();
     static final String ORCA_MASTER_BASIC_USER_KEY = "ORCA_MASTER_BASIC_USER";
     static final String ORCA_MASTER_BASIC_PASSWORD_KEY = "ORCA_MASTER_BASIC_PASSWORD";
-    static final String AUTH_ALLOW_BASIC_FALLBACK_KEY = "OPENDOLPHIN_AUTH_ALLOW_BASIC_FALLBACK";
 
     @Resource(lookup = ConcurrencyResourceNames.DEFAULT_SCHEDULER)
     private ManagedScheduledExecutorService scheduler;
@@ -172,11 +171,6 @@ public class ServletStartup {
                 "ORCA master legacy credential is configured in a production-like environment. Remove the leaked value before startup.");
         failIfConfigured(ORCA_MASTER_BASIC_PASSWORD_KEY,
                 "ORCA master legacy credential is configured in a production-like environment. Remove the leaked value before startup.");
-        String allowBasicFallback = resolveSetting(AUTH_ALLOW_BASIC_FALLBACK_KEY);
-        if (Boolean.TRUE.equals(RuntimeConfigurationSupport.parseBooleanFlag(allowBasicFallback))) {
-            throw new IllegalStateException(AUTH_ALLOW_BASIC_FALLBACK_KEY
-                    + "=true is not allowed in a production-like environment.");
-        }
         OrcaTransportSettings.load();
     }
 

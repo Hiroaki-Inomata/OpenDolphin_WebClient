@@ -58,7 +58,7 @@ const EncounterGuardHarness = ({ blocked }: { blocked: boolean }) => {
 };
 
 describe('Charts navigation guard (integration)', () => {
-  it('read-only 時は URL 変更による外来コンテキスト切替をブロックして戻す', async () => {
+  it('read-only 時は URL の legacy encounter query を scrub しつつ外来コンテキスト切替をブロックする', async () => {
     const router = createMemoryRouter(
       [
         {
@@ -72,6 +72,8 @@ describe('Charts navigation guard (integration)', () => {
     render(<RouterProvider router={router} />);
 
     await waitFor(() => {
+      expect(screen.getByTestId('location-search')).toHaveTextContent(`runId=${RUN_ID}`);
+      expect(screen.getByTestId('location-search')).not.toHaveTextContent('patientId=');
       expect(screen.getByTestId('encounter-patient')).toHaveTextContent('PX-1');
     });
 
@@ -81,10 +83,11 @@ describe('Charts navigation guard (integration)', () => {
 
     await waitFor(() => {
       const search = screen.getByTestId('location-search');
-      expect(search).toHaveTextContent('patientId=PX-1');
-      expect(search).toHaveTextContent('receptionId=R-1');
       expect(search).toHaveTextContent(`runId=${RUN_ID}`);
+      expect(search).not.toHaveTextContent('patientId=');
+      expect(search).not.toHaveTextContent('receptionId=');
       expect(search).not.toHaveTextContent('patientId=PX-2');
+      expect(screen.getByTestId('encounter-patient')).toHaveTextContent('PX-1');
     });
   });
 });

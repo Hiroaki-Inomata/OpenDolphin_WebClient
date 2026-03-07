@@ -41,7 +41,7 @@ class AdminAccessResourceTest {
 
         setField(resource, "em", entityManager);
         setField(resource, "userServiceBean", userServiceBean);
-        setField(resource, "secondFactorSecurityConfig", mock(open.dolphin.security.SecondFactorSecurityConfig.class));
+        setField(resource, "totpVerificationSupport", mock(TotpVerificationSupport.class));
         setField(resource, "sessionAuditDispatcher", mock(SessionAuditDispatcher.class));
         setField(resource, "passwordHashService", passwordHashService);
     }

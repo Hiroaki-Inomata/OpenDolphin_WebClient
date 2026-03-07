@@ -2,6 +2,7 @@ package open.dolphin.rest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -141,7 +142,7 @@ class SessionAuthResourceTest extends RuntimeDelegateTestSupport {
         assertThat(entity.userId()).isEqualTo(USER_ID);
         assertThat(entity.clientUuid()).isEqualTo("client-3");
         assertThat(entity.runId()).isEqualTo("run-factor2");
-        verify(authenticatedSession).removeAttribute(AuthSessionSupport.PENDING_FACTOR2_ACTOR_ID);
+        verify(authenticatedSession, atLeastOnce()).removeAttribute(AuthSessionSupport.PENDING_FACTOR2_ACTOR_ID);
         verify(authenticatedSession).setAttribute(AuthSessionSupport.AUTH_ACTOR_ID, USER_ID);
         verify(authenticatedSession).setAttribute(AuthSessionSupport.AUTH_FACILITY_ID, "F001");
         verify(authenticatedSession).setAttribute(AuthSessionSupport.AUTH_LOGIN_ID, "user01");

@@ -2,7 +2,6 @@ package open.dolphin.rest;
 
 import java.io.IOException;
 import java.security.Principal;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -23,7 +22,6 @@ import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
-import open.dolphin.session.UserServiceBean;
 import open.dolphin.session.framework.SessionTraceAttributes;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
 import org.jboss.logmanager.MDC;
@@ -49,26 +47,18 @@ public class LogFilter implements Filter {
     private static final String MDC_REQUEST_ID_KEY = "requestId";
     private static final String MDC_RUN_ID_KEY = "runId";
     private static final String ANONYMOUS_PRINCIPAL = "anonymous";
-    private static final String AUTH_CHALLENGE = "Basic realm=\"OpenDolphin\"";
     private static final String ERROR_AUDIT_RECORDED_ATTR = LogFilter.class.getName() + ".ERROR_AUDIT_RECORDED";
-    private static final String IP_THROTTLED_RETRY_AFTER_ATTR = LogFilter.class.getName() + ".IP_THROTTLED_RETRY_AFTER";
-    private static final String AUTH_FAILURE_CODE_ATTR = LogFilter.class.getName() + ".AUTH_FAILURE_CODE";
-    private static final String AUTH_FAILURE_MESSAGE_ATTR = LogFilter.class.getName() + ".AUTH_FAILURE_MESSAGE";
     private static final String PRINCIPAL_FACILITY_DETAILS_KEY = "facilityId";
-    private static final String ALLOW_BASIC_FALLBACK_PROPERTY = "OPENDOLPHIN_AUTH_ALLOW_BASIC_FALLBACK";
     private static final String SESSION_LOGIN_PATH = "/resources/api/session/login";
+    private static final String SESSION_FACTOR2_LOGIN_PATH = "/resources/api/session/login/factor2";
     private static final String LOGOUT_PATH = "/resources/api/logout";
     private static final Pattern SAFE_TOKEN = Pattern.compile("^[A-Za-z0-9._-]{1,64}$");
-    private static final int HTTP_TOO_MANY_REQUESTS = 429;
 
     @Inject
     private SecurityContext securityContext;
 
     @Inject
     private SessionAuditDispatcher sessionAuditDispatcher;
-
-    @Inject
-    private UserServiceBean userService;
 
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
@@ -114,34 +104,9 @@ public class LogFilter implements Filter {
             if (principalUser.isEmpty()) {
                 principalUser = resolvePrincipalUser();
             }
-            if (principalUser.isEmpty() && isBasicFallbackEnabled()) {
-                principalUser = authenticateWithBasicHeader(req);
-            }
             if (principalUser.isEmpty()) {
-                Long retryAfter = readRetryAfter(req);
-                if (retryAfter != null && retryAfter > 0L) {
-                    String candidateUser = extractBasicAuthUserCandidate(req);
-                    logUnauthorized(req, candidateUser, traceId);
-                    recordUnauthorizedAudit(req, traceId, candidateUser, "too_many_requests",
-                            "Too many failed authentication attempts", "ip_throttled",
-                            HTTP_TOO_MANY_REQUESTS);
-                    sendTooManyRequests(req, res, retryAfter);
-                    return;
-                }
-                String authFailureCode = readAuthFailureCode(req);
-                String authFailureMessage = readAuthFailureMessage(req);
-                if (authFailureCode != null) {
-                    String candidateUser = extractBasicAuthUserCandidate(req);
-                    logUnauthorized(req, candidateUser, traceId);
-                    recordUnauthorizedAudit(req, traceId, candidateUser, authFailureCode,
-                            authFailureMessage, authFailureCode, HttpServletResponse.SC_UNAUTHORIZED);
-                    sendUnauthorized(req, res, authFailureCode, authFailureMessage,
-                            unauthorizedDetails(authFailureCode));
-                    return;
-                }
-                String candidateUser = extractBasicAuthUserCandidate(req);
-                logUnauthorized(req, candidateUser, traceId);
-                recordUnauthorizedAudit(req, traceId, candidateUser, "unauthorized",
+                logUnauthorized(req, null, traceId);
+                recordUnauthorizedAudit(req, traceId, null, "unauthorized",
                         "Authentication required", "authentication_failed", HttpServletResponse.SC_UNAUTHORIZED);
                 sendUnauthorized(req, res, "unauthorized", "Authentication required",
                         unauthorizedDetails("authentication_failed"));
@@ -208,7 +173,9 @@ public class LogFilter implements Filter {
         if (normalizedPath == null) {
             return false;
         }
-        return SESSION_LOGIN_PATH.equals(normalizedPath) || LOGOUT_PATH.equals(normalizedPath);
+        return SESSION_LOGIN_PATH.equals(normalizedPath)
+                || SESSION_FACTOR2_LOGIN_PATH.equals(normalizedPath)
+                || LOGOUT_PATH.equals(normalizedPath);
     }
 
     private String normalizeRequestPath(HttpServletRequest request) {
@@ -404,24 +371,6 @@ public class LogFilter implements Filter {
         }
     }
 
-    private static final class BasicCredentials {
-        private final String user;
-        private final String password;
-
-        private BasicCredentials(String user, String password) {
-            this.user = user;
-            this.password = password;
-        }
-
-        private String user() {
-            return user;
-        }
-
-        private String password() {
-            return password;
-        }
-    }
-
     private void logUnauthorized(HttpServletRequest req, String user, String traceId) {
         StringBuilder sbd = new StringBuilder(UNAUTHORIZED_USER);
         sbd.append(user != null ? user : "unknown");
@@ -432,142 +381,9 @@ public class LogFilter implements Filter {
         Logger.getLogger("open.dolphin").warning(sbd.toString());
     }
 
-    private Optional<String> authenticateWithBasicHeader(HttpServletRequest request) {
-        String auth = safeHeader(request, "Authorization");
-        if (auth == null) {
-            return Optional.empty();
-        }
-        String trimmed = auth.trim();
-        if (!trimmed.regionMatches(true, 0, "Basic ", 0, 6)) {
-            return Optional.empty();
-        }
-        String encoded = trimmed.substring(6).trim();
-        String decoded;
-        try {
-            decoded = new String(Base64.getDecoder().decode(encoded), java.nio.charset.StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException ex) {
-            SECURITY_LOGGER.log(Level.FINE, "Invalid Basic auth header", ex);
-            return Optional.empty();
-        }
-        BasicCredentials credentials = resolveCompositeCredentials(decoded);
-        if (credentials == null) {
-            SECURITY_LOGGER.fine("Basic auth header did not contain a composite user");
-            return Optional.empty();
-        }
-        String compositeUser = credentials.user();
-        String rawPass = credentials.password();
-        if (compositeUser == null || userService == null) {
-            return Optional.empty();
-        }
-        String clientIp = AbstractResource.resolveClientIp(request);
-        UserServiceBean.AuthenticationResult result = userService.authenticateWithPolicy(compositeUser, rawPass, clientIp);
-        if (result.ipThrottled()) {
-            request.setAttribute(IP_THROTTLED_RETRY_AFTER_ATTR, result.retryAfterSeconds());
-            return Optional.empty();
-        }
-        if (result.secondFactorRequired()) {
-            request.setAttribute(AUTH_FAILURE_CODE_ATTR, "factor2_required");
-            request.setAttribute(AUTH_FAILURE_MESSAGE_ATTR, "Second factor required.");
-            return Optional.empty();
-        }
-        if (result.authenticated()) {
-            return Optional.of(compositeUser);
-        }
-        SECURITY_LOGGER.log(Level.FINE, "Basic authentication failed for user {0}", compositeUser);
-        return Optional.empty();
-    }
-
-    private String extractBasicAuthUserCandidate(HttpServletRequest request) {
-        if (!isBasicFallbackEnabled()) {
-            return null;
-        }
-        String auth = safeHeader(request, "Authorization");
-        if (auth == null) {
-            return null;
-        }
-        String trimmed = auth.trim();
-        if (!trimmed.regionMatches(true, 0, "Basic ", 0, 6)) {
-            return null;
-        }
-        String encoded = trimmed.substring(6).trim();
-        try {
-            String decoded = new String(Base64.getDecoder().decode(encoded), java.nio.charset.StandardCharsets.UTF_8);
-            int sep = decoded.lastIndexOf(':');
-            if (sep <= 0) {
-                return null;
-            }
-            String user = decoded.substring(0, sep);
-            return normalize(user);
-        } catch (IllegalArgumentException ex) {
-            return null;
-        }
-    }
-
-    private BasicCredentials resolveCompositeCredentials(String decoded) {
-        if (decoded == null) {
-            return null;
-        }
-        int firstSeparator = decoded.indexOf(':');
-        if (firstSeparator < 0) {
-            return null;
-        }
-        BasicCredentials firstParsed = parseCredentials(decoded, firstSeparator);
-        if (firstParsed != null && isCompositePrincipal(firstParsed.user())) {
-            return firstParsed;
-        }
-        int lastSeparator = decoded.lastIndexOf(':');
-        if (lastSeparator > firstSeparator) {
-            BasicCredentials lastParsed = parseCredentials(decoded, lastSeparator);
-            if (lastParsed != null && isCompositePrincipal(lastParsed.user())) {
-                return lastParsed;
-            }
-        }
-        return null;
-    }
-
-    private BasicCredentials parseCredentials(String decoded, int separatorIndex) {
-        if (decoded == null || separatorIndex < 0 || separatorIndex >= decoded.length()) {
-            return null;
-        }
-        String user = normalize(decoded.substring(0, separatorIndex));
-        if (user == null) {
-            return null;
-        }
-        String password = decoded.substring(separatorIndex + 1);
-        return new BasicCredentials(user, password);
-    }
-
     private void sendUnauthorized(HttpServletRequest request, HttpServletResponse response, String errorCode,
             String message, Map<String, Object> details) throws IOException {
-        if (shouldAttachAuthChallenge(request)) {
-            response.setHeader("WWW-Authenticate", AUTH_CHALLENGE);
-        }
         AbstractResource.writeRestError(request, response, HttpServletResponse.SC_UNAUTHORIZED, errorCode, message, details);
-    }
-
-    private void sendTooManyRequests(HttpServletRequest request, HttpServletResponse response, long retryAfterSeconds)
-            throws IOException {
-        long retry = Math.max(1L, retryAfterSeconds);
-        response.setHeader("Retry-After", Long.toString(retry));
-        AbstractResource.writeRestError(request, response, HTTP_TOO_MANY_REQUESTS,
-                "too_many_requests", "Too many failed authentication attempts",
-                unauthorizedDetails("ip_throttled"));
-    }
-
-    private boolean shouldAttachAuthChallenge(HttpServletRequest request) {
-        if (request == null) {
-            return false;
-        }
-        // Browser fetch/XHR requests should not trigger the native Basic auth credential prompt.
-        // Only attach the challenge when the request is likely a top-level navigation.
-        String fetchDest = safeHeader(request, "Sec-Fetch-Dest");
-        if (fetchDest != null && !fetchDest.isBlank()) {
-            String normalized = fetchDest.trim().toLowerCase();
-            return "document".equals(normalized) || "iframe".equals(normalized);
-        }
-        // Fallback: treat HTML navigations as eligible for Basic auth challenge.
-        String accept = safeHeader(request, "Accept");
-        return accept != null && accept.toLowerCase().contains("text/html");
     }
 
     private String normalize(String value) {
@@ -597,22 +413,6 @@ public class LogFilter implements Filter {
         return candidate.contains(IInfoModel.COMPOSITE_KEY_MAKER);
     }
 
-    private boolean isBasicFallbackEnabled() {
-        return isTruthy(System.getProperty(ALLOW_BASIC_FALLBACK_PROPERTY))
-                || isTruthy(System.getenv(ALLOW_BASIC_FALLBACK_PROPERTY));
-    }
-
-    private boolean isTruthy(String value) {
-        if (value == null) {
-            return false;
-        }
-        String normalized = value.trim();
-        return "1".equals(normalized)
-                || "true".equalsIgnoreCase(normalized)
-                || "yes".equalsIgnoreCase(normalized)
-                || "on".equalsIgnoreCase(normalized);
-    }
-
     private String extractFacilitySegment(String candidate) {
         if (candidate == null) {
             return null;
@@ -622,34 +422,6 @@ public class LogFilter implements Filter {
             return candidate.substring(0, separator);
         }
         return null;
-    }
-
-    private Long readRetryAfter(HttpServletRequest request) {
-        if (request == null) {
-            return null;
-        }
-        Object value = request.getAttribute(IP_THROTTLED_RETRY_AFTER_ATTR);
-        if (value instanceof Number number) {
-            long retryAfter = number.longValue();
-            return retryAfter > 0L ? retryAfter : null;
-        }
-        return null;
-    }
-
-    private String readAuthFailureCode(HttpServletRequest request) {
-        if (request == null) {
-            return null;
-        }
-        Object value = request.getAttribute(AUTH_FAILURE_CODE_ATTR);
-        return value instanceof String code && !code.isBlank() ? code : null;
-    }
-
-    private String readAuthFailureMessage(HttpServletRequest request) {
-        if (request == null) {
-            return "Authentication required";
-        }
-        Object value = request.getAttribute(AUTH_FAILURE_MESSAGE_ATTR);
-        return value instanceof String message && !message.isBlank() ? message : "Authentication required";
     }
 
     private Map<String, Object> unauthorizedDetails(String reason) {

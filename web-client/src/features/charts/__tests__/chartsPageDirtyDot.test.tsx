@@ -347,8 +347,7 @@ describe('ChartsPage patient tab dirty indicator', () => {
 
     const dialog = screen.getByRole('alertdialog', { name: '診察終了の確認' });
     expect(dialog).toBeInTheDocument();
-    expect(within(dialog).getByText('患者A')).toBeInTheDocument();
-    expect(within(dialog).getByText('P-001')).toBeInTheDocument();
+    expect(within(dialog).getByText('SOAP等の未保存入力があります。続行方法を選択してください。')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '保存して終了' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '保存せず終了' })).toBeInTheDocument();
 

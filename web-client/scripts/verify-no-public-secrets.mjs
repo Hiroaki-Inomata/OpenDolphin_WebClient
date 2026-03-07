@@ -6,14 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDir = path.dirname(scriptPath);
-const repoRootDir = path.resolve(scriptDir, '..', '..');
+const repoRootDir = path.resolve(scriptDir, '..');
 
 const PUBLIC_PREFIX = ['VITE', ''].join('_');
 const KEYWORDS = ['PASSWORD', 'PASS', 'SECRET', 'TOKEN', 'APIKEY', 'API_KEY', 'PRIVATE', 'CREDENTIAL'];
 const DENYLIST = new Set(['VITE_ORCA_MASTER_USER', 'VITE_ORCA_MASTER_PASSWORD']);
 const ENV_KEY_PATTERN = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/;
 const ENV_FILE_PATTERN = /^\.env(?:\..*)?$/;
-const WALK_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'coverage', 'build']);
+const WALK_SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', 'coverage', 'build', 'artifacts', 'test-results']);
 
 const listEnvFiles = (rootDir) => {
   const found = [];
@@ -65,11 +65,11 @@ const files = listEnvFiles(repoRootDir);
 const findings = files.flatMap((filePath) => scanFile(filePath));
 
 if (findings.length > 0) {
-  console.error('[verify:no-public-secrets] VITE_公開変数に秘密名キーワードを含むキーを検出しました。');
+  console.error('[verify:no-public-secrets] web-client 配下の .env* から VITE_公開変数に秘密名キーワードを含むキーを検出しました。');
   for (const finding of findings) {
     console.error(` - ${path.relative(repoRootDir, finding.filePath)}:${finding.line} ${finding.key}`);
   }
   process.exit(2);
 }
 
-console.log('[verify:no-public-secrets] 問題は検出されませんでした。');
+console.log('[verify:no-public-secrets] web-client 配下の .env* に問題は検出されませんでした。');

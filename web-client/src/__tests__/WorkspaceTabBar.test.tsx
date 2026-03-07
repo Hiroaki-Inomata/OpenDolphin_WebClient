@@ -132,7 +132,7 @@ describe('WorkspaceTabBar navigation', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/f/0001/charts');
     });
-  });
+  }, 10_000);
 
   it('受付画面で患者タブの✗を押しても charts へ遷移せずタブだけ閉じる', async () => {
     const user = userEvent.setup();

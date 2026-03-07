@@ -1,6 +1,7 @@
 import { toScopeSuffix, type StorageScope } from './storageScope';
 import { clearChartsEncounterContext } from '../../features/charts/encounterContext';
 import { clearChartsPatientTabsStorage } from '../../features/charts/patientTabsStorage';
+import { clearReceptionDailyState } from '../../features/reception/receptionDailyState';
 import { clearDeepLinkContext } from '../../routes/deepLinkContextStorage';
 
 const SESSION_BASE_KEYS = [
@@ -103,6 +104,7 @@ export const clearScopedStorage = (scope: StorageScope) => {
 
   clearChartsEncounterContext(scope);
   clearChartsPatientTabsStorage(scope);
+  clearReceptionDailyState(scope);
   clearDeepLinkContext();
 
   // sessionStorage

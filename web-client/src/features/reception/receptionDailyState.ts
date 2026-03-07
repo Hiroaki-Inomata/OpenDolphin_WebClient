@@ -1,5 +1,5 @@
 import type { StorageScope } from '../../libs/session/storageScope';
-import { buildScopedStorageKey } from '../../libs/session/storageScope';
+import { buildScopedStorageKey, toScopeSuffix } from '../../libs/session/storageScope';
 import type { ReceptionEntry, ReceptionStatus } from '../outpatient/types';
 
 const STORAGE_BASE_KEY = 'opendolphin:web-client:reception-daily-state';
@@ -7,6 +7,7 @@ const STORAGE_VERSION = 'v1';
 const LEGACY_STORAGE_KEY = `${STORAGE_BASE_KEY}:v1`;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_DAYS = 7;
+const volatileReceptionDailyStores = new Map<string, ReceptionDailyStore>();
 
 type ReceptionStatusOverrideSource =
   | 'api'
@@ -200,6 +201,9 @@ const createEmptyStore = (): ReceptionDailyStore => ({
   days: {},
 });
 
+const cloneStore = (store: ReceptionDailyStore): ReceptionDailyStore =>
+  normalizeStore(JSON.parse(JSON.stringify(store)) as unknown);
+
 const resolveStorageKey = (scope?: StorageScope): string | null => {
   return buildScopedStorageKey(STORAGE_BASE_KEY, STORAGE_VERSION, scope);
 };
@@ -210,31 +214,8 @@ const resolveLegacyFallbackKey = (scope?: StorageScope): string | null => {
   return LEGACY_STORAGE_KEY;
 };
 
-const readLocalStorage = (key: string): string | null => {
-  if (typeof localStorage === 'undefined') return null;
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-};
-
-const writeSessionStorage = (key: string, value: string) => {
-  if (typeof sessionStorage === 'undefined') return;
-  try {
-    sessionStorage.setItem(key, value);
-  } catch {
-    // ignore migration errors
-  }
-};
-
-const readSessionStorage = (key: string): string | null => {
-  if (typeof sessionStorage === 'undefined') return null;
-  try {
-    return sessionStorage.getItem(key);
-  } catch {
-    return null;
-  }
+const resolveVolatileScopeKey = (scope?: StorageScope): string | null => {
+  return toScopeSuffix(scope);
 };
 
 const removeSessionStorage = (key: string) => {
@@ -257,50 +238,19 @@ const removeLocalStorage = (key: string) => {
 
 const removeLegacyLocalStorage = (scope?: StorageScope) => {
   const scopedKey = resolveStorageKey(scope);
+  if (scopedKey) removeSessionStorage(scopedKey);
+  removeSessionStorage(LEGACY_STORAGE_KEY);
   if (scopedKey) removeLocalStorage(scopedKey);
   const fallbackKey = resolveLegacyFallbackKey(scope);
   if (fallbackKey) removeLocalStorage(fallbackKey);
 };
 
-const parseStore = (raw: string): ReceptionDailyStore | null => {
-  try {
-    return normalizeStore(JSON.parse(raw));
-  } catch {
-    return null;
-  }
-};
-
 const readStore = (scope?: StorageScope): ReceptionDailyStore => {
-  const scopedKey = resolveStorageKey(scope);
-  if (!scopedKey) return createEmptyStore();
-  if (typeof sessionStorage === 'undefined') return createEmptyStore();
-
-  const currentRaw = readSessionStorage(scopedKey);
-  if (currentRaw) {
-    const normalized = parseStore(currentRaw);
-    if (!normalized) {
-      removeSessionStorage(scopedKey);
-    } else {
-      const serialized = JSON.stringify(normalized);
-      if (serialized !== currentRaw) writeSessionStorage(scopedKey, serialized);
-      removeLegacyLocalStorage(scope);
-      return normalized;
-    }
-  }
-
-  const fallbackKey = resolveLegacyFallbackKey(scope);
-  const legacyCandidates = [readLocalStorage(scopedKey), fallbackKey ? readLocalStorage(fallbackKey) : null].filter(
-    (value): value is string => typeof value === 'string' && value.length > 0,
-  );
-  for (const legacyRaw of legacyCandidates) {
-    const normalized = parseStore(legacyRaw);
-    if (!normalized) continue;
-    writeSessionStorage(scopedKey, JSON.stringify(normalized));
-    removeLegacyLocalStorage(scope);
-    return normalized;
-  }
+  const scopeKey = resolveVolatileScopeKey(scope);
   removeLegacyLocalStorage(scope);
-  return createEmptyStore();
+  if (!scopeKey) return createEmptyStore();
+  const store = volatileReceptionDailyStores.get(scopeKey);
+  return store ? cloneStore(store) : createEmptyStore();
 };
 
 const trimDays = (days: Record<string, ReceptionDailyBucket>) => {
@@ -312,21 +262,28 @@ const trimDays = (days: Record<string, ReceptionDailyBucket>) => {
 };
 
 const writeStore = (scope: StorageScope | undefined, store: ReceptionDailyStore) => {
-  const key = resolveStorageKey(scope);
-  if (!key) return;
-  if (typeof sessionStorage === 'undefined') return;
+  const scopeKey = resolveVolatileScopeKey(scope);
+  if (!scopeKey) return;
   const next: ReceptionDailyStore = {
     version: 1,
     updatedAt: new Date().toISOString(),
     days: { ...store.days },
   };
   trimDays(next.days);
-  try {
-    sessionStorage.setItem(key, JSON.stringify(next));
-  } catch {
-    // ignore storage errors
-  }
+  volatileReceptionDailyStores.set(scopeKey, cloneStore(next));
   removeLegacyLocalStorage(scope);
+};
+
+export const clearReceptionDailyState = (scope?: StorageScope) => {
+  removeLegacyLocalStorage(scope);
+  if (!scope) {
+    volatileReceptionDailyStores.clear();
+    return;
+  }
+  const scopeKey = resolveVolatileScopeKey(scope);
+  if (scopeKey) {
+    volatileReceptionDailyStores.delete(scopeKey);
+  }
 };
 
 const entryIdentity = (entry: ReceptionEntry): string =>

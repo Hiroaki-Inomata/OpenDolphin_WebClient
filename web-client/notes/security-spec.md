@@ -3,6 +3,7 @@
 ## 1. Secrets
 - `VITE_` 接頭辞の変数は公開配布物へ埋め込まれるため、機密値を設定しない。
 - `.env.local` / `.env.*` に機密値を置かない。必要な認証情報はサーバ側または Secret Manager で管理する。
+- ORCA 接続資格情報はサーバ側設定のみで扱い、client 側へ再配置しない。
 - `npm run verify:no-public-secrets` を CI 必須チェックとして運用する。
 
 ## 2. CSRF
@@ -14,17 +15,22 @@
 
 ## 3. URL
 - query には患者関連キー（`patientId` / `appointmentId` / `receptionId` / `visitDate` / `invoiceNumber`）と自由入力キー（`kw` / `keyword`）を残さない。
-- deep link で受信した値は処理後に `replace` で scrub し、必要最小限の encounter context を sessionStorage（TTL 2時間）へ退避する。
+- deep link で受信した値は処理後に `replace` で scrub し、必要最小限の encounter context は router state または volatile memory にのみ退避する。
 - `returnTo` は保存・遷移前に必ず `scrubPathWithQuery` を通し、機微クエリと hash を除去する。
 
 ## 4. Storage
 - localStorage に患者関連情報（患者ID・氏名・予約/受付ID・請求番号・自由入力 keyword）を保存しない。
-- sessionStorage は最小限に制限し、患者関連コンテキストは TTL 2時間で期限管理する。
-- `patient-tabs` 永続化から `name` / `department` を除去し、旧データ読み込み時も破棄する。
+- sessionStorage に患者関連コンテキストを保存しない。患者文脈は module-scope の揮発メモリまたは `location.state` のみで扱う。
+- `patient-tabs` 永続化は廃止し、旧データ読み込み時は cleanup のみ行う。
 - `orca-claim-send` / `orca-income-info` の永続化では請求番号や警告詳細を保存しない。
 - logout 時に患者関連 key を `clearScopedStorage` で必ず削除する。
 
-## 5. Logout
+## 5. Login / 2FA
+- ログインは 1 段階目の資格情報入力と、必要時のみ 2 段階目の TOTP 入力で完結させる。
+- 1 段階目成功後の password は client state / DOM から除去する。
+- 2FA code は URL / `sessionStorage` / `localStorage` に保存しない。
+
+## 6. Logout
 - logout は以下の順序で実行する。
   1. サーバ logout API（`POST`, `credentials: include`）を best-effort 実行
   2. クライアント側 storage cleanup
@@ -33,7 +39,7 @@
 - サーバ logout が 404 の場合は未実装として扱い、監査ログへ `outcome=unsupported` を記録する。
 - サーバ logout が失敗しても UI logout は継続し、患者関連データを残さない。
 
-## 6. バックエンド依頼事項
+## 7. バックエンド依頼事項
 - デプロイ順序は「backend の CSRF 注入対応を先行」「frontend を後続」とする。逆順デプロイは禁止。
 - `index.html` の `meta[name="csrf-token"]` へ実トークンを注入する（`__CSRF_TOKEN__` を本番値へ置換）。配信時はキャッシュでトークンが残留しないよう `Cache-Control: private, no-store`（または同等以上）を設定する。
 - `/api/logout` は `POST` + `credentials` + CSRF 必須で受け付ける。frontend は 404 を `unsupported` 扱いで継続するため、404 が継続する環境では監査ログ上の未実装警告が残る点に注意する。

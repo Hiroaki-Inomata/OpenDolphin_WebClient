@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import type { ComponentProps } from 'react';
 
 import { DocumentCreatePanel } from '../DocumentCreatePanel';
 import { logUiState } from '../../../libs/audit/auditLogger';
 import { buildScopedStorageKey } from '../../../libs/session/storageScope';
+import { AUTH_SESSION_STORAGE_KEY } from '../../../libs/session/authStorage';
 import { IMAGE_ATTACHMENT_MAX_SIZE_BYTES, sendKarteDocumentWithAttachments } from '../../images/api';
 import { recordChartsAuditEvent } from '../audit';
 import { fetchUserProfile } from '../stampApi';
@@ -34,6 +36,15 @@ vi.mock('../../../routes/useAppNavigation', () => ({
     openPrintOutpatient: vi.fn(),
     openPrintDocument: vi.fn(),
     openMobileImages: vi.fn(),
+  }),
+}));
+
+vi.mock('../../../AppRouter', () => ({
+  useOptionalSession: () => ({
+    facilityId: '0001',
+    userId: 'user01',
+    role: 'doctor',
+    runId: 'RUN-DOC',
   }),
 }));
 
@@ -138,9 +149,42 @@ const fillRequiredFields = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.type(screen.getByLabelText('紹介内容 *'), '既往歴と検査結果を記載');
 };
 
+const renderDocumentCreatePanel = async (
+  overrideProps: Partial<ComponentProps<typeof DocumentCreatePanel>> = {},
+) => {
+  const props = { ...baseProps, ...overrideProps };
+  render(
+    <MemoryRouter>
+      <DocumentCreatePanel {...props} />
+    </MemoryRouter>,
+  );
+
+  await waitFor(() => {
+    expect(fetchUserProfile).toHaveBeenCalledWith('0001:user01');
+  });
+  if (props.patientId) {
+    await waitFor(() => {
+      expect(fetchKarteIdByPatientId).toHaveBeenCalledWith({ patientId: props.patientId });
+    });
+    await waitFor(() => {
+      expect(fetchLetterList).toHaveBeenCalled();
+    });
+  }
+
+  return props;
+};
+
 beforeEach(() => {
-  localStorage.setItem('devFacilityId', '0001');
-  localStorage.setItem('devUserId', 'user01');
+  sessionStorage.setItem(
+    AUTH_SESSION_STORAGE_KEY,
+    JSON.stringify({
+      facilityId: '0001',
+      userId: 'user01',
+      role: 'doctor',
+      runId: 'RUN-DOC',
+      displayName: 'user01',
+    }),
+  );
   vi.mocked(fetchUserProfile).mockResolvedValue({ ok: true, id: 101, userId: 'user01' });
   vi.mocked(fetchKarteIdByPatientId).mockResolvedValue({ ok: true, karteId: 201 });
   vi.mocked(fetchLetterList).mockResolvedValue({ ok: true, letters: [] });
@@ -163,12 +207,8 @@ afterEach(() => {
 });
 
 describe('DocumentCreatePanel', () => {
-  it('文書作成メニューとフォームが表示される', () => {
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} />
-      </MemoryRouter>,
-    );
+  it('文書作成メニューとフォームが表示される', async () => {
+    await renderDocumentCreatePanel();
     expect(screen.getByText('文書作成メニュー')).toBeInTheDocument();
     expect(screen.getByText('紹介状')).toBeInTheDocument();
     expect(screen.getByText('診断書')).toBeInTheDocument();
@@ -179,11 +219,7 @@ describe('DocumentCreatePanel', () => {
 
   it('必須項目が未入力のときに警告を表示する', async () => {
     const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel();
     await user.click(screen.getByRole('button', { name: '保存' }));
     expect(screen.getByText(/必須項目が未入力/)).toBeInTheDocument();
   });
@@ -196,11 +232,7 @@ describe('DocumentCreatePanel', () => {
       .mockResolvedValueOnce({ ok: true, letters: [listSummary] });
     vi.mocked(fetchLetterDetail).mockResolvedValue({ ok: true, letter: makeReferralDetail() });
 
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel();
     await fillRequiredFields(user);
 
     await user.click(screen.getByRole('button', { name: '保存' }));
@@ -217,11 +249,7 @@ describe('DocumentCreatePanel', () => {
     vi.mocked(fetchLetterList).mockResolvedValue({ ok: true, letters: [makeReferralDetail(), makeCertificateDetail()] });
     vi.mocked(fetchLetterDetail).mockResolvedValue({ ok: true, letter: makeReferralDetail() });
 
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel();
 
     await screen.findByLabelText('文書種別フィルタ');
     await user.selectOptions(screen.getByLabelText('文書種別フィルタ'), 'certificate');
@@ -247,11 +275,7 @@ describe('DocumentCreatePanel', () => {
     });
     vi.mocked(fetchLetterDetail).mockResolvedValue({ ok: true, letter: makeReferralDetail() });
 
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel();
 
     await screen.findByText('東京クリニック');
     const list = screen.getByRole('list');
@@ -270,11 +294,7 @@ describe('DocumentCreatePanel', () => {
     vi.mocked(fetchLetterList).mockResolvedValue({ ok: true, letters: [makeCertificateDetail()] });
     vi.mocked(fetchLetterDetail).mockResolvedValue({ ok: true, letter: makeCertificateDetail() });
 
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel();
 
     await screen.findByRole('button', { name: 'コピーして編集' });
     await user.click(screen.getByRole('button', { name: 'コピーして編集' }));
@@ -288,11 +308,7 @@ describe('DocumentCreatePanel', () => {
   it('中断で入力を破棄して閉じる', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} onClose={onClose} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel({ onClose });
     await user.type(screen.getByLabelText('宛先医療機関 *'), 'テスト病院');
     await user.click(screen.getByRole('button', { name: '中断' }));
     expect(onClose).toHaveBeenCalled();
@@ -301,11 +317,7 @@ describe('DocumentCreatePanel', () => {
 
   it('テンプレ選択でUIログを記録する', async () => {
     const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel();
     await user.selectOptions(screen.getByLabelText('テンプレート *'), 'REF-ODT-STD');
     const mocked = vi.mocked(logUiState);
     expect(mocked).toHaveBeenCalledWith(
@@ -346,11 +358,7 @@ describe('DocumentCreatePanel', () => {
         }),
       );
     }
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel();
     await screen.findByText(/文書出力成功/);
     const list = await screen.findByRole('list');
     expect(within(list).getByText(/監査結果: 成功/)).toBeInTheDocument();
@@ -383,11 +391,7 @@ describe('DocumentCreatePanel', () => {
       );
     }
     const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel();
     await screen.findByLabelText('監査結果フィルタ');
     await user.selectOptions(screen.getByLabelText('監査結果フィルタ'), 'failed');
     const list = screen.getByRole('list');
@@ -421,11 +425,7 @@ describe('DocumentCreatePanel', () => {
       );
     }
     const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel();
 
     await screen.findByLabelText('監査結果フィルタ');
     await user.selectOptions(screen.getByLabelText('監査結果フィルタ'), 'pending');
@@ -449,11 +449,7 @@ describe('DocumentCreatePanel', () => {
       payload: { docPk: 2001 },
     });
 
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} imageAttachments={[attachment]} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel({ imageAttachments: [attachment] });
 
     await fillRequiredFields(user);
     await user.click(screen.getByRole('button', { name: '保存' }));
@@ -473,11 +469,7 @@ describe('DocumentCreatePanel', () => {
       contentSize: IMAGE_ATTACHMENT_MAX_SIZE_BYTES + 1,
     };
 
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} imageAttachments={[attachment]} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel({ imageAttachments: [attachment] });
 
     await fillRequiredFields(user);
     await user.click(screen.getByRole('button', { name: '保存' }));
@@ -507,11 +499,7 @@ describe('DocumentCreatePanel', () => {
       error: 'HTTP 500',
     });
 
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} imageAttachments={[attachment]} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel({ imageAttachments: [attachment] });
 
     await fillRequiredFields(user);
     await user.click(screen.getByRole('button', { name: '保存' }));
@@ -531,11 +519,7 @@ describe('DocumentCreatePanel', () => {
     vi.mocked(fetchLetterList).mockResolvedValue({ ok: true, letters: [listSummary] });
     vi.mocked(fetchLetterDetail).mockResolvedValue({ ok: true, letter: listSummary });
 
-    render(
-      <MemoryRouter>
-        <DocumentCreatePanel {...baseProps} />
-      </MemoryRouter>,
-    );
+    await renderDocumentCreatePanel();
 
     expect(await screen.findByRole('button', { name: '編集' })).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: '削除' })).toBeInTheDocument();

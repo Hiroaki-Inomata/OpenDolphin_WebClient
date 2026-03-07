@@ -60,6 +60,10 @@ class SpaIndexSecurityFilterTest {
         when(request.getRequestURI()).thenReturn("/openDolphin/f/0001/m/images");
         when(request.getContextPath()).thenReturn("/openDolphin");
         when(request.getHeader("Accept")).thenReturn("text/html,application/xhtml+xml");
+        when(request.getScheme()).thenReturn("https");
+        when(request.getServerName()).thenReturn("example.test");
+        when(request.getServerPort()).thenReturn(443);
+        when(request.isSecure()).thenReturn(true);
         when(request.getSession(true)).thenReturn(session);
         when(session.getAttribute(any())).thenReturn(null);
 
@@ -70,6 +74,19 @@ class SpaIndexSecurityFilterTest {
         verify(response).setHeader("Cache-Control", "private, no-store, max-age=0, must-revalidate");
         verify(response).setHeader("Pragma", "no-cache");
         verify(response).setDateHeader("Expires", 0L);
+        verify(response).setHeader("Content-Security-Policy", SecurityHeadersFilter.CONTENT_SECURITY_POLICY);
+        verify(response).setHeader("X-Frame-Options", "DENY");
+        verify(response).setHeader("Referrer-Policy", "same-origin");
+        verify(response).setHeader("X-Content-Type-Options", "nosniff");
+        verify(response).setHeader("Permissions-Policy",
+                "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()");
+        verify(response).setHeader("Strict-Transport-Security", SecurityHeadersFilter.HSTS_VALUE);
+        verify(response).setHeader("Content-Security-Policy", SecurityHeadersFilter.CONTENT_SECURITY_POLICY);
+        verify(response).setHeader("X-Frame-Options", "DENY");
+        verify(response).setHeader("Referrer-Policy", "same-origin");
+        verify(response).setHeader("X-Content-Type-Options", "nosniff");
+        verify(response).setHeader("Permissions-Policy",
+                "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()");
 
         ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
         verify(session).setAttribute(eq(CsrfTokenSupport.class.getName() + ".TOKEN"), tokenCaptor.capture());

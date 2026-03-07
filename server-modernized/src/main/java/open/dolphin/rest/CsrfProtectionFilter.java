@@ -18,6 +18,7 @@ import java.util.Map;
 public class CsrfProtectionFilter implements Filter {
 
     private static final String FORBIDDEN_MESSAGE = "CSRF validation failed";
+    private static final String ORIGIN_MESSAGE = "CSRF origin validation failed";
 
     @Override
     public void init(FilterConfig filterConfig) {
@@ -40,14 +41,20 @@ public class CsrfProtectionFilter implements Filter {
         String expectedToken = CsrfTokenSupport.getToken(httpRequest);
         String providedToken = httpRequest.getHeader(CsrfTokenSupport.CSRF_HEADER_NAME);
         if (!CsrfTokenSupport.matches(expectedToken, providedToken)) {
-            request.setAttribute(AbstractResource.ERROR_CODE_ATTRIBUTE, "csrf_validation_failed");
-            request.setAttribute(AbstractResource.ERROR_MESSAGE_ATTRIBUTE, FORBIDDEN_MESSAGE);
-            request.setAttribute(AbstractResource.ERROR_STATUS_ATTRIBUTE, HttpServletResponse.SC_FORBIDDEN);
-            Map<String, Object> details = new HashMap<>();
-            details.put("reason", "csrf_validation_failed");
-            details.put("status", "failed");
-            request.setAttribute(AbstractResource.ERROR_DETAILS_ATTRIBUTE, details);
-            writeForbidden(httpRequest, httpResponse, details);
+            Map<String, Object> details = buildFailureDetails("csrf_validation_failed", null, null);
+            applyFailureAttributes(httpRequest, "csrf_validation_failed", FORBIDDEN_MESSAGE, details);
+            writeForbidden(httpRequest, httpResponse, "csrf_validation_failed", FORBIDDEN_MESSAGE, details);
+            return;
+        }
+
+        RequestSecuritySupport.SameOriginCheckResult originCheck = RequestSecuritySupport.validateSameOrigin(httpRequest);
+        if (!originCheck.allowed()) {
+            Map<String, Object> details = buildFailureDetails(
+                    originCheck.code(),
+                    RequestSecuritySupport.resolveExpectedOrigin(httpRequest),
+                    RequestSecuritySupport.resolvePresentedOrigin(httpRequest));
+            applyFailureAttributes(httpRequest, originCheck.code(), ORIGIN_MESSAGE, details);
+            writeForbidden(httpRequest, httpResponse, originCheck.code(), ORIGIN_MESSAGE, details);
             return;
         }
 
@@ -59,12 +66,36 @@ public class CsrfProtectionFilter implements Filter {
         // no-op
     }
 
-    private void writeForbidden(HttpServletRequest request, HttpServletResponse response, Map<String, Object> details)
+    private void applyFailureAttributes(HttpServletRequest request, String code, String message, Map<String, Object> details) {
+        request.setAttribute(AbstractResource.ERROR_CODE_ATTRIBUTE, code);
+        request.setAttribute(AbstractResource.ERROR_MESSAGE_ATTRIBUTE, message);
+        request.setAttribute(AbstractResource.ERROR_STATUS_ATTRIBUTE, HttpServletResponse.SC_FORBIDDEN);
+        request.setAttribute(AbstractResource.ERROR_DETAILS_ATTRIBUTE, details);
+    }
+
+    private Map<String, Object> buildFailureDetails(String code, String expectedOrigin, String actualOrigin) {
+        Map<String, Object> details = new HashMap<>();
+        details.put("reason", code);
+        details.put("status", "failed");
+        if (expectedOrigin != null) {
+            details.put("expectedOrigin", expectedOrigin);
+        }
+        if (actualOrigin != null) {
+            details.put("actualOrigin", actualOrigin);
+        }
+        return details;
+    }
+
+    private void writeForbidden(HttpServletRequest request,
+            HttpServletResponse response,
+            String code,
+            String message,
+            Map<String, Object> details)
             throws IOException {
         if (response.isCommitted()) {
             return;
         }
         AbstractResource.writeRestError(request, response, HttpServletResponse.SC_FORBIDDEN,
-                "csrf_validation_failed", FORBIDDEN_MESSAGE, details);
+                code, message, details);
     }
 }

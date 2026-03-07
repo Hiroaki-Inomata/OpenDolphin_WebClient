@@ -6,6 +6,7 @@ import {
   buildChartsUrl,
   hasEncounterContext,
   loadChartsEncounterContext,
+  normalizeEncounterContext,
   normalizeRunId,
   normalizeVisitDate,
   parseChartsEncounterContext,
@@ -40,6 +41,20 @@ type NavigateExtras = {
   state?: unknown;
 };
 
+type NavigationLocationState = {
+  carryover?: ReceptionCarryoverParams;
+  encounter?: OutpatientEncounterContext;
+  kw?: string;
+  keyword?: string;
+  patientId?: string;
+  appointmentId?: string;
+  receptionId?: string;
+  visitDate?: string;
+  chartsScreenId?: string;
+  returnTo?: string;
+  from?: string;
+};
+
 const hasAnyCarryover = (carryover: ReceptionCarryoverParams) =>
   Boolean(carryover.kw || carryover.dept || carryover.phys || carryover.pay || carryover.sort || carryover.date);
 
@@ -67,6 +82,13 @@ const mergeEncounter = (base: OutpatientEncounterContext, override?: OutpatientE
     receptionId: override.receptionId ?? base.receptionId,
     visitDate: override.visitDate ?? base.visitDate,
   };
+};
+
+const createChartsScreenId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `charts-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
 const parseSearchFromReturnTo = (returnTo: string): URLSearchParams => {
@@ -123,6 +145,42 @@ const asStateRecord = (value: unknown): Record<string, unknown> => {
   return value as Record<string, unknown>;
 };
 
+const asNavigationLocationState = (value: unknown): NavigationLocationState => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return value as NavigationLocationState;
+};
+
+const readStateCarryover = (state: unknown): ReceptionCarryoverParams => {
+  const locationState = asNavigationLocationState(state);
+  if (locationState.carryover) {
+    return locationState.carryover;
+  }
+  const kw = typeof locationState.kw === 'string' ? locationState.kw : typeof locationState.keyword === 'string' ? locationState.keyword : undefined;
+  return kw ? { kw } : {};
+};
+
+const readStateEncounter = (state: unknown): OutpatientEncounterContext => {
+  const locationState = asNavigationLocationState(state);
+  const encounter = locationState.encounter ?? {};
+  return normalizeEncounterContext({
+    patientId: encounter.patientId ?? locationState.patientId,
+    appointmentId: encounter.appointmentId ?? locationState.appointmentId,
+    receptionId: encounter.receptionId ?? locationState.receptionId,
+    visitDate: encounter.visitDate ?? locationState.visitDate,
+  });
+};
+
+const readStateChartsScreenId = (state: unknown): string | undefined => {
+  const screenId = asNavigationLocationState(state).chartsScreenId;
+  if (typeof screenId !== 'string') {
+    return undefined;
+  }
+  const trimmed = screenId.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
 export function useAppNavigation(scope: AppNavigationScope) {
   const location = useLocation();
   const { flags } = useAuthService();
@@ -138,6 +196,7 @@ export function useAppNavigation(scope: AppNavigationScope) {
     () => new URLSearchParams(location.search.startsWith('?') ? location.search.slice(1) : location.search),
     [location.search],
   );
+  const locationState = useMemo(() => asNavigationLocationState(location.state), [location.state]);
 
   const returnToInQuery = useMemo(() => readQueryParam(location.search, 'returnTo'), [location.search]);
   const returnToInState = useMemo(() => readReturnToFromState(location.state), [location.state]);
@@ -151,13 +210,19 @@ export function useAppNavigation(scope: AppNavigationScope) {
   );
 
   const carryoverFromUrl = useMemo(() => parseCarryover(currentSearchParams), [currentSearchParams]);
+  const carryoverFromState = useMemo(() => readStateCarryover(location.state), [location.state]);
   const carryoverFromReturnTo = useMemo(
     () => (safeReturnToCandidate ? parseCarryover(parseSearchFromReturnTo(safeReturnToCandidate)) : {}),
     [safeReturnToCandidate],
   );
   const baseCarryover = useMemo(
-    () => (hasAnyCarryover(carryoverFromUrl) ? carryoverFromUrl : carryoverFromReturnTo),
-    [carryoverFromReturnTo, carryoverFromUrl],
+    () =>
+      hasAnyCarryover(carryoverFromState)
+        ? carryoverFromState
+        : hasAnyCarryover(carryoverFromUrl)
+          ? carryoverFromUrl
+          : carryoverFromReturnTo,
+    [carryoverFromReturnTo, carryoverFromState, carryoverFromUrl],
   );
 
   const externalFromUrl = useMemo(() => pickExternalParams(currentSearchParams), [currentSearchParams]);
@@ -171,6 +236,7 @@ export function useAppNavigation(scope: AppNavigationScope) {
   );
 
   const encounterFromUrl = useMemo(() => parseChartsEncounterContext(location.search), [location.search]);
+  const encounterFromState = useMemo(() => readStateEncounter(location.state), [location.state]);
   const encounterFromReturnTo = useMemo(
     () => (safeReturnToCandidate ? parseChartsEncounterContext(new URL(safeReturnToCandidate, 'https://app.invalid').search) : {}),
     [safeReturnToCandidate],
@@ -180,8 +246,15 @@ export function useAppNavigation(scope: AppNavigationScope) {
     [facilityId, userId],
   );
   const baseEncounter = useMemo(
-    () => (hasEncounterContext(encounterFromUrl) ? encounterFromUrl : hasEncounterContext(encounterFromReturnTo) ? encounterFromReturnTo : encounterFromStorage),
-    [encounterFromReturnTo, encounterFromStorage, encounterFromUrl],
+    () =>
+      hasEncounterContext(encounterFromState)
+        ? encounterFromState
+        : hasEncounterContext(encounterFromUrl)
+          ? encounterFromUrl
+          : hasEncounterContext(encounterFromReturnTo)
+            ? encounterFromReturnTo
+            : encounterFromStorage,
+    [encounterFromReturnTo, encounterFromState, encounterFromStorage, encounterFromUrl],
   );
 
   const resolvedRunId = useMemo(() => {
@@ -228,6 +301,8 @@ export function useAppNavigation(scope: AppNavigationScope) {
           ...asStateRecord(opts?.navigate?.state),
           from,
           returnTo,
+          carryover: effectiveCarryover,
+          encounter,
           patientId: encounter.patientId,
           appointmentId: encounter.appointmentId,
           receptionId: encounter.receptionId,
@@ -277,6 +352,8 @@ export function useAppNavigation(scope: AppNavigationScope) {
           ...asStateRecord(opts?.navigate?.state),
           from,
           returnTo: safeReturnTo,
+          carryover: mergeCarryover(baseCarryover, opts?.carryover),
+          encounter,
           patientId: encounter.patientId,
           appointmentId: encounter.appointmentId,
           receptionId: encounter.receptionId,
@@ -317,6 +394,9 @@ export function useAppNavigation(scope: AppNavigationScope) {
         state: {
           ...asStateRecord(opts?.navigate?.state),
           runId,
+          carryover: mergeCarryover(baseCarryover, opts?.carryover),
+          encounter,
+          chartsScreenId: readStateChartsScreenId(opts?.navigate?.state) ?? createChartsScreenId(),
           patientId: encounter.patientId,
           appointmentId: encounter.appointmentId,
           receptionId: encounter.receptionId,
@@ -405,6 +485,7 @@ export function useAppNavigation(scope: AppNavigationScope) {
           ...asStateRecord(opts?.navigate?.state),
           from,
           returnTo: safeReturnTo,
+          encounter: patientId ? { ...baseEncounter, patientId } : baseEncounter,
           patientId,
         },
       });
@@ -422,6 +503,7 @@ export function useAppNavigation(scope: AppNavigationScope) {
     fromCandidate,
     returnToCandidate,
     safeReturnToCandidate,
+    locationState,
     carryover: baseCarryover,
     external: baseExternal,
     encounter: baseEncounter,

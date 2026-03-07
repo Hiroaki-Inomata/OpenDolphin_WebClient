@@ -15,7 +15,6 @@ class ServletStartupSecurityGuardTest {
         System.clearProperty(RuntimeConfigurationSupport.PROP_ENVIRONMENT);
         System.clearProperty(ServletStartup.ORCA_MASTER_BASIC_USER_KEY);
         System.clearProperty(ServletStartup.ORCA_MASTER_BASIC_PASSWORD_KEY);
-        System.clearProperty(ServletStartup.AUTH_ALLOW_BASIC_FALLBACK_KEY);
     }
 
     @Test
@@ -29,20 +28,9 @@ class ServletStartupSecurityGuardTest {
     }
 
     @Test
-    void productionLikeEnvironmentRejectsBasicFallbackFlag() {
-        System.setProperty(RuntimeConfigurationSupport.PROP_ENVIRONMENT, "production");
-        System.setProperty(ServletStartup.AUTH_ALLOW_BASIC_FALLBACK_KEY, "true");
-
-        IllegalStateException ex = assertThrows(IllegalStateException.class, ServletStartup::enforceStartupSecurityGuards);
-
-        assertTrue(ex.getMessage().contains(ServletStartup.AUTH_ALLOW_BASIC_FALLBACK_KEY));
-    }
-
-    @Test
     void nonProductionEnvironmentSkipsGuards() {
         System.setProperty(RuntimeConfigurationSupport.PROP_ENVIRONMENT, "local");
         System.setProperty(ServletStartup.ORCA_MASTER_BASIC_PASSWORD_KEY, "legacy-secret");
-        System.setProperty(ServletStartup.AUTH_ALLOW_BASIC_FALLBACK_KEY, "true");
 
         assertDoesNotThrow(ServletStartup::enforceStartupSecurityGuards);
     }

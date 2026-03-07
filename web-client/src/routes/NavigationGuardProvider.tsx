@@ -32,9 +32,8 @@ type NavigationGuardContextValue = {
 };
 
 const NavigationGuardContext = createContext<NavigationGuardContextValue | null>(null);
-const CHARTS_SCREEN_KEY_PARAMS = ['patientId', 'appointmentId', 'receptionId', 'visitDate'] as const;
 
-type ScreenKeyLocation = Pick<RouterLocation, 'pathname' | 'search'>;
+type ScreenKeyLocation = Pick<RouterLocation, 'pathname' | 'search' | 'state'>;
 
 const normalizePathname = (value?: string | null): string => {
   if (!value) return '/';
@@ -50,43 +49,47 @@ const normalizeSearch = (value?: string | null): string => {
   return value.startsWith('?') ? value : `?${value}`;
 };
 
-const resolveChartsScreenKey = (search: string): string => {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
-  const scoped = new URLSearchParams();
-  CHARTS_SCREEN_KEY_PARAMS.forEach((key) => {
-    const value = params.get(key);
-    if (value !== null && value.trim() !== '') {
-      scoped.set(key, value.trim());
-    }
-  });
-  const scopedSearch = scoped.toString();
-  return scopedSearch ? `/charts?${scopedSearch}` : '/charts';
+const resolveChartsScreenId = (state: unknown): string | undefined => {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+    return undefined;
+  }
+  const record = state as Record<string, unknown>;
+  const screenId = record.chartsScreenId;
+  if (typeof screenId !== 'string') {
+    return undefined;
+  }
+  const trimmed = screenId.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 };
 
 export const resolveScreenKey = (target: ScreenKeyLocation): string => {
   const pathname = normalizePathname(target.pathname);
   if (pathname.endsWith('/charts')) {
-    const scopedChartsKey = resolveChartsScreenKey(normalizeSearch(target.search));
-    const scopedQuery = scopedChartsKey.startsWith('/charts') ? scopedChartsKey.slice('/charts'.length) : '';
-    return `${pathname}${scopedQuery}`;
+    const screenId = resolveChartsScreenId(target.state);
+    return screenId ? `${pathname}::${screenId}` : pathname;
   }
   return pathname;
 };
 
-const resolveToLocation = (to: To, currentLocation: ScreenKeyLocation): ScreenKeyLocation | null => {
+const resolveToLocation = (
+  to: To,
+  currentLocation: ScreenKeyLocation,
+  nextState?: NavigateOptions['state'],
+): ScreenKeyLocation | null => {
   const currentPathname = normalizePathname(currentLocation.pathname);
   const currentSearch = normalizeSearch(currentLocation.search);
+  const resolvedState = nextState ?? currentLocation.state;
   if (typeof to === 'string') {
     if (to.startsWith('#')) {
-      return { pathname: currentPathname, search: currentSearch };
+      return { pathname: currentPathname, search: currentSearch, state: resolvedState };
     }
     if (to.startsWith('?')) {
-      return { pathname: currentPathname, search: normalizeSearch(to) };
+      return { pathname: currentPathname, search: normalizeSearch(to), state: resolvedState };
     }
     try {
       const base = `https://app.invalid${currentPathname}${currentSearch}`;
       const parsed = new URL(to, base);
-      return { pathname: normalizePathname(parsed.pathname), search: normalizeSearch(parsed.search) };
+      return { pathname: normalizePathname(parsed.pathname), search: normalizeSearch(parsed.search), state: resolvedState };
     } catch {
       return null;
     }
@@ -94,7 +97,7 @@ const resolveToLocation = (to: To, currentLocation: ScreenKeyLocation): ScreenKe
 
   const pathname = to.pathname ?? currentPathname;
   const search = typeof to.search === 'string' ? to.search : to.pathname ? '' : currentSearch;
-  return { pathname: normalizePathname(pathname), search: normalizeSearch(search) };
+  return { pathname: normalizePathname(pathname), search: normalizeSearch(search), state: resolvedState };
 };
 
 export function NavigationGuardProvider({ children }: { children: ReactNode }) {
@@ -236,7 +239,7 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
       }
 
       const currentLocation = locationRef.current;
-      const targetLocation = resolveToLocation(to, currentLocation);
+      const targetLocation = resolveToLocation(to, currentLocation, options?.state);
       if (targetLocation && resolveScreenKey(targetLocation) === resolveScreenKey(currentLocation)) {
         navigate(to, options);
         return;
