@@ -104,6 +104,7 @@ export const buildReceptionUrl = (opts: {
   returnTo?: string;
   runId?: string;
   carryover?: ReceptionCarryoverParams;
+  // Encounter visitDate must stay in router state / volatile memory, not URL.
   visitDate?: string;
   section?: string;
   intent?: string;
@@ -119,7 +120,6 @@ export const buildReceptionUrl = (opts: {
   }
   setOptionalParam(params, 'runId', opts.runId);
   applyCarryover(params, opts.carryover);
-  setOptionalParam(params, 'visitDate', opts.visitDate);
   setOptionalParam(params, 'section', opts.section);
   setOptionalParam(params, 'intent', opts.intent);
   if (opts.create) params.set('create', '1');
@@ -134,7 +134,7 @@ export const buildPatientsUrl = (opts: {
   returnTo?: string;
   runId?: string;
   carryover?: ReceptionCarryoverParams;
-  // NOTE: 患者文脈は URL へ載せず sessionStorage(encounter context) で引き継ぐ。
+  // NOTE: 患者文脈は URL へ載せず router state / volatile memory で引き継ぐ。
   patientId?: string;
   appointmentId?: string;
   receptionId?: string;
@@ -198,7 +198,7 @@ export const buildMobileImagesUrl = (opts: {
   facilityId: string | undefined;
   from?: string;
   returnTo?: string;
-  // NOTE: 患者文脈は URL へ載せず sessionStorage(encounter context) で引き継ぐ。
+  // NOTE: 患者文脈は URL へ載せず router state / volatile memory で引き継ぐ。
   patientId?: string;
   external?: ExternalParams;
 }): string => {

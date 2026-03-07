@@ -328,9 +328,16 @@ const LEGACY_ROUTES = [
 const isSensitiveScrubPath = (pathname: string): boolean => {
   const facility = parseFacilityPath(pathname);
   if (facility?.suffix) {
-    return facility.suffix === '/charts' || facility.suffix === '/patients' || facility.suffix === '/m/images';
+    return (
+      facility.suffix === '/reception' ||
+      facility.suffix === '/charts' ||
+      facility.suffix === '/patients' ||
+      facility.suffix === '/m/images'
+    );
   }
   return (
+    pathname === '/reception' ||
+    pathname === '/reception/' ||
     pathname === '/charts' ||
     pathname === '/charts/' ||
     pathname === '/patients' ||

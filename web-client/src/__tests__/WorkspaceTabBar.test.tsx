@@ -1,22 +1,57 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { AppRouter } from '../AppRouter';
 import {
-  PATIENT_TABS_STORAGE_BASE,
-  PATIENT_TABS_STORAGE_VERSION,
   buildPatientTabKey,
+  clearChartsPatientTabsStorage,
   type ChartsPatientTabsStorage,
+  writeChartsPatientTabsStorage,
 } from '../features/charts/patientTabsStorage';
-import { buildScopedStorageKey } from '../libs/session/storageScope';
+import { httpFetch } from '../libs/http/httpClient';
+
+vi.mock('../libs/http/httpClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../libs/http/httpClient')>();
+  return {
+    ...actual,
+    httpFetch: vi.fn(),
+  };
+});
+vi.mock('../features/shared/ChartEventStreamBridge', () => ({
+  ChartEventStreamBridge: () => null,
+}));
 
 const AUTH_STORAGE_KEY = 'opendolphin:web-client:auth';
 
 const FACILITY_ID = '0001';
 const USER_ID = 'user01';
 const RUN_ID = '20260301T041112Z';
+
+beforeEach(() => {
+  vi.mocked(httpFetch).mockImplementation(async (input) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    if (url.endsWith('/session/me')) {
+      return new Response(
+        JSON.stringify({
+          facilityId: FACILITY_ID,
+          userId: USER_ID,
+          role: 'doctor',
+          roles: ['doctor'],
+          runId: RUN_ID,
+          clientUuid: 'client-001',
+          displayName: USER_ID,
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+    return new Response(null, { status: 404 });
+  });
+});
 
 const setAuthSession = () => {
   sessionStorage.setItem(
@@ -33,12 +68,6 @@ const setAuthSession = () => {
 
 const setPatientTabsStorage = () => {
   const now = new Date().toISOString();
-  const scopedKey =
-    buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, {
-      facilityId: FACILITY_ID,
-      userId: USER_ID,
-    }) ?? `${PATIENT_TABS_STORAGE_BASE}:v1`;
-
   const tabKey = buildPatientTabKey('00000001', '2026-03-01');
   const state: ChartsPatientTabsStorage = {
     version: 1,
@@ -56,14 +85,18 @@ const setPatientTabsStorage = () => {
       },
     ],
   };
-
-  sessionStorage.setItem(scopedKey, JSON.stringify(state));
+  writeChartsPatientTabsStorage(state, {
+    facilityId: FACILITY_ID,
+    userId: USER_ID,
+  });
 };
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   sessionStorage.clear();
   localStorage.clear();
+  clearChartsPatientTabsStorage();
   window.history.pushState({}, '', '/');
 });
 
@@ -124,6 +157,36 @@ describe('WorkspaceTabBar navigation', () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe('/f/0001/reception');
     });
+    await waitFor(() => {
+      expect(screen.queryByRole('tab', { name: '患者' })).toBeNull();
+    });
+  });
+
+  it('reload 相当の再 mount では patient tab を storage 復元しない', async () => {
+    const queryClient = new QueryClient();
+
+    setAuthSession();
+    setPatientTabsStorage();
+    window.history.pushState({}, '', '/f/0001/reception');
+
+    const firstRender = render(
+      <QueryClientProvider client={queryClient}>
+        <AppRouter />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole('tab', { name: '患者' })).toBeInTheDocument();
+
+    firstRender.unmount();
+    clearChartsPatientTabsStorage();
+    window.history.pushState({}, '', '/f/0001/reception');
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AppRouter />
+      </QueryClientProvider>,
+    );
+
     await waitFor(() => {
       expect(screen.queryByRole('tab', { name: '患者' })).toBeNull();
     });

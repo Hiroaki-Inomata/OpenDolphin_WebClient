@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   buildChartsEncounterSearch,
+  clearChartsEncounterContext,
   hasEncounterContext,
   normalizeEncounterContext,
   normalizeVisitDate,
@@ -111,6 +112,9 @@ function EncounterUrlSyncGuardHarness() {
 }
 
 afterEach(cleanup);
+afterEach(() => {
+  clearChartsEncounterContext();
+});
 
 describe('encounter context URL sync guard', () => {
   it('active tab close 相当の内部切替で古いURLへ巻き戻らない', async () => {
@@ -133,8 +137,8 @@ describe('encounter context URL sync guard', () => {
     await waitFor(() => {
       const search = screen.getByTestId('location-search');
       expect(screen.getByTestId('encounter-patient')).toHaveTextContent('PX-2');
-      expect(search).toHaveTextContent('patientId=PX-2');
-      expect(search).not.toHaveTextContent('patientId=PX-1');
+      expect(search).toHaveTextContent(`runId=${RUN_ID}`);
+      expect(search).not.toHaveTextContent('patientId=');
     });
   });
 
@@ -156,16 +160,16 @@ describe('encounter context URL sync guard', () => {
     await waitFor(() => {
       const search = screen.getByTestId('location-search');
       expect(screen.getByTestId('encounter-patient')).toHaveTextContent('PX-3');
-      expect(search).toHaveTextContent('patientId=PX-3');
-      expect(search).not.toHaveTextContent('patientId=PX-1');
+      expect(search).toHaveTextContent(`runId=${RUN_ID}`);
+      expect(search).not.toHaveTextContent('patientId=');
     });
 
     await user.click(screen.getByRole('button', { name: 'past-hub-switch' }));
     await waitFor(() => {
       const search = screen.getByTestId('location-search');
       expect(screen.getByTestId('encounter-patient')).toHaveTextContent('PX-4');
-      expect(search).toHaveTextContent('patientId=PX-4');
-      expect(search).not.toHaveTextContent('patientId=PX-3');
+      expect(search).toHaveTextContent(`runId=${RUN_ID}`);
+      expect(search).not.toHaveTextContent('patientId=');
     });
   });
 });

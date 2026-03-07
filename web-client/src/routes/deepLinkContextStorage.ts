@@ -71,31 +71,24 @@ export function loadDeepLinkContext(): DeepLinkContext | null {
     clearDeepLinkContext();
     return context;
   }
-  if (typeof sessionStorage === 'undefined') return null;
-  try {
-    const raw = sessionStorage.getItem(DEEPLINK_CTX_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object') {
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      const raw = sessionStorage.getItem(DEEPLINK_CTX_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as unknown;
+        if (parsed && typeof parsed === 'object') {
+          const record = parsed as Record<string, unknown>;
+          parseSavedAtMs(record.savedAt);
+          sanitizeValues(record.values);
+        }
+      }
+    } catch {
+      // ignore legacy cleanup parse failures
+    } finally {
       clearDeepLinkContext();
-      return null;
     }
-    const record = parsed as Record<string, unknown>;
-    const savedAtMs = parseSavedAtMs(record.savedAt);
-    if (savedAtMs === null) {
-      clearDeepLinkContext();
-      return null;
-    }
-    const context: DeepLinkContext = {
-      savedAt: new Date(savedAtMs).toISOString(),
-      values: sanitizeValues(record.values),
-    };
-    clearDeepLinkContext();
-    return context;
-  } catch {
-    clearDeepLinkContext();
-    return null;
   }
+  return null;
 }
 
 export function saveDeepLinkContext(values: DeepLinkContext['values']): void {

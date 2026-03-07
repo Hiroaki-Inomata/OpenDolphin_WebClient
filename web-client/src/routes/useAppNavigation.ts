@@ -1,7 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 
-import { buildScopedStorageKey } from '../libs/session/storageScope';
 import { useAuthService } from '../features/charts/authService';
 import {
   buildChartsUrl,
@@ -40,10 +39,6 @@ type NavigateExtras = {
   replace?: boolean;
   state?: unknown;
 };
-
-const RETURN_TO_STORAGE_BASE = 'opendolphin:web-client:patients:returnTo';
-const RETURN_TO_VERSION = 'v2';
-const RETURN_TO_LEGACY_KEY = `${RETURN_TO_STORAGE_BASE}:v1`;
 
 const hasAnyCarryover = (carryover: ReceptionCarryoverParams) =>
   Boolean(carryover.kw || carryover.dept || carryover.phys || carryover.pay || carryover.sort || carryover.date);
@@ -119,6 +114,13 @@ const sanitizeReturnTo = (value?: string): string | undefined => {
   if (!trimmed) return undefined;
   const scrubbed = scrubPathWithQuery(trimmed);
   return scrubbed.trim() ? scrubbed : undefined;
+};
+
+const asStateRecord = (value: unknown): Record<string, unknown> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
 };
 
 export function useAppNavigation(scope: AppNavigationScope) {
@@ -203,19 +205,35 @@ export function useAppNavigation(scope: AppNavigationScope) {
       const from = opts?.from ?? currentScreen;
       const returnTo = sanitizeReturnTo(opts?.returnTo ?? currentUrl);
       const encounter = mergeEncounter(baseEncounter, opts?.visitDate ? { visitDate: opts.visitDate } : undefined);
+      const carryover = mergeCarryover(baseCarryover, opts?.carryover);
+      const normalizedEncounterDate = normalizeVisitDate(opts?.visitDate ?? encounter.visitDate);
+      const effectiveCarryover =
+        normalizedEncounterDate && !carryover.date
+          ? { ...carryover, date: normalizedEncounterDate }
+          : carryover;
       const url = buildReceptionUrl({
         facilityId,
         from,
         returnTo,
         runId: opts?.runId ?? resolvedRunId,
-        carryover: mergeCarryover(baseCarryover, opts?.carryover),
-        visitDate: opts?.visitDate ?? normalizeVisitDate(encounter.visitDate),
+        carryover: effectiveCarryover,
         section: opts?.section,
         intent: opts?.intent,
         create: opts?.create,
         external: mergeExternal(baseExternal, opts?.external),
       });
-      guardedNavigate(url, { replace: opts?.navigate?.replace, state: opts?.navigate?.state });
+      guardedNavigate(url, {
+        replace: opts?.navigate?.replace,
+        state: {
+          ...asStateRecord(opts?.navigate?.state),
+          from,
+          returnTo,
+          patientId: encounter.patientId,
+          appointmentId: encounter.appointmentId,
+          receptionId: encounter.receptionId,
+          visitDate: normalizedEncounterDate,
+        },
+      });
     },
     [baseCarryover, baseEncounter, baseExternal, currentScreen, currentUrl, facilityId, guardedNavigate, resolvedRunId],
   );
@@ -236,7 +254,6 @@ export function useAppNavigation(scope: AppNavigationScope) {
       const returnTo = sanitizeReturnTo(opts?.returnTo ?? currentUrl);
       const safeReturnTo = isSafeReturnTo(returnTo, facilityId) ? returnTo : undefined;
       const encounter = mergeEncounter(baseEncounter, opts?.encounter);
-      const patientId = opts?.patientId ?? encounter.patientId;
       if (hasEncounterContext(encounter)) {
         storeChartsEncounterContext(encounter, { facilityId, userId });
       }
@@ -246,7 +263,7 @@ export function useAppNavigation(scope: AppNavigationScope) {
         returnTo: safeReturnTo,
         runId: opts?.runId ?? resolvedRunId ?? flags.runId,
         carryover: mergeCarryover(baseCarryover, opts?.carryover),
-        patientId,
+        patientId: opts?.patientId ?? encounter.patientId,
         appointmentId: encounter.appointmentId,
         receptionId: encounter.receptionId,
         visitDate: normalizeVisitDate(encounter.visitDate),
@@ -254,19 +271,18 @@ export function useAppNavigation(scope: AppNavigationScope) {
         external: mergeExternal(baseExternal, opts?.external),
       });
 
-      if (from === 'charts' && safeReturnTo && typeof sessionStorage !== 'undefined') {
-        try {
-          const scopedKey = buildScopedStorageKey(RETURN_TO_STORAGE_BASE, RETURN_TO_VERSION, { facilityId, userId }) ?? RETURN_TO_LEGACY_KEY;
-          sessionStorage.setItem(scopedKey, safeReturnTo);
-          if (scopedKey !== RETURN_TO_LEGACY_KEY) {
-            sessionStorage.removeItem(RETURN_TO_LEGACY_KEY);
-          }
-        } catch {
-          // ignore storage errors
-        }
-      }
-
-      guardedNavigate(url, { replace: opts?.navigate?.replace, state: opts?.navigate?.state });
+      guardedNavigate(url, {
+        replace: opts?.navigate?.replace,
+        state: {
+          ...asStateRecord(opts?.navigate?.state),
+          from,
+          returnTo: safeReturnTo,
+          patientId: encounter.patientId,
+          appointmentId: encounter.appointmentId,
+          receptionId: encounter.receptionId,
+          visitDate: normalizeVisitDate(encounter.visitDate),
+        },
+      });
     },
     [baseCarryover, baseEncounter, baseExternal, currentScreen, currentUrl, facilityId, flags.runId, guardedNavigate, resolvedRunId, userId],
   );
@@ -280,6 +296,9 @@ export function useAppNavigation(scope: AppNavigationScope) {
       navigate?: NavigateExtras;
     }) => {
       const encounter = mergeEncounter(baseEncounter, opts?.encounter);
+      if (hasEncounterContext(encounter)) {
+        storeChartsEncounterContext(encounter, { facilityId, userId });
+      }
       const chartsBasePath = buildFacilityPath(facilityId, '/charts');
       const runId = opts?.runId ?? resolvedRunId ?? flags.runId;
       const baseUrl = buildChartsUrl(encounter, mergeCarryover(baseCarryover, opts?.carryover), { runId }, chartsBasePath);
@@ -293,9 +312,19 @@ export function useAppNavigation(scope: AppNavigationScope) {
           return baseUrl;
         }
       })();
-      guardedNavigate(url, { replace: opts?.navigate?.replace, state: opts?.navigate?.state });
+      guardedNavigate(url, {
+        replace: opts?.navigate?.replace,
+        state: {
+          ...asStateRecord(opts?.navigate?.state),
+          runId,
+          patientId: encounter.patientId,
+          appointmentId: encounter.appointmentId,
+          receptionId: encounter.receptionId,
+          visitDate: normalizeVisitDate(encounter.visitDate),
+        },
+      });
     },
-    [baseCarryover, baseEncounter, baseExternal, facilityId, flags.runId, guardedNavigate, resolvedRunId],
+    [baseCarryover, baseEncounter, baseExternal, facilityId, flags.runId, guardedNavigate, resolvedRunId, userId],
   );
 
   const openOrderSets = useCallback(
@@ -357,6 +386,7 @@ export function useAppNavigation(scope: AppNavigationScope) {
     (opts?: { from?: string; returnTo?: string; patientId?: string; external?: ExternalParams; navigate?: NavigateExtras }) => {
       const from = opts?.from ?? currentScreen;
       const returnTo = sanitizeReturnTo(opts?.returnTo ?? currentUrl);
+      const safeReturnTo = isSafeReturnTo(returnTo, facilityId) ? returnTo : undefined;
       const patientId = opts?.patientId ?? baseEncounter.patientId;
       if (patientId) {
         storeChartsEncounterContext({ ...baseEncounter, patientId }, { facilityId, userId });
@@ -365,13 +395,21 @@ export function useAppNavigation(scope: AppNavigationScope) {
       const url = buildMobileImagesUrl({
         facilityId,
         from,
-        returnTo,
+        returnTo: safeReturnTo,
         patientId,
         external: mergeExternal(baseExternal, opts?.external),
       });
-      guardedNavigate(url, { replace: opts?.navigate?.replace, state: opts?.navigate?.state });
+      guardedNavigate(url, {
+        replace: opts?.navigate?.replace,
+        state: {
+          ...asStateRecord(opts?.navigate?.state),
+          from,
+          returnTo: safeReturnTo,
+          patientId,
+        },
+      });
     },
-    [baseExternal, currentScreen, currentUrl, facilityId, guardedNavigate],
+    [baseEncounter, baseExternal, currentScreen, currentUrl, facilityId, guardedNavigate, userId],
   );
 
   const returnFromInState = useMemo(() => readFromFromState(location.state), [location.state]);

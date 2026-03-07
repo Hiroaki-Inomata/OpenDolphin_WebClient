@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { loadChartsEncounterContext, storeChartsEncounterContext } from '../../../features/charts/encounterContext';
+import {
+  readChartsPatientTabsStorage,
+  writeChartsPatientTabsStorage,
+} from '../../../features/charts/patientTabsStorage';
+import { loadDeepLinkContext, saveDeepLinkContext } from '../../../routes/deepLinkContextStorage';
 import { clearAllAuthShared, clearScopedStorage } from '../storageCleanup';
 
 class StorageMock implements Storage {
@@ -98,6 +104,25 @@ describe('storageCleanup', () => {
 
   it('removes scoped and legacy keys for the given user/facility', () => {
     const { session, local } = setup();
+    storeChartsEncounterContext({ patientId: 'P-001', visitDate: '2026-03-04' }, scope);
+    writeChartsPatientTabsStorage(
+      {
+        version: 1,
+        updatedAt: '2026-03-04T00:00:00.000Z',
+        savedAt: '2026-03-04T00:00:00.000Z',
+        activeKey: 'P-001::2026-03-04',
+        tabs: [
+          {
+            key: 'P-001::2026-03-04',
+            patientId: 'P-001',
+            visitDate: '2026-03-04',
+            openedAt: '2026-03-04T00:00:00.000Z',
+          },
+        ],
+      },
+      scope,
+    );
+    saveDeepLinkContext({ patientId: 'P-001' });
 
     clearScopedStorage(scope);
 
@@ -135,6 +160,9 @@ describe('storageCleanup', () => {
     expect(local.getItem('web-client:order-stamps:' + otherScopeSuffix)).toBe('keep');
     expect(local.getItem('web-client:order-stamps:clipboard:' + otherScopeSuffix)).toBe('keep');
     expect(local.getItem('custom-key')).toBe('keep');
+    expect(loadChartsEncounterContext(scope)).toBeNull();
+    expect(readChartsPatientTabsStorage(scope)).toBeNull();
+    expect(loadDeepLinkContext()).toBeNull();
   });
 
   it('clearAllAuthShared removes shared auth keys', () => {

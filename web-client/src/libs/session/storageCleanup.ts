@@ -1,4 +1,7 @@
 import { toScopeSuffix, type StorageScope } from './storageScope';
+import { clearChartsEncounterContext } from '../../features/charts/encounterContext';
+import { clearChartsPatientTabsStorage } from '../../features/charts/patientTabsStorage';
+import { clearDeepLinkContext } from '../../routes/deepLinkContextStorage';
 
 const SESSION_BASE_KEYS = [
   // PHI関連(sessionStorage): ログアウト時に必ず除去する
@@ -97,6 +100,10 @@ const matchScopedKey = (base: string, scope: StorageScope, versions = VERSIONS) 
 
 export const clearScopedStorage = (scope: StorageScope) => {
   if (typeof window === 'undefined') return;
+
+  clearChartsEncounterContext(scope);
+  clearChartsPatientTabsStorage(scope);
+  clearDeepLinkContext();
 
   // sessionStorage
   if (typeof sessionStorage !== 'undefined') {

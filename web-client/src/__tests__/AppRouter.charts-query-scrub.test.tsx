@@ -5,9 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 
 import { AppRouterWithNavigation } from '../AppRouter';
-import { loadChartsEncounterContext } from '../features/charts/encounterContext';
+import { clearChartsEncounterContext, loadChartsEncounterContext } from '../features/charts/encounterContext';
+import { clearChartsPatientTabsStorage } from '../features/charts/patientTabsStorage';
 import { httpFetch } from '../libs/http/httpClient';
-import { loadDeepLinkContext } from '../routes/deepLinkContextStorage';
+import { clearDeepLinkContext, loadDeepLinkContext } from '../routes/deepLinkContextStorage';
 
 vi.mock('../styles/app-shell.css', () => ({}));
 vi.mock('../libs/http/httpClient', () => ({
@@ -145,6 +146,9 @@ describe('AppRouter charts query scrub', () => {
     setCsrfMetaToken('csrf-test-token');
     localStorage.clear();
     sessionStorage.clear();
+    clearChartsEncounterContext();
+    clearChartsPatientTabsStorage();
+    clearDeepLinkContext();
     sessionStorage.setItem(
       AUTH_STORAGE_KEY,
       JSON.stringify({
@@ -185,6 +189,9 @@ describe('AppRouter charts query scrub', () => {
     document.head.innerHTML = '';
     localStorage.clear();
     sessionStorage.clear();
+    clearChartsEncounterContext();
+    clearChartsPatientTabsStorage();
+    clearDeepLinkContext();
   });
 
   it('charts queryから encounter パラメータを除去し、context を保存する', async () => {
@@ -203,6 +210,7 @@ describe('AppRouter charts query scrub', () => {
       receptionId: undefined,
       visitDate: '2026-01-01',
     });
+    expect(sessionStorage.getItem('opendolphin:web-client:charts:encounter-context:v2:0001:user-1')).toBeNull();
   });
 
   it('patients query から patientId/kw を除去し、context を保存する', async () => {
@@ -224,6 +232,7 @@ describe('AppRouter charts query scrub', () => {
     expect(loadDeepLinkContext()?.values).toEqual({
       patientId: '00002',
     });
+    expect(sessionStorage.getItem('opendolphin:web-client:deeplink-context')).toBeNull();
   });
 
   it('mobile images query から patientId を除去して context を保存する', async () => {
@@ -247,6 +256,7 @@ describe('AppRouter charts query scrub', () => {
         patientId: '00003',
       }),
     );
+    expect(sessionStorage.getItem('opendolphin:web-client:deeplink-context')).toBeNull();
   });
 
   it('logout API が 404 でも /login へ遷移し、患者関連 storage を削除する', async () => {

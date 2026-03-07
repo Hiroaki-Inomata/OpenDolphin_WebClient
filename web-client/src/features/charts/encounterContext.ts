@@ -1,4 +1,4 @@
-import { buildScopedStorageKey, type StorageScope } from '../../libs/session/storageScope';
+import { buildScopedStorageKey, toScopeSuffix, type StorageScope } from '../../libs/session/storageScope';
 
 export type OutpatientEncounterContext = {
   patientId?: string;
@@ -23,16 +23,34 @@ export type ReceptionCarryoverParams = {
 const STORAGE_BASE_KEY = 'opendolphin:web-client:charts:encounter-context';
 const STORAGE_VERSION = 'v2';
 const LEGACY_STORAGE_KEY = `${STORAGE_BASE_KEY}:v1`;
-const ENCOUNTER_STORAGE_TTL_MS = 2 * 60 * 60 * 1000;
+const GLOBAL_SCOPE_KEY = '__global__';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const RUN_ID_RE = /^\d{8}T\d{6}Z$/;
 const NUMERIC_ID_RE = /^\d+$/;
 
-type EncounterStorageEnvelope = {
-  version: 2;
-  savedAt: string;
-  context: OutpatientEncounterContext;
+const volatileEncounterContexts = new Map<string, OutpatientEncounterContext>();
+
+const cloneContext = (context: OutpatientEncounterContext): OutpatientEncounterContext => ({
+  patientId: context.patientId,
+  appointmentId: context.appointmentId,
+  receptionId: context.receptionId,
+  visitDate: context.visitDate,
+});
+
+const resolveScopeKey = (scope?: StorageScope) => toScopeSuffix(scope) ?? GLOBAL_SCOPE_KEY;
+
+const cleanupLegacyEncounterStorage = (scope?: StorageScope) => {
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    const scopedKey = buildScopedStorageKey(STORAGE_BASE_KEY, STORAGE_VERSION, scope);
+    if (scopedKey) {
+      sessionStorage.removeItem(scopedKey);
+    }
+    sessionStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // ignore cleanup errors
+  }
 };
 
 export const normalizeEncounterId = (value?: string | null): string | undefined => {
@@ -137,6 +155,8 @@ export const stripChartsEncounterParams = (search: string): string => {
   params.delete(CHARTS_CONTEXT_QUERY_KEYS.appointmentId);
   params.delete(CHARTS_CONTEXT_QUERY_KEYS.receptionId);
   params.delete(CHARTS_CONTEXT_QUERY_KEYS.visitDate);
+  params.delete(RECEPTION_CARRYOVER_QUERY_KEYS.keyword);
+  params.delete('keyword');
   const query = params.toString();
   return query ? `?${query}` : '';
 };
@@ -146,7 +166,7 @@ export const persistChartsEncounterContextFromSearch = (
   scope?: StorageScope,
 ): OutpatientEncounterContext | null => {
   const context = parseChartsEncounterContext(search);
-  if (!context.patientId) return null;
+  if (!hasEncounterContext(context)) return null;
   storeChartsEncounterContext(context, scope);
   return context;
 };
@@ -173,16 +193,10 @@ export const buildChartsEncounterSearch = (
   carryover: ReceptionCarryoverParams = {},
   meta: ChartsNavigationMeta = {},
 ): string => {
-  const normalizedContext = normalizeEncounterContext(context);
+  void normalizeEncounterContext(context);
   const params = new URLSearchParams();
-  if (normalizedContext.patientId) params.set(CHARTS_CONTEXT_QUERY_KEYS.patientId, normalizedContext.patientId);
-  if (normalizedContext.appointmentId) params.set(CHARTS_CONTEXT_QUERY_KEYS.appointmentId, normalizedContext.appointmentId);
-  if (normalizedContext.receptionId) params.set(CHARTS_CONTEXT_QUERY_KEYS.receptionId, normalizedContext.receptionId);
-  const normalizedDate = normalizeVisitDate(normalizedContext.visitDate);
-  if (normalizedDate) params.set(CHARTS_CONTEXT_QUERY_KEYS.visitDate, normalizedDate);
   const normalizedRunId = normalizeRunId(meta.runId);
   if (normalizedRunId) params.set(CHARTS_META_QUERY_KEYS.runId, normalizedRunId);
-  if (carryover.kw) params.set(RECEPTION_CARRYOVER_QUERY_KEYS.keyword, carryover.kw);
   if (carryover.dept) params.set(RECEPTION_CARRYOVER_QUERY_KEYS.department, carryover.dept);
   if (carryover.phys) params.set(RECEPTION_CARRYOVER_QUERY_KEYS.physician, carryover.phys);
   if (carryover.pay) params.set(RECEPTION_CARRYOVER_QUERY_KEYS.payment, carryover.pay);
@@ -199,105 +213,43 @@ export const buildChartsUrl = (
   basePath = '/charts',
 ): string => `${basePath}${buildChartsEncounterSearch(context, carryover, meta)}`;
 
-const parseSavedAt = (value: unknown): Date | null => {
-  if (typeof value !== 'string') return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
-const loadFromRaw = (raw: string | null): { context: OutpatientEncounterContext | null; expired: boolean } => {
-  if (!raw) return { context: null, expired: false };
-  const parsed = JSON.parse(raw) as unknown;
-  if (!parsed || typeof parsed !== 'object') {
-    return { context: null, expired: false };
-  }
-  const record = parsed as Record<string, unknown>;
-  if (
-    record.version === 2 &&
-    typeof record.context === 'object' &&
-    record.context !== null
-  ) {
-    const savedAt = parseSavedAt(record.savedAt);
-    if (!savedAt || Date.now() - savedAt.getTime() > ENCOUNTER_STORAGE_TTL_MS) {
-      return { context: null, expired: true };
-    }
-    const context = record.context as Record<string, unknown>;
-    return {
-      context: normalizeEncounterContext({
-        patientId: typeof context.patientId === 'string' ? context.patientId : undefined,
-        appointmentId: typeof context.appointmentId === 'string' ? context.appointmentId : undefined,
-        receptionId: typeof context.receptionId === 'string' ? context.receptionId : undefined,
-        visitDate: typeof context.visitDate === 'string' ? context.visitDate : undefined,
-      }),
-      expired: false,
-    };
-  }
-  return {
-    context: normalizeEncounterContext({
-      patientId: typeof record.patientId === 'string' ? record.patientId : undefined,
-      appointmentId: typeof record.appointmentId === 'string' ? record.appointmentId : undefined,
-      receptionId: typeof record.receptionId === 'string' ? record.receptionId : undefined,
-      visitDate: typeof record.visitDate === 'string' ? record.visitDate : undefined,
-    }),
-    expired: false,
-  };
-};
-
 export const storeChartsEncounterContext = (context: OutpatientEncounterContext, scope?: StorageScope) => {
-  if (typeof sessionStorage === 'undefined') return;
   const normalized = normalizeEncounterContext(context);
-  const scopedKey = buildScopedStorageKey(STORAGE_BASE_KEY, STORAGE_VERSION, scope) ?? LEGACY_STORAGE_KEY;
-  try {
-    const payload: EncounterStorageEnvelope = {
-      version: 2,
-      savedAt: new Date().toISOString(),
-      context: normalized,
-    };
-    sessionStorage.setItem(scopedKey, JSON.stringify(payload));
-  } catch {
-    // storage が使えない環境ではスキップ
+  const scopeKey = resolveScopeKey(scope);
+  cleanupLegacyEncounterStorage(scope);
+  if (hasEncounterContext(normalized)) {
+    volatileEncounterContexts.set(scopeKey, cloneContext(normalized));
+    return;
   }
+  volatileEncounterContexts.delete(scopeKey);
 };
 
 export const loadChartsEncounterContext = (scope?: StorageScope): OutpatientEncounterContext | null => {
-  if (typeof sessionStorage === 'undefined') return null;
-  try {
-    const scopedKey = buildScopedStorageKey(STORAGE_BASE_KEY, STORAGE_VERSION, scope);
-    const rawScoped = scopedKey ? sessionStorage.getItem(scopedKey) : null;
-    if (rawScoped) {
-      const loaded = loadFromRaw(rawScoped);
-      if (loaded.expired) {
-        if (scopedKey) {
-          sessionStorage.removeItem(scopedKey);
-        }
-        return null;
-      }
-      return loaded.context;
-    }
-
-    // legacy fallback
-    const legacyRaw = sessionStorage.getItem(LEGACY_STORAGE_KEY);
-    const legacyLoaded = loadFromRaw(legacyRaw);
-    if (legacyLoaded.expired) {
-      sessionStorage.removeItem(LEGACY_STORAGE_KEY);
-      return null;
-    }
-    const legacy = legacyLoaded.context;
-    if (legacy && scopedKey) {
-      try {
-        const payload: EncounterStorageEnvelope = {
-          version: 2,
-          savedAt: new Date().toISOString(),
-          context: legacy,
-        };
-        sessionStorage.setItem(scopedKey, JSON.stringify(payload));
-        sessionStorage.removeItem(LEGACY_STORAGE_KEY);
-      } catch {
-        // ignore migration errors
-      }
-    }
-    return legacy;
-  } catch {
+  cleanupLegacyEncounterStorage(scope);
+  const scopeKey = resolveScopeKey(scope);
+  const scoped = volatileEncounterContexts.get(scopeKey);
+  if (scoped) {
+    return cloneContext(scoped);
+  }
+  if (scopeKey === GLOBAL_SCOPE_KEY) {
     return null;
   }
+  const global = volatileEncounterContexts.get(GLOBAL_SCOPE_KEY);
+  if (!global) {
+    return null;
+  }
+  const normalized = cloneContext(global);
+  volatileEncounterContexts.set(scopeKey, normalized);
+  volatileEncounterContexts.delete(GLOBAL_SCOPE_KEY);
+  return cloneContext(normalized);
+};
+
+export const clearChartsEncounterContext = (scope?: StorageScope) => {
+  cleanupLegacyEncounterStorage(scope);
+  if (!scope) {
+    volatileEncounterContexts.clear();
+    return;
+  }
+  volatileEncounterContexts.delete(resolveScopeKey(scope));
+  volatileEncounterContexts.delete(GLOBAL_SCOPE_KEY);
 };
