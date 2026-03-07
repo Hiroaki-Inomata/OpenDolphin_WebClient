@@ -33,6 +33,7 @@ public class LogoutResource extends AbstractResource {
                 .header("Cache-Control", CACHE_CONTROL_VALUE)
                 .header("Pragma", "no-cache")
                 .header("Expires", "0")
+                .header("Clear-Site-Data", "\"storage\"")
                 .cookie(expiredSessionCookie(request))
                 .build();
     }
@@ -41,7 +42,7 @@ public class LogoutResource extends AbstractResource {
         String path = "/";
         boolean secure = false;
         if (request != null) {
-            secure = request.isSecure();
+            secure = RequestSecuritySupport.isSecureRequest(request);
             String contextPath = request.getContextPath();
             if (contextPath != null && !contextPath.isBlank()) {
                 path = contextPath;

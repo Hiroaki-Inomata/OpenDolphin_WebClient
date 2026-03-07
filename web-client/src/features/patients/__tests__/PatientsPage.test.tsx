@@ -41,6 +41,7 @@ let mockMutationPending = false;
 let mockMutationCallCount = 0;
 let mockSearchParams = new URLSearchParams();
 let mockLocationSearch = '';
+let mockLocationState: unknown = null;
 const mockSetSearchParams = vi.fn();
 const mockRegisterDirty = vi.fn();
 const mockGuardedNavigate = vi.fn();
@@ -127,7 +128,7 @@ vi.mock('@tanstack/react-query', () => ({
 
 vi.mock('react-router-dom', () => ({
   MemoryRouter: ({ children }: { children: any }) => children,
-  useLocation: () => ({ search: mockLocationSearch }),
+  useLocation: () => ({ pathname: '/f/FAC-TEST/patients', search: mockLocationSearch, state: mockLocationState }),
   useNavigate: () => vi.fn(),
   useSearchParams: () => [mockSearchParams, mockSetSearchParams],
 }));
@@ -200,6 +201,7 @@ beforeEach(() => {
   mockMutationPending = false;
   mockMutationCallCount = 0;
   setRouterSearch('');
+  mockLocationState = null;
   mockSetSearchParams.mockClear();
   mockRegisterDirty.mockClear();
   mockGuardedNavigate.mockClear();
@@ -217,6 +219,10 @@ const renderPatientsPage = () => {
 const setRouterSearch = (search: string) => {
   mockLocationSearch = search;
   mockSearchParams = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+};
+
+const setRouterState = (state: unknown) => {
+  mockLocationState = state;
 };
 
 const clickPatientRowByName = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
@@ -419,7 +425,7 @@ describe('PatientsPage initial selection', () => {
     mockAuthFlags.fallbackUsed = false;
   });
 
-  it('patientId パラメータがない場合は未選択で開始する', () => {
+  it('patientId 文脈がない場合は未選択で開始する', () => {
     mockPatients();
     setRouterSearch('');
     renderPatientsPage();
@@ -437,18 +443,18 @@ describe('PatientsPage initial selection', () => {
     expect(screen.getByRole('tab', { name: '保険' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('patientId パラメータがある場合は一致患者を自動選択する', () => {
+  it('location state の patientId と一致する患者を自動選択する', () => {
     mockPatients();
-    setRouterSearch('?patientId=P-001');
+    setRouterState({ patientId: 'P-001' });
     renderPatientsPage();
 
     expect(screen.getByRole('heading', { name: /ORCA患者番号（Patient_ID） P-001/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /山田 花子/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('patientId パラメータが不一致の場合は警告を表示して未選択を維持する', async () => {
+  it('location state の patientId が不一致の場合は警告を表示して未選択を維持する', async () => {
     mockPatients();
-    setRouterSearch('?patientId=P-999');
+    setRouterState({ patientId: 'P-999' });
     renderPatientsPage();
 
     expect(await screen.findByText(/指定患者が見つかりません/)).toBeInTheDocument();

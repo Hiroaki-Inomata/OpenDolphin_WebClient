@@ -803,14 +803,18 @@ public class KarteServiceBean {
     }
 
     public List<UserPropertyResponse> getUserProperties(String userId) {
-
         if (userId == null || userId.isBlank()) {
+            return Collections.emptyList();
+        }
+
+        String compositeUserId = userId.trim();
+        if (!compositeUserId.contains(IInfoModel.COMPOSITE_KEY_MAKER)) {
             return Collections.emptyList();
         }
 
         try {
             UserModel user = em.createQuery(QUERY_USER_BY_USER_ID, UserModel.class)
-                    .setParameter("userId", userId)
+                    .setParameter("userId", compositeUserId)
                     .getSingleResult();
             return buildUserPropertyResponses(user);
         } catch (NoResultException ex) {

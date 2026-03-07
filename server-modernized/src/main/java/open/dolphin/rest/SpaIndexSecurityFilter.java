@@ -58,6 +58,7 @@ public class SpaIndexSecurityFilter implements Filter {
         String token = CsrfTokenSupport.getOrCreateToken(httpRequest);
         String body = template.replace(CsrfTokenSupport.CSRF_PLACEHOLDER, token);
 
+        SecurityHeadersFilter.applyHeaders(httpRequest, httpResponse);
         applyNoStoreHeaders(httpResponse);
         httpResponse.setStatus(HttpServletResponse.SC_OK);
         httpResponse.setCharacterEncoding(StandardCharsets.UTF_8.name());

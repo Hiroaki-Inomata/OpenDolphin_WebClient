@@ -9,6 +9,10 @@ import { NavigationGuardProvider, useNavigationGuard } from '../NavigationGuardP
 function GuardHarness() {
   const location = useLocation();
   const { registerDirty, guardedNavigate } = useNavigationGuard();
+  const chartsScreenId =
+    location.state && typeof location.state === 'object' && !Array.isArray(location.state)
+      ? ((location.state as { chartsScreenId?: string }).chartsScreenId ?? '')
+      : '';
 
   useEffect(() => {
     registerDirty('charts.soap', true, 'SOAPドラフトが未保存');
@@ -18,10 +22,13 @@ function GuardHarness() {
   return (
     <div>
       <p data-testid="location">{`${location.pathname}${location.search}`}</p>
+      <p data-testid="charts-screen-id">{chartsScreenId}</p>
       <button
         type="button"
         onClick={() =>
-          guardedNavigate('/f/0001/charts?patientId=P-002&appointmentId=A-001&receptionId=R-001&visitDate=2026-02-21')
+          guardedNavigate('/f/0001/charts', {
+            state: { chartsScreenId: 'screen-2' },
+          })
         }
       >
         charts-context-change
@@ -29,7 +36,9 @@ function GuardHarness() {
       <button
         type="button"
         onClick={() =>
-          guardedNavigate('/f/0001/charts?patientId=P-001&appointmentId=A-001&receptionId=R-001&visitDate=2026-02-21&msw=1')
+          guardedNavigate('/f/0001/charts?msw=1', {
+            state: { chartsScreenId: 'screen-1' },
+          })
         }
       >
         charts-external-change
@@ -39,30 +48,48 @@ function GuardHarness() {
 }
 
 describe('NavigationGuardProvider', () => {
-  it('dirty 状態で charts 文脈(patientIdなど)が変わる遷移はブロックされる', async () => {
+  it('dirty 状態で chartsScreenId が変わる遷移はブロックされる', async () => {
     const user = userEvent.setup();
 
     render(
-      <MemoryRouter initialEntries={['/f/0001/charts?patientId=P-001&appointmentId=A-001&receptionId=R-001&visitDate=2026-02-21']}>
+      <MemoryRouter
+        initialEntries={[
+          {
+            pathname: '/f/0001/charts',
+            search: '',
+            state: { chartsScreenId: 'screen-1' },
+          },
+        ]}
+      >
         <NavigationGuardProvider>
           <GuardHarness />
         </NavigationGuardProvider>
       </MemoryRouter>,
     );
 
-    expect(screen.getByTestId('location')).toHaveTextContent('/f/0001/charts?patientId=P-001&appointmentId=A-001&receptionId=R-001&visitDate=2026-02-21');
+    expect(screen.getByTestId('location')).toHaveTextContent('/f/0001/charts');
+    expect(screen.getByTestId('charts-screen-id')).toHaveTextContent('screen-1');
 
     await user.click(screen.getByRole('button', { name: 'charts-context-change' }));
 
     expect(screen.getByRole('alertdialog', { name: '未保存の変更があります' })).toBeInTheDocument();
-    expect(screen.getByTestId('location')).toHaveTextContent('/f/0001/charts?patientId=P-001&appointmentId=A-001&receptionId=R-001&visitDate=2026-02-21');
+    expect(screen.getByTestId('location')).toHaveTextContent('/f/0001/charts');
+    expect(screen.getByTestId('charts-screen-id')).toHaveTextContent('screen-1');
   });
 
   it('dirty 状態でも charts の外部パラメータ更新は同一画面として許可する', async () => {
     const user = userEvent.setup();
 
     render(
-      <MemoryRouter initialEntries={['/f/0001/charts?patientId=P-001&appointmentId=A-001&receptionId=R-001&visitDate=2026-02-21']}>
+      <MemoryRouter
+        initialEntries={[
+          {
+            pathname: '/f/0001/charts',
+            search: '',
+            state: { chartsScreenId: 'screen-1' },
+          },
+        ]}
+      >
         <NavigationGuardProvider>
           <GuardHarness />
         </NavigationGuardProvider>
@@ -72,8 +99,7 @@ describe('NavigationGuardProvider', () => {
     await user.click(screen.getByRole('button', { name: 'charts-external-change' }));
 
     expect(screen.queryByRole('alertdialog', { name: '未保存の変更があります' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('location')).toHaveTextContent(
-      '/f/0001/charts?patientId=P-001&appointmentId=A-001&receptionId=R-001&visitDate=2026-02-21&msw=1',
-    );
+    expect(screen.getByTestId('location')).toHaveTextContent('/f/0001/charts?msw=1');
+    expect(screen.getByTestId('charts-screen-id')).toHaveTextContent('screen-1');
   });
 });

@@ -13,6 +13,9 @@ import { fetchPatientImageList, uploadPatientImageViaXhr, type PatientImageListI
 import { ReturnToBar } from '../../shared/ReturnToBar';
 
 type UploadStage = 'idle' | 'ready' | 'uploading' | 'success' | 'error';
+type MobileImagesLocationState = {
+  patientId?: string;
+};
 
 const formatBytes = (value?: number) => {
   if (value === undefined || Number.isNaN(value)) return '―';
@@ -47,16 +50,13 @@ export function MobileImagesUploadPage() {
   const { flags } = useAuthService();
   const resolvedRunId = resolveRunId(flags.runId);
   const appNav = useAppNavigation({ facilityId: session?.facilityId, userId: session?.userId });
-  const queryParams = useMemo(
-    () => new URLSearchParams(location.search.startsWith('?') ? location.search.slice(1) : location.search),
-    [location.search],
-  );
-  const patientIdParam = useMemo(() => normalizePatientId(queryParams.get('patientId')), [queryParams]);
+  const locationState = (location.state as MobileImagesLocationState | null) ?? null;
+  const statePatientId = useMemo(() => normalizePatientId(locationState?.patientId), [locationState?.patientId]);
   const deepLinkPatientId = useMemo(
     () => normalizePatientId(loadDeepLinkContext()?.values.patientId),
     [location.search],
   );
-  const resolvedPatientId = patientIdParam ?? deepLinkPatientId;
+  const resolvedPatientId = statePatientId ?? deepLinkPatientId;
   const fallbackUrl = useMemo(() => {
     const facilityId = session?.facilityId;
     if (appNav.fromCandidate === 'reception') return buildFacilityPath(facilityId, '/reception');

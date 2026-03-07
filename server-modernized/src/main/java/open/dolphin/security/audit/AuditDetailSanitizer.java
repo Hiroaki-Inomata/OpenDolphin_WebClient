@@ -55,7 +55,65 @@ public final class AuditDetailSanitizer {
     }
 
     public static String resolvePatientId(String explicitPatientId, Map<String, Object> details) {
-        return trimToNull(explicitPatientId);
+        String resolved = trimToNull(explicitPatientId);
+        if (resolved != null) {
+            return resolved;
+        }
+        return findPatientId(details);
+    }
+
+    private static String findPatientId(Object candidate) {
+        if (candidate == null) {
+            return null;
+        }
+        if (candidate instanceof Map<?, ?> mapValue) {
+            for (Map.Entry<?, ?> entry : mapValue.entrySet()) {
+                if (entry.getKey() == null) {
+                    continue;
+                }
+                String normalizedKey = normalizeKey(entry.getKey().toString());
+                if ("patientid".equals(normalizedKey) || "patient_id".equals(normalizedKey)) {
+                    String resolved = trimToNull(stringify(entry.getValue()));
+                    if (resolved != null) {
+                        return resolved;
+                    }
+                }
+                String nested = findPatientId(entry.getValue());
+                if (nested != null) {
+                    return nested;
+                }
+            }
+            return null;
+        }
+        if (candidate instanceof Iterable<?> iterable) {
+            for (Object item : iterable) {
+                String resolved = findPatientId(item);
+                if (resolved != null) {
+                    return resolved;
+                }
+            }
+            return null;
+        }
+        if (candidate.getClass().isArray()) {
+            int length = Array.getLength(candidate);
+            for (int i = 0; i < length; i++) {
+                String resolved = findPatientId(Array.get(candidate, i));
+                if (resolved != null) {
+                    return resolved;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String stringify(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof CharSequence sequence) {
+            return sequence.toString();
+        }
+        return String.valueOf(value);
     }
 
     private static Object sanitizeValue(String action, Object value) {

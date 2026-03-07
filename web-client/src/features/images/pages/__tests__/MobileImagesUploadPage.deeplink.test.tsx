@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 
-import { DEEPLINK_CTX_KEY } from '../../../../routes/deepLinkContextStorage';
+import { clearDeepLinkContext, saveDeepLinkContext } from '../../../../routes/deepLinkContextStorage';
 import { MobileImagesUploadPage } from '../MobileImagesUploadPage';
 import { fetchPatientImageList } from '../../mobileApi';
 
@@ -46,19 +46,14 @@ vi.mock('../../mobileApi', () => ({
 
 describe('MobileImagesUploadPage deeplink fallback', () => {
   beforeEach(() => {
+    clearDeepLinkContext();
     sessionStorage.clear();
     localStorage.clear();
     vi.clearAllMocks();
   });
 
   it('scrub 後でも deeplink context の patientId で描画できる', async () => {
-    sessionStorage.setItem(
-      DEEPLINK_CTX_KEY,
-      JSON.stringify({
-        savedAt: new Date().toISOString(),
-        values: { patientId: '123' },
-      }),
-    );
+    saveDeepLinkContext({ patientId: '123' });
 
     render(
       <MemoryRouter initialEntries={['/f/0001/m/images']}>

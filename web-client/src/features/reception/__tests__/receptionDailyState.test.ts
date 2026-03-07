@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { ReceptionEntry } from '../../outpatient/types';
 import {
+  clearReceptionDailyState,
   clearReceptionStatusOverridesForDate,
   listReceptionSnapshotDates,
   resolveReceptionEntriesForDate,
@@ -83,6 +84,7 @@ describe('receptionDailyState', () => {
     ensureWebStorage();
     localStorage.clear();
     sessionStorage.clear();
+    clearReceptionDailyState();
   });
 
   it('stores daily entries and restores them when incoming entries are empty', () => {
@@ -103,6 +105,8 @@ describe('receptionDailyState', () => {
     expect(restored.source).toBe('snapshot');
     expect(restored.entries).toHaveLength(1);
     expect(restored.entries[0]?.patientId).toBe('P-001');
+    expect(sessionStorage.getItem(scopedStorageKey)).toBeNull();
+    expect(localStorage.getItem(legacyStorageKey)).toBeNull();
   });
 
   it('keeps higher-priority status when demotion is not allowed', () => {
@@ -180,7 +184,7 @@ describe('receptionDailyState', () => {
     expect(resolved.entries[0]?.status).toBe('受付中');
   });
 
-  it('migrates legacy localStorage snapshot to sessionStorage on first read', () => {
+  it('legacy storage snapshot は cleanup するが復元しない', () => {
     const date = '2026-02-11';
     localStorage.setItem(
       legacyStorageKey,
@@ -203,9 +207,9 @@ describe('receptionDailyState', () => {
       scope,
     });
 
-    expect(restored.source).toBe('snapshot');
-    expect(restored.entries[0]?.id).toBe('legacy-1');
-    expect(sessionStorage.getItem(scopedStorageKey)).toBeTruthy();
+    expect(restored.source).toBe('empty');
+    expect(restored.entries).toHaveLength(0);
+    expect(sessionStorage.getItem(scopedStorageKey)).toBeNull();
     expect(localStorage.getItem(legacyStorageKey)).toBeNull();
   });
 

@@ -77,8 +77,16 @@ public class UserServiceBean {
                   .setParameter(UID, userName)
                   .getSingleResult();
 
-            PasswordHashService.VerificationResult verification = hashService()
-                    .verify(user.getPassword(), password);
+            String storedPassword = user.getPassword();
+            if (!hashService().isCurrentHash(storedPassword)) {
+                LoginAttemptPolicyService.FailureResult failure = registerFailure(userName, clientIp, now);
+                if (failure.ipThrottled()) {
+                    return AuthenticationResult.ipThrottled(failure.retryAfterSeconds());
+                }
+                return AuthenticationResult.failure();
+            }
+
+            PasswordHashService.VerificationResult verification = hashService().verify(storedPassword, password);
             if (!verification.matched()) {
                 LoginAttemptPolicyService.FailureResult failure = registerFailure(userName, clientIp, now);
                 if (failure.ipThrottled()) {
@@ -87,12 +95,6 @@ public class UserServiceBean {
                 return AuthenticationResult.failure();
             }
 
-            if (verification.requiresUpgrade()) {
-                String upgraded = verification.upgradedHash()
-                        .orElseGet(() -> hashService().hashForStorage(password));
-                user.setPassword(upgraded);
-                em.merge(user);
-            }
             if (requiresSecondFactor(user)) {
                 registerSuccess(userName, now);
                 return AuthenticationResult.needsSecondFactor();
@@ -433,8 +435,11 @@ public class UserServiceBean {
         if (requestedPassword == null || requestedPassword.isBlank()) {
             return currentPassword;
         }
-        if (hashService().isManagedHash(requestedPassword)) {
+        if (hashService().isCurrentHash(requestedPassword)) {
             return requestedPassword;
+        }
+        if (hashService().isLegacyManagedHash(requestedPassword) || hashService().isLegacyMd5Digest(requestedPassword)) {
+            throw new IllegalArgumentException("Legacy password hashes are not accepted.");
         }
         return hashService().hashForStorage(requestedPassword);
     }

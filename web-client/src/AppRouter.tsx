@@ -328,9 +328,16 @@ const LEGACY_ROUTES = [
 const isSensitiveScrubPath = (pathname: string): boolean => {
   const facility = parseFacilityPath(pathname);
   if (facility?.suffix) {
-    return facility.suffix === '/charts' || facility.suffix === '/patients' || facility.suffix === '/m/images';
+    return (
+      facility.suffix === '/reception' ||
+      facility.suffix === '/charts' ||
+      facility.suffix === '/patients' ||
+      facility.suffix === '/m/images'
+    );
   }
   return (
+    pathname === '/reception' ||
+    pathname === '/reception/' ||
     pathname === '/charts' ||
     pathname === '/charts/' ||
     pathname === '/patients' ||
@@ -368,6 +375,13 @@ const buildSwitchContext = (
     runId: session.runId,
   },
 });
+
+const asLocationStateRecord = (value: unknown): Record<string, unknown> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
+};
 
 export function AppRouter() {
   return (
@@ -588,13 +602,42 @@ export function AppRouterWithNavigation() {
       );
     }
 
+    const currentState = asLocationStateRecord(location.state);
+    const nextCarryover = {
+      ...(typeof currentState.carryover === 'object' && currentState.carryover !== null && !Array.isArray(currentState.carryover)
+        ? (currentState.carryover as Record<string, unknown>)
+        : {}),
+      ...(removed.kw || removed.keyword ? { kw: removed.kw ?? removed.keyword } : {}),
+    };
+    const nextEncounterState = {
+      ...(typeof currentState.encounter === 'object' && currentState.encounter !== null && !Array.isArray(currentState.encounter)
+        ? (currentState.encounter as Record<string, unknown>)
+        : {}),
+      ...(encounterContext.patientId ? { patientId: encounterContext.patientId } : {}),
+      ...(encounterContext.appointmentId ? { appointmentId: encounterContext.appointmentId } : {}),
+      ...(encounterContext.receptionId ? { receptionId: encounterContext.receptionId } : {}),
+      ...(encounterContext.visitDate ? { visitDate: encounterContext.visitDate } : {}),
+    };
+
     navigate(
       {
         pathname: location.pathname,
         search: scrubbedSearch,
         hash: location.hash,
       },
-      { replace: true, state: location.state },
+      {
+        replace: true,
+        state: {
+          ...currentState,
+          carryover: nextCarryover,
+          encounter: nextEncounterState,
+          ...(encounterContext.patientId ? { patientId: encounterContext.patientId } : {}),
+          ...(encounterContext.appointmentId ? { appointmentId: encounterContext.appointmentId } : {}),
+          ...(encounterContext.receptionId ? { receptionId: encounterContext.receptionId } : {}),
+          ...(encounterContext.visitDate ? { visitDate: encounterContext.visitDate } : {}),
+          ...(removed.kw || removed.keyword ? { kw: removed.kw ?? removed.keyword, keyword: removed.kw ?? removed.keyword } : {}),
+        },
+      },
     );
   }, [
     location.hash,
@@ -1350,8 +1393,8 @@ function AppLayout({ onLogout }: { onLogout: () => void }) {
   const resolvedRunId = flags.runId || session.runId;
   const traceId = getObservabilityMeta().traceId;
   const outletScreenKey = useMemo(
-    () => resolveScreenKey({ pathname: location.pathname, search: location.search }),
-    [location.pathname, location.search],
+    () => resolveScreenKey({ pathname: location.pathname, search: location.search, state: location.state }),
+    [location.pathname, location.search, location.state],
   );
   const [toasts, setToasts] = useState<AppToast[]>([]);
   const [orcaTopStatus, setOrcaTopStatus] = useState<OrcaTopStatus>(ORCA_TOP_STATUS_CHECKING);

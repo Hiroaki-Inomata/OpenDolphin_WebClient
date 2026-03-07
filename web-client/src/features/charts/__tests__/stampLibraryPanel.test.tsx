@@ -11,6 +11,7 @@ import { loadLocalStamps, loadStampClipboard, saveLocalStamp } from '../stampSto
 const FACILITY_ID = '0001';
 const USER_ID = 'user01';
 const USER_NAME = `${FACILITY_ID}:${USER_ID}`;
+const AUTH_STORAGE_KEY = 'opendolphin:web-client:auth';
 
 vi.mock('../stampApi', async () => ({
   fetchUserProfile: vi.fn().mockResolvedValue({ ok: true, id: 1, userId: '0001:user01', status: 200 }),
@@ -84,9 +85,17 @@ const renderWithClient = (ui: ReactElement) => {
 };
 
 beforeEach(() => {
-  localStorage.setItem('devFacilityId', FACILITY_ID);
-  localStorage.setItem('devUserId', USER_ID);
+  localStorage.clear();
   sessionStorage.clear();
+  sessionStorage.setItem(
+    AUTH_STORAGE_KEY,
+    JSON.stringify({
+      facilityId: FACILITY_ID,
+      userId: USER_ID,
+      clientUuid: 'client-001',
+      runId: 'RUN-STAMP',
+    }),
+  );
 });
 
 afterEach(() => {

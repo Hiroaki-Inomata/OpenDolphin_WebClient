@@ -38,6 +38,7 @@ let mockMutationPending = false;
 let mockClaimSendCache: Record<string, { invoiceNumber?: string; dataId?: string; sendStatus?: 'success' | 'error' }> =
   {};
 let mockSearchParams = new URLSearchParams();
+let mockLocationState: Record<string, unknown> | undefined;
 const mockInvalidateQueries = vi.fn(async () => undefined);
 
 const mockAuthFlags = {
@@ -76,6 +77,7 @@ vi.mock('../../../routes/useAppNavigation', () => ({
     fromCandidate: null,
     returnToCandidate: null,
     safeReturnToCandidate: null,
+    locationState: mockLocationState,
     carryover: {},
     external: {},
     encounter: {},
@@ -329,6 +331,7 @@ beforeEach(() => {
   mockMutationPending = false;
   mockClaimSendCache = {};
   mockSearchParams = new URLSearchParams();
+  mockLocationState = undefined;
   mockInvalidateQueries.mockClear();
   localStorage.clear();
 });
@@ -1025,8 +1028,8 @@ describe('ReceptionPage list and side pane guidance', () => {
 });
 
 describe('ReceptionPage status/date/card action UX', () => {
-  it('defaults date filter to visitDate from URL (non-charts navigation)', () => {
-    mockSearchParams = new URLSearchParams('visitDate=2026-02-03');
+  it('defaults date filter to visitDate from router state (non-charts navigation)', () => {
+    mockLocationState = { visitDate: '2026-02-03' };
     renderReceptionPage();
     expect(screen.getByLabelText('日付')).toHaveValue('2026-02-03');
   });
@@ -1035,7 +1038,8 @@ describe('ReceptionPage status/date/card action UX', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-02-13T00:00:00Z'));
     try {
-      mockSearchParams = new URLSearchParams('from=charts&visitDate=2026-02-03');
+      mockSearchParams = new URLSearchParams('from=charts');
+      mockLocationState = { visitDate: '2026-02-03' };
       renderReceptionPage();
       expect(screen.getByLabelText('日付')).toHaveValue('2026-02-13');
     } finally {

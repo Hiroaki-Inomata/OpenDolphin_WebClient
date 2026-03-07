@@ -18,9 +18,11 @@ import open.dolphin.converter.SchemaModelConverter;
 import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.SchemaModel;
 import open.dolphin.infomodel.UserModel;
+import open.dolphin.rest.dto.UserPropertyResponse;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PVTServiceBean;
+import open.dolphin.session.UserServiceBean;
 import open.dolphin.session.framework.SessionTraceManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +45,9 @@ class KarteResourceAuthorizationTest {
 
     @Mock
     SessionTraceManager sessionTraceManager;
+
+    @Mock
+    UserServiceBean userServiceBean;
 
     @Mock
     HttpServletRequest httpServletRequest;
@@ -144,6 +149,68 @@ class KarteResourceAuthorizationTest {
 
         assertForbidden(() -> resource.getDocuments("300"));
         verify(karteServiceBean, never()).getDocuments(anyList());
+    }
+
+    @Test
+    void getUserPropertiesAllowsSelfByCompositeUserId() {
+        List<UserPropertyResponse> responses = List.of(new UserPropertyResponse(1L, "department", "内科", null, null, null));
+        when(userServiceBean.isAdmin("FAC_A:user01")).thenReturn(false);
+        when(karteServiceBean.getUserProperties("FAC_A:user01")).thenReturn(responses);
+
+        List<UserPropertyResponse> result = resource.getUserProperties(httpServletRequest, "FAC_A:user01");
+
+        assertThat(result).containsExactlyElementsOf(responses);
+        verify(karteServiceBean).getUserProperties("FAC_A:user01");
+    }
+
+    @Test
+    void getUserPropertiesAllowsSelfByBareUserId() {
+        List<UserPropertyResponse> responses = List.of(new UserPropertyResponse(2L, "orcaId", "1001", null, null, null));
+        when(userServiceBean.isAdmin("FAC_A:user01")).thenReturn(false);
+        when(karteServiceBean.getUserProperties("FAC_A:user01")).thenReturn(responses);
+
+        List<UserPropertyResponse> result = resource.getUserProperties(httpServletRequest, "user01");
+
+        assertThat(result).containsExactlyElementsOf(responses);
+        verify(karteServiceBean).getUserProperties("FAC_A:user01");
+    }
+
+    @Test
+    void getUserPropertiesRejectsOtherUserForNonAdmin() {
+        when(userServiceBean.isAdmin("FAC_A:user01")).thenReturn(false);
+
+        assertForbidden(() -> resource.getUserProperties(httpServletRequest, "doctor02"));
+        verify(karteServiceBean, never()).getUserProperties(any());
+    }
+
+    @Test
+    void getUserPropertiesAllowsSameFacilityAdmin() {
+        List<UserPropertyResponse> responses = List.of(new UserPropertyResponse(3L, "memo", "test", null, null, null));
+        when(userServiceBean.isAdmin("FAC_A:user01")).thenReturn(true);
+        when(karteServiceBean.getUserProperties("FAC_A:doctor02")).thenReturn(responses);
+
+        List<UserPropertyResponse> result = resource.getUserProperties(httpServletRequest, "doctor02");
+
+        assertThat(result).containsExactlyElementsOf(responses);
+        verify(karteServiceBean).getUserProperties("FAC_A:doctor02");
+    }
+
+    @Test
+    void getUserPropertiesRejectsCrossFacilityAdminTarget() {
+        when(userServiceBean.isAdmin("FAC_A:user01")).thenReturn(true);
+
+        assertForbidden(() -> resource.getUserProperties(httpServletRequest, "FAC_B:doctor02"));
+        verify(karteServiceBean, never()).getUserProperties(any());
+    }
+
+    @Test
+    void getUserPropertiesRequiresAuthenticatedActor() {
+        when(httpServletRequest.getRemoteUser()).thenReturn(null);
+
+        assertThatThrownBy(() -> resource.getUserProperties(httpServletRequest, "user01"))
+                .isInstanceOf(WebApplicationException.class)
+                .satisfies(ex -> assertThat(((WebApplicationException) ex).getResponse().getStatus()).isEqualTo(401));
+        verify(karteServiceBean, never()).getUserProperties(any());
     }
 
     private static void assertForbidden(org.assertj.core.api.ThrowableAssert.ThrowingCallable callable) {

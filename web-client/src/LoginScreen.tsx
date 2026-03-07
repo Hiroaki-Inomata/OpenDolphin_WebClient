@@ -6,7 +6,10 @@ import { httpFetch } from './libs/http/httpClient';
 import { generateRunId, updateObservabilityMeta } from './libs/observability/observability';
 import { consumeSessionExpiredNotice } from './libs/session/sessionExpiry';
 import { logAuditEvent } from './libs/audit/auditLogger';
-import { resolveLoginFailureMessage } from './features/login/loginErrorMessage';
+import {
+  resolveLoginFailure,
+  type LoginFailureResolution,
+} from './features/login/loginErrorMessage';
 
 const resolveApiBaseUrl = () => {
   const raw = (import.meta.env.VITE_API_BASE_URL ?? '/api').trim().replace(/\/$/, '');
@@ -14,6 +17,8 @@ const resolveApiBaseUrl = () => {
 };
 const API_BASE_URL = resolveApiBaseUrl();
 const SYSTEM_ICON_URL = `${import.meta.env.BASE_URL}LogoImage/MainLogo.png`;
+const SESSION_LOGIN_ENDPOINT = `${API_BASE_URL}/session/login`;
+const SESSION_FACTOR2_LOGIN_ENDPOINT = `${API_BASE_URL}/session/login/factor2`;
 
 const createClientUuid = (seed?: string) => {
   if (seed?.trim()) {
@@ -25,8 +30,6 @@ const createClientUuid = (seed?: string) => {
   return uuidv4();
 };
 
-const SESSION_LOGIN_ENDPOINT = `${API_BASE_URL}/session/login`;
-
 const resolveLoginTimeoutMs = () => {
   const raw = import.meta.env.VITE_LOGIN_TIMEOUT_MS ?? import.meta.env.VITE_HTTP_TIMEOUT_MS ?? '';
   const parsed = Number(raw);
@@ -35,7 +38,6 @@ const resolveLoginTimeoutMs = () => {
 };
 
 const waitMs = (duration: number) => new Promise<void>((resolve) => setTimeout(resolve, duration));
-
 const normalize = (value: string) => value.trim();
 
 const normalizeRoles = (roles?: Array<string | { role?: string }>) => {
@@ -51,16 +53,24 @@ const inferRole = (_userId: string, roles?: Array<string | { role?: string }>) =
   return 'unknown';
 };
 
-type LoginFormValues = {
+type CredentialsFormValues = {
   facilityId: string;
   userId: string;
   password: string;
   clientUuid: string;
 };
 
-type FieldKey = keyof LoginFormValues;
-
+type CredentialsFieldKey = keyof CredentialsFormValues;
 type LoginStatus = 'idle' | 'loading' | 'success' | 'error';
+type LoginStep = 'credentials' | 'factor2';
+type FeedbackTone = 'success' | 'error' | 'info';
+
+type PendingSecondFactorState = {
+  facilityId: string;
+  userId: string;
+  clientUuid: string;
+  runId: string;
+};
 
 export interface SessionAuthResponse {
   facilityId?: string;
@@ -82,6 +92,14 @@ export type LoginResult = {
   role: string;
   roles?: string[];
 };
+
+type LoginAttemptResult =
+  | { kind: 'success'; result: LoginResult }
+  | { kind: 'factor2_required'; message: string; clientUuid: string; runId: string };
+
+type SecondFactorAttemptResult =
+  | { kind: 'success'; result: LoginResult }
+  | { kind: 'failure'; failure: LoginFailureResolution };
 
 const resolveAbsoluteApiBaseUrl = () => {
   if (typeof window === 'undefined') return null;
@@ -131,15 +149,20 @@ type LoginScreenProps = {
 };
 
 export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId = false }: LoginScreenProps) => {
-  const [values, setValues] = useState<LoginFormValues>(() => ({
+  const [values, setValues] = useState<CredentialsFormValues>(() => ({
     facilityId: initialFacilityId ?? '',
     userId: '',
     password: '',
     clientUuid: '',
   }));
-  const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({});
+  const [errors, setErrors] = useState<Partial<Record<CredentialsFieldKey, string>>>({});
+  const [secondFactorCode, setSecondFactorCode] = useState('');
+  const [secondFactorError, setSecondFactorError] = useState<string | null>(null);
+  const [step, setStep] = useState<LoginStep>('credentials');
+  const [pendingSecondFactor, setPendingSecondFactor] = useState<PendingSecondFactorState | null>(null);
   const [status, setStatus] = useState<LoginStatus>('idle');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedbackTone, setFeedbackTone] = useState<FeedbackTone>('error');
   const [profile, setProfile] = useState<LoginResult | null>(null);
 
   const isLoading = status === 'loading';
@@ -149,12 +172,15 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
   const shouldLockFacility = lockFacilityId && Boolean(normalizedFacilityId);
   const resolvedFacilityId = shouldLockFacility ? (initialFacilityId ?? values.facilityId) : values.facilityId;
   const normalizedResolvedFacilityId = normalize(resolvedFacilityId);
-  const canSubmit = Boolean(normalizedResolvedFacilityId && normalizedUserId && values.password && !isLoading);
+  const canSubmitCredentials = Boolean(normalizedResolvedFacilityId && normalizedUserId && values.password && !isLoading);
+  const normalizedFactor2Code = secondFactorCode.replace(/\D/g, '');
+  const canSubmitFactor2 = Boolean(normalizedFactor2Code.length === 6 && !isLoading);
 
   useEffect(() => {
     const notice = consumeSessionExpiredNotice();
     if (notice?.message) {
       setFeedback(notice.message);
+      setFeedbackTone('error');
       setStatus('error');
     }
   }, []);
@@ -166,16 +192,25 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
     );
   }, [initialFacilityId]);
 
-  const handleChange = (key: FieldKey) => (event: ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (key: CredentialsFieldKey) => (event: ChangeEvent<HTMLInputElement>) => {
     setValues((prev) => ({ ...prev, [key]: event.target.value }));
   };
+
   const handleFacilityChange = (event: ChangeEvent<HTMLInputElement>) => {
     if (shouldLockFacility) return;
     handleChange('facilityId')(event);
   };
 
-  const validate = (form: LoginFormValues) => {
-    const next: Partial<Record<FieldKey, string>> = {};
+  const handleSecondFactorCodeChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const next = event.target.value.replace(/\D/g, '').slice(0, 6);
+    setSecondFactorCode(next);
+    if (secondFactorError) {
+      setSecondFactorError(null);
+    }
+  };
+
+  const validateCredentials = (form: CredentialsFormValues) => {
+    const next: Partial<Record<CredentialsFieldKey, string>> = {};
     if (!normalize(form.facilityId)) {
       next.facilityId = '施設IDを入力してください。';
     }
@@ -188,23 +223,39 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
     return next;
   };
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const resetToCredentialsStep = (message?: string, tone: FeedbackTone = 'error') => {
+    setStep('credentials');
+    setPendingSecondFactor(null);
+    setSecondFactorCode('');
+    setSecondFactorError(null);
+    setValues((prev) => ({ ...prev, password: '', clientUuid: prev.clientUuid || '' }));
+    if (message) {
+      setFeedback(message);
+      setFeedbackTone(tone);
+      setStatus(tone === 'success' ? 'success' : 'error');
+    } else {
+      setStatus('idle');
+    }
+  };
+
+  const handleCredentialsSubmit = async () => {
     setFeedback(null);
     setProfile(null);
+    setSecondFactorError(null);
 
-    const generatedClientUuid = createClientUuid();
-    const normalizedValues: LoginFormValues = {
+    const clientUuid = createClientUuid(values.clientUuid);
+    const normalizedValues: CredentialsFormValues = {
       facilityId: normalize(resolvedFacilityId),
       userId: normalize(values.userId),
       password: values.password,
-      clientUuid: generatedClientUuid,
+      clientUuid,
     };
-    setValues((prev) => ({ ...prev, clientUuid: generatedClientUuid }));
+    setValues((prev) => ({ ...prev, clientUuid }));
 
-    const nextErrors = validate(normalizedValues);
+    const nextErrors = validateCredentials(normalizedValues);
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
+      setFeedbackTone('error');
       setStatus('error');
       return;
     }
@@ -227,28 +278,59 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
           userId: normalizedValues.userId,
         },
       });
-      const result = await performLogin(normalizedValues, runId);
-      setProfile(result);
+      const outcome = await performLogin(normalizedValues, runId);
+      if (outcome.kind === 'factor2_required') {
+        setValues((prev) => ({ ...prev, password: '', clientUuid: outcome.clientUuid }));
+        setPendingSecondFactor({
+          facilityId: normalizedValues.facilityId,
+          userId: normalizedValues.userId,
+          clientUuid: outcome.clientUuid,
+          runId: outcome.runId,
+        });
+        setSecondFactorCode('');
+        setStep('factor2');
+        setFeedback(outcome.message);
+        setFeedbackTone('info');
+        setStatus('idle');
+        logAuditEvent({
+          runId: outcome.runId,
+          source: 'auth',
+          note: 'login factor2 required',
+          payload: {
+            action: 'login',
+            screen: 'login',
+            outcome: 'factor2_required',
+            facilityId: normalizedValues.facilityId,
+            userId: normalizedValues.userId,
+            clientUuid: outcome.clientUuid,
+          },
+        });
+        return;
+      }
+
+      setProfile(outcome.result);
       setFeedback('ログインに成功しました。');
+      setFeedbackTone('success');
       setStatus('success');
       logAuditEvent({
-        runId: result.runId,
+        runId: outcome.result.runId,
         source: 'auth',
         note: 'login success',
         payload: {
           action: 'login',
           screen: 'login',
           outcome: 'success',
-          facilityId: result.facilityId,
-          userId: result.userId,
-          role: result.role,
-          roles: result.roles,
+          facilityId: outcome.result.facilityId,
+          userId: outcome.result.userId,
+          role: outcome.result.role,
+          roles: outcome.result.roles,
         },
       });
-      onLoginSuccess?.(result);
+      onLoginSuccess?.(outcome.result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'ログインに失敗しました。';
       setFeedback(message);
+      setFeedbackTone('error');
       setStatus('error');
       logAuditEvent({
         runId,
@@ -266,15 +348,122 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
     }
   };
 
+  const handleSecondFactorSubmit = async () => {
+    const pending = pendingSecondFactor;
+    if (!pending) {
+      resetToCredentialsStep('二要素認証セッションが無効です。最初からログインし直してください。');
+      return;
+    }
+
+    const code = normalizedFactor2Code;
+    if (code.length !== 6) {
+      setSecondFactorError('6桁の認証コードを入力してください。');
+      setStatus('error');
+      return;
+    }
+
+    setStatus('loading');
+    setFeedback(null);
+    setProfile(null);
+    setSecondFactorError(null);
+
+    try {
+      logAuditEvent({
+        runId: pending.runId,
+        source: 'auth',
+        note: 'login factor2 attempt',
+        payload: {
+          action: 'login-factor2',
+          screen: 'login',
+          facilityId: pending.facilityId,
+          userId: pending.userId,
+        },
+      });
+      const outcome = await performSecondFactorLogin(
+        {
+          facilityId: pending.facilityId,
+          userId: pending.userId,
+          clientUuid: pending.clientUuid,
+        },
+        pending.runId,
+        code,
+      );
+
+      if (outcome.kind === 'failure') {
+        if (outcome.failure.kind === 'factor2_invalid') {
+          setFeedback(outcome.failure.message);
+          setFeedbackTone('error');
+          setStatus('error');
+          return;
+        }
+        if (
+          outcome.failure.kind === 'factor2_session_missing'
+          || outcome.failure.kind === 'factor2_session_expired'
+        ) {
+          resetToCredentialsStep(outcome.failure.message);
+          return;
+        }
+        setFeedback(outcome.failure.message);
+        setFeedbackTone('error');
+        setStatus('error');
+        return;
+      }
+
+      setPendingSecondFactor(null);
+      setSecondFactorCode('');
+      setStep('credentials');
+      setProfile(outcome.result);
+      setFeedback('ログインに成功しました。');
+      setFeedbackTone('success');
+      setStatus('success');
+      logAuditEvent({
+        runId: outcome.result.runId,
+        source: 'auth',
+        note: 'login factor2 success',
+        payload: {
+          action: 'login-factor2',
+          screen: 'login',
+          outcome: 'success',
+          facilityId: outcome.result.facilityId,
+          userId: outcome.result.userId,
+        },
+      });
+      onLoginSuccess?.(outcome.result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '二要素認証に失敗しました。';
+      setFeedback(message);
+      setFeedbackTone('error');
+      setStatus('error');
+    }
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (step === 'factor2') {
+      await handleSecondFactorSubmit();
+      return;
+    }
+    await handleCredentialsSubmit();
+  };
+
   const buttonLabel = useMemo(() => {
     if (isLoading) {
-      return 'ログイン中…';
+      return step === 'factor2' ? '確認中…' : 'ログイン中…';
+    }
+    if (step === 'factor2') {
+      return '認証コードを確認';
     }
     if (isSuccess) {
       return '再ログイン';
     }
     return 'ログイン';
-  }, [isLoading, isSuccess]);
+  }, [isLoading, isSuccess, step]);
+
+  const statusClassName = useMemo(() => {
+    if (feedbackTone === 'success') return 'status-message is-success';
+    if (feedbackTone === 'info') return 'status-message';
+    return 'status-message is-error';
+  }, [feedbackTone]);
 
   return (
     <main className="login-shell">
@@ -287,65 +476,108 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
             <div className="login-brand__badge">
               <img src={SYSTEM_ICON_URL} alt="OpenDolphin システムアイコン" />
             </div>
-
           </div>
-
         </header>
 
         <form className="login-form" onSubmit={handleSubmit} noValidate>
-          <label className="field">
-            <span>施設ID</span>
-            <input
-              id="login-facility-id"
-              name="loginFacilityId"
-              type="text"
-              autoComplete="organization"
-              value={resolvedFacilityId}
-              onChange={handleFacilityChange}
-              placeholder="例: 0001"
-              disabled={isLoading}
-            />
-            {errors.facilityId ? <span className="field-error">{errors.facilityId}</span> : null}
-          </label>
+          {step === 'credentials' ? (
+            <>
+              <label className="field">
+                <span>施設ID</span>
+                <input
+                  id="login-facility-id"
+                  name="loginFacilityId"
+                  type="text"
+                  autoComplete="organization"
+                  value={resolvedFacilityId}
+                  onChange={handleFacilityChange}
+                  placeholder="例: 0001"
+                  disabled={isLoading}
+                />
+                {errors.facilityId ? <span className="field-error">{errors.facilityId}</span> : null}
+              </label>
 
-          <label className="field">
-            <span>ユーザーID</span>
-            <input
-              id="login-user-id"
-              name="loginUserId"
-              type="text"
-              autoComplete="username"
-              value={values.userId}
-              onChange={handleChange('userId')}
-              placeholder="例: doctor01"
-              disabled={isLoading}
-            />
-            {errors.userId ? <span className="field-error">{errors.userId}</span> : null}
-          </label>
+              <label className="field">
+                <span>ユーザーID</span>
+                <input
+                  id="login-user-id"
+                  name="loginUserId"
+                  type="text"
+                  autoComplete="username"
+                  value={values.userId}
+                  onChange={handleChange('userId')}
+                  placeholder="例: doctor01"
+                  disabled={isLoading}
+                />
+                {errors.userId ? <span className="field-error">{errors.userId}</span> : null}
+              </label>
 
-          <label className="field">
-            <span>パスワード</span>
-            <input
-              id="login-password"
-              name="loginPassword"
-              type="password"
-              autoComplete="current-password"
-              value={values.password}
-              onChange={handleChange('password')}
-              placeholder="パスワード"
-              disabled={isLoading}
-            />
-            {errors.password ? <span className="field-error">{errors.password}</span> : null}
-          </label>
+              <label className="field">
+                <span>パスワード</span>
+                <input
+                  id="login-password"
+                  name="loginPassword"
+                  type="password"
+                  autoComplete="current-password"
+                  value={values.password}
+                  onChange={handleChange('password')}
+                  placeholder="パスワード"
+                  disabled={isLoading}
+                />
+                {errors.password ? <span className="field-error">{errors.password}</span> : null}
+              </label>
+            </>
+          ) : (
+            <>
+              <div className="status-message" role="status">
+                二要素認証が必要です。6桁の認証コードを入力してください。
+                <p className="status-message__detail">
+                  対象: {pendingSecondFactor?.facilityId}:{pendingSecondFactor?.userId}
+                </p>
+              </div>
 
-          <div className="login-form__actions">
-            <button type="submit" disabled={!canSubmit}>
-              {buttonLabel}
-            </button>
-          </div>
+              <label className="field">
+                <span>認証コード</span>
+                <input
+                  id="login-factor2-code"
+                  name="loginFactor2Code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={secondFactorCode}
+                  onChange={handleSecondFactorCodeChange}
+                  placeholder="6桁コード"
+                  disabled={isLoading}
+                />
+                {secondFactorError ? <span className="field-error">{secondFactorError}</span> : null}
+              </label>
+
+              <div className="login-form__actions">
+                <button type="submit" disabled={!canSubmitFactor2}>
+                  {buttonLabel}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resetToCredentialsStep('最初からログインし直してください。')}
+                  disabled={isLoading}
+                >
+                  最初からやり直す
+                </button>
+              </div>
+            </>
+          )}
+
+          {step === 'credentials' ? (
+            <div className="login-form__actions">
+              <button type="submit" disabled={!canSubmitCredentials}>
+                {buttonLabel}
+              </button>
+            </div>
+          ) : null}
 
           {feedback ? (
-            <div className={`status-message ${isSuccess ? 'is-success' : 'is-error'}`} role="status">
+            <div className={statusClassName} role="status">
               {feedback}
               {isSuccess && profile ? (
                 <p className="status-message__detail">
@@ -356,16 +588,16 @@ export const LoginScreen = ({ onLoginSuccess, initialFacilityId, lockFacilityId 
           ) : null}
         </form>
       </section>
-    </main >
+    </main>
   );
 };
 
-const performLogin = async (payload: LoginFormValues, runId: string): Promise<LoginResult> => {
-  const clientUuid = createClientUuid(payload.clientUuid);
+const executeSessionPost = async (endpoint: string, body: Record<string, unknown>): Promise<Response> => {
   assertLoginTargetIsAllowed();
   const timeoutMs = resolveLoginTimeoutMs();
-  const sendLogin = async (signal?: AbortSignal) =>
-    httpFetch(SESSION_LOGIN_ENDPOINT, {
+
+  const sendRequest = async (signal?: AbortSignal) =>
+    httpFetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -373,43 +605,17 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
       credentials: 'include',
       notifySessionExpired: false,
       cache: 'no-store',
-      body: JSON.stringify({
-        facilityId: payload.facilityId,
-        userId: payload.userId,
-        password: payload.password,
-        clientUuid,
-      }),
+      body: JSON.stringify(body),
       signal,
     });
 
   const executeWithTimeout = async () => {
-    const endpoint = SESSION_LOGIN_ENDPOINT;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const abortListener = () => {
-      console.warn('[login][/api/session/login] aborted', {
-        endpoint,
-        protocol: typeof window !== 'undefined' ? window.location.protocol : 'unknown',
-        attempt: 'pending',
-      });
-    };
-    controller.signal.addEventListener('abort', abortListener);
-    console.info('[login][/api/session/login] request start', {
-      endpoint,
-      timeoutMs,
-      protocol: typeof window !== 'undefined' ? window.location.protocol : 'unknown',
-    });
     try {
-      const response = await sendLogin(controller.signal);
-      console.info('[login][/api/session/login] request complete', {
-        endpoint,
-        status: response.status,
-        ok: response.ok,
-      });
-      return response;
+      return await sendRequest(controller.signal);
     } finally {
       clearTimeout(timer);
-      controller.signal.removeEventListener('abort', abortListener);
     }
   };
 
@@ -418,12 +624,12 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
     if (error instanceof Error) {
       const message = error.message.toLowerCase();
       return (
-        message.includes('abort') ||
-        message.includes('aborted') ||
-        message.includes('err_aborted') ||
-        message.includes('failed to fetch') ||
-        message.includes('networkerror') ||
-        message.includes('timeout')
+        message.includes('abort')
+        || message.includes('aborted')
+        || message.includes('err_aborted')
+        || message.includes('failed to fetch')
+        || message.includes('networkerror')
+        || message.includes('timeout')
       );
     }
     return false;
@@ -436,29 +642,12 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
       response = await executeWithTimeout();
       break;
     } catch (error) {
-      try {
-        const errorName = error instanceof Error ? error.name : typeof error;
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const errorStack = error instanceof Error ? error.stack : undefined;
-        const currentProtocol = typeof window !== 'undefined' ? window.location.protocol : 'unknown';
-        console.warn('[login][/api/session/login] request failed', {
-          endpoint: SESSION_LOGIN_ENDPOINT,
-          protocol: currentProtocol,
-          attempt,
-          errorName,
-          errorMessage,
-          errorStack,
-        });
-      } catch {
-        // ignore logging errors
-      }
       if (attempt < maxAttempts && shouldRetry(error)) {
         await waitMs(400);
         continue;
       }
       if (shouldRetry(error)) {
-        const base = '通信がタイムアウトまたは中断されました。時間をおいて再試行してください。';
-        throw new Error(base);
+        throw new Error('通信がタイムアウトまたは中断されました。時間をおいて再試行してください。');
       }
       throw error;
     }
@@ -467,24 +656,71 @@ const performLogin = async (payload: LoginFormValues, runId: string): Promise<Lo
   if (!response) {
     throw new Error('ログイン応答を取得できませんでした。');
   }
+  return response;
+};
+
+const performLogin = async (payload: CredentialsFormValues, runId: string): Promise<LoginAttemptResult> => {
+  const clientUuid = createClientUuid(payload.clientUuid);
+  const response = await executeSessionPost(SESSION_LOGIN_ENDPOINT, {
+    facilityId: payload.facilityId,
+    userId: payload.userId,
+    password: payload.password,
+    clientUuid,
+  });
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(
-      resolveLoginFailureMessage({
+    const failure = resolveLoginFailure({
+      status: response.status,
+      bodyText: body,
+      statusText: response.statusText,
+      retryAfter: response.headers.get('Retry-After') ?? undefined,
+    });
+    if (failure.kind === 'factor2_required') {
+      return { kind: 'factor2_required', message: failure.message, clientUuid, runId };
+    }
+    throw new Error(failure.message);
+  }
+
+  const data = (await response.json()) as SessionAuthResponse;
+  return {
+    kind: 'success',
+    result: normalizeSessionResult(data, {
+      facilityId: payload.facilityId,
+      userId: payload.userId,
+      clientUuid,
+      runId,
+    }),
+  };
+};
+
+const performSecondFactorLogin = async (
+  payload: { facilityId: string; userId: string; clientUuid: string },
+  runId: string,
+  code: string,
+): Promise<SecondFactorAttemptResult> => {
+  const response = await executeSessionPost(SESSION_FACTOR2_LOGIN_ENDPOINT, { code });
+  if (!response.ok) {
+    const body = await response.text();
+    return {
+      kind: 'failure',
+      failure: resolveLoginFailure({
         status: response.status,
         bodyText: body,
         statusText: response.statusText,
         retryAfter: response.headers.get('Retry-After') ?? undefined,
       }),
-    );
+    };
   }
 
   const data = (await response.json()) as SessionAuthResponse;
-  return normalizeSessionResult(data, {
-    facilityId: payload.facilityId,
-    userId: payload.userId,
-    clientUuid,
-    runId,
-  });
+  return {
+    kind: 'success',
+    result: normalizeSessionResult(data, {
+      facilityId: payload.facilityId,
+      userId: payload.userId,
+      clientUuid: payload.clientUuid,
+      runId,
+    }),
+  };
 };

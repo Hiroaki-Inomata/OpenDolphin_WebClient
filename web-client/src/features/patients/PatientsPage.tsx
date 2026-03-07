@@ -123,18 +123,24 @@ const readStorageJson = (key: string) => {
   }
 };
 
-const readFilters = (searchParams: URLSearchParams): typeof DEFAULT_FILTER => {
+const readFilters = (
+  searchParams: URLSearchParams,
+  carryover?: {
+    kw?: string;
+    keyword?: string;
+  } | null,
+): typeof DEFAULT_FILTER => {
   const receptionStored = readStorageJson(RECEPTION_FILTER_STORAGE_KEY);
   const patientStored = readStorageJson(FILTER_STORAGE_KEY);
   const dropUndefined = (value: Partial<typeof DEFAULT_FILTER>) =>
     Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as Partial<typeof DEFAULT_FILTER>;
 
   const fromUrl: Partial<typeof DEFAULT_FILTER> = {
-    keyword: searchParams.get('keyword') ?? searchParams.get('kw') ?? undefined,
     department: searchParams.get('dept') ?? undefined,
     physician: searchParams.get('phys') ?? undefined,
     paymentMode: normalizePaymentMode(searchParams.get('pay')),
   };
+  const carryoverKeyword = pickString(carryover?.kw) ?? pickString(carryover?.keyword);
 
   const normalizedReception: Partial<typeof DEFAULT_FILTER> = {
     department: (receptionStored?.dept as string | undefined) ?? undefined,
@@ -150,6 +156,7 @@ const readFilters = (searchParams: URLSearchParams): typeof DEFAULT_FILTER => {
 
   return {
     ...DEFAULT_FILTER,
+    ...(carryoverKeyword ? { keyword: carryoverKeyword } : {}),
     ...dropUndefined(normalizedReception),
     ...dropUndefined(normalizedPatients),
     ...dropUndefined(fromUrl),
@@ -281,6 +288,24 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   );
   const today = useMemo(() => toLocalDateYmd(), []);
   const location = useLocation();
+  const locationState = (location.state as
+    | {
+        encounter?: {
+          patientId?: string;
+          appointmentId?: string;
+          receptionId?: string;
+          visitDate?: string;
+        };
+        carryover?: {
+          kw?: string;
+          keyword?: string;
+        };
+        patientId?: string;
+        appointmentId?: string;
+        receptionId?: string;
+        visitDate?: string;
+      }
+    | null) ?? null;
   const [searchParams, setSearchParams] = useSearchParams();
   const { enqueue } = useAppToast();
   const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
@@ -288,18 +313,19 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   const handleOpenReception = useCallback(() => {
     appNav.openReception();
   }, [appNav.openReception]);
-  const urlPatientIdParam = searchParams.get('patientId') ?? undefined;
-  const urlAppointmentIdParam = searchParams.get('appointmentId') ?? undefined;
-  const urlReceptionIdParam = searchParams.get('receptionId') ?? undefined;
-  const urlVisitDateParam = normalizeVisitDate(searchParams.get('visitDate') ?? undefined);
   const storedEncounter = useMemo(
     () => loadChartsEncounterContext(storageScope),
     [location.pathname, location.search, storageScope],
   );
-  const patientIdParam = urlPatientIdParam ?? storedEncounter?.patientId;
-  const appointmentIdParam = urlAppointmentIdParam ?? storedEncounter?.appointmentId;
-  const receptionIdParam = urlReceptionIdParam ?? storedEncounter?.receptionId;
-  const visitDateParam = urlVisitDateParam ?? normalizeVisitDate(storedEncounter?.visitDate);
+  const stateEncounter = locationState?.encounter;
+  const patientIdParam = locationState?.patientId ?? stateEncounter?.patientId ?? storedEncounter?.patientId;
+  const appointmentIdParam =
+    locationState?.appointmentId ?? stateEncounter?.appointmentId ?? storedEncounter?.appointmentId;
+  const receptionIdParam = locationState?.receptionId ?? stateEncounter?.receptionId ?? storedEncounter?.receptionId;
+  const visitDateParam =
+    normalizeVisitDate(locationState?.visitDate) ??
+    normalizeVisitDate(stateEncounter?.visitDate) ??
+    normalizeVisitDate(storedEncounter?.visitDate);
   const fromCandidate = appNav.fromCandidate ?? undefined;
   const fromCharts = fromCandidate === 'charts';
   const storedReturnTo = useMemo(() => {
@@ -343,7 +369,10 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     if (fromCandidate === 'reception') return buildFacilityPath(session.facilityId, '/reception');
     return buildFacilityPath(session.facilityId, '/charts');
   }, [fromCandidate, session.facilityId]);
-  const initialFilters = useMemo(() => readFilters(searchParams), [searchParams]);
+  const initialFilters = useMemo(
+    () => readFilters(searchParams, locationState?.carryover),
+    [locationState?.carryover, searchParams],
+  );
   const [draftFilters, setDraftFilters] = useState(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState(initialFilters);
   const [orcaImportPatientId, setOrcaImportPatientId] = useState('');
@@ -733,17 +762,17 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   });
 
   useEffect(() => {
-    const merged = readFilters(searchParams);
+    const merged = readFilters(searchParams, locationState?.carryover);
     setDraftFilters((prev) => {
-      const next = { ...merged, keyword: prev.keyword };
+      const next = { ...merged, keyword: merged.keyword || prev.keyword };
       return isSameFilter(prev, next) ? prev : next;
     });
     setAppliedFilters((prev) => {
-      const next = { ...merged, keyword: prev.keyword };
+      const next = { ...merged, keyword: merged.keyword || prev.keyword };
       return isSameFilter(prev, next) ? prev : next;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.search]);
+  }, [location.search, locationState?.carryover]);
 
   useEffect(() => {
     const carryoverSource = new URLSearchParams(location.search);

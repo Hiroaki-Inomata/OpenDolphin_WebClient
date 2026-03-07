@@ -9,7 +9,9 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -1908,8 +1910,8 @@ public class OrcaResource {
 //s.oh^ 2014/03/13 傷病名削除診療科対応
     @GET
     @Path("/deptinfo")
-    @Produces(MediaType.TEXT_PLAIN)
-    public String getDeptInfo() {
+    @Produces({MediaType.TEXT_PLAIN, MediaType.APPLICATION_JSON})
+    public Response getDeptInfo(@Context HttpServletRequest request) {
         String ret = "";
         try {
             // custom.properties から 保健医療機関コードとJMARIコードを読む
@@ -1924,17 +1926,18 @@ public class OrcaResource {
             InputStreamReader r = new InputStreamReader(fin, "JISAutoDetect");
             config.load(r);
             r.close();
-            String ip = config.getProperty("orca.orcaapi.ip");
+            String ip = trimToNull(config.getProperty("orca.orcaapi.ip"));
             String port = config.getProperty("orca.orcaapi.port", "8000");
-            String id = config.getProperty("orca.id", "ormaster");
-            String password = config.getProperty("orca.password", "ormaster123");
-            if(ip != null) {
-                OrcaConnect orcaApi = new OrcaConnect(ip, port, id, password, null);
-                SimpleDateFormat sf = new SimpleDateFormat("yyyy-MM-dd");
-                ret = orcaApi.getDepartmentInfo(sf.format(new Date()));
-                log(ret);
-                ret = ret.replaceAll("\\<.*?>", ",");
+            String id = trimToNull(config.getProperty("orca.id"));
+            String password = trimToNull(config.getProperty("orca.password"));
+            if (ip == null || id == null || password == null) {
+                throw orcaConfigMissing(request);
             }
+            OrcaConnect orcaApi = new OrcaConnect(ip, port, id, password, null);
+            SimpleDateFormat sf = new SimpleDateFormat("yyyy-MM-dd");
+            ret = orcaApi.getDepartmentInfo(sf.format(new Date()));
+            log(ret);
+            ret = ret.replaceAll("\\<.*?>", ",");
         } catch (FileNotFoundException ex) {
             Logger.getLogger(OrcaResource.class.getName()).log(Level.SEVERE, null, ex);
         } catch (UnsupportedEncodingException ex) {
@@ -1942,10 +1945,32 @@ public class OrcaResource {
         } catch (IOException ex) {
             Logger.getLogger(OrcaResource.class.getName()).log(Level.SEVERE, null, ex);
         }
-        
-        return ret;
+
+        return Response.ok(ret, MediaType.TEXT_PLAIN_TYPE).build();
     }
 //s.oh$
+
+    private WebApplicationException orcaConfigMissing(HttpServletRequest request) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("error", "orca_config_missing");
+        body.put("code", "orca_config_missing");
+        body.put("errorCode", "orca_config_missing");
+        body.put("message", "ORCA 接続設定が不足しています。");
+        body.put("status", Response.Status.SERVICE_UNAVAILABLE.getStatusCode());
+        body.put("errorCategory", "orca_config_missing");
+        return new WebApplicationException(Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                .type(MediaType.APPLICATION_JSON_TYPE)
+                .entity(body)
+                .build());
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
     
     // ORCA カテゴリ
     private void storeSuspectedDiagnosis(RegisteredDiagnosisModel rdm, String test) {

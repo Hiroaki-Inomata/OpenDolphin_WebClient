@@ -32,7 +32,6 @@ public class TouchAuthHandler {
 
     private static final Logger LOGGER = Logger.getLogger(TouchAuthHandler.class.getName());
     private static final String ANONYMOUS_PRINCIPAL = "anonymous";
-    private static final String AUTH_CHALLENGE = "Basic realm=\"OpenDolphin\"";
     public static final HeaderRequirement REQUIRED_DEVICE_ID =
             new HeaderRequirement(DEVICE_ID_HEADER, Response.Status.BAD_REQUEST, "missing_device_id", "missing X-Device-Id header");
     public static final HeaderRequirement REQUIRED_ACCESS_REASON =
@@ -181,9 +180,6 @@ public class TouchAuthHandler {
         Response.ResponseBuilder responseBuilder = Response.status(status)
                 .type(MediaType.TEXT_PLAIN_TYPE)
                 .entity(builder.toString());
-        if (Response.Status.UNAUTHORIZED.equals(status)) {
-            responseBuilder.header("WWW-Authenticate", AUTH_CHALLENGE);
-        }
         Response response = responseBuilder.build();
         return new WebApplicationException(response);
     }

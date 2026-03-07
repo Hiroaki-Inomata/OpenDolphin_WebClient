@@ -1,4 +1,4 @@
-import { buildScopedStorageKey } from '../../libs/session/storageScope';
+import { buildScopedStorageKey, toScopeSuffix } from '../../libs/session/storageScope';
 
 import { normalizeEncounterId, normalizeVisitDate } from './encounterContext';
 
@@ -24,6 +24,8 @@ export type ChartsPatientTabsStorage = {
 export const PATIENT_TABS_STORAGE_BASE = 'opendolphin:web-client:charts:patient-tabs';
 export const PATIENT_TABS_STORAGE_VERSION = 'v1';
 export const PATIENT_TABS_TTL_MS = 2 * 60 * 60 * 1000;
+const GLOBAL_SCOPE_KEY = '__global__';
+const volatilePatientTabsByScope = new Map<string, ChartsPatientTabsStorage>();
 
 const sanitizePersistedTab = (tab: ChartsPatientTab): ChartsPatientTab => ({
   key: tab.key,
@@ -34,14 +36,30 @@ const sanitizePersistedTab = (tab: ChartsPatientTab): ChartsPatientTab => ({
   openedAt: tab.openedAt,
 });
 
-const isExpiredSavedAt = (savedAt?: string, now = Date.now()): boolean => {
-  if (!savedAt) return true;
-  const timestamp = Date.parse(savedAt);
-  if (Number.isNaN(timestamp)) return true;
-  return now - timestamp > PATIENT_TABS_TTL_MS;
-};
-
 export const buildPatientTabKey = (patientId: string, visitDate: string) => `${patientId}::${visitDate}`;
+
+const resolveScopeKey = (scope?: { facilityId?: string; userId?: string }) => toScopeSuffix(scope) ?? GLOBAL_SCOPE_KEY;
+
+const cloneState = (state: ChartsPatientTabsStorage): ChartsPatientTabsStorage => ({
+  version: state.version,
+  updatedAt: state.updatedAt,
+  savedAt: state.savedAt,
+  activeKey: state.activeKey,
+  tabs: state.tabs.map((tab) => ({ ...tab })),
+});
+
+const cleanupLegacyPatientTabsStorage = (scope?: { facilityId?: string; userId?: string }) => {
+  if (typeof sessionStorage === 'undefined') return;
+  try {
+    const scopedKey = buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope);
+    if (scopedKey) {
+      sessionStorage.removeItem(scopedKey);
+    }
+    sessionStorage.removeItem(`${PATIENT_TABS_STORAGE_BASE}:v1`);
+  } catch {
+    // ignore cleanup errors
+  }
+};
 
 export const applyEncounterTabState = (
   prev: ChartsPatientTabsStorage,
@@ -102,101 +120,48 @@ export const applyEncounterTabState = (
 export const readChartsPatientTabsStorage = (
   scope?: { facilityId?: string; userId?: string },
 ): ChartsPatientTabsStorage | null => {
-  if (typeof sessionStorage === 'undefined') return null;
-  const legacyKey = `${PATIENT_TABS_STORAGE_BASE}:v1`;
-  const scopedKey =
-    buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope) ??
-    legacyKey;
-  try {
-    const raw = sessionStorage.getItem(scopedKey) ?? sessionStorage.getItem(legacyKey);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<ChartsPatientTabsStorage> | null;
-    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.tabs)) return null;
-    const savedAt = typeof parsed.savedAt === 'string' ? parsed.savedAt : typeof parsed.updatedAt === 'string' ? parsed.updatedAt : undefined;
-    if (isExpiredSavedAt(savedAt)) {
-      sessionStorage.removeItem(scopedKey);
-      sessionStorage.removeItem(legacyKey);
-      return null;
-    }
-    const resolvedSavedAt = savedAt ?? new Date().toISOString();
-    const resolvedUpdatedAt = typeof parsed.updatedAt === 'string' ? parsed.updatedAt : resolvedSavedAt;
-
-    const normalizedTabs = parsed.tabs.reduce<ChartsPatientTab[]>((acc, tab) => {
-      const patientId = normalizeEncounterId(typeof tab.patientId === 'string' ? tab.patientId : undefined);
-      const visitDate = normalizeVisitDate(typeof tab.visitDate === 'string' ? tab.visitDate : undefined);
-      if (!patientId || !visitDate) return acc;
-      const key = typeof tab.key === 'string' && tab.key.trim() ? tab.key.trim() : buildPatientTabKey(patientId, visitDate);
-      const normalized: ChartsPatientTab = {
-        key,
-        patientId,
-        visitDate,
-        openedAt: typeof tab.openedAt === 'string' ? tab.openedAt : new Date().toISOString(),
-      };
-      const appointmentId = normalizeEncounterId(typeof tab.appointmentId === 'string' ? tab.appointmentId : undefined);
-      const receptionId = normalizeEncounterId(typeof tab.receptionId === 'string' ? tab.receptionId : undefined);
-      if (appointmentId) normalized.appointmentId = appointmentId;
-      if (receptionId) normalized.receptionId = receptionId;
-      acc.push(normalized);
-      return acc;
-    }, []);
-
-    const activeKey =
-      typeof parsed.activeKey === 'string' && parsed.activeKey.trim()
-        ? parsed.activeKey.trim()
-        : normalizedTabs[0]?.key;
-
-    // migrate legacy to scoped
-    const scopedKeyActual = buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope);
-    if (scopedKeyActual && !sessionStorage.getItem(scopedKeyActual)) {
-      try {
-        sessionStorage.setItem(
-          scopedKeyActual,
-          JSON.stringify({
-            version: 1,
-            updatedAt: resolvedUpdatedAt,
-            savedAt: resolvedSavedAt,
-            activeKey,
-            tabs: normalizedTabs.map(sanitizePersistedTab),
-          }),
-        );
-        if (scopedKey !== scopedKeyActual) {
-          sessionStorage.removeItem(legacyKey);
-        }
-      } catch {
-        // ignore migration errors
-      }
-    }
-
-    return {
-      version: 1,
-      updatedAt: resolvedUpdatedAt,
-      savedAt: resolvedSavedAt,
-      activeKey,
-      tabs: normalizedTabs,
-    };
-  } catch {
+  cleanupLegacyPatientTabsStorage(scope);
+  const scopeKey = resolveScopeKey(scope);
+  const scopedState = volatilePatientTabsByScope.get(scopeKey);
+  if (scopedState) {
+    return cloneState(scopedState);
+  }
+  if (scopeKey === GLOBAL_SCOPE_KEY) {
     return null;
   }
+  const globalState = volatilePatientTabsByScope.get(GLOBAL_SCOPE_KEY);
+  if (!globalState) {
+    return null;
+  }
+  const cloned = cloneState(globalState);
+  volatilePatientTabsByScope.set(scopeKey, cloneState(cloned));
+  volatilePatientTabsByScope.delete(GLOBAL_SCOPE_KEY);
+  return cloned;
 };
 
 export const writeChartsPatientTabsStorage = (
   state: ChartsPatientTabsStorage,
   scope?: { facilityId?: string; userId?: string },
 ) => {
-  if (typeof sessionStorage === 'undefined') return;
-  const now = new Date().toISOString();
-  const persisted: ChartsPatientTabsStorage = {
+  cleanupLegacyPatientTabsStorage(scope);
+  const normalized: ChartsPatientTabsStorage = {
     ...state,
-    updatedAt: now,
-    savedAt: now,
     tabs: state.tabs.map(sanitizePersistedTab),
   };
-  const scopedKey =
-    buildScopedStorageKey(PATIENT_TABS_STORAGE_BASE, PATIENT_TABS_STORAGE_VERSION, scope) ??
-    `${PATIENT_TABS_STORAGE_BASE}:v1`;
-  try {
-    sessionStorage.setItem(scopedKey, JSON.stringify(persisted));
-  } catch {
-    // ignore storage errors
+  const scopeKey = resolveScopeKey(scope);
+  if (normalized.tabs.length === 0 && !normalized.activeKey) {
+    volatilePatientTabsByScope.delete(scopeKey);
+    return;
   }
+  volatilePatientTabsByScope.set(scopeKey, cloneState(normalized));
+};
+
+export const clearChartsPatientTabsStorage = (scope?: { facilityId?: string; userId?: string }) => {
+  cleanupLegacyPatientTabsStorage(scope);
+  if (!scope) {
+    volatilePatientTabsByScope.clear();
+    return;
+  }
+  volatilePatientTabsByScope.delete(resolveScopeKey(scope));
+  volatilePatientTabsByScope.delete(GLOBAL_SCOPE_KEY);
 };

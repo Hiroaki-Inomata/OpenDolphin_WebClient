@@ -26,22 +26,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
 import open.dolphin.audit.AuditEventEnvelope;
-import open.dolphin.infomodel.Factor2Credential;
-import open.dolphin.infomodel.Factor2CredentialType;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
-import open.dolphin.security.SecondFactorSecurityConfig;
 import open.dolphin.security.auth.PasswordHashService;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
-import open.dolphin.security.totp.TotpHelper;
-import open.dolphin.security.totp.TotpSecretProtector;
 import open.dolphin.session.UserServiceBean;
 
 /**
@@ -69,7 +63,7 @@ public class AdminAccessResource extends AbstractResource {
     private UserServiceBean userServiceBean;
 
     @Inject
-    private SecondFactorSecurityConfig secondFactorSecurityConfig;
+    private TotpVerificationSupport totpVerificationSupport;
 
     @Inject
     private SessionAuditDispatcher sessionAuditDispatcher;
@@ -742,50 +736,14 @@ public class AdminAccessResource extends AbstractResource {
                     "パスワードリセットには管理者の Authenticator（TOTP）コードが必要です。");
         }
 
-        Factor2Credential credential = findVerifiedTotpCredential(actorPk);
-        if (credential == null || credential.getSecret() == null || credential.getSecret().isBlank()) {
+        TotpVerificationSupport.VerificationResult result = totpVerificationSupport.verifyCurrentCode(actorPk, totpCode);
+        if (result.status() == TotpVerificationSupport.VerificationStatus.MISSING_CREDENTIAL) {
             throw restError(request, Response.Status.PRECONDITION_FAILED, "totp_missing",
                     "Authenticator（TOTP）が未登録のためパスワードリセットできません。");
         }
-
-        int numericCode;
-        try {
-            numericCode = Integer.parseInt(totpCode.trim());
-        } catch (NumberFormatException e) {
-            throw restError(request, Response.Status.FORBIDDEN, "totp_invalid", "TOTP コードが不正です。", null, e);
-        }
-
-        TotpSecretProtector protector = secondFactorSecurityConfig.getTotpSecretProtector();
-        final String secret;
-        try {
-            secret = protector.decrypt(credential.getSecret());
-        } catch (RuntimeException e) {
-            // Legacy dumps may contain undecryptable secrets; treat it as unavailable rather than 500.
-            LOGGER.log(Level.WARNING,
-                    "Failed to decrypt TOTP secret (actorPk={0}, credentialId={1})",
-                    new Object[]{actorPk, credential.getId()});
-            throw restError(request, Response.Status.PRECONDITION_FAILED, "totp_missing",
-                    "Authenticator（TOTP）が未登録のためパスワードリセットできません。", null, e);
-        }
-        if (!TotpHelper.verifyCurrentWindow(secret, numericCode)) {
+        if (!result.succeeded()) {
             throw restError(request, Response.Status.FORBIDDEN, "totp_invalid", "TOTP コードが不正です。");
         }
-
-        Instant now = Instant.now();
-        credential.setLastUsedAt(now);
-        credential.setUpdatedAt(now);
-        em.merge(credential);
-    }
-
-    private Factor2Credential findVerifiedTotpCredential(long userPk) {
-        List<Factor2Credential> list = em.createQuery(
-                        "from Factor2Credential f where f.userPK=:userPK and f.credentialType=:type and f.verified=true order by f.updatedAt desc",
-                        Factor2Credential.class)
-                .setParameter("userPK", userPk)
-                .setParameter("type", Factor2CredentialType.TOTP)
-                .setMaxResults(1)
-                .getResultList();
-        return list.isEmpty() ? null : list.get(0);
     }
 
     private OrcaLinkStatus upsertOrcaLink(HttpServletRequest request, long userPk, String orcaUserId, String actor) {

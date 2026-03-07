@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
   buildChartsEncounterSearch,
+  clearChartsEncounterContext,
   hasEncounterContext,
   loadChartsEncounterContext,
   normalizeEncounterContext,
@@ -16,6 +17,7 @@ import {
 describe('charts encounterContext', () => {
   beforeEach(() => {
     sessionStorage.clear();
+    clearChartsEncounterContext();
   });
 
   it('parse/build: empty -> empty', () => {
@@ -39,10 +41,10 @@ describe('charts encounterContext', () => {
 
     const carryover = parseReceptionCarryoverParams('?kw=tanaka&dept=D1&sort=time&date=2025-12-27&pay=insurance');
     const rebuilt = buildChartsEncounterSearch(parsed, carryover);
-    expect(rebuilt).toContain('patientId=0001');
-    expect(rebuilt).toContain('receptionId=R-9');
-    expect(rebuilt).toContain('visitDate=2025-12-18');
-    expect(rebuilt).toContain('kw=tanaka');
+    expect(rebuilt).not.toContain('patientId=');
+    expect(rebuilt).not.toContain('receptionId=');
+    expect(rebuilt).not.toContain('visitDate=');
+    expect(rebuilt).not.toContain('kw=');
     expect(rebuilt).toContain('dept=D1');
     expect(rebuilt).toContain('pay=insurance');
     expect(rebuilt).toContain('sort=time');
@@ -85,19 +87,17 @@ describe('charts encounterContext', () => {
       receptionId: ' R-1 ',
       visitDate: '2026-02-25',
     });
-    expect(search).toContain('patientId=0001');
-    expect(search).toContain('appointmentId=A-1');
-    expect(search).toContain('receptionId=R-1');
-    expect(search).not.toContain('%20');
+    expect(search).toBe('');
   });
 
-  it('store/load: sessionStorage round-trip', () => {
+  it('store/load: volatile memory round-trip only', () => {
     storeChartsEncounterContext({
       patientId: 'PX-1',
       appointmentId: 'A-1',
       receptionId: 'R-1',
       visitDate: '2025-12-18',
     });
+    expect(sessionStorage.length).toBe(0);
     expect(loadChartsEncounterContext()).toEqual({
       patientId: 'PX-1',
       appointmentId: 'A-1',
@@ -170,5 +170,15 @@ describe('charts encounterContext', () => {
         id: '500600',
       }),
     ).toBe('500600');
+  });
+
+  it('load does not restore legacy sessionStorage payloads', () => {
+    sessionStorage.setItem(
+      'opendolphin:web-client:charts:encounter-context:v1',
+      JSON.stringify({ patientId: 'legacy-patient', visitDate: '2026-03-01' }),
+    );
+
+    expect(loadChartsEncounterContext()).toBeNull();
+    expect(sessionStorage.getItem('opendolphin:web-client:charts:encounter-context:v1')).toBeNull();
   });
 });

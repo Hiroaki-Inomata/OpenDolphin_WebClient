@@ -25,4 +25,8 @@ ORCA_POST_SUBJECTIVES_USE_STUB=true
 - unsafe method（`POST/PUT/PATCH/DELETE`）の CSRF 検証は `fetch` と `XMLHttpRequest`（upload）を同一条件で扱う。
 - `POST /api/logout` は `credentials` + CSRF を前提に冪等で処理する。
 - 画像ヘッダは `X-Client-Feature-Images` のみを受け入れ、旧 `X-Feature-Images` は廃止する。
+- session cookie は `Secure` / `HttpOnly` / `SameSite=Lax` を前提に配信する。
+- 本番相当環境は HTTPS 前提で運用し、TLS 終端の前段プロキシがある場合も `Forwarded` / `X-Forwarded-*` を正しく渡す。
+- `Authorization: Basic` の fallback 認証は廃止済みであり、session / container principal のみを認証根拠として扱う。
+- ORCA credential は server 側設定からのみ供給する。hard-coded default は存在せず、未設定時は fail-closed で応答する。
 - 詳細チェックリスト: `docs/web-client/operations/security-rollout-checklist-20260304.md`

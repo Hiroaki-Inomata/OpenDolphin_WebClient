@@ -723,6 +723,13 @@ export function ReceptionPage({
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const appNav = useAppNavigation({ facilityId: session.facilityId, userId: session.userId });
+  const navigationLocationState = (appNav.locationState ?? {}) as {
+    encounter?: { visitDate?: string };
+    carryover?: { kw?: string };
+    visitDate?: string;
+    kw?: string;
+    keyword?: string;
+  };
   const { enqueue } = useAppToast();
   const { broadcast } = useAdminBroadcast({ facilityId: session.facilityId, userId: session.userId });
   const { flags, setCacheHit, setMissingMaster, setDataSourceTransition, setFallbackUsed, bumpRunId } = useAuthService();
@@ -735,19 +742,33 @@ export function ReceptionPage({
     if (appNav.fromCandidate === 'reception') return buildFacilityPath(session.facilityId, '/reception');
     return buildFacilityPath(session.facilityId, '/charts');
   }, [appNav.fromCandidate, session.facilityId]);
+  const stateVisitDate = useMemo(
+    () => normalizeVisitDate(navigationLocationState.visitDate ?? navigationLocationState.encounter?.visitDate),
+    [navigationLocationState.encounter?.visitDate, navigationLocationState.visitDate],
+  );
+  const stateKeyword = useMemo(() => {
+    const fromCarryover = navigationLocationState.carryover?.kw;
+    if (typeof fromCarryover === 'string' && fromCarryover.trim()) {
+      return fromCarryover.trim();
+    }
+    const topLevel =
+      typeof navigationLocationState.kw === 'string'
+        ? navigationLocationState.kw
+        : typeof navigationLocationState.keyword === 'string'
+          ? navigationLocationState.keyword
+          : undefined;
+    if (typeof topLevel !== 'string') return '';
+    return topLevel.trim();
+  }, [navigationLocationState.carryover?.kw, navigationLocationState.keyword, navigationLocationState.kw]);
   const claimOutpatientEnabled = isClaimOutpatientEnabled();
   const [selectedDate, setSelectedDate] = useState(() => {
     const fromDate = searchParams.get('date');
     if (fromDate) return fromDate;
     const openedFromCharts = searchParams.get('from') === 'charts';
     if (openedFromCharts) return todayString();
-    const fromVisitDate = normalizeVisitDate(searchParams.get('visitDate') ?? undefined);
-    return fromVisitDate ?? todayString();
+    return stateVisitDate ?? todayString();
   });
-  const chartVisitDate = useMemo(
-    () => normalizeVisitDate(searchParams.get('visitDate') ?? undefined),
-    [searchParams],
-  );
+  const chartVisitDate = stateVisitDate;
   const [keyword, setKeyword] = useState('');
   const [submittedKeyword, setSubmittedKeyword] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState(() => searchParams.get('dept') ?? '');
@@ -1211,7 +1232,6 @@ export function ReceptionPage({
       pay?: string;
       sort?: string;
       date?: string;
-      visitDate?: string;
     };
     const stored = (() => {
       if (typeof localStorage === 'undefined') return null;
@@ -1219,28 +1239,24 @@ export function ReceptionPage({
         const raw = localStorage.getItem(FILTER_STORAGE_KEY);
         if (!raw) return null;
         const parsed = JSON.parse(raw) as Record<string, unknown>;
-        const visitDate = typeof parsed.visitDate === 'string' ? normalizeVisitDate(parsed.visitDate) : undefined;
         return {
           dept: typeof parsed.dept === 'string' ? parsed.dept : undefined,
           phys: typeof parsed.phys === 'string' ? parsed.phys : undefined,
           pay: typeof parsed.pay === 'string' ? parsed.pay : undefined,
           sort: typeof parsed.sort === 'string' ? parsed.sort : undefined,
           date: typeof parsed.date === 'string' ? parsed.date : undefined,
-          visitDate,
         } satisfies RestoredFilters;
       } catch {
         return null;
       }
     })();
     const openedFromCharts = searchParams.get('from') === 'charts';
-    const legacyKeyword = searchParams.get('kw');
     const fromUrl: RestoredFilters = {
       dept: searchParams.get('dept') ?? undefined,
       phys: searchParams.get('phys') ?? undefined,
       pay: searchParams.get('pay') ?? undefined,
       sort: searchParams.get('sort') ?? undefined,
       date: searchParams.get('date') ?? undefined,
-      visitDate: normalizeVisitDate(searchParams.get('visitDate') ?? undefined),
     };
     const storedEffective: RestoredFilters = { ...(stored ?? {}) };
     if (openedFromCharts && !fromUrl.date) {
@@ -1253,11 +1269,10 @@ export function ReceptionPage({
       ...(fromUrl.pay !== undefined ? { pay: fromUrl.pay } : {}),
       ...(fromUrl.sort !== undefined ? { sort: fromUrl.sort } : {}),
       ...(fromUrl.date !== undefined ? { date: fromUrl.date } : {}),
-      ...(fromUrl.visitDate !== undefined ? { visitDate: fromUrl.visitDate } : {}),
     };
-    if (legacyKeyword !== null) {
-      setKeyword(legacyKeyword);
-      setSubmittedKeyword(legacyKeyword);
+    if (stateKeyword) {
+      setKeyword(stateKeyword);
+      setSubmittedKeyword(stateKeyword);
     }
     if (merged.dept !== undefined) setDepartmentFilter(merged.dept);
     if (merged.phys !== undefined) setPhysicianFilter(merged.phys);
@@ -1265,10 +1280,10 @@ export function ReceptionPage({
     if (merged.sort !== undefined && isSortKey(merged.sort)) setSortKey(merged.sort);
     if (merged.date !== undefined) {
       setSelectedDate(merged.date);
-    } else if (!openedFromCharts && typeof merged.visitDate === 'string' && merged.visitDate) {
-      setSelectedDate(merged.visitDate);
+    } else if (!openedFromCharts && stateVisitDate) {
+      setSelectedDate(stateVisitDate);
     }
-  }, [searchParams]);
+  }, [searchParams, stateKeyword, stateVisitDate]);
 
   const visitMutation = useMutation<VisitMutationPayload, Error, VisitMutationParams>({
     mutationFn: (params) => mutateVisit(params),
@@ -1399,7 +1414,7 @@ export function ReceptionPage({
   );
 
   const intent = searchParams.get('intent') as 'appointment_change' | 'appointment_cancel' | null;
-  const intentKeyword = searchParams.get('kw') ?? '';
+  const intentKeyword = stateKeyword;
   const intentParam = intent ?? '';
   const intentBanner = useMemo(() => {
     if (!intent) return null;
@@ -1439,8 +1454,6 @@ export function ReceptionPage({
     if (from) params.set('from', from);
     const runIdFromUrl = searchParams.get('runId');
     if (runIdFromUrl) params.set('runId', runIdFromUrl);
-    const visitDate = searchParams.get('visitDate');
-    if (visitDate) params.set('visitDate', visitDate);
     const section = searchParams.get('section');
     if (section) params.set('section', section);
     const create = searchParams.get('create');

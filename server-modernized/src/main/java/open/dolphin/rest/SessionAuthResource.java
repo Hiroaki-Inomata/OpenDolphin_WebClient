@@ -11,6 +11,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import open.dolphin.session.UserServiceBean;
@@ -21,6 +22,17 @@ public class SessionAuthResource extends AbstractResource {
 
     @Inject
     private UserServiceBean userServiceBean;
+
+    @Inject
+    private TotpVerificationSupport totpVerificationSupport;
+
+    private static final String FACTOR2_REQUIRED_CODE = "factor2_required";
+    private static final String FACTOR2_INVALID_CODE = "factor2_invalid";
+    private static final String FACTOR2_SESSION_MISSING_CODE = "factor2_session_missing";
+    private static final String FACTOR2_SESSION_EXPIRED_CODE = "factor2_session_expired";
+    private static final String FACTOR2_REQUIRED_MESSAGE = "二要素認証コードを入力してください。";
+    private static final String FACTOR2_INVALID_MESSAGE = "認証コードが正しくありません。";
+    private static final String FACTOR2_SESSION_MESSAGE = "二要素認証をやり直してください。";
 
     @POST
     @Path("/login")
@@ -47,6 +59,12 @@ public class SessionAuthResource extends AbstractResource {
             return AuthSessionSupport.noStore(response).build();
         }
         if (!result.authenticated()) {
+            if (result.secondFactorRequired()) {
+                HttpSession session = AuthSessionSupport.rotateSession(request);
+                AuthSessionSupport.clearSession(session);
+                AuthSessionSupport.populatePendingSecondFactorSession(session, actorId, facilityId, loginId, clientUuid);
+                return buildFactor2RequiredResponse();
+            }
             throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "認証に失敗しました。");
         }
 
@@ -56,11 +74,77 @@ public class SessionAuthResource extends AbstractResource {
         }
 
         HttpSession session = AuthSessionSupport.rotateSession(request);
+        AuthSessionSupport.clearSession(session);
         AuthSessionSupport.populateAuthenticatedSession(session, actorId, facilityId, loginId, clientUuid);
 
         String runId = normalizeRunIdValue(request);
         AuthSessionSupport.SessionUserResponse payload =
                 AuthSessionSupport.toSessionUserResponse(safeUser, clientUuid, runId);
+        return AuthSessionSupport.noStore(Response.ok(payload)).build();
+    }
+
+    @POST
+    @Path("/login/factor2")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response loginFactor2(@Context HttpServletRequest request, LoginFactor2Request body) {
+        String code = trimToNull(body != null ? body.code() : null);
+        if (code == null) {
+            throw restError(request, Response.Status.BAD_REQUEST, "invalid_request", "認証コードを指定してください。");
+        }
+
+        HttpSession currentSession = request != null ? request.getSession(false) : null;
+        AuthSessionSupport.PendingSecondFactorSession pending = AuthSessionSupport.loadPendingSecondFactor(currentSession);
+        if (pending == null) {
+            return buildFactor2SessionError(FACTOR2_SESSION_MISSING_CODE);
+        }
+        if (isExpired(pending) || pending.attemptCount() >= AuthSessionSupport.PENDING_SECOND_FACTOR_MAX_ATTEMPTS) {
+            AuthSessionSupport.clearSession(currentSession);
+            return buildFactor2SessionError(FACTOR2_SESSION_EXPIRED_CODE);
+        }
+
+        if (!code.matches("\\d{6}")) {
+            return onInvalidSecondFactorCode(currentSession);
+        }
+
+        UserServiceBean userService = userServiceBean;
+        if (userService == null) {
+            AuthSessionSupport.clearSession(currentSession);
+            return buildFactor2SessionError(FACTOR2_SESSION_EXPIRED_CODE);
+        }
+
+        open.dolphin.infomodel.UserModel actorUser;
+        try {
+            actorUser = userService.getUser(pending.actorId());
+        } catch (RuntimeException ex) {
+            AuthSessionSupport.clearSession(currentSession);
+            return buildFactor2SessionError(FACTOR2_SESSION_EXPIRED_CODE);
+        }
+
+        TotpVerificationSupport.VerificationResult verification =
+                totpVerificationSupport.verifyCurrentCode(actorUser.getId(), code);
+        if (!verification.succeeded()) {
+            return onInvalidSecondFactorCode(currentSession);
+        }
+
+        JsonTouchSharedService.SafeUserResponse safeUser = loadSafeUser(pending.actorId());
+        if (safeUser == null) {
+            AuthSessionSupport.clearSession(currentSession);
+            throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "認証ユーザーを取得できませんでした。");
+        }
+
+        HttpSession authenticatedSession = AuthSessionSupport.rotateSession(request);
+        AuthSessionSupport.clearSession(authenticatedSession);
+        AuthSessionSupport.populateAuthenticatedSession(
+                authenticatedSession,
+                pending.actorId(),
+                pending.facilityId(),
+                pending.loginId(),
+                pending.clientUuid());
+
+        String runId = normalizeRunIdValue(request);
+        AuthSessionSupport.SessionUserResponse payload =
+                AuthSessionSupport.toSessionUserResponse(safeUser, pending.clientUuid(), runId);
         return AuthSessionSupport.noStore(Response.ok(payload)).build();
     }
 
@@ -112,16 +196,66 @@ public class SessionAuthResource extends AbstractResource {
     }
 
     private static Map<String, Object> buildLoginError(String code, String message) {
+        return buildLoginError(code, message, 429, "too_many_requests");
+    }
+
+    private static Map<String, Object> buildLoginError(String code, String message, int status, String errorCategory) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("error", code);
         body.put("code", code);
         body.put("errorCode", code);
         body.put("message", message);
-        body.put("status", 429);
-        body.put("errorCategory", "too_many_requests");
+        body.put("status", status);
+        body.put("errorCategory", errorCategory);
         return body;
     }
 
+    private Response buildFactor2RequiredResponse() {
+        Map<String, Object> body = buildLoginError(
+                FACTOR2_REQUIRED_CODE,
+                FACTOR2_REQUIRED_MESSAGE,
+                Response.Status.UNAUTHORIZED.getStatusCode(),
+                FACTOR2_REQUIRED_CODE);
+        body.put("factor2Required", true);
+        body.put("factor2Type", "totp");
+        return AuthSessionSupport.noStore(Response.status(Response.Status.UNAUTHORIZED).entity(body)).build();
+    }
+
+    private Response buildFactor2SessionError(String code) {
+        Map<String, Object> body = buildLoginError(
+                code,
+                FACTOR2_SESSION_MESSAGE,
+                Response.Status.UNAUTHORIZED.getStatusCode(),
+                code);
+        return AuthSessionSupport.noStore(Response.status(Response.Status.UNAUTHORIZED).entity(body)).build();
+    }
+
+    private Response buildFactor2InvalidResponse() {
+        Map<String, Object> body = buildLoginError(
+                FACTOR2_INVALID_CODE,
+                FACTOR2_INVALID_MESSAGE,
+                Response.Status.UNAUTHORIZED.getStatusCode(),
+                FACTOR2_INVALID_CODE);
+        return AuthSessionSupport.noStore(Response.status(Response.Status.UNAUTHORIZED).entity(body)).build();
+    }
+
+    private Response onInvalidSecondFactorCode(HttpSession session) {
+        AuthSessionSupport.PendingSecondFactorSession updated = AuthSessionSupport.incrementPendingSecondFactorAttempt(session);
+        if (updated == null || updated.attemptCount() >= AuthSessionSupport.PENDING_SECOND_FACTOR_MAX_ATTEMPTS) {
+            AuthSessionSupport.clearSession(session);
+            return buildFactor2SessionError(FACTOR2_SESSION_EXPIRED_CODE);
+        }
+        return buildFactor2InvalidResponse();
+    }
+
+    private static boolean isExpired(AuthSessionSupport.PendingSecondFactorSession pending) {
+        Instant expiresAt = pending.createdAt().plus(AuthSessionSupport.PENDING_SECOND_FACTOR_TTL);
+        return !Instant.now().isBefore(expiresAt);
+    }
+
     public record LoginRequest(String facilityId, String userId, String password, String clientUuid) {
+    }
+
+    public record LoginFactor2Request(String code) {
     }
 }
