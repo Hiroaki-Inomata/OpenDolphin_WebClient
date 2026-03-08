@@ -14,19 +14,6 @@ export type MedicalSetMutationRequest = {
   }>;
 };
 
-export type MedicationSyncRequest = {
-  requestNumber?: string;
-  medications?: Array<{
-    medicationCode?: string;
-    medicationName?: string;
-    kanaName?: string;
-    unit?: string;
-    point?: string;
-    startDate?: string;
-    endDate?: string;
-  }>;
-};
-
 export type BirthDeliveryRequest = {
   requestNumber?: string;
   patientId?: string;
@@ -122,7 +109,6 @@ export type PatientMutationResponse = OrcaInternalWrapperBase & {
 };
 
 const ORCA_MEDICAL_SETS_ENDPOINT = '/orca/medical-sets';
-const ORCA_TENSU_SYNC_ENDPOINT = '/orca/tensu/sync';
 const ORCA_BIRTH_DELIVERY_ENDPOINT = '/orca/birth-delivery';
 const ORCA_MEDICAL_RECORDS_ENDPOINT = '/orca/medical/records';
 const ORCA_PATIENT_MUTATION_ENDPOINT = '/orca/patient/mutation';
@@ -328,7 +314,6 @@ const postInternalWrapper = async (path: string, payload: Record<string, unknown
 
 export type OrcaInternalWrapperEndpoint =
   | 'medical-sets'
-  | 'tensu-sync'
   | 'birth-delivery'
   | 'medical-records'
   | 'patient-mutation'
@@ -399,7 +384,6 @@ export const ORCA_INTERNAL_WRAPPER_ENDPOINTS: ReadonlyArray<{
   stub?: boolean;
 }> = [
   { id: 'medical-sets', path: ORCA_MEDICAL_SETS_ENDPOINT, label: 'medical-sets', description: '診療セット登録', stub: false },
-  { id: 'tensu-sync', path: ORCA_TENSU_SYNC_ENDPOINT, label: 'tensu-sync', description: '点数マスタ同期', stub: false },
   { id: 'birth-delivery', path: ORCA_BIRTH_DELIVERY_ENDPOINT, label: 'birth-delivery', description: '出産内容登録', stub: true },
   { id: 'medical-records', path: ORCA_MEDICAL_RECORDS_ENDPOINT, label: 'medical-records', description: '診療記録取得', stub: false },
   { id: 'patient-mutation', path: ORCA_PATIENT_MUTATION_ENDPOINT, label: 'patient-mutation', description: '患者 CRUD', stub: false },
@@ -410,12 +394,6 @@ export async function postMedicalSets(payload: MedicalSetMutationRequest | Recor
   const { response, json } = await postInternalWrapper(ORCA_MEDICAL_SETS_ENDPOINT, payload as Record<string, unknown>);
   const base = normalizeBase(json, response.headers, response.status, response.ok);
   return buildResult('medical-sets', ORCA_MEDICAL_SETS_ENDPOINT, base);
-}
-
-export async function postTensuSync(payload: MedicationSyncRequest | Record<string, unknown>) {
-  const { response, json } = await postInternalWrapper(ORCA_TENSU_SYNC_ENDPOINT, payload as Record<string, unknown>);
-  const base = normalizeBase(json, response.headers, response.status, response.ok);
-  return buildResult('tensu-sync', ORCA_TENSU_SYNC_ENDPOINT, base);
 }
 
 export async function postBirthDelivery(payload: BirthDeliveryRequest | Record<string, unknown>) {
@@ -456,8 +434,6 @@ export async function postOrcaInternalWrapper(endpoint: OrcaInternalWrapperEndpo
   switch (endpoint) {
     case 'medical-sets':
       return postMedicalSets(payload);
-    case 'tensu-sync':
-      return postTensuSync(payload);
     case 'birth-delivery':
       return postBirthDelivery(payload);
     case 'medical-records':

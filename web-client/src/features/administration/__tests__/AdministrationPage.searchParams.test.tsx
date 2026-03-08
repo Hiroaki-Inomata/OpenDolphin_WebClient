@@ -74,10 +74,6 @@ vi.mock('../LegacyRestPanel', () => ({
   LegacyRestPanel: () => <div data-testid="legacy-rest-panel" />,
 }));
 
-vi.mock('../TouchAdmPhrPanel', () => ({
-  TouchAdmPhrPanel: () => <div data-testid="touch-adm-phr-panel" />,
-}));
-
 vi.mock('../AccessManagementPanel', () => ({
   AccessManagementPanel: () => <div data-testid="access-management-panel" />,
 }));
@@ -196,7 +192,6 @@ vi.mock('../orcaInternalWrapperApi', () => ({
   postMedicalSets: vi.fn().mockResolvedValue({ ok: true, status: 200, apiResult: '00' }),
   postPatientMutation: vi.fn().mockResolvedValue({ ok: true, status: 200, apiResult: '00' }),
   postSubjectiveEntry: vi.fn().mockResolvedValue({ ok: true, status: 200, apiResult: '00' }),
-  postTensuSync: vi.fn().mockResolvedValue({ ok: true, status: 200, apiResult: '00' }),
 }));
 
 const renderPage = (initialEntries: string[]) => {

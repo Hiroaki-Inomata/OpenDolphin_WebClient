@@ -44,7 +44,7 @@ class RequestMetricsFilterTest {
         when(request.getMethod()).thenReturn("GET");
 
         UriInfo uriInfo = mock(UriInfo.class);
-        when(uriInfo.getPath()).thenReturn("20/adm/phr/patient/12345/abcdef1234567890abcdef1234567890abcdef12");
+        when(uriInfo.getPath()).thenReturn("api/token/patient/12345/abcdef1234567890abcdef1234567890abcdef12");
         when(request.getUriInfo()).thenReturn(uriInfo);
 
         ContainerResponseContext response = mock(ContainerResponseContext.class);
@@ -53,7 +53,7 @@ class RequestMetricsFilterTest {
         filter.filter(request);
         filter.filter(request, response);
 
-        String normalisedPath = "/20/adm/phr/patient/{id}/{hex}";
+        String normalisedPath = "/api/token/patient/{id}/{hex}";
 
         Counter requestCounter = registry.find("opendolphin_api_request_total").counter();
         assertNotNull(requestCounter);

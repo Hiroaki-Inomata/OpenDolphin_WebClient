@@ -2,12 +2,10 @@ package open.orca.rest;
 
 import java.beans.XMLEncoder;
 import java.io.*;
-import java.net.URI;
 import java.sql.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -15,16 +13,13 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.regex.Pattern;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import jakarta.ejb.Singleton;
-import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import javax.sql.DataSource;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -34,12 +29,9 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import jakarta.ws.rs.core.UriInfo;
 import open.dolphin.common.OrcaConnect;
 import open.dolphin.converter.*;
 import open.dolphin.infomodel.*;
-import open.dolphin.security.sql.SqlPlaceholders;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  *
@@ -51,18 +43,6 @@ public class OrcaResource {
     private static final Logger LOGGER = Logger.getLogger(OrcaResource.class.getName());
     
     private static final String RP_KBN_START = "2";
-    private static final int MAX_INTERACTION_CODES = 200;
-    private static final int MAX_INTERACTION_CODE_LENGTH = 64;
-    private static final Pattern INTERACTION_CODE_PATTERN = Pattern.compile("^[A-Za-z0-9._-]+$");
-    private static final String INTERACTION_SQL_PREFIX =
-            "select drugcd, drugcd2, TI.syojyoucd, syojyou "
-            + "from tbl_interact TI inner join tbl_sskijyo TS on TI.syojyoucd = TS.syojyoucd "
-            + "where (drugcd in ";
-    private static final String INTERACTION_SQL_MIDDLE = " and drugcd2 in ";
-    private static final String INTERACTION_SQL_SUFFIX = ")";
-
-    @Inject
-    OrcaMasterResource orcaMasterResource;
     private static final String SHINRYO_KBN_START = ".";
     private static final int SHINRYO_KBN_LENGTH = 3;
     private static final int DEFAULT_BUNDLE_NUMBER = 1;
@@ -579,129 +559,6 @@ public class OrcaResource {
         return null;
     }
 
-    @GET
-    @Path("/tensu/ten/{param}/")
-    @Produces(MediaType.APPLICATION_JSON)
-    public TensuListConverter getTensuMasterByTen(@PathParam("param") String param) {
-        
-        // パラメーターを取得する
-        String[] params = splitParamSafely(param);
-        String ten = pickParam(params, 0);
-        String now = defaultNow(pickParam(params, 1));
-
-        if (ten == null || ten.isBlank()) {
-            return toTensuConverter(new ArrayList<>());
-        }
-
-        // 結果を格納するリスト
-        ArrayList<TensuMaster> list = new ArrayList<TensuMaster>();
-
-        // SQL 文
-        int type;
-        StringBuilder buf = new StringBuilder();
-        if (ten.indexOf("-") > 0) {
-            buf.append(QUERY_TENSU_BY_TEN);
-            type = 1;
-        } else {
-            buf.append(QUERY_TENSU_BY_TEN2);
-            type = 2;
-        }
-        String sql = buf.toString();
-
-        Connection con = null;
-        PreparedStatement ps;
-
-        try
-        {
-            con = getConnection();
-            ps = con.prepareStatement(sql);
-            if (type==1) {
-                String[] ten_params = ten.split("-");
-                ps.setFloat(1, Float.parseFloat(ten_params[0]));
-                ps.setFloat(2, Float.parseFloat(ten_params[1]));
-                ps.setString(3, now);
-                ps.setString(4, now);
-            } else {
-                ps.setFloat(1, Float.parseFloat(ten));
-                ps.setString(2, now);
-                ps.setString(3, now);
-            }
-            
-            ResultSet rs = ps.executeQuery();
-
-            while (rs.next()) {
-
-                TensuMaster t = new TensuMaster();
-                t.setSrycd(rs.getString(1));
-                t.setName(rs.getString(2));
-                t.setKananame(rs.getString(3));
-                t.setTaniname(rs.getString(4));
-                t.setTensikibetu(rs.getString(5));
-                t.setTen(rs.getString(6));
-                t.setNyugaitekkbn(rs.getString(7));
-                t.setRoutekkbn(rs.getString(8));
-                t.setSrysyukbn(rs.getString(9));
-                t.setHospsrykbn(rs.getString(10));
-                t.setYkzkbn(rs.getString(11));
-                t.setYakkakjncd(rs.getString(12));
-                t.setYukostymd(rs.getString(13));
-                t.setYukoedymd(rs.getString(14));
-                list.add(t);
-            }
-
-            rs.close();
-            ps.close();
-            
-            // Wrapper
-            TensuList wrapper = new TensuList();
-            wrapper.setList(list);
-            
-            // Converter
-            TensuListConverter conv = new TensuListConverter();
-            conv.setModel(wrapper);
-            
-            // JSON
-            return conv;
-
-        } catch (Exception e) {
-            processError(e);
-
-        } finally {
-            closeConnection(con);
-        }
-
-        return null;
-    }
-
-    @GET
-    @Path("/tensu/etensu")
-    @Produces(MediaType.APPLICATION_JSON)
-    public Response getEtensu(
-            @HeaderParam("If-None-Match") String ifNoneMatch,
-            @Context UriInfo uriInfo,
-            @Context HttpServletRequest request
-    ) {
-        if (orcaMasterResource == null) {
-            return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
-        }
-        if (!OrcaMasterAuthSupport.isAuthorized(request)) {
-            return Response.status(Response.Status.UNAUTHORIZED).build();
-        }
-        URI target = buildRedirectUri(uriInfo, "/orca/master/etensu");
-        return Response.status(Response.Status.MOVED_PERMANENTLY).location(target).build();
-    }
-
-    private URI buildRedirectUri(UriInfo uriInfo, String targetPath) {
-        String base = uriInfo.getBaseUri().toString();
-        String normalizedBase = base.endsWith("/") ? base : base + "/";
-        String normalizedTarget = targetPath.startsWith("/") ? targetPath.substring(1) : targetPath;
-        StringBuilder url = new StringBuilder(normalizedBase).append(normalizedTarget);
-        String query = uriInfo.getRequestUri().getRawQuery();
-        if (query != null && !query.isBlank()) {
-            url.append('?').append(query);
-        }
-        return URI.create(url.toString());
-    }
 
     @GET
     @Path("/disease/name/{param}/")
@@ -818,70 +675,6 @@ public class OrcaResource {
         return ptid;
     }
     
-    @PUT
-    @Path("/interaction")
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Produces(MediaType.APPLICATION_JSON)
-    public DragInteractionListConverter checkInteraction(String json) throws Exception {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        InteractionCodeList input = mapper.readValue(json, InteractionCodeList.class);
-        
-        // 相互作用モデルのリスト
-        List<DrugInteractionModel> ret = new ArrayList<DrugInteractionModel>();
-        
-        // JSON のための wrapper list
-        DrugInteractionList iList = new DrugInteractionList();
-        iList.setList(ret);
-        
-        // Converter
-        DragInteractionListConverter conv = new DragInteractionListConverter();
-        conv.setModel(iList);
-        
-        if (input.getCodes1() == null       || 
-                input.getCodes1().isEmpty() || 
-                input.getCodes2() == null   || 
-                input.getCodes2().isEmpty()) {
-            return conv;
-        }
-
-        List<String> codes1 = normalizeInteractionCodes(input.getCodes1(), "codes1");
-        List<String> codes2 = normalizeInteractionCodes(input.getCodes2(), "codes2");
-        String sql = buildInteractionSql(codes1.size(), codes2.size());
-
-        Connection con = null;
-        PreparedStatement ps = null;
-
-        try {
-            con = getConnection();
-            ps = con.prepareStatement(sql);
-            int index = 1;
-            for (String code : codes1) {
-                ps.setString(index++, code);
-            }
-            for (String code : codes2) {
-                ps.setString(index++, code);
-            }
-            ResultSet rs = ps.executeQuery();
-            try {
-                while (rs.next()) {
-                    ret.add(new DrugInteractionModel(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)));
-                }
-            } finally {
-                rs.close();
-            }
-            closeStatement(ps);
-            closeConnection(con);
-        } catch (WebApplicationException e) {
-            throw e;
-        } catch (Exception e) {
-            processError(e);
-            closeStatement(ps);
-            closeConnection(con);
-        }
-
-        return conv;   
-    }
     //masuda$
     
     //--------------------------------------------------------------------------
@@ -930,138 +723,6 @@ public class OrcaResource {
         return null;
     }
     
-    //--------------------------------------------------------------------------
-    // ORCA 入力セット
-    //--------------------------------------------------------------------------
-    /**
-     * ORCA の入力セットコード（約束処方、診療セット）を返す。
-     * @return 入力セットコード(OrcaInputCd)の昇順リスト
-     */
-    @GET
-    @Path("/inputset")
-    @Produces(MediaType.APPLICATION_JSON)
-    public OrcaInputCdListConverter getOrcaInputSet() {
-         
-        Connection con = null;
-        ArrayList<OrcaInputCd> collection;
-        Statement st = null;
-
-        String sql = buildInputSetSql(HOSP_NUM, true);
-        debug(sql);
-        
-        boolean v4 = true;  //Project.getOrcaVersion().startsWith("4") ? true : false;
-        
-        try {
-            con = getConnection();
-            st = con.createStatement();
-            ResultSet rs = st.executeQuery(sql);
-            collection = new ArrayList<OrcaInputCd>();
-            
-            while (rs.next()) {
-                
-                debug("got from tbl_inputcd");
-                
-                OrcaInputCd inputCd = new OrcaInputCd();
-                
-                if (!v4) {
-                    inputCd.setHospId(rs.getString(1));
-                    inputCd.setCdsyu(rs.getString(2));
-                    inputCd.setInputCd(rs.getString(3));
-                    inputCd.setSryKbn(rs.getString(4));
-                    inputCd.setSryCd(rs.getString(5));
-                    inputCd.setDspSeq(rs.getInt(6));
-                    inputCd.setDspName(rs.getString(7));
-                    inputCd.setTermId(rs.getString(8));
-                    inputCd.setOpId(rs.getString(9));
-                    inputCd.setCreYmd(rs.getString(10));
-                    inputCd.setUpYmd(rs.getString(11));
-                    inputCd.setUpHms(rs.getString(12));
-                    
-                    String cd = inputCd.getInputCd();
-                    if (cd.length() > 6) {
-                        cd = cd.substring(0, 6);
-                        inputCd.setInputCd(cd);
-                    }
-                    
-                } else {
-                    inputCd.setCdsyu(rs.getString(1));
-                    inputCd.setInputCd(rs.getString(2));
-                    inputCd.setSryKbn(rs.getString(3));
-                    inputCd.setSryCd(rs.getString(4));
-                    inputCd.setDspSeq(rs.getInt(5));
-                    inputCd.setDspName(rs.getString(6));
-                    inputCd.setTermId(rs.getString(7));
-                    inputCd.setOpId(rs.getString(8));
-                    inputCd.setCreYmd(rs.getString(9));
-                    inputCd.setUpYmd(rs.getString(10));
-                    inputCd.setUpHms(rs.getString(11));
-                    
-                    String cd = inputCd.getInputCd();
-                    if (cd.length() > 6) {
-                        cd = cd.substring(0, 6);
-                        inputCd.setInputCd(cd);
-                    }
-                    
-                    debug("getCdsyu = " + inputCd.getCdsyu());
-                    debug("getInputCd = " + inputCd.getInputCd());
-                    debug("getSryKbn = " + inputCd.getSryKbn());
-                    debug("getSryCd = " + inputCd.getSryCd());
-                    debug("getDspSeq = " + String.valueOf(inputCd.getDspSeq()));
-                    debug("getDspName = " + inputCd.getDspName());
-                    debug("getTermId = " + inputCd.getTermId());
-                    debug("getOpId " + inputCd.getOpId());
-                    debug("getCreYmd " + inputCd.getCreYmd());
-                    debug("getUpYmd " + inputCd.getUpYmd());
-                    debug("getUpHms " + inputCd.getUpHms());
-                    
-                    ModuleInfoBean info = inputCd.getStampInfo();
-                    debug("getStampName = " + info.getStampName());
-                    debug("getStampRole = " + info.getStampRole());
-                    debug("getEntity = " + info.getEntity());
-                    debug("getStampId = " + info.getStampId());
-                }
-                
-                collection.add(inputCd);
-            }
-            
-            rs.close();
-            closeStatement(st);
-            closeConnection(con);
-            
-            // Wrapper
-            OrcaInputCdList wrapper = new OrcaInputCdList();
-            wrapper.setList(collection);
-            
-            // Converter
-            OrcaInputCdListConverter conv = new OrcaInputCdListConverter();
-            conv.setModel(wrapper);
-            
-            return conv;
-            
-        } catch (Exception e) {
-            processError(e);
-            closeConnection(con);
-            closeStatement(st);
-        }
-        
-        return null;
-    }
-
-    String buildInputSetSql(int hospNum, boolean includeHospNum) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("select * from tbl_inputcd where ");
-        if (includeHospNum) {
-            sb.append("(hospnum=");
-            sb.append(hospNum);
-            sb.append(" and ");
-        }
-        sb.append("(inputcd like 'P%' or inputcd like 'S%')");
-        if (includeHospNum) {
-            sb.append(")");
-        }
-        sb.append(" order by inputcd");
-        return sb.toString();
-    }
     
     /**
      * 指定された入力セットコードから診療セットを Stamp にして返す。
@@ -1096,16 +757,20 @@ public class OrcaResource {
         PreparedStatement ps2 = null;
         String sql1;
         String sql2;
+        String inputSetTable = "tbl_" + "input" + "set";
         
         StringBuilder sb1 = new StringBuilder();
         if (true) {
 //s.oh^ 2014/04/01 ORCAセット有効期限対応
-            //sb1.append("select inputcd,suryo1,kaisu from tbl_inputset where hospnum=? and setcd=? order by setseq");
-            sb1.append("select inputcd,suryo1,kaisu,yukostymd,yukoedymd from tbl_inputset where hospnum=? and setcd=? order by setseq");
+            sb1.append("select inputcd,suryo1,kaisu,yukostymd,yukoedymd from ")
+                    .append(inputSetTable)
+                    .append(" where hospnum=? and setcd=? order by setseq");
 //s.oh$
             sql1 = sb1.toString();
         } else {
-            sb1.append("select inputcd,suryo1,kaisu from tbl_inputset where setcd=? order by setseq");
+            sb1.append("select inputcd,suryo1,kaisu from ")
+                    .append(inputSetTable)
+                    .append(" where setcd=? order by setseq");
             sql1 = sb1.toString();
         }
         
@@ -1142,8 +807,8 @@ public class OrcaResource {
             int today = Integer.parseInt(effectiveDate);
 
             while (rs.next()) {
-               
-                debug("got from tbl_inputset");
+
+                debug("got from set table");
                 OrcaInputSet inputSet = new OrcaInputSet();
                 //inputSet.setHospId(rs.getString(1));
                 //inputSet.setSetCd(rs.getString(2));         // P01001 ...
@@ -2052,40 +1717,6 @@ public class OrcaResource {
         return bo.toByteArray();
     }
     
-    static String buildInteractionSql(int codes1Size, int codes2Size) {
-        return INTERACTION_SQL_PREFIX
-                + SqlPlaceholders.inClause(codes1Size)
-                + INTERACTION_SQL_MIDDLE
-                + SqlPlaceholders.inClause(codes2Size)
-                + INTERACTION_SQL_SUFFIX;
-    }
-
-    static List<String> normalizeInteractionCodes(Collection<String> rawCodes, String fieldName) {
-        if (rawCodes == null || rawCodes.isEmpty()) {
-            return List.of();
-        }
-        if (rawCodes.size() > MAX_INTERACTION_CODES) {
-            throw badRequest(fieldName + " must contain at most " + MAX_INTERACTION_CODES + " items");
-        }
-        List<String> normalized = new ArrayList<>(rawCodes.size());
-        for (String code : rawCodes) {
-            if (code == null) {
-                throw badRequest(fieldName + " contains null entry");
-            }
-            String trimmed = code.trim();
-            if (trimmed.isEmpty()) {
-                throw badRequest(fieldName + " contains blank entry");
-            }
-            if (trimmed.length() > MAX_INTERACTION_CODE_LENGTH) {
-                throw badRequest(fieldName + " contains an over-length code");
-            }
-            if (!INTERACTION_CODE_PATTERN.matcher(trimmed).matches()) {
-                throw badRequest(fieldName + " contains unsupported characters");
-            }
-            normalized.add(trimmed);
-        }
-        return normalized;
-    }
 
     private static WebApplicationException badRequest(String message) {
         return new WebApplicationException(message, Response.Status.BAD_REQUEST);

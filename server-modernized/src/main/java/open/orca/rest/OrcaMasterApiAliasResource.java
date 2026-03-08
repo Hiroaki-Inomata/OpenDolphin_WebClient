@@ -39,16 +39,6 @@ public class OrcaMasterApiAliasResource extends AbstractResource {
     }
 
     @GET
-    @Path("/generic-price")
-    public Response getGenericPrice(
-            @HeaderParam("If-None-Match") String ifNoneMatch,
-            @Context UriInfo uriInfo,
-            @Context HttpServletRequest request
-    ) {
-        return masterResource.getGenericPrice(ifNoneMatch, uriInfo, request);
-    }
-
-    @GET
     @Path("/youhou")
     public Response getYouhou(
             @HeaderParam("If-None-Match") String ifNoneMatch,
@@ -76,26 +66,6 @@ public class OrcaMasterApiAliasResource extends AbstractResource {
             @Context HttpServletRequest request
     ) {
         return masterResource.getKensaSort(ifNoneMatch, uriInfo, request);
-    }
-
-    @GET
-    @Path("/hokenja")
-    public Response getHokenja(
-            @HeaderParam("If-None-Match") String ifNoneMatch,
-            @Context UriInfo uriInfo,
-            @Context HttpServletRequest request
-    ) {
-        return masterResource.getHokenja(ifNoneMatch, uriInfo, request);
-    }
-
-    @GET
-    @Path("/address")
-    public Response getAddress(
-            @HeaderParam("If-None-Match") String ifNoneMatch,
-            @Context UriInfo uriInfo,
-            @Context HttpServletRequest request
-    ) {
-        return masterResource.getAddress(ifNoneMatch, uriInfo, request);
     }
 
     @GET

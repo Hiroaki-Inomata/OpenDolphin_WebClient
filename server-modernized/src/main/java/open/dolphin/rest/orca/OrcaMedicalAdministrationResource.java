@@ -14,8 +14,6 @@ import open.dolphin.rest.dto.orca.BirthDeliveryRequest;
 import open.dolphin.rest.dto.orca.BirthDeliveryResponse;
 import open.dolphin.rest.dto.orca.MedicalSetMutationRequest;
 import open.dolphin.rest.dto.orca.MedicalSetMutationResponse;
-import open.dolphin.rest.dto.orca.MedicationModRequest;
-import open.dolphin.rest.dto.orca.MedicationModResponse;
 
 /**
  * Spec-based stubs for medical set / tensu / birth delivery APIs that are closed on Trial.
@@ -41,27 +39,6 @@ public class OrcaMedicalAdministrationResource extends AbstractOrcaRestResource 
         audit.put("runId", runId);
         audit.put("status", "blocked");
         recordAudit(request, "ORCA_MEDICAL_SET_MUTATION", audit, AuditEventEnvelope.Outcome.FAILURE);
-        return response;
-    }
-
-    @POST
-    @Path("/tensu/sync")
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Produces(MediaType.APPLICATION_JSON)
-    public MedicationModResponse postMedicationSync(@Context HttpServletRequest request,
-            MedicationModRequest payload) {
-        String runId = resolveRunId(request);
-        requireRemoteUser(request);
-        requireFacilityId(request);
-        MedicationModResponse response = new MedicationModResponse();
-        response.setApiResult("79");
-        response.setApiResultMessage("Spec-based implementation / Trial未検証");
-        response.setRunId(runId);
-        response.setMessageDetail("点数マスタ同期 API は Trial 未開放のため stub 応答を返します。");
-        Map<String, Object> audit = new HashMap<>();
-        audit.put("runId", runId);
-        audit.put("status", "blocked");
-        recordAudit(request, "ORCA_MEDICATION_MOD", audit, AuditEventEnvelope.Outcome.FAILURE);
         return response;
     }
 

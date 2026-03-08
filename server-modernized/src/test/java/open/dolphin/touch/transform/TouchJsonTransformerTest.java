@@ -33,7 +33,7 @@ class TouchJsonTransformerTest {
 
         TouchJsonTransformResult<Payload> result = transformer.readLegacy(
                 context,
-                "POST /touch/legacy",
+                "POST /legacy",
                 "{\"value\":\"ok\"}",
                 Payload.class);
 
@@ -66,7 +66,7 @@ class TouchJsonTransformerTest {
 
         assertThrows(TouchJsonTransformationException.class, () -> transformer.readLegacy(
                 context,
-                "POST /touch/legacy",
+                "POST /legacy",
                 "{\"value\":\"bad\"}",
                 Payload.class));
     }

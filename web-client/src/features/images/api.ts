@@ -600,7 +600,7 @@ export function sendKarteDocumentWithAttachmentsViaXhr(
       captureObservabilityFromResponse(response);
       const metaAfter = getObservabilityMeta();
       let payloadData: Record<string, unknown> | undefined;
-      let rawText = xhr.responseText ?? '';
+      const rawText = xhr.responseText ?? '';
       if (rawText) {
         try {
           payloadData = JSON.parse(rawText) as Record<string, unknown>;

@@ -6,7 +6,6 @@ import {
   postPatientMutation,
   postBirthDelivery,
   postSubjectiveEntry,
-  postTensuSync,
 } from './orcaInternalWrapperApi';
 import { httpFetch } from '../../libs/http/httpClient';
 
@@ -171,7 +170,7 @@ describe('orcaInternalWrapperApi', () => {
     expect(result.patientId).toBe('00003');
   });
 
-  it('postSubjectiveEntry / postBirthDelivery / postTensuSync の正規化が崩れない', async () => {
+  it('postSubjectiveEntry / postBirthDelivery の正規化が崩れない', async () => {
     const responses = [
       new Response(JSON.stringify({ apiResult: '00', apiResultMessage: 'OK', runId: 'RUN-SUBJ' }), {
         status: 200,
@@ -181,24 +180,17 @@ describe('orcaInternalWrapperApi', () => {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
-      new Response(JSON.stringify({ apiResult: '00', apiResultMessage: 'OK', runId: 'RUN-TENSU' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
     ];
     let callIndex = 0;
     mockHttpFetch.mockImplementation(async () => responses[callIndex++]);
 
     const subjectives = await postSubjectiveEntry({ patientId: '00002', body: 'test' });
     const birth = await postBirthDelivery({ patientId: '00002' });
-    const tensu = await postTensuSync({ requestNumber: '01' });
 
     expect(subjectives.ok).toBe(true);
     expect(subjectives.apiResult).toBe('00');
     expect(subjectives.runId).toBe('RUN-SUBJ');
     expect(birth.stub).toBe(true);
     expect(birth.runId).toBe('RUN-BIRTH');
-    expect(tensu.ok).toBe(true);
-    expect(tensu.runId).toBe('RUN-TENSU');
   });
 });
