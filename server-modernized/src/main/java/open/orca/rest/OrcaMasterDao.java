@@ -44,6 +44,27 @@ public class OrcaMasterDao {
         }
     }
 
+    public LookupResult<GenericPriceRecord> findGenericPrice(GenericPriceCriteria criteria) {
+        if (criteria == null || criteria.srycd == null || criteria.srycd.isBlank()) {
+            return null;
+        }
+        try (Connection connection = ORCAConnection.getInstance().getConnection()) {
+            GenericPriceTableMeta meta = GenericPriceTableMeta.load(connection);
+            if (meta == null || meta.codeColumn == null) {
+                return null;
+            }
+            Query query = buildGenericPriceQuery(criteria, meta);
+            List<GenericPriceRecord> records = fetchGenericPriceRecords(connection, meta, query);
+            if (records.isEmpty()) {
+                return new LookupResult<>(null, null, false);
+            }
+            String version = resolveVersion(records, null);
+            return new LookupResult<>(records.get(0), version, true);
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "Failed to load ORCA-05 generic price master", e);
+            return null;
+        }
+    }
 
     public ListSearchResult<DrugRecord> searchDrug(DrugCriteria criteria) {
         if (criteria == null) {
@@ -174,6 +195,50 @@ public class OrcaMasterDao {
         }
     }
 
+    public HokenjaSearchResult searchHokenja(HokenjaCriteria criteria) {
+        if (criteria == null) {
+            return new HokenjaSearchResult(Collections.emptyList(), 0, null);
+        }
+        try (Connection connection = ORCAConnection.getInstance().getConnection()) {
+            HokenjaTableMeta meta = HokenjaTableMeta.load(connection);
+            if (meta == null || meta.codeColumn == null) {
+                return null;
+            }
+            Query query = buildHokenjaQuery(criteria, meta);
+            int totalCount = fetchTotalCount(connection, meta.tableName, query);
+            if (totalCount == 0) {
+                return new HokenjaSearchResult(Collections.emptyList(), 0, null);
+            }
+            List<HokenjaRecord> records = fetchHokenjaRecords(connection, meta, query, criteria.page, criteria.size);
+            String version = resolveVersion(records, null);
+            return new HokenjaSearchResult(records, totalCount, version);
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "Failed to load ORCA-06 hokenja master", e);
+            return null;
+        }
+    }
+
+    public LookupResult<AddressRecord> findAddress(AddressCriteria criteria) {
+        if (criteria == null || criteria.zip == null || criteria.zip.isBlank()) {
+            return null;
+        }
+        try (Connection connection = ORCAConnection.getInstance().getConnection()) {
+            AddressTableMeta meta = AddressTableMeta.load(connection);
+            if (meta == null || meta.zipColumn == null) {
+                return null;
+            }
+            Query query = buildAddressQuery(criteria, meta);
+            List<AddressRecord> records = fetchAddressRecords(connection, meta, query);
+            if (records.isEmpty()) {
+                return new LookupResult<>(null, null, false);
+            }
+            String version = resolveVersion(records, null);
+            return new LookupResult<>(records.get(0), version, true);
+        } catch (SQLException e) {
+            LOGGER.log(Level.WARNING, "Failed to load ORCA-06 address master", e);
+            return null;
+        }
+    }
 
     private Query buildGenericClassQuery(GenericClassCriteria criteria, GenericClassTableMeta meta) {
         StringBuilder where = new StringBuilder(" FROM ").append(meta.tableName).append(" WHERE 1=1");
@@ -183,6 +248,14 @@ public class OrcaMasterDao {
         return new Query(where.toString(), params);
     }
 
+    private Query buildGenericPriceQuery(GenericPriceCriteria criteria, GenericPriceTableMeta meta) {
+        StringBuilder where = new StringBuilder(" FROM ").append(meta.tableName).append(" WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+        where.append(" AND ").append(meta.codeColumn).append(" = ?");
+        params.add(criteria.srycd);
+        appendEffectiveFilter(where, params, criteria.effective, meta.startDateColumn, meta.endDateColumn);
+        return new Query(where.toString(), params);
+    }
 
     private Query buildDrugQuery(DrugCriteria criteria, DrugTableMeta meta) {
         StringBuilder where = new StringBuilder(" FROM ").append(meta.tableName).append(" WHERE 1=1");
@@ -275,6 +348,31 @@ public class OrcaMasterDao {
         return new Query(where.toString(), params);
     }
 
+    private Query buildHokenjaQuery(HokenjaCriteria criteria, HokenjaTableMeta meta) {
+        StringBuilder where = new StringBuilder(" FROM ").append(meta.tableName).append(" WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+        appendKeywordFilter(where, params, criteria.keyword, meta.codeColumn, meta.nameColumn, meta.kanaColumn);
+        appendEffectiveFilter(where, params, criteria.effective, meta.startDateColumn, meta.endDateColumn);
+        if (criteria.pref != null && !criteria.pref.isBlank()) {
+            if (meta.prefColumn != null) {
+                where.append(" AND ").append(meta.prefColumn).append(" = ?");
+                params.add(criteria.pref);
+            } else if (meta.codeColumn != null) {
+                where.append(" AND SUBSTRING(").append(meta.codeColumn).append(" FROM 1 FOR 2) = ?");
+                params.add(criteria.pref);
+            }
+        }
+        return new Query(where.toString(), params);
+    }
+
+    private Query buildAddressQuery(AddressCriteria criteria, AddressTableMeta meta) {
+        StringBuilder where = new StringBuilder(" FROM ").append(meta.tableName).append(" WHERE 1=1");
+        List<Object> params = new ArrayList<>();
+        where.append(" AND ").append(meta.zipColumn).append(" = ?");
+        params.add(criteria.zip);
+        appendEffectiveFilter(where, params, criteria.effective, meta.startDateColumn, meta.endDateColumn);
+        return new Query(where.toString(), params);
+    }
 
     private Query buildKeywordEffectiveQuery(String keyword, String effective, String tableName, String codeColumn,
             String nameColumn, String kanaColumn, String startDateColumn, String endDateColumn) {
@@ -393,6 +491,44 @@ public class OrcaMasterDao {
         return records;
     }
 
+    private List<GenericPriceRecord> fetchGenericPriceRecords(Connection connection, GenericPriceTableMeta meta,
+            Query query) throws SQLException {
+        String sql = "SELECT "
+                + selectColumn(meta.codeColumn) + " AS code, "
+                + selectColumn(meta.nameColumn) + " AS name, "
+                + selectColumn(meta.kanaColumn) + " AS kana, "
+                + selectColumn(meta.unitColumn) + " AS unit, "
+                + selectColumn(meta.priceColumn) + " AS price, "
+                + selectColumn(meta.youhouColumn) + " AS youhou, "
+                + selectColumn(meta.startDateColumn) + " AS startDate, "
+                + selectColumn(meta.endDateColumn) + " AS endDate, "
+                + selectColumn(meta.versionColumn) + " AS version "
+                + query.whereClause;
+        if (meta.startDateColumn != null) {
+            sql = sql + " ORDER BY " + meta.startDateColumn + " DESC";
+        }
+        sql = sql + " LIMIT 1";
+        List<GenericPriceRecord> records = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            bindParams(ps, query.params, 1);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    GenericPriceRecord record = new GenericPriceRecord();
+                    record.srycd = rs.getString("code");
+                    record.drugName = rs.getString("name");
+                    record.kanaName = rs.getString("kana");
+                    record.unit = rs.getString("unit");
+                    record.price = getDouble(rs, "price");
+                    record.youhouCode = rs.getString("youhou");
+                    record.startDate = rs.getString("startDate");
+                    record.endDate = rs.getString("endDate");
+                    record.version = rs.getString("version");
+                    records.add(record);
+                }
+            }
+        }
+        return records;
+    }
 
     private List<DrugRecord> fetchDrugRecords(Connection connection, DrugTableMeta meta, Query query, int page, int size)
             throws SQLException {
@@ -673,6 +809,98 @@ public class OrcaMasterDao {
         return records;
     }
 
+    private List<HokenjaRecord> fetchHokenjaRecords(Connection connection, HokenjaTableMeta meta, Query query,
+            int page, int size) throws SQLException {
+        String sql = "SELECT "
+                + selectColumn(meta.codeColumn) + " AS code, "
+                + selectColumn(meta.nameColumn) + " AS name, "
+                + selectColumn(meta.kanaColumn) + " AS kana, "
+                + selectColumn(meta.payerTypeColumn) + " AS payerType, "
+                + selectColumn(meta.payerRatioColumn) + " AS payerRatio, "
+                + selectColumn(meta.prefColumn) + " AS pref, "
+                + selectColumn(meta.cityColumn) + " AS city, "
+                + selectColumn(meta.zipColumn) + " AS zip, "
+                + selectColumn(meta.addressColumn) + " AS address, "
+                + selectColumn(meta.phoneColumn) + " AS phone, "
+                + selectColumn(meta.startDateColumn) + " AS startDate, "
+                + selectColumn(meta.endDateColumn) + " AS endDate, "
+                + selectColumn(meta.versionColumn) + " AS version "
+                + query.whereClause
+                + " ORDER BY " + meta.codeColumn;
+        sql = applyPaging(sql);
+        List<HokenjaRecord> records = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            int index = bindParams(ps, query.params, 1);
+            applyPagingParams(ps, index, page, size);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    HokenjaRecord record = new HokenjaRecord();
+                    record.payerCode = rs.getString("code");
+                    record.payerName = rs.getString("name");
+                    record.payerKana = rs.getString("kana");
+                    record.insurerType = rs.getString("payerType");
+                    record.payerRatio = getDouble(rs, "payerRatio");
+                    record.prefCode = rs.getString("pref");
+                    record.cityCode = rs.getString("city");
+                    record.zip = rs.getString("zip");
+                    record.addressLine = rs.getString("address");
+                    record.phone = rs.getString("phone");
+                    record.startDate = rs.getString("startDate");
+                    record.endDate = rs.getString("endDate");
+                    record.version = rs.getString("version");
+                    records.add(record);
+                }
+            }
+        }
+        return records;
+    }
+
+    private List<AddressRecord> fetchAddressRecords(Connection connection, AddressTableMeta meta, Query query)
+            throws SQLException {
+        String sql = "SELECT "
+                + selectColumn(meta.zipColumn) + " AS zip, "
+                + selectColumn(meta.prefCodeColumn) + " AS pref, "
+                + selectColumn(meta.cityCodeColumn) + " AS cityCode, "
+                + selectColumn(meta.lpubColumn) + " AS lpub, "
+                + selectColumn(meta.prefNameColumn) + " AS prefName, "
+                + selectColumn(meta.cityNameColumn) + " AS cityName, "
+                + selectColumn(meta.townNameColumn) + " AS townName, "
+                + selectColumn(meta.prefKanaColumn) + " AS prefKana, "
+                + selectColumn(meta.cityKanaColumn) + " AS cityKana, "
+                + selectColumn(meta.townKanaColumn) + " AS townKana, "
+                + selectColumn(meta.editKanaColumn) + " AS editKana, "
+                + selectColumn(meta.editNameColumn) + " AS editName, "
+                + selectColumn(meta.romanColumn) + " AS roman, "
+                + selectColumn(meta.startDateColumn) + " AS startDate, "
+                + selectColumn(meta.endDateColumn) + " AS endDate, "
+                + selectColumn(meta.versionColumn) + " AS version "
+                + query.whereClause
+                + " LIMIT 1";
+        List<AddressRecord> records = new ArrayList<>();
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            bindParams(ps, query.params, 1);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    AddressRecord record = new AddressRecord();
+                    record.zip = rs.getString("zip");
+                    record.prefCode = firstNonBlank(rs.getString("pref"), prefFromLpub(rs.getString("lpub")));
+                    record.cityCode = firstNonBlank(rs.getString("cityCode"), cityFromLpub(rs.getString("lpub")));
+                    record.city = rs.getString("cityName");
+                    record.town = rs.getString("townName");
+                    record.kana = buildAddressKana(rs.getString("editKana"), rs.getString("prefKana"),
+                            rs.getString("cityKana"), rs.getString("townKana"));
+                    record.roman = rs.getString("roman");
+                    record.fullAddress = buildAddressName(rs.getString("editName"), rs.getString("prefName"),
+                            rs.getString("cityName"), rs.getString("townName"));
+                    record.startDate = rs.getString("startDate");
+                    record.endDate = rs.getString("endDate");
+                    record.version = rs.getString("version");
+                    records.add(record);
+                }
+            }
+        }
+        return records;
+    }
 
     private static String applyPaging(String sql) {
         return sql + " LIMIT ? OFFSET ?";
@@ -846,6 +1074,26 @@ public class OrcaMasterDao {
         }
     }
 
+    public static final class GenericPriceCriteria {
+        private String srycd;
+        private String effective;
+
+        public String getSrycd() {
+            return srycd;
+        }
+
+        public void setSrycd(String srycd) {
+            this.srycd = srycd;
+        }
+
+        public String getEffective() {
+            return effective;
+        }
+
+        public void setEffective(String effective) {
+            this.effective = effective;
+        }
+    }
 
     public static final class DrugCriteria {
         private String keyword;
@@ -1006,6 +1254,74 @@ public class OrcaMasterDao {
         }
     }
 
+    public static final class HokenjaCriteria {
+        private String pref;
+        private String keyword;
+        private String effective;
+        private int page = 1;
+        private int size = 100;
+
+        public String getPref() {
+            return pref;
+        }
+
+        public void setPref(String pref) {
+            this.pref = pref;
+        }
+
+        public String getKeyword() {
+            return keyword;
+        }
+
+        public void setKeyword(String keyword) {
+            this.keyword = keyword;
+        }
+
+        public String getEffective() {
+            return effective;
+        }
+
+        public void setEffective(String effective) {
+            this.effective = effective;
+        }
+
+        public int getPage() {
+            return page;
+        }
+
+        public void setPage(int page) {
+            this.page = page;
+        }
+
+        public int getSize() {
+            return size;
+        }
+
+        public void setSize(int size) {
+            this.size = size;
+        }
+    }
+
+    public static final class AddressCriteria {
+        private String zip;
+        private String effective;
+
+        public String getZip() {
+            return zip;
+        }
+
+        public void setZip(String zip) {
+            this.zip = zip;
+        }
+
+        public String getEffective() {
+            return effective;
+        }
+
+        public void setEffective(String effective) {
+            this.effective = effective;
+        }
+    }
 
     public static final class GenericClassRecord implements VersionedRecord {
         public String classCode;
@@ -1055,6 +1371,58 @@ public class OrcaMasterDao {
         }
     }
 
+    public static final class GenericPriceRecord implements VersionedRecord {
+        public String srycd;
+        public String drugName;
+        public String kanaName;
+        public Double price;
+        public String unit;
+        public String youhouCode;
+        public String startDate;
+        public String endDate;
+        public String version;
+
+        public String getSrycd() {
+            return srycd;
+        }
+
+        public String getDrugName() {
+            return drugName;
+        }
+
+        public String getKanaName() {
+            return kanaName;
+        }
+
+        public Double getPrice() {
+            return price;
+        }
+
+        public String getUnit() {
+            return unit;
+        }
+
+        public String getYouhouCode() {
+            return youhouCode;
+        }
+
+        public String getStartDate() {
+            return startDate;
+        }
+
+        public String getEndDate() {
+            return endDate;
+        }
+
+        public String getVersion() {
+            return version;
+        }
+
+        @Override
+        public String version() {
+            return version;
+        }
+    }
 
     public static final class DrugRecord implements VersionedRecord {
         public String srycd;
@@ -1311,8 +1679,141 @@ public class OrcaMasterDao {
         }
     }
 
+    public static final class HokenjaRecord implements VersionedRecord {
+        public String payerCode;
+        public String payerName;
+        public String payerKana;
+        public String insurerType;
+        public Double payerRatio;
+        public String prefCode;
+        public String cityCode;
+        public String zip;
+        public String addressLine;
+        public String phone;
+        public String startDate;
+        public String endDate;
+        public String version;
 
+        public String getPayerCode() {
+            return payerCode;
+        }
 
+        public String getPayerName() {
+            return payerName;
+        }
+
+        public String getPayerKana() {
+            return payerKana;
+        }
+
+        public String getInsurerType() {
+            return insurerType;
+        }
+
+        public Double getPayerRatio() {
+            return payerRatio;
+        }
+
+        public String getPrefCode() {
+            return prefCode;
+        }
+
+        public String getCityCode() {
+            return cityCode;
+        }
+
+        public String getZip() {
+            return zip;
+        }
+
+        public String getAddressLine() {
+            return addressLine;
+        }
+
+        public String getPhone() {
+            return phone;
+        }
+
+        public String getStartDate() {
+            return startDate;
+        }
+
+        public String getEndDate() {
+            return endDate;
+        }
+
+        public String getVersion() {
+            return version;
+        }
+
+        @Override
+        public String version() {
+            return version;
+        }
+    }
+
+    public static final class AddressRecord implements VersionedRecord {
+        public String zip;
+        public String prefCode;
+        public String cityCode;
+        public String city;
+        public String town;
+        public String kana;
+        public String roman;
+        public String fullAddress;
+        public String startDate;
+        public String endDate;
+        public String version;
+
+        public String getZip() {
+            return zip;
+        }
+
+        public String getPrefCode() {
+            return prefCode;
+        }
+
+        public String getCityCode() {
+            return cityCode;
+        }
+
+        public String getCity() {
+            return city;
+        }
+
+        public String getTown() {
+            return town;
+        }
+
+        public String getKana() {
+            return kana;
+        }
+
+        public String getRoman() {
+            return roman;
+        }
+
+        public String getFullAddress() {
+            return fullAddress;
+        }
+
+        public String getStartDate() {
+            return startDate;
+        }
+
+        public String getEndDate() {
+            return endDate;
+        }
+
+        public String getVersion() {
+            return version;
+        }
+
+        @Override
+        public String version() {
+            return version;
+        }
+    }
 
     public static final class GenericClassSearchResult {
         private final List<GenericClassRecord> records;
@@ -1326,6 +1827,30 @@ public class OrcaMasterDao {
         }
 
         public List<GenericClassRecord> getRecords() {
+            return records;
+        }
+
+        public int getTotalCount() {
+            return totalCount;
+        }
+
+        public String getVersion() {
+            return version;
+        }
+    }
+
+    public static final class HokenjaSearchResult {
+        private final List<HokenjaRecord> records;
+        private final int totalCount;
+        private final String version;
+
+        public HokenjaSearchResult(List<HokenjaRecord> records, int totalCount, String version) {
+            this.records = records;
+            this.totalCount = totalCount;
+            this.version = version;
+        }
+
+        public List<HokenjaRecord> getRecords() {
             return records;
         }
 
@@ -1429,6 +1954,52 @@ public class OrcaMasterDao {
         }
     }
 
+    private static final class GenericPriceTableMeta {
+        private final String tableName;
+        private final String codeColumn;
+        private final String nameColumn;
+        private final String kanaColumn;
+        private final String priceColumn;
+        private final String unitColumn;
+        private final String youhouColumn;
+        private final String startDateColumn;
+        private final String endDateColumn;
+        private final String versionColumn;
+
+        private GenericPriceTableMeta(String tableName, String codeColumn, String nameColumn, String kanaColumn,
+                String priceColumn, String unitColumn, String youhouColumn, String startDateColumn,
+                String endDateColumn, String versionColumn) {
+            this.tableName = tableName;
+            this.codeColumn = codeColumn;
+            this.nameColumn = nameColumn;
+            this.kanaColumn = kanaColumn;
+            this.priceColumn = priceColumn;
+            this.unitColumn = unitColumn;
+            this.youhouColumn = youhouColumn;
+            this.startDateColumn = startDateColumn;
+            this.endDateColumn = endDateColumn;
+            this.versionColumn = versionColumn;
+        }
+
+        private static GenericPriceTableMeta load(Connection connection) throws SQLException {
+            DatabaseMetaData meta = connection.getMetaData();
+            String table = resolveTable(meta, "TBL_GENERIC_PRICE", "tbl_generic_price");
+            if (table == null) {
+                return null;
+            }
+            String code = columnOrNull(meta, table, "srycd", "yakkakjncd", "code");
+            String name = columnOrNull(meta, table, "name", "drug_name", "generic_name");
+            String kana = columnOrNull(meta, table, "kana_name", "kananame", "kana");
+            String price = columnOrNull(meta, table, "price", "min_price", "tanka");
+            String unit = columnOrNull(meta, table, "unit", "tani", "taniname");
+            String youhou = columnOrNull(meta, table, "youhoucode", "youhou_code", "yakkakjncd");
+            String startDate = columnOrNull(meta, table, "start_date", "yukostymd", "valid_from");
+            String endDate = columnOrNull(meta, table, "end_date", "yukoedymd", "valid_to");
+            String version = columnOrNull(meta, table, "upymd", "creymd", "chgymd", "version");
+            return new GenericPriceTableMeta(table, code, name, kana, price, unit, youhou, startDate, endDate,
+                    version);
+        }
+    }
 
     private static final class DrugTableMeta {
         private final String tableName;
@@ -1614,7 +2185,136 @@ public class OrcaMasterDao {
         }
     }
 
+    private static final class HokenjaTableMeta {
+        private final String tableName;
+        private final String codeColumn;
+        private final String nameColumn;
+        private final String kanaColumn;
+        private final String payerTypeColumn;
+        private final String payerRatioColumn;
+        private final String prefColumn;
+        private final String cityColumn;
+        private final String zipColumn;
+        private final String addressColumn;
+        private final String phoneColumn;
+        private final String startDateColumn;
+        private final String endDateColumn;
+        private final String versionColumn;
 
+        private HokenjaTableMeta(String tableName, String codeColumn, String nameColumn, String kanaColumn,
+                String payerTypeColumn, String payerRatioColumn, String prefColumn, String cityColumn,
+                String zipColumn, String addressColumn, String phoneColumn, String startDateColumn,
+                String endDateColumn, String versionColumn) {
+            this.tableName = tableName;
+            this.codeColumn = codeColumn;
+            this.nameColumn = nameColumn;
+            this.kanaColumn = kanaColumn;
+            this.payerTypeColumn = payerTypeColumn;
+            this.payerRatioColumn = payerRatioColumn;
+            this.prefColumn = prefColumn;
+            this.cityColumn = cityColumn;
+            this.zipColumn = zipColumn;
+            this.addressColumn = addressColumn;
+            this.phoneColumn = phoneColumn;
+            this.startDateColumn = startDateColumn;
+            this.endDateColumn = endDateColumn;
+            this.versionColumn = versionColumn;
+        }
+
+        private static HokenjaTableMeta load(Connection connection) throws SQLException {
+            DatabaseMetaData meta = connection.getMetaData();
+            String table = resolveTable(meta, "TBL_HKNJAINF_MASTER", "TBL_HKNJAINF", "tbl_hknjainf_master",
+                    "tbl_hknjainf");
+            if (table == null) {
+                return null;
+            }
+            String code = columnOrNull(meta, table, "hknjanum", "payer_code", "code");
+            String name = columnOrNull(meta, table, "hknjaname", "payer_name", "name");
+            String kana = columnOrNull(meta, table, "hknjakana", "hknjaname_tan1", "kana");
+            String payerType = columnOrNull(meta, table, "hknjakbn", "hknnum", "payer_type");
+            String payerRatio = columnOrNull(meta, table, "hknjafutankeiritsu", "hon_gaikyurate", "payer_ratio");
+            String pref = columnOrNull(meta, table, "pref_code", "pref", "prefcode");
+            String city = columnOrNull(meta, table, "city_code", "city", "citycode");
+            String zip = columnOrNull(meta, table, "post", "zip", "zip_code");
+            String address = columnOrNull(meta, table, "adrs", "address", "banti");
+            String phone = columnOrNull(meta, table, "tel", "phone");
+            String startDate = columnOrNull(meta, table, "start_date", "yukostymd", "valid_from", "idoymd");
+            String endDate = columnOrNull(meta, table, "end_date", "yukoedymd", "valid_to");
+            String version = columnOrNull(meta, table, "upymd", "creymd", "chgymd", "version");
+            return new HokenjaTableMeta(table, code, name, kana, payerType, payerRatio, pref, city, zip, address,
+                    phone, startDate, endDate, version);
+        }
+    }
+
+    private static final class AddressTableMeta {
+        private final String tableName;
+        private final String zipColumn;
+        private final String prefCodeColumn;
+        private final String cityCodeColumn;
+        private final String lpubColumn;
+        private final String prefNameColumn;
+        private final String cityNameColumn;
+        private final String townNameColumn;
+        private final String prefKanaColumn;
+        private final String cityKanaColumn;
+        private final String townKanaColumn;
+        private final String editKanaColumn;
+        private final String editNameColumn;
+        private final String romanColumn;
+        private final String startDateColumn;
+        private final String endDateColumn;
+        private final String versionColumn;
+
+        private AddressTableMeta(String tableName, String zipColumn, String prefCodeColumn, String cityCodeColumn,
+                String lpubColumn, String prefNameColumn, String cityNameColumn, String townNameColumn,
+                String prefKanaColumn, String cityKanaColumn, String townKanaColumn, String editKanaColumn,
+                String editNameColumn, String romanColumn, String startDateColumn, String endDateColumn,
+                String versionColumn) {
+            this.tableName = tableName;
+            this.zipColumn = zipColumn;
+            this.prefCodeColumn = prefCodeColumn;
+            this.cityCodeColumn = cityCodeColumn;
+            this.lpubColumn = lpubColumn;
+            this.prefNameColumn = prefNameColumn;
+            this.cityNameColumn = cityNameColumn;
+            this.townNameColumn = townNameColumn;
+            this.prefKanaColumn = prefKanaColumn;
+            this.cityKanaColumn = cityKanaColumn;
+            this.townKanaColumn = townKanaColumn;
+            this.editKanaColumn = editKanaColumn;
+            this.editNameColumn = editNameColumn;
+            this.romanColumn = romanColumn;
+            this.startDateColumn = startDateColumn;
+            this.endDateColumn = endDateColumn;
+            this.versionColumn = versionColumn;
+        }
+
+        private static AddressTableMeta load(Connection connection) throws SQLException {
+            DatabaseMetaData meta = connection.getMetaData();
+            String table = resolveTable(meta, "TBL_ADRS", "tbl_adrs");
+            if (table == null) {
+                return null;
+            }
+            String zip = columnOrNull(meta, table, "zip", "post", "zip_code");
+            String prefCode = columnOrNull(meta, table, "pref_code", "prefcode");
+            String cityCode = columnOrNull(meta, table, "city_code", "citycode");
+            String lpub = columnOrNull(meta, table, "lpubcd", "lpub_code");
+            String prefName = columnOrNull(meta, table, "prefname", "pref_name");
+            String cityName = columnOrNull(meta, table, "cityname", "city_name");
+            String townName = columnOrNull(meta, table, "townname", "town_name");
+            String prefKana = columnOrNull(meta, table, "prefkana", "pref_kana");
+            String cityKana = columnOrNull(meta, table, "citykana", "city_kana");
+            String townKana = columnOrNull(meta, table, "townkana", "town_kana");
+            String editKana = columnOrNull(meta, table, "editadrs_kana", "kana", "full_kana");
+            String editName = columnOrNull(meta, table, "editadrs_name", "full_address", "address");
+            String roman = columnOrNull(meta, table, "roman", "romaji");
+            String startDate = columnOrNull(meta, table, "start_date", "yukostymd", "valid_from");
+            String endDate = columnOrNull(meta, table, "end_date", "yukoedymd", "valid_to");
+            String version = columnOrNull(meta, table, "upymd", "creymd", "chgymd", "version");
+            return new AddressTableMeta(table, zip, prefCode, cityCode, lpub, prefName, cityName, townName,
+                    prefKana, cityKana, townKana, editKana, editName, roman, startDate, endDate, version);
+        }
+    }
 
     private static String resolveTable(DatabaseMetaData meta, String... candidates) throws SQLException {
         if (candidates == null) {

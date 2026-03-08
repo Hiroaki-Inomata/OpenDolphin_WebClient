@@ -253,6 +253,110 @@ class OrcaMasterResourceTest {
         assertEquals("MASTER_BODYPART_UNAVAILABLE", payload.getCode());
     }
 
+    @Test
+    void getGenericPrice_invalidSrycd_returnsValidationError() {
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("srycd", "12345");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getGenericPrice(null, uriInfo, authenticatedRequest());
+
+        assertEquals(422, response.getStatus());
+        OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
+        assertEquals("SRYCD_VALIDATION_ERROR", payload.getCode());
+        assertEquals(Boolean.TRUE, payload.getValidationError());
+        assertNotNull(payload.getRunId());
+        assertFalse(payload.getRunId().isBlank());
+    }
+
+    @Test
+    void getGenericClass_usesProvidedRunIdHeader() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public GenericClassSearchResult searchGenericClass(GenericClassCriteria criteria) {
+                GenericClassRecord record = new GenericClassRecord();
+                record.classCode = "101";
+                record.className = "Test Generic";
+                record.startDate = "20240401";
+                record.endDate = "99991231";
+                record.version = "20240426";
+                return new GenericClassSearchResult(List.of(record), 1, "20240426");
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
+        String expectedRunId = "TEST-RUN-ID-123";
+        HttpServletRequest request = createRequestWithRunId(expectedRunId, "/orca/master/generic-class");
+
+        Response response = resource.getGenericClass(null, uriInfo, request);
+
+        assertEquals(200, response.getStatus());
+        @SuppressWarnings("unchecked")
+        OrcaMasterListResponse<OrcaDrugMasterEntry> payload =
+                (OrcaMasterListResponse<OrcaDrugMasterEntry>) response.getEntity();
+        String actualRunId = payload.getItems().get(0).getMeta().getRunId();
+        assertNotNull(actualRunId);
+        assertFalse(actualRunId.isBlank());
+    }
+
+    @Test
+    void getGenericClass_ifNoneMatch_returnsNotModified() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public GenericClassSearchResult searchGenericClass(GenericClassCriteria criteria) {
+                GenericClassRecord record = new GenericClassRecord();
+                record.classCode = "101";
+                record.className = "Test Generic";
+                record.startDate = "20240401";
+                record.endDate = "99991231";
+                record.version = "20240426";
+                return new GenericClassSearchResult(List.of(record), 1, "20240426");
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
+
+        Response initial = resource.getGenericClass(null, uriInfo, authenticatedRequest());
+
+        assertEquals(200, initial.getStatus());
+        EntityTag etag = initial.getEntityTag();
+        assertNotNull(etag);
+        String ifNoneMatch = "\"" + etag.getValue() + "\"";
+
+        Response cached = resource.getGenericClass(ifNoneMatch, uriInfo, authenticatedRequest());
+
+        assertEquals(304, cached.getStatus());
+        assertNull(cached.getEntity());
+        assertNotNull(cached.getEntityTag());
+        assertEquals(etag.getValue(), cached.getEntityTag().getValue());
+        assertEquals("public, max-age=300, stale-while-revalidate=86400", cached.getHeaderString("Cache-Control"));
+        assertNull(cached.getHeaderString("Vary"));
+    }
+
+    @Test
+    void getGenericPrice_missingMaster_returnsFallbackMeta() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public LookupResult<GenericPriceRecord> findGenericPrice(GenericPriceCriteria criteria) {
+                return new LookupResult<>(null, "20240426", false);
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("srycd", "999999999");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getGenericPrice(null, uriInfo, authenticatedRequest());
+
+        assertEquals(200, response.getStatus());
+        OrcaDrugMasterEntry payload = (OrcaDrugMasterEntry) response.getEntity();
+        assertEquals("generic-price", payload.getCategory());
+        assertNull(payload.getMinPrice());
+        OrcaMasterMeta meta = payload.getMeta();
+        assertTrue(meta.isMissingMaster());
+        assertTrue(meta.isFallbackUsed());
+    }
 
     @Test
     void getYouhou_returnsListWithMeta() {
@@ -357,6 +461,116 @@ class OrcaMasterResourceTest {
         assertEquals("server", entry.getMeta().getDataSource());
     }
 
+    @Test
+    void getHokenja_returnsListWithMeta() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public HokenjaSearchResult searchHokenja(HokenjaCriteria criteria) {
+                HokenjaRecord record = new HokenjaRecord();
+                record.payerCode = "123456";
+                record.payerName = "Sample Payer";
+                record.insurerType = "国保";
+                record.payerRatio = 0.3;
+                record.prefCode = "13";
+                record.cityCode = "13000";
+                record.zip = "1000001";
+                record.addressLine = "Tokyo";
+                record.phone = "0312345678";
+                record.startDate = "20240401";
+                record.endDate = "99991231";
+                record.version = "20240426";
+                return new HokenjaSearchResult(List.of(record), 1, "20240426");
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        UriInfo uriInfo = createUriInfo(new MultivaluedHashMap<>());
+
+        Response response = resource.getHokenja(null, uriInfo, authenticatedRequest());
+
+        assertEquals(200, response.getStatus());
+        @SuppressWarnings("unchecked")
+        OrcaMasterListResponse<OrcaInsurerEntry> payload =
+                (OrcaMasterListResponse<OrcaInsurerEntry>) response.getEntity();
+        assertNotNull(payload);
+        assertNotNull(payload.getTotalCount());
+        assertNotNull(payload.getItems());
+        assertFalse(payload.getItems().isEmpty());
+        OrcaInsurerEntry entry = payload.getItems().get(0);
+        assertNotNull(entry.getPayerCode());
+        assertNotNull(entry.getPayerName());
+        assertNotNull(entry.getPayerType());
+        assertNotNull(entry.getPayerRatio());
+        assertNotNull(entry.getMeta());
+    }
+
+    @Test
+    void getAddress_invalidZip_returnsValidationError() {
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("zip", "123");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getAddress(null, uriInfo, authenticatedRequest());
+
+        assertEquals(422, response.getStatus());
+        OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
+        assertEquals("ZIP_VALIDATION_ERROR", payload.getCode());
+        assertEquals(Boolean.TRUE, payload.getValidationError());
+    }
+
+    @Test
+    void getAddress_returnsEntryWithMeta() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public LookupResult<AddressRecord> findAddress(AddressCriteria criteria) {
+                AddressRecord record = new AddressRecord();
+                record.zip = "1000001";
+                record.prefCode = "13";
+                record.cityCode = "13000";
+                record.city = "千代田区";
+                record.town = "千代田";
+                record.kana = "トウキョウト チヨダク チヨダ";
+                record.roman = "Chiyoda";
+                record.fullAddress = "東京都千代田区千代田";
+                record.startDate = "20240401";
+                record.endDate = "99991231";
+                record.version = "20240426";
+                return new LookupResult<>(record, "20240426", true);
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("zip", "1000001");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getAddress(null, uriInfo, authenticatedRequest());
+
+        assertEquals(200, response.getStatus());
+        OrcaAddressEntry payload = (OrcaAddressEntry) response.getEntity();
+        assertNotNull(payload);
+        assertEquals("1000001", payload.getZip());
+        assertNotNull(payload.getMeta());
+    }
+
+    @Test
+    void getAddress_unknownZip_returnsNotFound() {
+        OrcaMasterDao masterDao = new OrcaMasterDao() {
+            @Override
+            public LookupResult<AddressRecord> findAddress(AddressCriteria criteria) {
+                return new LookupResult<>(null, "20240426", false);
+            }
+        };
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), masterDao);
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("zip", "9999999");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getAddress(null, uriInfo, authenticatedRequest());
+
+        assertEquals(404, response.getStatus());
+        OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
+        assertEquals("MASTER_ADDRESS_NOT_FOUND", payload.getCode());
+    }
 
     @Test
     void getEtensu_emptyResult_returnsNotFound() {
