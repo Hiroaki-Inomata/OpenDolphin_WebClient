@@ -1,6 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import {
+  buildQaSession,
+  createAuthenticatedContext,
+  resolveQaArtifactRoot,
+  resolveQaFacilityId,
+  resolveQaPasswordPlain,
+  resolveQaUserId,
+} from './qa-lib/session-auth.mjs';
 
 const now = new Date();
 const runId = process.env.RUN_ID ?? now.toISOString().replace(/[-:]/g, '').replace(/\..+/, 'Z');
@@ -8,7 +16,7 @@ const traceId = process.env.TRACE_ID ?? `trace-${runId}`;
 const baseURL = process.env.QA_BASE_URL ?? process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5173';
 const artifactRoot =
   process.env.QA_ARTIFACT_DIR ??
-  path.resolve(process.cwd(), '..', 'artifacts', 'webclient', 'e2e', runId, 'fullflow');
+  resolveQaArtifactRoot('webclient', 'e2e', runId, 'fullflow');
 const screenshotDir = path.join(artifactRoot, 'screenshots');
 const networkDir = path.join(artifactRoot, 'network');
 const harDir = path.join(artifactRoot, 'har');
@@ -27,20 +35,23 @@ const logStep = (label) => {
   const entry = `[${new Date().toISOString()}] ${label}\n`;
   fs.appendFileSync(stepLogPath, entry);
 };
+const safeClose = async (closer) => {
+  try {
+    await closer();
+  } catch {
+    // Playwright transport may already be gone after the scenario finishes.
+  }
+};
 
-const facilityPath = path.resolve(process.cwd(), '..', 'facility.json');
-const facilityJson = JSON.parse(fs.readFileSync(facilityPath, 'utf-8'));
-const facilityId = String(facilityJson.facilityId ?? '0001');
-
+const facilityId = resolveQaFacilityId();
 const sessionRole = process.env.QA_ROLE ?? 'admin';
 const sessionRoles = process.env.QA_ROLES
   ? process.env.QA_ROLES.split(',').map((role) => role.trim()).filter(Boolean)
   : [sessionRole];
 const scenarioLabel = process.env.QA_SCENARIO ?? sessionRole;
 
-const authUserId = 'doctor1';
-const authPasswordPlain = 'doctor2025';
-const authPasswordMd5 = '632080fabdb968f9ac4f31fb55104648';
+const authUserId = resolveQaUserId();
+const authPasswordPlain = resolveQaPasswordPlain();
 
 const patientId = process.env.QA_PATIENT_ID ?? '01416';
 const departmentCode = process.env.QA_DEPARTMENT_CODE ?? '01';
@@ -64,15 +75,7 @@ const materialUnit = process.env.QA_MATERIAL_UNIT ?? '';
 const expectedMedicationCode = process.env.QA_EXPECT_MEDICATION_CODE ?? '';
 const expectedMedicationNumber = process.env.QA_EXPECT_MEDICATION_NUMBER ?? '';
 
-const session = {
-  facilityId,
-  userId: authUserId,
-  displayName: `QA ${scenarioLabel}`,
-  clientUuid: `qa-${runId}`,
-  runId,
-  role: sessionRole,
-  roles: sessionRoles,
-};
+const session = buildQaSession({ facilityId, userId: authUserId, runId, scenarioLabel, sessionRole, sessionRoles });
 
 const consoleMessages = [];
 const pageErrors = [];
@@ -142,40 +145,6 @@ const safeText = async (locator, timeout = 5000) => {
   } catch {
     return '';
   }
-};
-
-const createSessionContext = async (browser) => {
-  const ctx = await browser.newContext({
-    ignoreHTTPSErrors: true,
-    baseURL,
-    serviceWorkers: 'allow',
-    recordHar: recordHar ? { path: harPath, content: 'embed' } : undefined,
-  });
-  await ctx.addInitScript(
-    ([key, value, auth]) => {
-      window.sessionStorage.setItem(key, value);
-      window.sessionStorage.setItem('devFacilityId', auth.facilityId);
-      window.sessionStorage.setItem('devUserId', auth.userId);
-      window.sessionStorage.setItem('devPasswordMd5', auth.passwordMd5);
-      window.sessionStorage.setItem('devClientUuid', auth.clientUuid);
-      window.localStorage.setItem('devFacilityId', auth.facilityId);
-      window.localStorage.setItem('devUserId', auth.userId);
-      window.localStorage.setItem('devPasswordMd5', auth.passwordMd5);
-      window.localStorage.setItem('devClientUuid', auth.clientUuid);
-    },
-    [
-      'opendolphin:web-client:auth',
-      JSON.stringify(session),
-      {
-        facilityId,
-        userId: authUserId,
-        passwordMd5: authPasswordMd5,
-        passwordPlain: authPasswordPlain,
-        clientUuid: session.clientUuid,
-      },
-    ],
-  );
-  return ctx;
 };
 
 const collectResponse = async (response) => {
@@ -253,8 +222,15 @@ const setObservabilityMeta = async (page) => {
 
 const run = async () => {
   const browser = await chromium.launch({ headless: true });
-  const context = await createSessionContext(browser);
-  const page = await context.newPage();
+  const { context, page } = await createAuthenticatedContext(browser, {
+    baseURL,
+    facilityId,
+    userId: authUserId,
+    password: authPasswordPlain,
+    session,
+    serviceWorkers: 'allow',
+    recordHar: recordHar ? { path: harPath, content: 'embed' } : undefined,
+  });
 
   page.on('console', (msg) => {
     const type = msg.type();
@@ -698,8 +674,8 @@ const run = async () => {
     logStep(`billing error=${String(error)}`);
   }
 
-  await context.close();
-  await browser.close();
+  await safeClose(() => context.close());
+  await safeClose(() => browser.close());
 
   const summary = {
     runId,
