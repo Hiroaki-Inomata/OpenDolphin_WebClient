@@ -59,13 +59,11 @@ import {
   postMedicalSets,
   postPatientMutation,
   postSubjectiveEntry,
-  postTensuSync,
   type MedicalPatientSummary,
   type MedicalRecordEntry,
   type OrcaInternalWrapperBase,
 } from './orcaInternalWrapperApi';
 import { LegacyRestPanel } from './LegacyRestPanel';
-import { TouchAdmPhrPanel } from './TouchAdmPhrPanel';
 import { AccessManagementPanel } from './AccessManagementPanel';
 import { OrcaUserManagementPanel } from './OrcaUserManagementPanel';
 import { MasterUpdatesPanel } from './MasterUpdatesPanel';
@@ -106,7 +104,6 @@ type OrcaXmlProxyFormState = {
 };
 type OrcaInternalWrapperEndpoint =
   | 'medical-sets'
-  | 'tensu-sync'
   | 'birth-delivery'
   | 'medical-records'
   | 'patient-mutation'
@@ -162,8 +159,7 @@ type GuardAction =
   | 'orca-xml-proxy'
   | 'orca-internal-wrapper'
   | 'orca-connection'
-  | 'legacy-rest'
-  | 'touch-adm-phr';
+  | 'legacy-rest';
 
 const DEFAULT_ORCA_ENDPOINT =
   (import.meta.env as Record<string, string | undefined>).VITE_ORCA_ENDPOINT ?? 'https://localhost:9080/openDolphin/resources';
@@ -252,26 +248,6 @@ const buildInternalWrapperOptions = (today: string): OrcaInternalWrapperOption[]
           medicationName: 'テスト処方',
           quantity: '1',
           note: 'stub',
-        },
-      ],
-    },
-  },
-  {
-    id: 'tensu-sync',
-    label: '/orca/tensu/sync（点数マスタ同期）',
-    hint: 'Trial 未開放のため stub 応答固定（Api_Result=79）',
-    stubFixed: true,
-    defaultPayload: {
-      requestNumber: '01',
-      medications: [
-        {
-          medicationCode: '112007410',
-          medicationName: 'テスト薬',
-          kanaName: 'テストヤク',
-          unit: '錠',
-          point: '10',
-          startDate: today,
-          endDate: '',
         },
       ],
     },
@@ -1436,8 +1412,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
         switch (params.endpoint) {
           case 'medical-sets':
             return postMedicalSets(params.payload);
-          case 'tensu-sync':
-            return postTensuSync(params.payload);
           case 'birth-delivery':
             return postBirthDelivery(params.payload);
           case 'medical-records':
@@ -2383,16 +2357,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
                   environmentLabel={environmentLabel}
                   isSystemAdmin={isSystemAdmin}
                   onGuarded={(detail) => reportGuardedAction('legacy-rest', detail)}
-                />
-                <TouchAdmPhrPanel
-                  runId={resolvedRunId ?? session.runId ?? 'RUN-UNSET'}
-                  role={role}
-                  actorId={actorId}
-                  environmentLabel={environmentLabel}
-                  isSystemAdmin={isSystemAdmin}
-                  facilityId={session.facilityId}
-                  userId={session.userId}
-                  onGuarded={(detail) => reportGuardedAction('touch-adm-phr', detail)}
                 />
               </>
             ) : null}

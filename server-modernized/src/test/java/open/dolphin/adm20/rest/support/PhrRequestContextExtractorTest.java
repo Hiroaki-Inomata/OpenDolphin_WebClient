@@ -22,7 +22,7 @@ class PhrRequestContextExtractorTest {
         when(request.getRemoteAddr()).thenReturn("203.0.113.10");
         when(request.getHeader(anyString())).thenReturn(null);
         when(request.getHeader("X-Forwarded-For")).thenReturn("198.51.100.10");
-        when(request.getRequestURI()).thenReturn("/resources/20/adm/phr");
+        when(request.getRequestURI()).thenReturn("/resources/api/phr");
 
         PhrRequestContext context = PhrRequestContextExtractor.from(request);
 
@@ -37,7 +37,7 @@ class PhrRequestContextExtractorTest {
         when(request.getHeader("X-Forwarded-For")).thenReturn("198.51.100.10, 127.0.0.1");
         when(request.getHeader("X-Request-Id")).thenReturn("req-1");
         when(request.getHeader("X-Trace-Id")).thenReturn("trace-1");
-        when(request.getRequestURI()).thenReturn("/resources/20/adm/phr");
+        when(request.getRequestURI()).thenReturn("/resources/api/phr");
 
         PhrRequestContext context = PhrRequestContextExtractor.from(request);
 

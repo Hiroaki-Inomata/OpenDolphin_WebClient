@@ -21,7 +21,7 @@ class StubEndpointExposureFilterTest {
         StubEndpointExposureFilter filter = new StubEndpointExposureFilter();
         filter.init(null);
         assertTrue(filter.isStubPath("/orca/medical-sets"));
-        assertTrue(filter.isStubPath("/resources/orca/tensu/sync"));
+        assertTrue(filter.isStubPath("/resources/orca/birth-delivery"));
         assertFalse(filter.isStubPath("/orca/patient"));
     }
 

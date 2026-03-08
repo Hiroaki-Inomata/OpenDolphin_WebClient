@@ -70,8 +70,8 @@ class SessionAuditDispatcherTest {
 
         AuditEventPayload payload = new AuditEventPayload();
         payload.setActorId("F001:doctor01");
-        payload.setAction("TOUCH_PATIENT_READ");
-        payload.setResource("/touch/patient");
+        payload.setAction("PATIENT_READ");
+        payload.setResource("/patient");
         payload.setTraceId("trace-token");
         payload.setRequestId("req-token");
         payload.setDetails(Map.of(

@@ -43,20 +43,6 @@ const buildDefaultPayloads = (today: string) => {
         },
       ],
     },
-    'tensu-sync': {
-      requestNumber: '01',
-      medications: [
-        {
-          medicationCode: '112007410',
-          medicationName: 'テスト薬剤',
-          kanaName: 'てすとやくざい',
-          unit: '錠',
-          point: '10',
-          startDate: today,
-          endDate: '',
-        },
-      ],
-    },
     'birth-delivery': {
       requestNumber: '01',
       patientId: '00002',

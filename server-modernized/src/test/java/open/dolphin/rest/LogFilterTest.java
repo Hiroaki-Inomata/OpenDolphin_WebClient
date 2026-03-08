@@ -78,7 +78,7 @@ class LogFilterTest {
         Map<String, String> headers = new HashMap<>();
         headers.put(TRACE_ID_HEADER, "client-trace-id");
         when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
-        when(request.getRequestURI()).thenReturn("/openDolphin/resources/20/adm/phr/identityToken");
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/api/admin/token/identity");
         when(request.getMethod()).thenReturn("POST");
         when(request.getRemoteAddr()).thenReturn("192.0.2.10");
 
@@ -110,7 +110,7 @@ class LogFilterTest {
         Map<String, String> headers = new HashMap<>();
         headers.put(TRACE_ID_HEADER, "trace-authenticated");
         when(request.getHeader(anyString())).thenAnswer(invocation -> headers.get(invocation.getArgument(0, String.class)));
-        when(request.getRequestURI()).thenReturn("/openDolphin/resources/20/adm/phr/identityToken");
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/api/admin/token/identity");
         when(request.getMethod()).thenReturn("POST");
         when(request.getRemoteAddr()).thenReturn("192.0.2.12");
 

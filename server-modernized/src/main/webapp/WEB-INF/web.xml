@@ -117,25 +117,13 @@
                 open.orca.rest.OrcaMasterResource,
                 open.orca.rest.OrcaMasterApiAliasResource,
                 open.orca.rest.OrcaMasterReferenceStatusResource,
-                open.orca.rest.OrcaTensuAliasResource,
                 open.dolphin.orca.rest.OrcaAppointmentResource,
                 open.dolphin.orca.rest.OrcaVisitResource,
                 open.dolphin.orca.rest.OrcaPatientLocalSearchResource,
                 open.dolphin.orca.rest.OrcaPatientBatchResource,
                 open.dolphin.orca.rest.OrcaPatientSyncResource,
-                open.dolphin.touch.JsonTouchResource,
-                open.dolphin.touch.DolphinResource,
                 <!-- DemoResource / DemoResourceASP are intentionally not listed.
                      Demo endpoints must never be auto-discovered in production. -->
-                open.dolphin.touch.patient.TouchPatientResource,
-                open.dolphin.touch.stamp.TouchStampResource,
-                open.dolphin.touch.user.TouchUserResource,
-                open.dolphin.touch.EHTResource,
-                open.dolphin.adm10.rest.JsonTouchResource,
-                open.dolphin.adm20.rest.JsonTouchResource,
-                open.dolphin.adm20.rest.EHTResource,
-                open.dolphin.adm20.rest.AdmissionResource,
-                open.dolphin.adm20.rest.PHRResource
         </param-value>
     </context-param>
 
@@ -151,16 +139,6 @@
     <context-param>
         <param-name>resteasy.scan</param-name>
         <param-value>false</param-value>
-    </context-param>
-
-    <context-param>
-        <param-name>touch.demo.fixedFacilityId</param-name>
-        <param-value>1.3.6.1.4.1.9414.2.100</param-value>
-    </context-param>
-
-    <context-param>
-        <param-name>touch.phr.requiredHeaders</param-name>
-        <param-value>X-Facility-Id,X-Touch-TraceId</param-value>
     </context-param>
 
     <listener>

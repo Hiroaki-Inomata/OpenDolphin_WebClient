@@ -10,7 +10,6 @@ import { AdminStatusPill } from '../components/AdminStatusPill';
 
 type OrcaInternalWrapperEndpoint =
   | 'medical-sets'
-  | 'tensu-sync'
   | 'birth-delivery'
   | 'medical-records'
   | 'patient-mutation'

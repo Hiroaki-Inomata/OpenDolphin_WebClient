@@ -32,7 +32,6 @@ public class StubEndpointExposureFilter implements Filter {
 
     private static final Set<String> STUB_PATH_PREFIXES = Set.of(
             "/orca/medical-sets",
-            "/orca/tensu/sync",
             "/orca/birth-delivery",
             "/orca/patient/mutation",
             "/orca12/patientmodv2/outpatient"

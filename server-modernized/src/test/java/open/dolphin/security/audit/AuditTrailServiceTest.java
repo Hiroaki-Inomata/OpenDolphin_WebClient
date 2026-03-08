@@ -38,8 +38,8 @@ class AuditTrailServiceTest {
         AuditEventPayload payload = new AuditEventPayload();
         payload.setActorId("F001:doctor01");
         payload.setActorDisplayName("doctor01");
-        payload.setAction("TOUCH_PATIENT_READ");
-        payload.setResource("/touch/patient");
+        payload.setAction("PATIENT_READ");
+        payload.setResource("/patient");
         payload.setTraceId("trace-audit");
         payload.setRequestId("req-audit");
         payload.setOutcome("SUCCESS");
