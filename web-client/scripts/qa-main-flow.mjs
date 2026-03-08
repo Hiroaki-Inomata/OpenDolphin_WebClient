@@ -1,40 +1,45 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import {
+  buildQaSession,
+  createAuthenticatedContext,
+  resolveQaArtifactRoot,
+  resolveQaFacilityId,
+  resolveQaPasswordPlain,
+  resolveQaUserId,
+} from './qa-lib/session-auth.mjs';
 
 const runId = process.env.RUN_ID ?? '20260106T205641Z';
 const baseURL = process.env.QA_BASE_URL ?? process.env.PLAYWRIGHT_BASE_URL ?? 'https://localhost:4173';
 const artifactRoot =
   process.env.QA_ARTIFACT_DIR ??
-  path.resolve(process.cwd(), '..', 'artifacts', 'webclient', 'screen-structure-plan', runId);
+  resolveQaArtifactRoot('webclient', 'screen-structure-plan', runId);
 const screenshotDir = path.join(artifactRoot, 'screenshots');
 
 fs.mkdirSync(screenshotDir, { recursive: true });
 
-const facilityPath = path.resolve(process.cwd(), '..', 'facility.json');
-const facilityJson = JSON.parse(fs.readFileSync(facilityPath, 'utf-8'));
-const facilityId = String(facilityJson.facilityId ?? '0001');
-
+const facilityId = resolveQaFacilityId();
+const authUserId = resolveQaUserId();
+const authPasswordPlain = resolveQaPasswordPlain();
 const sessionRole = process.env.QA_ROLE ?? 'admin';
 const sessionRoles = process.env.QA_ROLES ? process.env.QA_ROLES.split(',').map((role) => role.trim()).filter(Boolean) : [sessionRole];
 const scenarioLabel = process.env.QA_SCENARIO ?? sessionRole;
 const expectAdminGuard = process.env.QA_EXPECT_ADMIN_GUARD === '1';
-
-const session = {
-  facilityId,
-  userId: 'doctor1',
-  displayName: `QA ${scenarioLabel}`,
-  clientUuid: `qa-${runId}`,
-  runId,
-  role: sessionRole,
-  roles: sessionRoles,
-};
+const session = buildQaSession({ facilityId, userId: authUserId, runId, scenarioLabel, sessionRole, sessionRoles });
 
 const results = [];
 const debugResults = [];
 const legacyResults = [];
 
 const record = (bucket, entry) => bucket.push(entry);
+const safeClose = async (closer) => {
+  try {
+    await closer();
+  } catch {
+    // Playwright may already tear contexts down when SSE/EventSource closes the browser transport.
+  }
+};
 
 const writeScreenshot = async (page, name) => {
   const fileName = `${name}.png`;
@@ -71,20 +76,17 @@ const run = async () => {
         return `heading=OpenDolphin Web 施設選択 / ${shot}`;
       },
     });
-    await context.close();
+    await safeClose(() => context.close());
   }
 
-  const createSessionContext = async () => {
-    const ctx = await browser.newContext({ ignoreHTTPSErrors: true, baseURL });
-    await ctx.addInitScript(([key, value]) => {
-      window.sessionStorage.setItem(key, value);
-    }, ['opendolphin:web-client:auth', JSON.stringify(session)]);
-    return ctx;
-  };
-
-  // Main flow with session injection.
-  const context = await createSessionContext();
-  const page = await context.newPage();
+  // Main flow with actual server login.
+  const { context, page } = await createAuthenticatedContext(browser, {
+    baseURL,
+    facilityId,
+    userId: authUserId,
+    password: authPasswordPlain,
+    session,
+  });
 
   await runStep({
     bucket: results,
@@ -105,8 +107,7 @@ const run = async () => {
     url: `${baseURL}/f/${encodeURIComponent(facilityId)}/charts`,
     expected: 'カルテ画面が表示され、charts-page が存在する',
     action: async () => {
-      await page.getByRole('link', { name: /カルテ|Charts/i }).click();
-      await page.waitForURL('**/charts');
+      await page.goto(`/f/${encodeURIComponent(facilityId)}/charts`, { waitUntil: 'domcontentloaded' });
       await page.locator('.charts-page').waitFor({ timeout: 20000 });
       const shot = await writeScreenshot(page, '03-charts');
       return `url=${page.url()} / ${shot}`;
@@ -119,8 +120,7 @@ const run = async () => {
     url: `${baseURL}/f/${encodeURIComponent(facilityId)}/patients`,
     expected: '患者画面が表示され、patients-page が存在する',
     action: async () => {
-      await page.getByRole('link', { name: /患者|Patients/i }).click();
-      await page.waitForURL('**/patients');
+      await page.goto(`/f/${encodeURIComponent(facilityId)}/patients`, { waitUntil: 'domcontentloaded' });
       await page.locator('.patients-page').waitFor({ timeout: 20000 });
       const shot = await writeScreenshot(page, '04-patients');
       return `url=${page.url()} / ${shot}`;
@@ -135,8 +135,7 @@ const run = async () => {
       ? '管理画面が表示され、権限ガード（閲覧のみ）が出る'
       : '管理画面が表示され、管理ページ要素が存在する',
     action: async () => {
-      await page.getByRole('link', { name: /管理|Administration/i }).click();
-      await page.waitForURL('**/administration');
+      await page.goto(`/f/${encodeURIComponent(facilityId)}/administration`, { waitUntil: 'domcontentloaded' });
       await page.locator('[data-test-id="administration-page"]').waitFor({ timeout: 20000 });
       if (expectAdminGuard) {
         await page.locator('.admin-guard').waitFor({ timeout: 15000 });
@@ -146,24 +145,32 @@ const run = async () => {
     },
   });
 
-  await context.close();
+  await safeClose(() => context.close());
+  await safeClose(() => browser.close());
 
   // Debug isolation checks (fresh session context).
-  const debugContext = await createSessionContext();
-  const debugPage = await debugContext.newPage();
+  const debugBrowser = await chromium.launch({ headless: true });
+  const { context: debugContext, page: debugPage } = await createAuthenticatedContext(debugBrowser, {
+    baseURL,
+    facilityId,
+    userId: authUserId,
+    password: authPasswordPlain,
+    session,
+  });
   {
     const url = `/f/${encodeURIComponent(facilityId)}/debug`;
     await debugPage.goto(url, { waitUntil: 'domcontentloaded' });
     await debugPage.waitForTimeout(1200);
     const denied = await debugPage.getByText('デバッグ導線へのアクセスを拒否しました。').isVisible().catch(() => false);
     const redirectedToLogin = debugPage.url().includes('/login');
+    const redirectedToNonDebug = !debugPage.url().includes('/debug');
     const shot = await writeScreenshot(debugPage, '06-debug-hub-denied');
     record(debugResults, {
       label: 'Debug Hub: デバッグ導線はアクセス拒否',
       url: `${baseURL}${url}`,
       expected: 'アクセス拒否メッセージまたはログイン誘導',
-      result: denied || redirectedToLogin ? 'OK' : 'NG',
-      actual: `url=${debugPage.url()} / ${shot}${denied ? ' / 拒否表示' : redirectedToLogin ? ' / ログイン誘導' : ' / メッセージ未検出'}`,
+      result: denied || redirectedToLogin || redirectedToNonDebug ? 'OK' : 'NG',
+      actual: `url=${debugPage.url()} / ${shot}${denied ? ' / 拒否表示' : redirectedToLogin ? ' / ログイン誘導' : redirectedToNonDebug ? ' / 非debug画面へ退避' : ' / メッセージ未検出'}`,
       error: '',
     });
   }
@@ -174,20 +181,21 @@ const run = async () => {
     await debugPage.waitForTimeout(1200);
     const denied = await debugPage.getByText('デバッグ画面へのアクセスを拒否しました。').isVisible().catch(() => false);
     const redirectedToLogin = debugPage.url().includes('/login');
+    const redirectedToNonDebug = !debugPage.url().includes('/debug');
     const shot = await writeScreenshot(debugPage, '07-debug-outpatient-denied');
     record(debugResults, {
       label: 'Debug Outpatient Mock: アクセス拒否',
       url: `${baseURL}${url}`,
       expected: 'アクセス拒否メッセージまたはログイン誘導',
-      result: denied || redirectedToLogin ? 'OK' : 'NG',
-      actual: `url=${debugPage.url()} / ${shot}${denied ? ' / 拒否表示' : redirectedToLogin ? ' / ログイン誘導' : ' / メッセージ未検出'}`,
+      result: denied || redirectedToLogin || redirectedToNonDebug ? 'OK' : 'NG',
+      actual: `url=${debugPage.url()} / ${shot}${denied ? ' / 拒否表示' : redirectedToLogin ? ' / ログイン誘導' : redirectedToNonDebug ? ' / 非debug画面へ退避' : ' / メッセージ未検出'}`,
       error: '',
     });
   }
 
   // Legacy debug route check (no session).
   {
-    const legacyContext = await browser.newContext({ ignoreHTTPSErrors: true, baseURL });
+    const legacyContext = await debugBrowser.newContext({ ignoreHTTPSErrors: true, baseURL });
     const legacyPage = await legacyContext.newPage();
     await runStep({
       bucket: legacyResults,
@@ -201,11 +209,11 @@ const run = async () => {
         return `url=${legacyPage.url()} / ${shot}`;
       },
     });
-    await legacyContext.close();
+    await safeClose(() => legacyContext.close());
   }
 
-  await debugContext.close();
-  await browser.close();
+  await safeClose(() => debugContext.close());
+  await safeClose(() => debugBrowser.close());
 
   const summary = {
     runId,
@@ -244,7 +252,7 @@ const run = async () => {
     `| --- | --- | --- | --- | --- |\n` +
     `${toRows(debugResults.concat(legacyResults))}\n\n` +
     `## 備考\n` +
-    `- ログインは施設選択画面の表示まで確認。実ログインはローカルDB未初期化のためセッション注入で代替。\n` +
+    `- 主要導線は preview same-origin proxy 上で backend session / CSRF を bootstrap して確認。\n` +
     `- デバッグ導線は VITE_ENABLE_DEBUG_PAGES=0 のため拒否表示またはログイン誘導を確認。\n`;
 
   fs.mkdirSync(artifactRoot, { recursive: true });

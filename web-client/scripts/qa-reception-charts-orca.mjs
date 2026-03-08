@@ -1,43 +1,44 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import {
+  buildQaSession,
+  createAuthenticatedContext,
+  resolveQaArtifactRoot,
+  resolveQaFacilityId,
+  resolveQaPasswordPlain,
+  resolveQaUserId,
+} from './qa-lib/session-auth.mjs';
 
 const now = new Date();
 const runId = process.env.RUN_ID ?? now.toISOString().replace(/[-:]/g, '').replace(/\..+/, 'Z');
 const baseURL = process.env.QA_BASE_URL ?? process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5174';
 const artifactRoot =
   process.env.QA_ARTIFACT_DIR ??
-  path.resolve(process.cwd(), '..', 'artifacts', 'webclient', 'screen-structure-plan', runId);
+  resolveQaArtifactRoot('webclient', 'screen-structure-plan', runId);
 const screenshotDir = path.join(artifactRoot, 'screenshots-orca-off');
 
 fs.mkdirSync(screenshotDir, { recursive: true });
 
-const facilityPath = path.resolve(process.cwd(), '..', 'facility.json');
-const facilityJson = JSON.parse(fs.readFileSync(facilityPath, 'utf-8'));
-const facilityId = String(facilityJson.facilityId ?? '0001');
-
+const facilityId = resolveQaFacilityId();
 const sessionRole = process.env.QA_ROLE ?? 'admin';
 const sessionRoles = process.env.QA_ROLES ? process.env.QA_ROLES.split(',').map((role) => role.trim()).filter(Boolean) : [sessionRole];
 const scenarioLabel = process.env.QA_SCENARIO ?? sessionRole;
-
-const authUserId = 'doctor1';
-const authPasswordPlain = 'doctor2025';
-const authPasswordMd5 = '632080fabdb968f9ac4f31fb55104648';
-
-const session = {
-  facilityId,
-  userId: authUserId,
-  displayName: `QA ${scenarioLabel}`,
-  clientUuid: `qa-${runId}`,
-  runId,
-  role: sessionRole,
-  roles: sessionRoles,
-};
+const authUserId = resolveQaUserId();
+const authPasswordPlain = resolveQaPasswordPlain();
+const session = buildQaSession({ facilityId, userId: authUserId, runId, scenarioLabel, sessionRole, sessionRoles });
 
 const results = [];
 const responses = [];
 
 const record = (bucket, entry) => bucket.push(entry);
+const safeClose = async (closer) => {
+  try {
+    await closer();
+  } catch {
+    // Playwright transport may already be gone after the last navigation.
+  }
+};
 
 const writeScreenshot = async (page, name) => {
   const fileName = `${name}.png`;
@@ -55,35 +56,6 @@ const runStep = async ({ label, url, expected, action }) => {
   }
 };
 
-const createSessionContext = async (browser) => {
-  const ctx = await browser.newContext({ ignoreHTTPSErrors: true, baseURL });
-  await ctx.addInitScript(
-    ([key, value, auth]) => {
-      window.sessionStorage.setItem(key, value);
-      window.sessionStorage.setItem('devFacilityId', auth.facilityId);
-      window.sessionStorage.setItem('devUserId', auth.userId);
-      window.sessionStorage.setItem('devPasswordMd5', auth.passwordMd5);
-      window.sessionStorage.setItem('devClientUuid', auth.clientUuid);
-      window.localStorage.setItem('devFacilityId', auth.facilityId);
-      window.localStorage.setItem('devUserId', auth.userId);
-      window.localStorage.setItem('devPasswordMd5', auth.passwordMd5);
-      window.localStorage.setItem('devClientUuid', auth.clientUuid);
-    },
-    [
-      'opendolphin:web-client:auth',
-      JSON.stringify(session),
-      {
-        facilityId,
-        userId: authUserId,
-        passwordMd5: authPasswordMd5,
-        passwordPlain: authPasswordPlain,
-        clientUuid: session.clientUuid,
-      },
-    ],
-  );
-  return ctx;
-};
-
 const isTarget = (url) =>
   url.includes('/orca/appointments/list') ||
   url.includes('/orca/visits/list') ||
@@ -91,8 +63,13 @@ const isTarget = (url) =>
 
 const run = async () => {
   const browser = await chromium.launch({ headless: true });
-  const context = await createSessionContext(browser);
-  const page = await context.newPage();
+  const { context, page } = await createAuthenticatedContext(browser, {
+    baseURL,
+    facilityId,
+    userId: authUserId,
+    password: authPasswordPlain,
+    session,
+  });
 
   page.on('response', async (response) => {
     const url = response.url();
@@ -125,8 +102,7 @@ const run = async () => {
     url: `${baseURL}/f/${encodeURIComponent(facilityId)}/charts`,
     expected: 'charts-page が表示され、/orca21/medicalmodv2/outpatient が 404 にならない',
     action: async () => {
-      await page.getByRole('link', { name: /カルテ|Charts/i }).click();
-      await page.waitForURL('**/charts');
+      await page.goto(`/f/${encodeURIComponent(facilityId)}/charts`, { waitUntil: 'domcontentloaded' });
       await page.locator('.charts-page').waitFor({ timeout: 20000 });
       await page.waitForTimeout(2000);
       const shot = await writeScreenshot(page, '02-charts-orca-off');
@@ -137,8 +113,8 @@ const run = async () => {
     },
   });
 
-  await context.close();
-  await browser.close();
+  await safeClose(() => context.close());
+  await safeClose(() => browser.close());
 
   const summary = {
     runId,

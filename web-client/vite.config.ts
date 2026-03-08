@@ -153,12 +153,16 @@ export default defineConfig(({ mode }) => {
     const trimmed = rawPath.trim();
     return trimmed === '/api/admin' || trimmed.startsWith('/api/admin/');
   };
+  const isSessionApiPath = (rawPath: string) => {
+    const trimmed = rawPath.trim();
+    return trimmed === '/api/session' || trimmed.startsWith('/api/session/');
+  };
   const isApiOrcaQueuePath = (rawPath: string) => {
     const trimmed = rawPath.trim();
     return trimmed === '/api/orca' || trimmed.startsWith('/api/orca/');
   };
   const rewriteApiPath = (rawPath: string) => {
-    if (isAdminApiPath(rawPath) || isApiOrcaQueuePath(rawPath)) return addResourcePrefix(rawPath);
+    if (isAdminApiPath(rawPath) || isSessionApiPath(rawPath) || isApiOrcaQueuePath(rawPath)) return addResourcePrefix(rawPath);
     if (resolvedOrcaPrefix && isOrcaApiPath(rawPath)) return addOrcaPrefix(stripApiPrefix(rawPath));
     return addResourcePrefix(stripApiPrefix(rawPath));
   };
