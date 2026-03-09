@@ -14,8 +14,8 @@ import jakarta.ws.rs.core.Response;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import open.dolphin.rest.dto.CurrentUserResponse;
 import open.dolphin.session.UserServiceBean;
-import open.dolphin.touch.JsonTouchSharedService;
 
 @Path("/api/session")
 public class SessionAuthResource extends AbstractResource {
@@ -68,7 +68,7 @@ public class SessionAuthResource extends AbstractResource {
             throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "認証に失敗しました。");
         }
 
-        JsonTouchSharedService.SafeUserResponse safeUser = loadSafeUser(actorId);
+        CurrentUserResponse safeUser = loadSafeUser(actorId);
         if (safeUser == null) {
             throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "認証ユーザーを取得できませんでした。");
         }
@@ -127,7 +127,7 @@ public class SessionAuthResource extends AbstractResource {
             return onInvalidSecondFactorCode(currentSession);
         }
 
-        JsonTouchSharedService.SafeUserResponse safeUser = loadSafeUser(pending.actorId());
+        CurrentUserResponse safeUser = loadSafeUser(pending.actorId());
         if (safeUser == null) {
             AuthSessionSupport.clearSession(currentSession);
             throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "認証ユーザーを取得できませんでした。");
@@ -156,7 +156,7 @@ public class SessionAuthResource extends AbstractResource {
         if (actorId == null) {
             throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
         }
-        JsonTouchSharedService.SafeUserResponse safeUser = loadSafeUser(actorId);
+        CurrentUserResponse safeUser = loadSafeUser(actorId);
         if (safeUser == null) {
             throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required.");
         }
@@ -167,9 +167,9 @@ public class SessionAuthResource extends AbstractResource {
         return AuthSessionSupport.noStore(Response.ok(payload)).build();
     }
 
-    private JsonTouchSharedService.SafeUserResponse loadSafeUser(String actorId) {
+    private CurrentUserResponse loadSafeUser(String actorId) {
         try {
-            return JsonTouchSharedService.toSafeUserResponse(userServiceBean.getUser(actorId));
+            return CurrentUserResponse.from(userServiceBean.getUser(actorId));
         } catch (RuntimeException ex) {
             return null;
         }

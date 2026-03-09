@@ -7,7 +7,7 @@ import jakarta.ws.rs.core.Response;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import open.dolphin.touch.JsonTouchSharedService;
+import open.dolphin.rest.dto.CurrentUserResponse;
 
 final class AuthSessionSupport {
 
@@ -200,7 +200,7 @@ final class AuthSessionSupport {
         return updated;
     }
 
-    static SessionUserResponse toSessionUserResponse(JsonTouchSharedService.SafeUserResponse safeUser,
+    static SessionUserResponse toSessionUserResponse(CurrentUserResponse safeUser,
             String clientUuid,
             String runId) {
         if (safeUser == null) {
