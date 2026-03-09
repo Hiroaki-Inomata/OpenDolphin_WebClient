@@ -55,6 +55,8 @@ import { importPatientsFromOrca } from '../outpatient/orcaPatientImportApi';
 import { fetchPatientMemo, updatePatientMemo, type PatientMemoUpdateResult } from './patientMemoApi';
 import { fetchPatientOriginal, type PatientOriginalFormat, type PatientOriginalResponse } from './patientOriginalApi';
 import { fetchInsuranceList, type HealthInsuranceEntry, type InsuranceListResponse, type PublicInsuranceEntry } from './insuranceApi';
+import { fetchOrcaAddress } from './orcaAddressApi';
+import { fetchOrcaHokenja, type OrcaHokenjaResult } from './orcaHokenjaApi';
 import { PATIENT_FIELD_LABEL, diffPatientKeys } from './patientDiff';
 import { validatePatientMutation, type PatientOperation, type PatientValidationError } from './patientValidation';
 import {
@@ -93,6 +95,19 @@ const toLocalDateYmd = (date = new Date()): string => {
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+
+const buildHokenjaInsuranceLabel = (item: {
+  payerCode?: string;
+  payerName?: string;
+  payerType?: string;
+}) => {
+  if (item.payerName && item.payerCode) return `${item.payerName} (${item.payerCode})`;
+  if (item.payerName) return item.payerName;
+  if (item.payerCode) return item.payerCode;
+  return item.payerType ?? '';
+};
+
+const normalizeZipCode = (value?: string | null) => (value ?? '').replace(/\D/g, '');
 
 const normalizePaymentMode = (value?: string | null): PaymentMode | undefined =>
   value === 'insurance' || value === 'self' ? value : undefined;
@@ -487,6 +502,14 @@ export function PatientsPage({ runId }: PatientsPageProps) {
   });
   const [insuranceResult, setInsuranceResult] = useState<InsuranceListResponse | null>(null);
   const [insuranceNotice, setInsuranceNotice] = useState<ToastState | null>(null);
+  const [orcaAddressPending, setOrcaAddressPending] = useState(false);
+  const [hokenjaFilters, setHokenjaFilters] = useState({
+    keyword: '',
+    pref: '',
+    effective: today,
+  });
+  const [hokenjaPending, setHokenjaPending] = useState(false);
+  const [hokenjaResult, setHokenjaResult] = useState<OrcaHokenjaResult | null>(null);
   const [lastMeta, setLastMeta] = useState<
     Pick<
       PatientListResponse,
@@ -1117,6 +1140,57 @@ export function PatientsPage({ runId }: PatientsPageProps) {
     return { blockReasons: reasons, blockReasonKeys: keys };
   }, [resolvedFallbackUsed, resolvedMissingMaster, resolvedTransition]);
   const blocking = blockReasons.length > 0;
+  const handleOrcaAddressLookup = useCallback(async () => {
+    const zip = normalizeZipCode(form.zip);
+    if (zip.length !== 7 || blocking || orcaAddressPending) return;
+    setOrcaAddressPending(true);
+    try {
+      const result = await fetchOrcaAddress({ zip, effective: today });
+      if (result.ok && result.item) {
+        const fullAddress = result.item.fullAddress ?? [result.item.city, result.item.town].filter(Boolean).join('');
+        setForm((prev) => ({ ...prev, address: fullAddress || prev.address }));
+        enqueue({ tone: 'success', message: '住所を補完しました。', detail: fullAddress || '住所候補を取得しました。' });
+        return;
+      }
+      if (result.notFound) {
+        enqueue({ tone: 'warning', message: '該当する住所が見つかりませんでした' });
+        return;
+      }
+      enqueue({ tone: 'error', message: result.message ?? '住所補完に失敗しました。' });
+    } catch (error) {
+      enqueue({ tone: 'error', message: error instanceof Error ? error.message : '住所補完に失敗しました。' });
+    } finally {
+      setOrcaAddressPending(false);
+    }
+  }, [blocking, enqueue, form.zip, orcaAddressPending, today]);
+  const handleHokenjaSearch = useCallback(async () => {
+    if (hokenjaPending || blocking) return;
+    const keyword = hokenjaFilters.keyword.trim();
+    if (!keyword) {
+      setHokenjaResult({ ok: false, status: 0, items: [], totalCount: 0, message: '検索キーワードを入力してください。' });
+      return;
+    }
+    setHokenjaPending(true);
+    try {
+      const result = await fetchOrcaHokenja({
+        keyword,
+        pref: hokenjaFilters.pref,
+        effective: hokenjaFilters.effective,
+      });
+      setHokenjaResult(result);
+    } catch (error) {
+      setHokenjaResult({
+        ok: false,
+        status: 0,
+        items: [],
+        totalCount: 0,
+        message: error instanceof Error ? error.message : '保険者検索に失敗しました。',
+      });
+    } finally {
+      setHokenjaPending(false);
+    }
+  }, [blocking, hokenjaFilters.effective, hokenjaFilters.keyword, hokenjaFilters.pref, hokenjaPending]);
+  const canLookupAddress = normalizeZipCode(form.zip).length === 7 && !blocking && !orcaAddressPending;
   const missingMasterFlag = resolvedMissingMaster;
   const fallbackUsedFlag = resolvedFallbackUsed;
   const memoValidationErrors: string[] = [];
@@ -2733,7 +2807,12 @@ export function PatientsPage({ runId }: PatientsPageProps) {
               ) : null}
             </label>
             <label>
-              <span>郵便番号</span>
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                <span>郵便番号</span>
+                <button type="button" className="ghost" onClick={handleOrcaAddressLookup} disabled={!canLookupAddress}>
+                  {orcaAddressPending ? '住所補完中…' : '住所補完'}
+                </button>
+              </span>
               <input
                 id="patients-form-zip"
                 value={form.zip ?? ''}
@@ -3131,6 +3210,112 @@ export function PatientsPage({ runId }: PatientsPageProps) {
                 </div>
               </div>
             )}
+            <section className="patients-page__insurance-helper" aria-label="保険者検索（hokenja）">
+              <header className="patients-page__insurance-header">
+                <div>
+                  <p className="patients-page__insurance-kicker">ORCA 保険</p>
+                  <h3>保険者検索（hokenja）</h3>
+                </div>
+                <div className="patients-page__insurance-actions">
+                  <button type="button" className="ghost" onClick={() => void handleHokenjaSearch()} disabled={blocking || hokenjaPending}>
+                    {hokenjaPending ? '検索中…' : '検索'}
+                  </button>
+                </div>
+              </header>
+              <div className="patients-page__insurance-grid">
+                <label>
+                  <span>keyword</span>
+                  <input
+                    id="patients-hokenja-keyword"
+                    value={hokenjaFilters.keyword}
+                    onChange={(event) => setHokenjaFilters((prev) => ({ ...prev, keyword: event.target.value }))}
+                    placeholder="保険者番号/名称"
+                    disabled={blocking}
+                  />
+                </label>
+                <label>
+                  <span>pref（任意）</span>
+                  <input
+                    id="patients-hokenja-pref"
+                    value={hokenjaFilters.pref}
+                    onChange={(event) => setHokenjaFilters((prev) => ({ ...prev, pref: event.target.value }))}
+                    placeholder="13"
+                    inputMode="numeric"
+                    disabled={blocking}
+                  />
+                </label>
+                <label>
+                  <span>effective</span>
+                  <input
+                    id="patients-hokenja-effective"
+                    type="date"
+                    value={hokenjaFilters.effective}
+                    onChange={(event) => setHokenjaFilters((prev) => ({ ...prev, effective: event.target.value }))}
+                    disabled={blocking}
+                  />
+                </label>
+              </div>
+              {hokenjaResult && !hokenjaResult.ok ? (
+                <div className="patients-page__toast patients-page__toast--error" role="status">
+                  <strong>{hokenjaResult.message ?? '保険者検索に失敗しました。'}</strong>
+                </div>
+              ) : null}
+              {hokenjaResult ? (
+                <div className="patients-page__insurance-summary" role="status" aria-live="polite">
+                  <div className="patients-page__insurance-summary-main">
+                    <strong>検索結果</strong>
+                    <span>{hokenjaResult.totalCount ?? hokenjaResult.items.length} 件</span>
+                  </div>
+                  <div className="patients-page__insurance-summary-meta">
+                    <span>keyword: {hokenjaFilters.keyword || '指定なし'}</span>
+                    <span>反映先: 編集フォームの「保険/自費」欄</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="patients-page__insurance-empty">保険者検索はまだ実行されていません。</p>
+              )}
+              {hokenjaResult?.ok ? (
+                hokenjaResult.items.length === 0 ? (
+                  <p className="patients-page__insurance-empty">該当する保険者がありません。</p>
+                ) : (
+                  <div className="patients-page__insurance-results">
+                    <div className="patients-page__insurance-group">
+                      <div className="patients-page__insurance-group-header">
+                        <strong>保険者</strong>
+                        <span>{hokenjaResult.items.length} 件</span>
+                      </div>
+                      <ul>
+                        {hokenjaResult.items.map((item, index) => {
+                          const label = buildHokenjaInsuranceLabel(item);
+                          return (
+                            <li key={`${item.payerCode ?? 'hokenja'}-${index}`}>
+                              <div className="patients-page__insurance-item-main">
+                                <span>{item.payerName ?? item.payerCode ?? '名称不明'}</span>
+                                <small>
+                                  番号: {item.payerCode ?? '—'} / 種別: {item.payerType ?? '—'} / 住所: {item.addressLine ?? '—'}
+                                </small>
+                              </div>
+                              <div className="patients-page__insurance-item-actions">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setForm((prev) => ({ ...prev, insurance: label }));
+                                    enqueue({ tone: 'success', message: '保険者情報を反映しました。', detail: label });
+                                  }}
+                                  disabled={blocking || !label}
+                                >
+                                  反映
+                                </button>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  </div>
+                )
+              ) : null}
+            </section>
           </section>
 
           </section>

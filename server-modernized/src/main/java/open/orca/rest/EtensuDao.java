@@ -94,6 +94,14 @@ public class EtensuDao {
                 params.add(criteria.category);
             }
         }
+        if (criteria.pointsMin != null) {
+            where.append(" AND COALESCE(").append(selectColumn(meta.tankaColumn)).append(", 0) >= ?");
+            params.add(criteria.pointsMin);
+        }
+        if (criteria.pointsMax != null) {
+            where.append(" AND COALESCE(").append(selectColumn(meta.tankaColumn)).append(", 0) <= ?");
+            params.add(criteria.pointsMax);
+        }
         EtensuQuery query = new EtensuQuery(where.toString(), params);
         return query;
     }
@@ -623,6 +631,10 @@ public class EtensuDao {
                 ps.setObject(index++, null);
             } else if (param instanceof Integer) {
                 ps.setInt(index++, (Integer) param);
+            } else if (param instanceof Long) {
+                ps.setLong(index++, (Long) param);
+            } else if (param instanceof Double) {
+                ps.setDouble(index++, (Double) param);
             } else {
                 ps.setString(index++, param.toString());
             }
@@ -675,6 +687,8 @@ public class EtensuDao {
         private String category;
         private String asOf;
         private String tensuVersion;
+        private Double pointsMin;
+        private Double pointsMax;
         private int page;
         private int size;
 
@@ -708,6 +722,22 @@ public class EtensuDao {
 
         public void setTensuVersion(String tensuVersion) {
             this.tensuVersion = tensuVersion;
+        }
+
+        public Double getPointsMin() {
+            return pointsMin;
+        }
+
+        public void setPointsMin(Double pointsMin) {
+            this.pointsMin = pointsMin;
+        }
+
+        public Double getPointsMax() {
+            return pointsMax;
+        }
+
+        public void setPointsMax(Double pointsMax) {
+            this.pointsMax = pointsMax;
         }
 
         public int getPage() {

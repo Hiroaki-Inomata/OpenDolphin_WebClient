@@ -1,7 +1,9 @@
 package open.dolphin.rest.orca;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.WebApplicationException;
@@ -27,6 +29,10 @@ import open.dolphin.rest.dto.orca.OrderBundleFetchResponse;
 import open.dolphin.rest.dto.orca.OrderBundleMutationRequest;
 import open.dolphin.rest.dto.orca.OrderBundleMutationResponse;
 import open.dolphin.rest.dto.orca.OrderBundleRecommendationResponse;
+import open.dolphin.rest.dto.orca.OrcaOrderInputSetDetailResponse;
+import open.dolphin.rest.dto.orca.OrcaOrderInputSetListResponse;
+import open.dolphin.rest.dto.orca.OrcaOrderInteractionCheckRequest;
+import open.dolphin.rest.dto.orca.OrcaOrderInteractionCheckResponse;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.session.KarteServiceBean;
@@ -259,6 +265,164 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         assertEquals(2, claimItems.length);
         assertEquals("002777", claimItems[0].getCode());
         assertEquals("頭部", claimItems[0].getName());
+    }
+
+    @Test
+    void getInputSetsReturnsPagedResponse() throws Exception {
+        OrcaOrderBundleResource inputSetResource = new OrcaOrderBundleResource() {
+            @Override
+            protected List<OrcaOrderInputSetListResponse.Item> loadInputSetSummaries(String keyword, String effective) {
+                OrcaOrderInputSetListResponse.Item med = new OrcaOrderInputSetListResponse.Item();
+                med.setSetCode("P01001");
+                med.setName("降圧セット");
+                med.setEntity(IInfoModel.ENTITY_MED_ORDER);
+                med.setKind("P");
+                med.setClassCode("212");
+                med.setClassCodeSystem("Claim007");
+                med.setItemCount(3);
+                med.setValidFrom("20240401");
+                med.setValidTo("99991231");
+
+                OrcaOrderInputSetListResponse.Item treatment = new OrcaOrderInputSetListResponse.Item();
+                treatment.setSetCode("S02001");
+                treatment.setName("処置セット");
+                treatment.setEntity(IInfoModel.ENTITY_TREATMENT);
+                treatment.setKind("S");
+                treatment.setClassCode("400");
+                treatment.setClassCodeSystem("Claim007");
+                treatment.setItemCount(2);
+                treatment.setValidFrom("20240401");
+                treatment.setValidTo("99991231");
+                return List.of(treatment, med);
+            }
+        };
+        injectField(inputSetResource, "sessionAuditDispatcher", auditDispatcher);
+        injectField(inputSetResource, "patientServiceBean", new FakePatientServiceBean());
+        injectField(inputSetResource, "karteServiceBean", fakeKarteServiceBean);
+        injectField(inputSetResource, "userServiceBean", new FakeUserServiceBean());
+
+        OrcaOrderInputSetListResponse response =
+                inputSetResource.getInputSets(servletRequest, "セット", null, "2026-03-09", 1, 20);
+
+        assertNotNull(response);
+        assertEquals(2, response.getTotalCount());
+        assertEquals(2, response.getItems().size());
+        assertEquals("P01001", response.getItems().get(0).getSetCode());
+        assertEquals("S02001", response.getItems().get(1).getSetCode());
+    }
+
+    @Test
+    void getInputSetDetailReturnsBundle() throws Exception {
+        OrcaOrderBundleResource inputSetResource = new OrcaOrderBundleResource() {
+            @Override
+            protected OrcaOrderInputSetDetailResponse.Bundle loadInputSetDetailData(String setCode, String effective, String requestedName) {
+                OrcaOrderInputSetDetailResponse.Bundle bundle = new OrcaOrderInputSetDetailResponse.Bundle();
+                bundle.setEntity(IInfoModel.ENTITY_MED_ORDER);
+                bundle.setBundleName("降圧セット");
+                bundle.setBundleNumber("14");
+                bundle.setClassCode("212");
+                bundle.setClassCodeSystem("Claim007");
+                bundle.setClassName("RP");
+                bundle.setStarted("2026-03-09");
+                OrcaOrderInputSetDetailResponse.Item item = new OrcaOrderInputSetDetailResponse.Item();
+                item.setCode("620000001");
+                item.setName("アムロジピン");
+                item.setQuantity("1");
+                item.setUnit("錠");
+                item.setMemo("");
+                bundle.setItems(List.of(item));
+                return bundle;
+            }
+        };
+        injectField(inputSetResource, "sessionAuditDispatcher", auditDispatcher);
+        injectField(inputSetResource, "patientServiceBean", new FakePatientServiceBean());
+        injectField(inputSetResource, "karteServiceBean", fakeKarteServiceBean);
+        injectField(inputSetResource, "userServiceBean", new FakeUserServiceBean());
+
+        OrcaOrderInputSetDetailResponse response =
+                inputSetResource.getInputSetDetail(servletRequest, "P01001", "20260309", IInfoModel.ENTITY_MED_ORDER, null);
+
+        assertTrue(response.isOk());
+        assertEquals("P01001", response.getSetCode());
+        assertNotNull(response.getBundle());
+        assertEquals("降圧セット", response.getBundle().getBundleName());
+        assertEquals(1, response.getBundle().getItems().size());
+    }
+
+    @Test
+    void getInputSetDetailReturnsNotFoundWhenEntityMismatch() throws Exception {
+        OrcaOrderBundleResource inputSetResource = new OrcaOrderBundleResource() {
+            @Override
+            protected OrcaOrderInputSetDetailResponse.Bundle loadInputSetDetailData(String setCode, String effective, String requestedName) {
+                OrcaOrderInputSetDetailResponse.Bundle bundle = new OrcaOrderInputSetDetailResponse.Bundle();
+                bundle.setEntity(IInfoModel.ENTITY_MED_ORDER);
+                bundle.setItems(List.of(new OrcaOrderInputSetDetailResponse.Item()));
+                return bundle;
+            }
+        };
+        injectField(inputSetResource, "sessionAuditDispatcher", auditDispatcher);
+        injectField(inputSetResource, "patientServiceBean", new FakePatientServiceBean());
+        injectField(inputSetResource, "karteServiceBean", fakeKarteServiceBean);
+        injectField(inputSetResource, "userServiceBean", new FakeUserServiceBean());
+
+        WebApplicationException exception = null;
+        try {
+            inputSetResource.getInputSetDetail(servletRequest, "P01001", "20260309", IInfoModel.ENTITY_TREATMENT, null);
+        } catch (WebApplicationException ex) {
+            exception = ex;
+        }
+
+        assertNotNull(exception);
+        assertEquals(404, exception.getResponse().getStatus());
+    }
+
+    @Test
+    void checkInteractionsReturnsPairsAndDedupes() throws Exception {
+        OrcaOrderBundleResource interactionResource = new OrcaOrderBundleResource() {
+            @Override
+            protected List<OrcaOrderInteractionCheckResponse.Pair> loadInteractionPairs(List<String> codes, List<String> existingCodes) {
+                OrcaOrderInteractionCheckResponse.Pair pair = new OrcaOrderInteractionCheckResponse.Pair();
+                pair.setCode1("620000001");
+                pair.setCode2("620000003");
+                pair.setInteractionCode("INT001");
+                pair.setInteractionName("併用注意");
+                pair.setMessage("相互作用が検出されました");
+                return List.of(pair);
+            }
+        };
+        injectField(interactionResource, "sessionAuditDispatcher", auditDispatcher);
+        injectField(interactionResource, "patientServiceBean", new FakePatientServiceBean());
+        injectField(interactionResource, "karteServiceBean", fakeKarteServiceBean);
+        injectField(interactionResource, "userServiceBean", new FakeUserServiceBean());
+
+        OrcaOrderInteractionCheckRequest body = new OrcaOrderInteractionCheckRequest();
+        body.setCodes(List.of("620000001", "620000001", "620000002"));
+        body.setExistingCodes(List.of("620000003", "620000003", "620000001"));
+
+        OrcaOrderInteractionCheckResponse response = interactionResource.checkInteractions(servletRequest, body);
+
+        assertTrue(response.isOk());
+        assertEquals(1, response.getTotalCount());
+        assertEquals("620000001", response.getPairs().get(0).getCode1());
+        assertEquals("620000003", response.getPairs().get(0).getCode2());
+    }
+
+    @Test
+    void checkInteractionsRejectsMissingCodes() {
+        OrcaOrderInteractionCheckRequest body = new OrcaOrderInteractionCheckRequest();
+        body.setCodes(new java.util.ArrayList<>(java.util.Arrays.asList(" ", null)));
+
+        WebApplicationException exception = null;
+        try {
+            resource.checkInteractions(servletRequest, body);
+        } catch (WebApplicationException ex) {
+            exception = ex;
+        }
+
+        assertNotNull(exception);
+        assertEquals(400, exception.getResponse().getStatus());
+        Map<String, Object> payload = getErrorBody(exception);
+        assertEquals("codes", payload.get("field"));
     }
 
     @SuppressWarnings("unchecked")

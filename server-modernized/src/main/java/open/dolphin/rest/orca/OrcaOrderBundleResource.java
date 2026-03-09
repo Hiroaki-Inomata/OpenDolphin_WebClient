@@ -5,9 +5,11 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Context;
@@ -15,7 +17,11 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.sql.Connection;
 import java.sql.Blob;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
@@ -23,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -49,10 +56,15 @@ import open.dolphin.rest.dto.orca.OrderBundleFetchResponse;
 import open.dolphin.rest.dto.orca.OrderBundleMutationRequest;
 import open.dolphin.rest.dto.orca.OrderBundleMutationResponse;
 import open.dolphin.rest.dto.orca.OrderBundleRecommendationResponse;
+import open.dolphin.rest.dto.orca.OrcaOrderInputSetDetailResponse;
+import open.dolphin.rest.dto.orca.OrcaOrderInputSetListResponse;
+import open.dolphin.rest.dto.orca.OrcaOrderInteractionCheckRequest;
+import open.dolphin.rest.dto.orca.OrcaOrderInteractionCheckResponse;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PatientServiceBean;
 import open.dolphin.session.UserServiceBean;
 import open.dolphin.touch.converter.IOSHelper;
+import open.orca.rest.ORCAConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,6 +86,9 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
     private static final int DEFAULT_SCAN_LIMIT = 800;
     private static final int MAX_LIMIT = 64;
     private static final int MAX_SCAN_LIMIT = 5000;
+    private static final int DEFAULT_INPUT_SET_SIZE = 20;
+    private static final int MAX_INPUT_SET_SIZE = 100;
+    private static final String CLAIM_CLASS_SYSTEM = ClaimConst.CLASS_CODE_ID;
     private static final Set<String> ORDER_BUNDLE_ENTITIES = Set.of(
             IInfoModel.ENTITY_GENERAL_ORDER,
             IInfoModel.ENTITY_MED_ORDER,
@@ -217,6 +232,182 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         audit.put("runId", runId);
         audit.put("recordsReturned", bundles.size());
         recordAudit(request, "ORCA_ORDER_BUNDLE_FETCH", audit, AuditEventEnvelope.Outcome.SUCCESS);
+        return response;
+    }
+
+    @GET
+    @Path("/inputsets")
+    @Produces(MediaType.APPLICATION_JSON)
+    public OrcaOrderInputSetListResponse getInputSets(
+            @Context HttpServletRequest request,
+            @QueryParam("keyword") String keyword,
+            @QueryParam("entity") String entity,
+            @QueryParam("effective") String effective,
+            @QueryParam("page") @DefaultValue("1") Integer page,
+            @QueryParam("size") @DefaultValue("20") Integer size) {
+
+        String runId = resolveRunId(request);
+        requireRemoteUser(request);
+        String facilityId = requireFacilityId(request);
+        String normalizedEffective = normalizeOrcaDateOrToday(effective);
+        int resolvedPage = Math.max(1, page == null ? 1 : page.intValue());
+        int resolvedSize = Math.min(MAX_INPUT_SET_SIZE, Math.max(1, size == null ? DEFAULT_INPUT_SET_SIZE : size.intValue()));
+        String normalizedEntity = normalizeEntityQuery(entity);
+        String normalizedKeyword = keyword != null ? keyword.trim() : null;
+
+        if (normalizedEntity != null && !isValidEntity(normalizedEntity)) {
+            Map<String, Object> audit = new HashMap<>();
+            audit.put("facilityId", facilityId);
+            audit.put("runId", runId);
+            audit.put("validationError", Boolean.TRUE);
+            audit.put("field", "entity");
+            markFailureDetails(audit, Response.Status.BAD_REQUEST.getStatusCode(), "invalid_request", "entity is invalid");
+            recordAudit(request, "ORCA_ORDER_INPUTSET_LIST", audit, AuditEventEnvelope.Outcome.FAILURE);
+            throw validationError(request, "entity", "entity is invalid");
+        }
+
+        List<OrcaOrderInputSetListResponse.Item> allRows = loadInputSetSummaries(normalizedKeyword, normalizedEffective);
+        List<OrcaOrderInputSetListResponse.Item> filtered = allRows.stream()
+                .filter(row -> normalizedEntity == null || normalizedEntity.equals(row.getEntity()))
+                .sorted(Comparator.comparing(OrcaOrderInputSetListResponse.Item::getSetCode))
+                .collect(Collectors.toList());
+        int fromIndex = Math.min(filtered.size(), (resolvedPage - 1) * resolvedSize);
+        int toIndex = Math.min(filtered.size(), fromIndex + resolvedSize);
+
+        OrcaOrderInputSetListResponse response = new OrcaOrderInputSetListResponse();
+        response.setTotalCount(filtered.size());
+        response.setRunId(runId);
+        response.setTraceId(resolveTraceId(request));
+        response.setItems(new ArrayList<>(filtered.subList(fromIndex, toIndex)));
+
+        Map<String, Object> audit = new HashMap<>();
+        audit.put("facilityId", facilityId);
+        audit.put("runId", runId);
+        audit.put("keywordPresent", normalizedKeyword != null && !normalizedKeyword.isBlank());
+        audit.put("entity", normalizedEntity);
+        audit.put("effective", normalizedEffective);
+        audit.put("page", resolvedPage);
+        audit.put("size", resolvedSize);
+        audit.put("totalCount", filtered.size());
+        recordAudit(request, "ORCA_ORDER_INPUTSET_LIST", audit, AuditEventEnvelope.Outcome.SUCCESS);
+        return response;
+    }
+
+    @GET
+    @Path("/inputsets/{setCode}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public OrcaOrderInputSetDetailResponse getInputSetDetail(
+            @Context HttpServletRequest request,
+            @PathParam("setCode") String setCode,
+            @QueryParam("effective") String effective,
+            @QueryParam("entity") String entity,
+            @QueryParam("name") String name) {
+
+        String runId = resolveRunId(request);
+        requireRemoteUser(request);
+        String facilityId = requireFacilityId(request);
+        String normalizedSetCode = setCode != null ? setCode.trim() : null;
+        if (normalizedSetCode == null || normalizedSetCode.isBlank()) {
+            Map<String, Object> audit = new HashMap<>();
+            audit.put("facilityId", facilityId);
+            audit.put("runId", runId);
+            audit.put("validationError", Boolean.TRUE);
+            audit.put("field", "setCode");
+            markFailureDetails(audit, Response.Status.BAD_REQUEST.getStatusCode(), "invalid_request", "setCode is required");
+            recordAudit(request, "ORCA_ORDER_INPUTSET_DETAIL", audit, AuditEventEnvelope.Outcome.FAILURE);
+            throw validationError(request, "setCode", "setCode is required");
+        }
+        String normalizedEntity = normalizeEntityQuery(entity);
+        if (normalizedEntity != null && !isValidEntity(normalizedEntity)) {
+            Map<String, Object> audit = new HashMap<>();
+            audit.put("facilityId", facilityId);
+            audit.put("runId", runId);
+            audit.put("validationError", Boolean.TRUE);
+            audit.put("field", "entity");
+            markFailureDetails(audit, Response.Status.BAD_REQUEST.getStatusCode(), "invalid_request", "entity is invalid");
+            recordAudit(request, "ORCA_ORDER_INPUTSET_DETAIL", audit, AuditEventEnvelope.Outcome.FAILURE);
+            throw validationError(request, "entity", "entity is invalid");
+        }
+        String normalizedEffective = normalizeOrcaDateOrToday(effective);
+        OrcaOrderInputSetDetailResponse.Bundle bundle = loadInputSetDetailData(normalizedSetCode, normalizedEffective, name);
+        if (bundle == null) {
+            Map<String, Object> audit = new HashMap<>();
+            audit.put("facilityId", facilityId);
+            audit.put("runId", runId);
+            audit.put("setCode", normalizedSetCode);
+            audit.put("effective", normalizedEffective);
+            markFailureDetails(audit, Response.Status.NOT_FOUND.getStatusCode(), "inputset_not_found", "Input set not found");
+            recordAudit(request, "ORCA_ORDER_INPUTSET_DETAIL", audit, AuditEventEnvelope.Outcome.FAILURE);
+            throw restError(request, Response.Status.NOT_FOUND, "inputset_not_found", "Input set not found");
+        }
+        if (normalizedEntity != null && !normalizedEntity.equals(bundle.getEntity())) {
+            Map<String, Object> audit = new HashMap<>();
+            audit.put("facilityId", facilityId);
+            audit.put("runId", runId);
+            audit.put("setCode", normalizedSetCode);
+            audit.put("entity", normalizedEntity);
+            markFailureDetails(audit, Response.Status.NOT_FOUND.getStatusCode(), "inputset_not_found", "Input set not found");
+            recordAudit(request, "ORCA_ORDER_INPUTSET_DETAIL", audit, AuditEventEnvelope.Outcome.FAILURE);
+            throw restError(request, Response.Status.NOT_FOUND, "inputset_not_found", "Input set not found");
+        }
+
+        OrcaOrderInputSetDetailResponse response = new OrcaOrderInputSetDetailResponse();
+        response.setOk(true);
+        response.setSetCode(normalizedSetCode);
+        response.setBundle(bundle);
+        response.setRunId(runId);
+        response.setTraceId(resolveTraceId(request));
+
+        Map<String, Object> audit = new HashMap<>();
+        audit.put("facilityId", facilityId);
+        audit.put("runId", runId);
+        audit.put("setCode", normalizedSetCode);
+        audit.put("entity", bundle.getEntity());
+        audit.put("effective", normalizedEffective);
+        audit.put("itemCount", bundle.getItems().size());
+        recordAudit(request, "ORCA_ORDER_INPUTSET_DETAIL", audit, AuditEventEnvelope.Outcome.SUCCESS);
+        return response;
+    }
+
+    @POST
+    @Path("/interactions/check")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public OrcaOrderInteractionCheckResponse checkInteractions(
+            @Context HttpServletRequest request,
+            OrcaOrderInteractionCheckRequest body) {
+
+        String runId = resolveRunId(request);
+        requireRemoteUser(request);
+        String facilityId = requireFacilityId(request);
+        List<String> codes = sanitizeInteractionCodes(body != null ? body.getCodes() : null);
+        List<String> existingCodes = sanitizeInteractionCodes(body != null ? body.getExistingCodes() : null);
+        if (codes.isEmpty()) {
+            Map<String, Object> audit = new HashMap<>();
+            audit.put("facilityId", facilityId);
+            audit.put("runId", runId);
+            audit.put("validationError", Boolean.TRUE);
+            audit.put("field", "codes");
+            markFailureDetails(audit, Response.Status.BAD_REQUEST.getStatusCode(), "invalid_request", "codes is required");
+            recordAudit(request, "ORCA_ORDER_INTERACTION_CHECK", audit, AuditEventEnvelope.Outcome.FAILURE);
+            throw validationError(request, "codes", "codes is required");
+        }
+
+        List<OrcaOrderInteractionCheckResponse.Pair> rows = loadInteractionPairs(codes, existingCodes);
+        OrcaOrderInteractionCheckResponse response = new OrcaOrderInteractionCheckResponse();
+        response.setOk(true);
+        response.setPairs(rows);
+        response.setTotalCount(rows.size());
+        response.setRunId(runId);
+        response.setTraceId(resolveTraceId(request));
+
+        Map<String, Object> audit = new HashMap<>();
+        audit.put("facilityId", facilityId);
+        audit.put("runId", runId);
+        audit.put("codes", codes.size());
+        audit.put("existingCodes", existingCodes.size());
+        audit.put("totalCount", response.getTotalCount());
+        recordAudit(request, "ORCA_ORDER_INTERACTION_CHECK", audit, AuditEventEnvelope.Outcome.SUCCESS);
         return response;
     }
 
@@ -1318,6 +1509,402 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
             }
         }
         return "医師";
+    }
+
+    private String normalizeEntityQuery(String entity) {
+        if (entity == null || entity.isBlank()) {
+            return null;
+        }
+        String normalized = entity.trim();
+        if ("laboTest".equals(normalized)) {
+            return IInfoModel.ENTITY_LABO_TEST;
+        }
+        return normalized;
+    }
+
+    private String normalizeOrcaDateOrToday(String input) {
+        if (input == null || input.isBlank()) {
+            return LocalDate.now().toString().replace("-", "");
+        }
+        String digits = input.replaceAll("[^0-9]", "");
+        if (digits.length() == 8) {
+            return digits;
+        }
+        return LocalDate.now().toString().replace("-", "");
+    }
+
+    private String toIsoDate(String yyyymmdd) {
+        if (yyyymmdd == null || yyyymmdd.length() != 8) {
+            return LocalDate.now().toString();
+        }
+        return yyyymmdd.substring(0, 4) + "-" + yyyymmdd.substring(4, 6) + "-" + yyyymmdd.substring(6, 8);
+    }
+
+    protected List<OrcaOrderInputSetListResponse.Item> loadInputSetSummaries(String keyword, String effective) {
+        Map<String, InputSetAggregate> aggregates = new LinkedHashMap<>();
+        String normalizedKeyword = keyword != null ? keyword.trim().toLowerCase(Locale.ROOT) : null;
+        try (Connection connection = ORCAConnection.getInstance().getConnection();
+             PreparedStatement ps = connection.prepareStatement(
+                     "SELECT inputcd, dspname FROM tbl_inputcd WHERE inputcd LIKE 'P%' OR inputcd LIKE 'S%' ORDER BY inputcd");
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String setCode = trimToNull(rs.getString(1));
+                String name = trimToNull(rs.getString(2));
+                if (setCode == null || name == null) {
+                    continue;
+                }
+                if (normalizedKeyword != null && !normalizedKeyword.isBlank()) {
+                    String target = (setCode + " " + name).toLowerCase(Locale.ROOT);
+                    if (!target.contains(normalizedKeyword)) {
+                        continue;
+                    }
+                }
+                InputSetAggregate aggregate = aggregates.computeIfAbsent(setCode, key -> new InputSetAggregate(setCode, name));
+                aggregate.name = name;
+            }
+        } catch (SQLException e) {
+            throw restError(null, Response.Status.SERVICE_UNAVAILABLE, "inputset_unavailable", "Failed to load input sets");
+        }
+        try (Connection connection = ORCAConnection.getInstance().getConnection()) {
+            for (InputSetAggregate aggregate : aggregates.values()) {
+                fillInputSetAggregate(connection, aggregate, effective);
+            }
+        } catch (SQLException e) {
+            throw restError(null, Response.Status.SERVICE_UNAVAILABLE, "inputset_unavailable", "Failed to load input sets");
+        }
+        return aggregates.values().stream()
+                .filter(InputSetAggregate::hasValidItems)
+                .map(InputSetAggregate::toItem)
+                .collect(Collectors.toList());
+    }
+
+    private void fillInputSetAggregate(Connection connection, InputSetAggregate aggregate, String effective) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT SUM(CASE WHEN inputcd NOT LIKE '.%' THEN 1 ELSE 0 END), MIN(yukostymd), MAX(yukoedymd) "
+                        + "FROM tbl_inputset WHERE setcd=? AND yukostymd<=? AND yukoedymd>=?")) {
+            ps.setString(1, aggregate.setCode);
+            ps.setString(2, effective);
+            ps.setString(3, effective);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    aggregate.itemCount = rs.getInt(1);
+                    aggregate.validFrom = trimToNull(rs.getString(2));
+                    aggregate.validTo = trimToNull(rs.getString(3));
+                }
+            }
+        }
+        aggregate.kind = aggregate.setCode.startsWith("P") ? "P" : "S";
+        if ("P".equals(aggregate.kind)) {
+            aggregate.entity = IInfoModel.ENTITY_MED_ORDER;
+            aggregate.classCode = "212";
+            aggregate.classCodeSystem = CLAIM_CLASS_SYSTEM;
+            return;
+        }
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT inputcd FROM tbl_inputset "
+                        + "WHERE setcd=? AND yukostymd<=? AND yukoedymd>=? AND inputcd LIKE '.%' "
+                        + "ORDER BY setseq")) {
+            ps.setString(1, aggregate.setCode);
+            ps.setString(2, effective);
+            ps.setString(3, effective);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String classCode = normalizeClassCode(trimToNull(rs.getString(1)));
+                    if (!hasText(classCode)) {
+                        continue;
+                    }
+                    String[] resolved = resolveEntityOrderName(classCode);
+                    aggregate.entity = resolved[0];
+                    aggregate.classCode = classCode;
+                    aggregate.classCodeSystem = CLAIM_CLASS_SYSTEM;
+                    return;
+                }
+            }
+        }
+    }
+
+    protected OrcaOrderInputSetDetailResponse.Bundle loadInputSetDetailData(String setCode, String effective, String requestedName) {
+        try (Connection connection = ORCAConnection.getInstance().getConnection()) {
+            String bundleName = trimToNull(requestedName);
+            if (bundleName == null) {
+                bundleName = loadInputSetName(connection, setCode);
+            }
+            if (bundleName == null) {
+                return null;
+            }
+            OrcaOrderInputSetDetailResponse.Bundle bundle = new OrcaOrderInputSetDetailResponse.Bundle();
+            bundle.setBundleName(bundleName);
+            bundle.setBundleNumber("1");
+            bundle.setClassCodeSystem(CLAIM_CLASS_SYSTEM);
+            bundle.setStarted(toIsoDate(effective));
+            bundle.setItems(new ArrayList<>());
+
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "SELECT inputcd, suryo1, kaisu, yukostymd, yukoedymd FROM tbl_inputset WHERE setcd=? AND yukostymd<=? AND yukoedymd>=? ORDER BY setseq")) {
+                ps.setString(1, setCode);
+                ps.setString(2, effective);
+                ps.setString(3, effective);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        String inputCode = trimToNull(rs.getString(1));
+                        if (inputCode == null) {
+                            continue;
+                        }
+                        String bundleNumber = trimToNull(rs.getString(3));
+                        if (bundleNumber != null && !bundleNumber.isBlank() && !"0".equals(bundleNumber)) {
+                            bundle.setBundleNumber(bundleNumber);
+                        }
+                        if (inputCode.startsWith(".")) {
+                            String classCode = normalizeClassCode(inputCode);
+                            applyBundleClass(bundle, classCode);
+                            continue;
+                        }
+                        OrcaOrderInputSetDetailResponse.Item item = loadInputSetItem(connection, inputCode);
+                        if (item == null) {
+                            continue;
+                        }
+                        item.setCode(inputCode);
+                        item.setQuantity(trimNumeric(rs.getString(2)));
+                        if (item.getCode() != null && item.getCode().startsWith(BODY_PART_CODE_PREFIX) && bundle.getBodyPart() == null) {
+                            OrcaOrderInputSetDetailResponse.BodyPart bodyPart = new OrcaOrderInputSetDetailResponse.BodyPart();
+                            bodyPart.setCode(item.getCode());
+                            bodyPart.setName(item.getName());
+                            bodyPart.setQuantity(item.getQuantity());
+                            bodyPart.setUnit(item.getUnit());
+                            bodyPart.setMemo(item.getMemo());
+                            bundle.setBodyPart(bodyPart);
+                            continue;
+                        }
+                        bundle.getItems().add(item);
+                    }
+                }
+            }
+            if (bundle.getClassCode() == null) {
+                String fallbackClassCode = setCode.startsWith("P") ? "212" : "900";
+                applyBundleClass(bundle, fallbackClassCode);
+            }
+            if (bundle.getItems().isEmpty() && bundle.getBodyPart() == null) {
+                return null;
+            }
+            return bundle;
+        } catch (SQLException e) {
+            throw restError(null, Response.Status.SERVICE_UNAVAILABLE, "inputset_unavailable", "Failed to load input set detail");
+        }
+    }
+
+    private String loadInputSetName(Connection connection, String setCode) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT dspname FROM tbl_inputcd WHERE inputcd=? ORDER BY dspseq")) {
+            ps.setString(1, setCode);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String name = trimToNull(rs.getString(1));
+                    if (name != null) {
+                        return name;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private OrcaOrderInputSetDetailResponse.Item loadInputSetItem(Connection connection, String inputCode) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT name, taniname FROM tbl_tensu WHERE srycd=? ORDER BY yukoedymd DESC")) {
+            ps.setString(1, inputCode);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                OrcaOrderInputSetDetailResponse.Item item = new OrcaOrderInputSetDetailResponse.Item();
+                item.setName(trimToNull(rs.getString(1)));
+                item.setUnit(trimToNull(rs.getString(2)));
+                item.setMemo("");
+                return item;
+            }
+        }
+    }
+
+    private void applyBundleClass(OrcaOrderInputSetDetailResponse.Bundle bundle, String classCode) {
+        if (!hasText(classCode)) {
+            return;
+        }
+        String[] resolved = resolveEntityOrderName(classCode);
+        bundle.setClassCode(classCode);
+        bundle.setClassCodeSystem(CLAIM_CLASS_SYSTEM);
+        bundle.setEntity(resolved[0]);
+        bundle.setClassName(resolved[1]);
+    }
+
+    protected List<OrcaOrderInteractionCheckResponse.Pair> loadInteractionPairs(List<String> codes, List<String> existingCodes) {
+        List<String> rightCodes = existingCodes.isEmpty() ? codes : existingCodes;
+        if (codes.isEmpty() || rightCodes.isEmpty()) {
+            return List.of();
+        }
+        Map<String, OrcaOrderInteractionCheckResponse.Pair> deduped = new LinkedHashMap<>();
+        try (Connection connection = ORCAConnection.getInstance().getConnection()) {
+            String leftInClause = codes.stream().map(code -> "?").collect(Collectors.joining(","));
+            String rightInClause = rightCodes.stream().map(code -> "?").collect(Collectors.joining(","));
+            String sql = "SELECT drugcd, drugcd2, TI.syojyoucd, syojyou "
+                    + "FROM tbl_interact TI INNER JOIN tbl_sskijyo TS ON TI.syojyoucd = TS.syojyoucd "
+                    + "WHERE ((drugcd IN (" + leftInClause + ") AND drugcd2 IN (" + rightInClause + ")) "
+                    + "OR (drugcd IN (" + rightInClause + ") AND drugcd2 IN (" + leftInClause + ")))";
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                int index = 1;
+                for (String code : codes) {
+                    ps.setString(index++, code);
+                }
+                for (String code : rightCodes) {
+                    ps.setString(index++, code);
+                }
+                for (String code : rightCodes) {
+                    ps.setString(index++, code);
+                }
+                for (String code : codes) {
+                    ps.setString(index++, code);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        String left = trimToNull(rs.getString(1));
+                        String right = trimToNull(rs.getString(2));
+                        if (left == null || right == null || left.equals(right)) {
+                            continue;
+                        }
+                        String first = left.compareTo(right) <= 0 ? left : right;
+                        String second = left.compareTo(right) <= 0 ? right : left;
+                        String key = first + "|" + second + "|" + trimToNull(rs.getString(3));
+                        if (!deduped.containsKey(key)) {
+                            OrcaOrderInteractionCheckResponse.Pair pair = new OrcaOrderInteractionCheckResponse.Pair();
+                            pair.setCode1(first);
+                            pair.setCode2(second);
+                            pair.setInteractionCode(trimToNull(rs.getString(3)));
+                            pair.setInteractionName(trimToNull(rs.getString(4)));
+                            pair.setMessage("相互作用が検出されました");
+                            deduped.put(key, pair);
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw restError(null, Response.Status.SERVICE_UNAVAILABLE, "interaction_unavailable", "Failed to check interactions");
+        }
+        return new ArrayList<>(deduped.values());
+    }
+
+    private List<String> sanitizeInteractionCodes(List<String> source) {
+        if (source == null || source.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> unique = new LinkedHashSet<>();
+        for (String value : source) {
+            String normalized = trimToNull(value);
+            if (normalized == null) {
+                continue;
+            }
+            unique.add(normalized);
+        }
+        return new ArrayList<>(unique);
+    }
+
+    private String normalizeClassCode(String inputCode) {
+        if (inputCode == null || inputCode.isBlank()) {
+            return null;
+        }
+        String normalized = inputCode.startsWith(".") ? inputCode.substring(1) : inputCode;
+        if (normalized.length() > 3) {
+            return normalized.substring(0, 3);
+        }
+        return normalized;
+    }
+
+    private String[] resolveEntityOrderName(String receiptCode) {
+        try {
+            int number = Integer.parseInt(receiptCode);
+            if (number >= 110 && number <= 125) {
+                return new String[]{IInfoModel.ENTITY_BASE_CHARGE_ORDER, "診断料"};
+            }
+            if (number >= 130 && number <= 150) {
+                return new String[]{IInfoModel.ENTITY_INSTRACTION_CHARGE_ORDER, "指導・在宅"};
+            }
+            if (number >= 200 && number <= 299) {
+                return new String[]{IInfoModel.ENTITY_MED_ORDER, "RP"};
+            }
+            if (number >= 300 && number <= 399) {
+                return new String[]{IInfoModel.ENTITY_INJECTION_ORDER, "注射"};
+            }
+            if (number >= 400 && number <= 499) {
+                return new String[]{IInfoModel.ENTITY_TREATMENT, "処置"};
+            }
+            if (number >= 500 && number <= 599) {
+                return new String[]{IInfoModel.ENTITY_SURGERY_ORDER, "手術"};
+            }
+            if (number >= 600 && number <= 699) {
+                return new String[]{IInfoModel.ENTITY_LABO_TEST, "検査"};
+            }
+            if (number >= 700 && number <= 799) {
+                return new String[]{IInfoModel.ENTITY_RADIOLOGY_ORDER, "放射線"};
+            }
+            if (number >= 800 && number <= 899) {
+                return new String[]{IInfoModel.ENTITY_OTHER_ORDER, "その他"};
+            }
+        } catch (NumberFormatException e) {
+            LOGGER.debug("Failed to resolve entity from receipt code {}", receiptCode);
+        }
+        return new String[]{IInfoModel.ENTITY_GENERAL_ORDER, "汎用"};
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String trimNumeric(String value) {
+        String trimmed = trimToNull(value);
+        if (trimmed == null) {
+            return null;
+        }
+        if (trimmed.endsWith(".0")) {
+            return trimmed.substring(0, trimmed.length() - 2);
+        }
+        return trimmed;
+    }
+
+    private static final class InputSetAggregate {
+        private final String setCode;
+        private String name;
+        private String entity;
+        private String kind;
+        private String classCode;
+        private String classCodeSystem;
+        private Integer itemCount;
+        private String validFrom;
+        private String validTo;
+
+        private InputSetAggregate(String setCode, String name) {
+            this.setCode = setCode;
+            this.name = name;
+        }
+
+        private boolean hasValidItems() {
+            return itemCount != null && itemCount.intValue() > 0 && name != null && !name.isBlank();
+        }
+
+        private OrcaOrderInputSetListResponse.Item toItem() {
+            OrcaOrderInputSetListResponse.Item item = new OrcaOrderInputSetListResponse.Item();
+            item.setSetCode(setCode);
+            item.setName(name);
+            item.setEntity(entity);
+            item.setKind(kind);
+            item.setClassCode(classCode);
+            item.setClassCodeSystem(classCodeSystem);
+            item.setItemCount(itemCount);
+            item.setValidFrom(validFrom);
+            item.setValidTo(validTo);
+            return item;
+        }
     }
 
     private record RecommendationAggregate(

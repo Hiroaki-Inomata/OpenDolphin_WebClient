@@ -253,6 +253,110 @@ class OrcaMasterResourceTest {
         assertEquals("MASTER_BODYPART_UNAVAILABLE", payload.getCode());
     }
 
+    @Test
+    void getGenericPrice_returnsEntryWithMetaFromFixture() {
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("srycd", "110001110");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getGenericPrice(null, uriInfo, authenticatedRequest());
+
+        assertEquals(200, response.getStatus());
+        OrcaDrugMasterEntry payload = (OrcaDrugMasterEntry) response.getEntity();
+        assertNotNull(payload);
+        assertEquals("110001110", payload.getCode());
+        assertEquals("generic-price", payload.getCategory());
+        assertEquals(120d, payload.getMinPrice());
+        assertNotNull(payload.getMeta());
+    }
+
+    @Test
+    void getGenericPrice_invalidSrycd_returnsValidationError() {
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("srycd", "abc");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getGenericPrice(null, uriInfo, authenticatedRequest());
+
+        assertEquals(422, response.getStatus());
+        OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
+        assertNotNull(payload);
+        assertEquals("SRYCD_VALIDATION_ERROR", payload.getCode());
+    }
+
+    @Test
+    void getHokenja_returnsListWithMetaFromFixture() {
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("keyword", "医療共済");
+        params.add("pref", "13");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getHokenja(null, uriInfo, authenticatedRequest());
+
+        assertEquals(200, response.getStatus());
+        @SuppressWarnings("unchecked")
+        OrcaMasterListResponse<OrcaInsurerEntry> payload =
+                (OrcaMasterListResponse<OrcaInsurerEntry>) response.getEntity();
+        assertNotNull(payload);
+        assertEquals(1, payload.getTotalCount());
+        assertFalse(payload.getItems().isEmpty());
+        OrcaInsurerEntry item = payload.getItems().get(0);
+        assertEquals("06123456", item.getPayerCode());
+        assertEquals("医療共済組合東京", item.getPayerName());
+        assertEquals("13", item.getPrefCode());
+        assertNotNull(item.getMeta());
+    }
+
+    @Test
+    void getHokenja_invalidPref_returnsValidationError() {
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("pref", "99");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getHokenja(null, uriInfo, authenticatedRequest());
+
+        assertEquals(422, response.getStatus());
+        OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
+        assertNotNull(payload);
+        assertEquals("PREF_VALIDATION_ERROR", payload.getCode());
+    }
+
+    @Test
+    void getAddress_returnsEntryWithMetaFromFixture() {
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("zip", "1000001");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getAddress(null, uriInfo, authenticatedRequest());
+
+        assertEquals(200, response.getStatus());
+        OrcaAddressEntry payload = (OrcaAddressEntry) response.getEntity();
+        assertNotNull(payload);
+        assertEquals("1000001", payload.getZip());
+        assertEquals("東京都千代田区千代田", payload.getFullAddress());
+        assertNotNull(payload.getMeta());
+    }
+
+    @Test
+    void getAddress_unknownZip_returnsNotFound() {
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("zip", "9999999");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getAddress(null, uriInfo, authenticatedRequest());
+
+        assertEquals(404, response.getStatus());
+        OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
+        assertNotNull(payload);
+        assertEquals("MASTER_ADDRESS_NOT_FOUND", payload.getCode());
+    }
+
 
     @Test
     void getYouhou_returnsListWithMeta() {
@@ -565,6 +669,88 @@ class OrcaMasterResourceTest {
         OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
         assertEquals("TENSU_VERSION_INVALID", payload.getCode());
         assertEquals(Boolean.TRUE, payload.getValidationError());
+    }
+
+    @Test
+    void getEtensu_pointsMinAndPointsMax_arePassedToDao() {
+        final EtensuDao.EtensuSearchCriteria[] captured = new EtensuDao.EtensuSearchCriteria[1];
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao() {
+            @Override
+            public EtensuSearchResult search(EtensuSearchCriteria criteria) {
+                captured[0] = criteria;
+                return new EtensuSearchResult(Collections.emptyList(), 0, "202404");
+            }
+        }, new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("pointsMin", "20");
+        params.add("pointsMax", "40");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getEtensu(null, uriInfo, authenticatedRequest());
+
+        assertEquals(404, response.getStatus());
+        assertNotNull(captured[0]);
+        assertEquals(20d, captured[0].getPointsMin());
+        assertEquals(40d, captured[0].getPointsMax());
+    }
+
+    @Test
+    void getEtensu_pointsMinOnly_isPassedToDao() {
+        final EtensuDao.EtensuSearchCriteria[] captured = new EtensuDao.EtensuSearchCriteria[1];
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao() {
+            @Override
+            public EtensuSearchResult search(EtensuSearchCriteria criteria) {
+                captured[0] = criteria;
+                return new EtensuSearchResult(Collections.emptyList(), 0, "202404");
+            }
+        }, new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("pointsMin", "12.5");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getEtensu(null, uriInfo, authenticatedRequest());
+
+        assertEquals(404, response.getStatus());
+        assertNotNull(captured[0]);
+        assertEquals(12.5d, captured[0].getPointsMin());
+        assertNull(captured[0].getPointsMax());
+    }
+
+    @Test
+    void getEtensu_pointsMaxOnly_isPassedToDao() {
+        final EtensuDao.EtensuSearchCriteria[] captured = new EtensuDao.EtensuSearchCriteria[1];
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao() {
+            @Override
+            public EtensuSearchResult search(EtensuSearchCriteria criteria) {
+                captured[0] = criteria;
+                return new EtensuSearchResult(Collections.emptyList(), 0, "202404");
+            }
+        }, new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("pointsMax", "88");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getEtensu(null, uriInfo, authenticatedRequest());
+
+        assertEquals(404, response.getStatus());
+        assertNotNull(captured[0]);
+        assertNull(captured[0].getPointsMin());
+        assertEquals(88d, captured[0].getPointsMax());
+    }
+
+    @Test
+    void getEtensu_pointsRangeInvalid_returnsBadRequest() {
+        OrcaMasterResource resource = new OrcaMasterResource(new EtensuDao(), new OrcaMasterDao());
+        MultivaluedMap<String, String> params = new MultivaluedHashMap<>();
+        params.add("pointsMin", "40");
+        params.add("pointsMax", "20");
+        UriInfo uriInfo = createUriInfo(params);
+
+        Response response = resource.getEtensu(null, uriInfo, authenticatedRequest());
+
+        assertEquals(400, response.getStatus());
+        OrcaMasterErrorResponse payload = (OrcaMasterErrorResponse) response.getEntity();
+        assertEquals("TENSU_POINTS_RANGE_INVALID", payload.getCode());
     }
 
     @Test

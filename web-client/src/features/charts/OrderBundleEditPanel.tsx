@@ -20,6 +20,11 @@ import {
   type OrderMasterSearchResult,
   type OrderMasterSearchType,
 } from './orderMasterSearchApi';
+import {
+  fetchOrcaOrderInputSetDetail,
+  fetchOrcaOrderInputSets,
+  type OrcaOrderInputSetSummary,
+} from './orcaOrderInputSetApi';
 import { buildContraindicationCheckRequestXml, fetchContraindicationCheckXml } from './contraindicationCheckApi';
 import { buildMedicationGetRequestXml, fetchOrcaMedicationGetXml } from './orcaMedicationGetApi';
 import { parseOrcaOrderItemMemo, type OrcaOrderItemMeta, updateOrcaOrderItemMeta } from './orcaOrderItemMeta';
@@ -464,6 +469,53 @@ const toFormStateFromRecommendation = (template: OrderRecommendationTemplate, to
   bodyPart: template.bodyPart ? { ...template.bodyPart } : null,
 });
 
+const isBundleFormEmpty = (form: BundleFormState) => {
+  const bundleNumber = form.bundleNumber.trim();
+  const hasBundleNumber = bundleNumber.length > 0 && bundleNumber !== '1';
+  return (
+    !form.bundleName.trim() &&
+    !form.admin.trim() &&
+    !hasBundleNumber &&
+    !form.memo.trim() &&
+    !form.bodyPart?.name?.trim() &&
+    form.items.every((item) => !hasOrderBundleItemValue(item)) &&
+    form.commentItems.every((item) => !hasOrderBundleItemValue(item)) &&
+    form.materialItems.every((item) => !hasOrderBundleItemValue(item))
+  );
+};
+
+const toOrderBundleFromInputSetDetail = (
+  bundle: NonNullable<Awaited<ReturnType<typeof fetchOrcaOrderInputSetDetail>>['bundle']>,
+  entity: string,
+): OrderBundle => ({
+  entity: bundle.entity ?? entity,
+  bundleName: bundle.bundleName ?? '',
+  bundleNumber: bundle.bundleNumber ?? '1',
+  classCode: bundle.classCode,
+  classCodeSystem: bundle.classCodeSystem,
+  className: bundle.className,
+  admin: bundle.admin ?? '',
+  adminMemo: bundle.adminMemo ?? '',
+  memo: bundle.memo ?? '',
+  started: bundle.started,
+  bodyPart: bundle.bodyPart?.name
+    ? {
+        code: bundle.bodyPart.code,
+        name: bundle.bodyPart.name,
+        quantity: bundle.bodyPart.quantity,
+        unit: bundle.bodyPart.unit,
+        memo: bundle.bodyPart.memo,
+      }
+    : undefined,
+  items: bundle.items.map((item) => ({
+    code: item.code,
+    name: item.name ?? '',
+    quantity: item.quantity,
+    unit: item.unit,
+    memo: item.memo,
+  })),
+});
+
 const resolveRecommendationLabel = (candidate: OrderRecommendationCandidate) => {
   const bundle = candidate.template.bundleName.trim();
   const firstItem = candidate.template.items.find((item) => item.name.trim())?.name.trim() ?? '';
@@ -722,6 +774,14 @@ export function OrderBundleEditPanel({
   const isTestMode = import.meta.env.MODE === 'test';
   const [form, setForm] = useState<BundleFormState>(() => buildEmptyForm(today));
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
+  const [detailSearchOpen, setDetailSearchOpen] = useState(false);
+  const [pointsMinInput, setPointsMinInput] = useState('');
+  const [pointsMaxInput, setPointsMaxInput] = useState('');
+  const [orcaSetKeyword, setOrcaSetKeyword] = useState('');
+  const [orcaSetLoading, setOrcaSetLoading] = useState(false);
+  const [orcaSetItems, setOrcaSetItems] = useState<OrcaOrderInputSetSummary[]>([]);
+  const [orcaSetConfirmOpen, setOrcaSetConfirmOpen] = useState(false);
+  const [pendingOrcaSetForm, setPendingOrcaSetForm] = useState<BundleFormState | null>(null);
   const [contraNotice, setContraNotice] = useState<ContraindicationNotice | null>(null);
   const [contraDetails, setContraDetails] = useState<string[]>([]);
   const [isContraChecking, setIsContraChecking] = useState(false);
@@ -852,7 +912,22 @@ export function OrderBundleEditPanel({
   const supportsBodyPartSearch = orderUiProfile.supportsBodyPartSearch;
   const supportsCommentCodes = orderUiProfile.supportsCommentCodes;
   const itemMasterTargets = orderUiProfile.masterSearchPresets;
+  const supportsEtensuDetailSearch = itemMasterTargets.some((target) => target.type === 'etensu');
   const itemPredictiveTargetLabel = itemMasterTargets.map((target) => target.label).join(' / ');
+  const parsedPointsMin = pointsMinInput.trim() ? Number(pointsMinInput) : undefined;
+  const parsedPointsMax = pointsMaxInput.trim() ? Number(pointsMaxInput) : undefined;
+  const pointsRangeError =
+    (pointsMinInput.trim() && Number.isNaN(parsedPointsMin))
+      ? '点数From は数値で入力してください。'
+      : (pointsMaxInput.trim() && Number.isNaN(parsedPointsMax))
+        ? '点数To は数値で入力してください。'
+        : parsedPointsMin !== undefined && parsedPointsMax !== undefined && parsedPointsMin > parsedPointsMax
+          ? '点数From は 点数To 以下で入力してください。'
+          : '';
+  const pointsRangeSummary =
+    parsedPointsMin !== undefined || parsedPointsMax !== undefined
+      ? `点数: ${parsedPointsMin ?? '0'}〜${parsedPointsMax ?? '∞'}`
+      : '';
   const hasCommentValues = useMemo(
     () =>
       form.commentItems.some((item) =>
@@ -1092,7 +1167,15 @@ export function OrderBundleEditPanel({
   const etensuCategory = useMemo(() => resolveOrderEntityEtensuCategory(entity), [entity]);
   const isItemCodeSearch = isLikelyCodeSearch(debouncedItemPredictionKeyword);
   const itemPredictiveQuery = useQuery({
-    queryKey: ['charts-order-item-predictive', entity, itemPredictiveSearchTypes.join(','), etensuCategory ?? '', debouncedItemPredictionKeyword],
+    queryKey: [
+      'charts-order-item-predictive',
+      entity,
+      itemPredictiveSearchTypes.join(','),
+      etensuCategory ?? '',
+      debouncedItemPredictionKeyword,
+      pointsMinInput,
+      pointsMaxInput,
+    ],
     queryFn: async () => {
       const responses = await Promise.all(
         itemPredictiveSearchTypes.map(async (type) => {
@@ -1113,6 +1196,8 @@ export function OrderBundleEditPanel({
               type,
               keyword: debouncedItemPredictionKeyword,
               category: type === 'etensu' ? etensuCategory : undefined,
+              pointsMin: type === 'etensu' && !pointsRangeError ? parsedPointsMin : undefined,
+              pointsMax: type === 'etensu' && !pointsRangeError ? parsedPointsMax : undefined,
               page,
               size: PREDICTIVE_FETCH_PAGE_SIZE,
             });
@@ -1532,6 +1617,64 @@ export function OrderBundleEditPanel({
       message: `頻用オーダーを反映しました（${candidate.source === 'patient' ? '患者傾向' : '施設傾向'} / ${candidate.count}回）。`,
     });
   };
+
+  const applyOrcaSetForm = useCallback((nextForm: BundleFormState) => {
+    setForm(nextForm);
+    setSelectedUsageMasterMeta(null);
+    setValidationIssues([]);
+    setNotice({ tone: 'success', message: 'ORCA診療セットを反映しました。' });
+  }, []);
+
+  const handleOrcaSetSearch = useCallback(async () => {
+    const keyword = orcaSetKeyword.trim();
+    if (!keyword || orcaSetLoading || isMedOrder) return;
+    setOrcaSetLoading(true);
+    try {
+      const result = await fetchOrcaOrderInputSets({
+        keyword,
+        entity,
+        effective: form.startDate,
+        page: 1,
+        size: 20,
+      });
+      if (!result.ok) {
+        setOrcaSetItems([]);
+        setNotice({ tone: 'error', message: result.message ?? '診療セット検索に失敗しました。' });
+        return;
+      }
+      setOrcaSetItems(result.items);
+    } finally {
+      setOrcaSetLoading(false);
+    }
+  }, [entity, form.startDate, isMedOrder, orcaSetKeyword, orcaSetLoading]);
+
+  const handleOrcaSetApply = useCallback(
+    async (item: OrcaOrderInputSetSummary) => {
+      const setCode = item.setCode?.trim();
+      if (!setCode || isMedOrder) return;
+      const detail = await fetchOrcaOrderInputSetDetail({
+        setCode,
+        entity,
+        effective: form.startDate,
+      });
+      if (!detail.ok || !detail.bundle) {
+        setNotice({ tone: 'error', message: detail.message ?? '診療セット詳細の取得に失敗しました。' });
+        return;
+      }
+      if (detail.bundle.entity && detail.bundle.entity !== entity) {
+        setNotice({ tone: 'error', message: 'entity が一致しないため診療セットを反映できません。' });
+        return;
+      }
+      const nextForm = toFormState(toOrderBundleFromInputSetDetail(detail.bundle, entity), today);
+      if (isBundleFormEmpty(form)) {
+        applyOrcaSetForm(nextForm);
+        return;
+      }
+      setPendingOrcaSetForm(nextForm);
+      setOrcaSetConfirmOpen(true);
+    },
+    [applyOrcaSetForm, entity, form, isMedOrder, today],
+  );
 
   const usageNormalizationSeqRef = useRef(0);
   const pushRecentUsage = useCallback(
@@ -2735,6 +2878,45 @@ export function OrderBundleEditPanel({
         </div>
       </FocusTrapDialog>
       <FocusTrapDialog
+        open={orcaSetConfirmOpen}
+        role="alertdialog"
+        title="診療セットを反映しますか？"
+        description="現在の入力内容は置き換えられます。"
+        onClose={() => {
+          setOrcaSetConfirmOpen(false);
+          setPendingOrcaSetForm(null);
+        }}
+        testId="orca-order-set-confirm"
+      >
+        <div className="charts-side-panel__confirm">
+          <div className="charts-side-panel__actions charts-side-panel__actions--dialog" role="group" aria-label="診療セット反映の確認">
+            <button
+              type="button"
+              className="charts-side-panel__action"
+              onClick={() => {
+                setOrcaSetConfirmOpen(false);
+                setPendingOrcaSetForm(null);
+              }}
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              className="charts-side-panel__action charts-side-panel__action--save"
+              onClick={() => {
+                if (pendingOrcaSetForm) {
+                  applyOrcaSetForm(pendingOrcaSetForm);
+                }
+                setOrcaSetConfirmOpen(false);
+                setPendingOrcaSetForm(null);
+              }}
+            >
+              反映する
+            </button>
+          </div>
+        </div>
+      </FocusTrapDialog>
+      <FocusTrapDialog
         open={clearRowsDialogOpen}
         role="alertdialog"
         title="入力を全クリアしますか？"
@@ -2926,6 +3108,96 @@ export function OrderBundleEditPanel({
                 disabled={isBlocked}
               />
             </div>
+        {supportsEtensuDetailSearch && (
+          <div className="charts-side-panel__subsection charts-side-panel__meta-section">
+            <div className="charts-side-panel__subheader">
+              <strong>点数検索（詳細）</strong>
+              <button type="button" className="charts-side-panel__ghost" onClick={() => setDetailSearchOpen((prev) => !prev)}>
+                {detailSearchOpen ? '閉じる' : '開く'}
+              </button>
+            </div>
+            {pointsRangeSummary ? <p className="charts-side-panel__help">{pointsRangeSummary}</p> : null}
+            {detailSearchOpen ? (
+              <div className="charts-side-panel__field-row">
+                <div className="charts-side-panel__field">
+                  <label htmlFor={`${entityId}-points-min`}>点数From</label>
+                  <input
+                    id={`${entityId}-points-min`}
+                    value={pointsMinInput}
+                    onChange={(event) => setPointsMinInput(event.target.value)}
+                    inputMode="decimal"
+                    disabled={isBlocked}
+                  />
+                </div>
+                <div className="charts-side-panel__field">
+                  <label htmlFor={`${entityId}-points-max`}>点数To</label>
+                  <input
+                    id={`${entityId}-points-max`}
+                    value={pointsMaxInput}
+                    onChange={(event) => setPointsMaxInput(event.target.value)}
+                    inputMode="decimal"
+                    disabled={isBlocked}
+                  />
+                </div>
+              </div>
+            ) : null}
+            {pointsRangeError ? (
+              <p className="charts-side-panel__field-error" role="alert">
+                {pointsRangeError}
+              </p>
+            ) : null}
+          </div>
+        )}
+        {!isMedOrder && (
+          <div className="charts-side-panel__subsection charts-side-panel__meta-section">
+            <div className="charts-side-panel__subheader">
+              <strong>ORCA診療セット</strong>
+              <span className="charts-side-panel__search-count">{orcaSetItems.length}件</span>
+            </div>
+            <div className="charts-side-panel__field">
+              <label htmlFor={`${entityId}-orca-set-keyword`}>keyword</label>
+              <input
+                id={`${entityId}-orca-set-keyword`}
+                value={orcaSetKeyword}
+                onChange={(event) => setOrcaSetKeyword(event.target.value)}
+                placeholder="診療セット名またはコード"
+                disabled={isBlocked}
+              />
+            </div>
+            <button
+              type="button"
+              className="charts-side-panel__action charts-side-panel__action--search"
+              onClick={() => void handleOrcaSetSearch()}
+              disabled={isBlocked || orcaSetLoading || !orcaSetKeyword.trim()}
+            >
+              {orcaSetLoading ? '検索中…' : 'セット検索'}
+            </button>
+            {orcaSetItems.length > 0 ? (
+              <div className="charts-side-panel__search-table">
+                <div className="charts-side-panel__search-header">
+                  <span>setCode</span>
+                  <span>name</span>
+                  <span>itemCount</span>
+                  <span>反映</span>
+                </div>
+                {orcaSetItems.map((item) => (
+                  <button
+                    key={`orca-set-${item.setCode ?? item.name}`}
+                    type="button"
+                    className="charts-side-panel__search-row"
+                    onClick={() => void handleOrcaSetApply(item)}
+                    disabled={isBlocked}
+                  >
+                    <span>{item.setCode ?? '-'}</span>
+                    <span>{item.name ?? '-'}</span>
+                    <span>{item.itemCount ?? '-'}</span>
+                    <span>反映</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        )}
         {isMedOrder && (
           <div className="charts-side-panel__field-row charts-side-panel__meta-section charts-side-panel__meta-section--rx-class">
             <div className="charts-side-panel__field">

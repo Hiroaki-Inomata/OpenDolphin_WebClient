@@ -209,6 +209,75 @@ public class OrcaMasterResource extends AbstractResource {
     }
 
     @GET
+    @Path("/generic-price")
+    public Response getGenericPrice(
+            @HeaderParam("If-None-Match") String ifNoneMatch,
+            @Context UriInfo uriInfo,
+            @Context HttpServletRequest request
+    ) {
+        if (!isAuthorized(request)) {
+            return unauthorized(request);
+        }
+        final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
+        final String srycd = getFirstValue(params, "srycd");
+        final String effective = normalizeEffectiveDate(getFirstValue(params, "effective"));
+        final String masterType = "orca05-generic-price";
+        final String apiRoute = "/orca/master/generic-price";
+        if (srycd == null || !SRYCD_PATTERN.matcher(srycd).matches()) {
+            recordMasterAudit(request, apiRoute, masterType, 422,
+                    new LoadedFixture<>(Collections.emptyList(), null, null, DataOrigin.FALLBACK, false),
+                    false, null, 0, buildSrycdDetails(srycd, effective, params));
+            return validationError(request, "SRYCD_VALIDATION_ERROR", "srycd must be 9 digits");
+        }
+        LoadedFixture<FixtureGenericPriceEntry> fixture = loadEntries(
+                FixtureGenericPriceEntry.class,
+                "generic-price/orca_master_generic-price_response.json",
+                "orca-master-generic-price.json"
+        );
+        if (isUnavailableFallback(fixture)) {
+            Response failure = serviceUnavailable(request, "MASTER_GENERIC_PRICE_UNAVAILABLE",
+                    "最低薬価マスタを取得できませんでした");
+            recordMasterAudit(request, apiRoute, masterType, 503, fixture, false, true, 0,
+                    buildSrycdDetails(srycd, effective, params));
+            return failure;
+        }
+        final String etagValue = buildEtag(apiRoute, masterType, fixture, params);
+        final long ttlSeconds = cacheTtlSeconds(masterType);
+        if (etagMatches(ifNoneMatch, etagValue)) {
+            recordMasterAudit(request, apiRoute, masterType, 304, fixture, true, null, null,
+                    buildSrycdDetails(srycd, effective, params));
+            return buildNotModifiedResponse(etagValue, ttlSeconds);
+        }
+        FixtureGenericPriceEntry match = fixture.entries.stream()
+                .filter(entry -> srycd.equals(firstNonBlank(entry.srycd, entry.code)))
+                .filter(entry -> isEffective(effective, entry.startDate, entry.endDate, entry.validFrom, entry.validTo))
+                .findFirst()
+                .orElse(null);
+        OrcaDrugMasterEntry response = match != null
+                ? toGenericPriceEntry(match, fixture)
+                : buildDrugEntry(
+                        srycd,
+                        "未収載薬",
+                        "generic-price",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        DEFAULT_VALID_FROM,
+                        DEFAULT_VALID_TO,
+                        null,
+                        fixture,
+                        false,
+                        true,
+                        false
+                );
+        recordMasterAudit(request, apiRoute, masterType, 200, fixture, false, false, 1,
+                match == null, null, buildSrycdDetails(srycd, effective, params));
+        return buildCachedOkResponse(response, etagValue, ttlSeconds);
+    }
+
+    @GET
     @Path("/drug")
     public Response getDrug(
             @HeaderParam("If-None-Match") String ifNoneMatch,
@@ -265,6 +334,121 @@ public class OrcaMasterResource extends AbstractResource {
         response.setItems(items);
         recordMasterAudit(request, apiRoute, masterType, 200, fixture, false, totalCount == 0,
                 totalCount, buildQueryDetails(null, keyword, effective, params));
+        return buildCachedOkResponse(response, etagValue, ttlSeconds);
+    }
+
+    @GET
+    @Path("/hokenja")
+    public Response getHokenja(
+            @HeaderParam("If-None-Match") String ifNoneMatch,
+            @Context UriInfo uriInfo,
+            @Context HttpServletRequest request
+    ) {
+        if (!isAuthorized(request)) {
+            return unauthorized(request);
+        }
+        final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
+        final String pref = getFirstValue(params, "pref");
+        final String keyword = getFirstValue(params, "keyword");
+        final String effective = normalizeEffectiveDate(getFirstValue(params, "effective"));
+        final String masterType = "orca06-hokenja";
+        final String apiRoute = "/orca/master/hokenja";
+        if (pref != null && !PREF_PATTERN.matcher(pref).matches()) {
+            recordMasterAudit(request, apiRoute, masterType, 422,
+                    new LoadedFixture<>(Collections.emptyList(), null, null, DataOrigin.FALLBACK, false),
+                    false, null, 0, buildQueryDetails(pref, keyword, effective, params));
+            return validationError(request, "PREF_VALIDATION_ERROR", "pref must be a 2-digit prefecture code");
+        }
+        LoadedFixture<FixtureHokenjaEntry> fixture = loadEntries(
+                FixtureHokenjaEntry.class,
+                "hokenja/orca_master_hokenja_response.json",
+                "orca-master-hokenja.json"
+        );
+        if (isUnavailableFallback(fixture)) {
+            Response failure = serviceUnavailable(request, "MASTER_HOKENJA_UNAVAILABLE", "保険者マスタを取得できませんでした");
+            recordMasterAudit(request, apiRoute, masterType, 503, fixture, false, true, 0,
+                    buildQueryDetails(pref, keyword, effective, params));
+            return failure;
+        }
+        List<FixtureHokenjaEntry> filtered = fixture.entries.stream()
+                .filter(entry -> matchesPref(pref, entry))
+                .filter(entry -> matchesKeyword(keyword,
+                        firstNonBlank(entry.payerCode, entry.insurerNumber),
+                        firstNonBlank(entry.payerName, entry.insurerName),
+                        entry.insurerKana))
+                .filter(entry -> isEffective(effective, entry.startDate, entry.endDate, entry.validFrom, entry.validTo))
+                .collect(Collectors.toList());
+        final String etagValue = buildEtag(apiRoute, masterType, fixture, params);
+        final long ttlSeconds = cacheTtlSeconds(masterType);
+        if (etagMatches(ifNoneMatch, etagValue)) {
+            recordMasterAudit(request, apiRoute, masterType, 304, fixture, true, null, filtered.size(),
+                    buildQueryDetails(pref, keyword, effective, params));
+            return buildNotModifiedResponse(etagValue, ttlSeconds);
+        }
+        List<OrcaInsurerEntry> items = paginateList(filtered, params).stream()
+                .map(entry -> toInsurerEntry(entry, fixture))
+                .collect(Collectors.toList());
+        OrcaMasterListResponse<OrcaInsurerEntry> response = new OrcaMasterListResponse<>();
+        response.setTotalCount(filtered.size());
+        response.setItems(items);
+        recordMasterAudit(request, apiRoute, masterType, 200, fixture, false, filtered.isEmpty(), filtered.size(),
+                buildQueryDetails(pref, keyword, effective, params));
+        return buildCachedOkResponse(response, etagValue, ttlSeconds);
+    }
+
+    @GET
+    @Path("/address")
+    public Response getAddress(
+            @HeaderParam("If-None-Match") String ifNoneMatch,
+            @Context UriInfo uriInfo,
+            @Context HttpServletRequest request
+    ) {
+        if (!isAuthorized(request)) {
+            return unauthorized(request);
+        }
+        final MultivaluedMap<String, String> params = uriInfo.getQueryParameters();
+        final String zip = getFirstValue(params, "zip");
+        final String effective = normalizeEffectiveDate(getFirstValue(params, "effective"));
+        final String masterType = "orca06-address";
+        final String apiRoute = "/orca/master/address";
+        if (zip == null || !ZIP_PATTERN.matcher(zip).matches()) {
+            recordMasterAudit(request, apiRoute, masterType, 422,
+                    new LoadedFixture<>(Collections.emptyList(), null, null, DataOrigin.FALLBACK, false),
+                    false, null, 0, buildQueryDetails(null, null, effective, params, zip));
+            return validationError(request, "ZIP_VALIDATION_ERROR", "zip must be 7 digits");
+        }
+        LoadedFixture<FixtureAddressEntry> fixture = loadEntries(
+                FixtureAddressEntry.class,
+                "address/orca_master_address_response.json",
+                "orca-master-address.json"
+        );
+        if (isUnavailableFallback(fixture)) {
+            Response failure = serviceUnavailable(request, "MASTER_ADDRESS_UNAVAILABLE", "住所マスタを取得できませんでした");
+            recordMasterAudit(request, apiRoute, masterType, 503, fixture, false, true, 0,
+                    buildQueryDetails(null, null, effective, params, zip));
+            return failure;
+        }
+        final String etagValue = buildEtag(apiRoute, masterType, fixture, params);
+        final long ttlSeconds = cacheTtlSeconds(masterType);
+        if (etagMatches(ifNoneMatch, etagValue)) {
+            recordMasterAudit(request, apiRoute, masterType, 304, fixture, true, null, null,
+                    buildQueryDetails(null, null, effective, params, zip));
+            return buildNotModifiedResponse(etagValue, ttlSeconds);
+        }
+        FixtureAddressEntry match = fixture.entries.stream()
+                .filter(entry -> zip.equals(firstNonBlank(entry.zip, entry.zipCode)))
+                .filter(entry -> isEffective(effective, entry.startDate, entry.endDate, entry.validFrom, entry.validTo))
+                .findFirst()
+                .orElse(null);
+        if (match == null) {
+            Response notFound = notFound("MASTER_ADDRESS_NOT_FOUND", "指定の郵便番号に該当する住所がありません", request);
+            recordMasterAudit(request, apiRoute, masterType, 404, fixture, false, true, 0,
+                    buildQueryDetails(null, null, effective, params, zip));
+            return notFound;
+        }
+        OrcaAddressEntry response = toAddressEntry(match, fixture);
+        recordMasterAudit(request, apiRoute, masterType, 200, fixture, false, false, 1,
+                buildQueryDetails(null, null, effective, params, zip));
         return buildCachedOkResponse(response, etagValue, ttlSeconds);
     }
 
@@ -597,27 +781,48 @@ public class OrcaMasterResource extends AbstractResource {
         final String apiRoute = "/orca/master/etensu";
         final String category = getFirstValue(params, "category");
         if (category != null && !ETENSU_CATEGORY_PATTERN.matcher(category).matches()) {
-            recordEtensuValidationAudit(request, masterType, keyword, category, null, null,
+            recordEtensuValidationAudit(request, masterType, keyword, category, null, null, null, null,
                     "TENSU_CATEGORY_INVALID", params);
             return validationError(request, "TENSU_CATEGORY_INVALID", "category must be numeric 1-2 digits");
         }
         final String asOf = getFirstValue(params, "asOf");
         if (asOf != null && !AS_OF_PATTERN.matcher(asOf).matches()) {
-            recordEtensuValidationAudit(request, masterType, keyword, category, asOf, null,
+            recordEtensuValidationAudit(request, masterType, keyword, category, asOf, null, null, null,
                     "TENSU_ASOF_INVALID", params);
             return validationError(request, "TENSU_ASOF_INVALID", "asOf must be YYYYMMDD");
         }
         final String tensuVersion = getFirstValue(params, "tensuVersion");
         if (tensuVersion != null && !TENSU_VERSION_PATTERN.matcher(tensuVersion).matches()) {
-            recordEtensuValidationAudit(request, masterType, keyword, category, asOf, tensuVersion,
+            recordEtensuValidationAudit(request, masterType, keyword, category, asOf, tensuVersion, null, null,
                     "TENSU_VERSION_INVALID", params);
             return validationError(request, "TENSU_VERSION_INVALID", "tensuVersion must be YYYYMM");
+        }
+        final String pointsMinRaw = getFirstValue(params, "pointsMin");
+        final Double pointsMin = parseNullableDouble(pointsMinRaw);
+        if (pointsMinRaw != null && pointsMin == null) {
+            recordEtensuValidationAudit(request, masterType, keyword, category, asOf, tensuVersion, null, null,
+                    "TENSU_POINTS_MIN_INVALID", params);
+            return badRequest(request, "TENSU_POINTS_MIN_INVALID", "pointsMin must be numeric");
+        }
+        final String pointsMaxRaw = getFirstValue(params, "pointsMax");
+        final Double pointsMax = parseNullableDouble(pointsMaxRaw);
+        if (pointsMaxRaw != null && pointsMax == null) {
+            recordEtensuValidationAudit(request, masterType, keyword, category, asOf, tensuVersion, null, null,
+                    "TENSU_POINTS_MAX_INVALID", params);
+            return badRequest(request, "TENSU_POINTS_MAX_INVALID", "pointsMax must be numeric");
+        }
+        if (pointsMin != null && pointsMax != null && pointsMin.doubleValue() > pointsMax.doubleValue()) {
+            recordEtensuValidationAudit(request, masterType, keyword, category, asOf, tensuVersion, pointsMin, pointsMax,
+                    "TENSU_POINTS_RANGE_INVALID", params);
+            return badRequest(request, "TENSU_POINTS_RANGE_INVALID", "pointsMin must be less than or equal to pointsMax");
         }
         EtensuDao.EtensuSearchCriteria criteria = new EtensuDao.EtensuSearchCriteria();
         criteria.setKeyword(keyword);
         criteria.setCategory(category);
         criteria.setAsOf(asOf);
         criteria.setTensuVersion(tensuVersion);
+        criteria.setPointsMin(pointsMin);
+        criteria.setPointsMax(pointsMax);
         criteria.setPage(parsePositiveInt(params, "page", 1));
         criteria.setSize(parsePageSize(params, "size", 100));
         EtensuDao.EtensuSearchResult dbResult = etensuDao.search(criteria);
@@ -630,7 +835,7 @@ public class OrcaMasterResource extends AbstractResource {
             if (isUnavailableFallback(fallbackFixture)) {
                 Response failure = serviceUnavailable(request, "ETENSU_UNAVAILABLE", "etensu master unavailable");
                 recordMasterAudit(request, apiRoute, masterType, 503, fallbackFixture, false, true, 0,
-                        buildTensuQueryDetails(keyword, category, asOf, tensuVersion, params));
+                        buildTensuQueryDetails(keyword, category, asOf, tensuVersion, pointsMin, pointsMax, params));
                 return failure;
             }
             List<FixtureEtensuEntry> filtered = fallbackFixture.entries.stream()
@@ -638,11 +843,13 @@ public class OrcaMasterResource extends AbstractResource {
                     .filter(entry -> matchesEtensuCategory(category, entry))
                     .filter(entry -> matchesTensuVersion(normalizeTensuVersion(tensuVersion), entry))
                     .filter(entry -> isEffective(firstNonBlank(asOf, "99991231"), entry.startDate, entry.endDate, entry.validFrom, entry.validTo))
+                    .filter(entry -> matchesPointsRange(pointsMin, pointsMax, firstNonBlankDouble(entry.points, entry.tanka)))
                     .collect(Collectors.toList());
             List<FixtureEtensuEntry> paged = paginateList(filtered, params);
             final String etagValue = buildEtag(apiRoute, masterType, fallbackFixture, params);
             final long ttlSeconds = cacheTtlSeconds(masterType);
-            final Map<String, Object> etensuAuditDetails = buildTensuQueryDetails(keyword, category, asOf, tensuVersion, params);
+            final Map<String, Object> etensuAuditDetails =
+                    buildTensuQueryDetails(keyword, category, asOf, tensuVersion, pointsMin, pointsMax, params);
             if (etagMatches(ifNoneMatch, etagValue)) {
                 recordMasterAudit(request, apiRoute, masterType, 304, fallbackFixture, true, null,
                         filtered.size(), etensuAuditDetails);
@@ -675,7 +882,7 @@ public class OrcaMasterResource extends AbstractResource {
         final String etagValue = buildEtag(apiRoute, masterType, dbFixture, params);
         final long ttlSeconds = cacheTtlSeconds(masterType);
         final Map<String, Object> etensuAuditDetails = buildEtensuAuditDetails(keyword, category, asOf, tensuVersion,
-                params, dbResult);
+                pointsMin, pointsMax, params, dbResult);
         final Map<String, String> basePerfHeaders = buildEtensuPerformanceHeaders(dbResult, false);
         if (etagMatches(ifNoneMatch, etagValue)) {
             recordMasterAudit(request, apiRoute, masterType, 304, dbFixture, true, null,
@@ -705,7 +912,7 @@ public class OrcaMasterResource extends AbstractResource {
     }
 
     private void recordEtensuValidationAudit(HttpServletRequest request, String masterType, String keyword,
-            String category, String asOf, String tensuVersion, String errorCode,
+            String category, String asOf, String tensuVersion, Double pointsMin, Double pointsMax, String errorCode,
             MultivaluedMap<String, String> params) {
         LoadedFixture<EtensuDao.EtensuRecord> dbFixture = new LoadedFixture<>(
                 Collections.emptyList(),
@@ -714,12 +921,14 @@ public class OrcaMasterResource extends AbstractResource {
                 DataOrigin.ORCA_DB,
                 false
         );
-        java.util.Map<String, Object> details = buildTensuQueryDetails(keyword, category, asOf, tensuVersion, params);
+        java.util.Map<String, Object> details =
+                buildTensuQueryDetails(keyword, category, asOf, tensuVersion, pointsMin, pointsMax, params);
         details.put("validationError", true);
         if (errorCode != null && !errorCode.isBlank()) {
             details.put("errorCode", errorCode);
         }
-        recordMasterAudit(request, "/orca/master/etensu", masterType, 422, dbFixture, false, null, 0, details);
+        int httpStatus = errorCode != null && errorCode.startsWith("TENSU_POINTS_") ? 400 : 422;
+        recordMasterAudit(request, "/orca/master/etensu", masterType, httpStatus, dbFixture, false, null, 0, details);
     }
 
     private Response unauthorized(HttpServletRequest request) {
@@ -759,6 +968,10 @@ public class OrcaMasterResource extends AbstractResource {
         response.setPath(request != null ? request.getRequestURI() : "/orca/master");
         response.setErrorCategory("validation_error");
         return Response.status(422).entity(response).build();
+    }
+
+    private Response badRequest(HttpServletRequest request, String code, String message) {
+        return buildErrorResponse(Status.BAD_REQUEST, code, message, request, null);
     }
 
     private <T> LoadedFixture<T> loadEntries(Class<T> entryType, String snapshotRelativePath, String fixtureFileName) {
@@ -967,6 +1180,28 @@ public class OrcaMasterResource extends AbstractResource {
         );
     }
 
+    private OrcaDrugMasterEntry toGenericPriceEntry(FixtureGenericPriceEntry entry, LoadedFixture<?> fixture) {
+        String validFrom = firstNonBlank(entry.startDate, entry.validFrom, DEFAULT_VALID_FROM);
+        String validTo = firstNonBlank(entry.endDate, entry.validTo, DEFAULT_VALID_TO);
+        return buildDrugEntry(
+                firstNonBlank(entry.srycd, entry.code),
+                firstNonBlank(entry.drugName, entry.name),
+                "generic-price",
+                entry.unit,
+                firstNonBlankDouble(entry.price, entry.minPrice),
+                entry.youhouCode,
+                null,
+                null,
+                validFrom,
+                validTo,
+                null,
+                fixture,
+                entry.cacheHit,
+                entry.missingMaster,
+                entry.fallbackUsed
+        );
+    }
+
     private OrcaDrugMasterEntry toDrugEntry(OrcaMasterDao.DrugRecord entry, LoadedFixture<?> fixture) {
         String validFrom = firstNonBlank(entry.startDate, DEFAULT_VALID_FROM);
         String validTo = firstNonBlank(entry.endDate, DEFAULT_VALID_TO);
@@ -987,6 +1222,47 @@ public class OrcaMasterResource extends AbstractResource {
                 false,
                 false
         );
+    }
+
+    private OrcaInsurerEntry toInsurerEntry(FixtureHokenjaEntry entry, LoadedFixture<?> fixture) {
+        OrcaInsurerEntry response = new OrcaInsurerEntry();
+        String payerCode = firstNonBlank(entry.payerCode, entry.insurerNumber);
+        response.setPayerCode(payerCode);
+        response.setPayerName(firstNonBlank(entry.payerName, entry.insurerName));
+        String payerType = resolvePayerType(firstNonBlank(entry.payerType, entry.insurerType), payerCode);
+        response.setPayerType(payerType);
+        response.setPayerRatio(resolvePayerRatio(entry.payerRatio, payerType));
+        String prefCode = firstNonBlank(entry.prefCode, entry.prefectureCode, derivePrefCode(payerCode));
+        response.setPrefCode(prefCode);
+        response.setCityCode(firstNonBlank(entry.cityCode, deriveCityCode(prefCode)));
+        response.setZip(firstNonBlank(entry.zip, entry.zipCode));
+        response.setAddressLine(firstNonBlank(entry.addressLine, entry.address));
+        response.setPhone(entry.phone);
+        response.setValidFrom(firstNonBlank(entry.startDate, entry.validFrom, DEFAULT_VALID_FROM));
+        response.setValidTo(firstNonBlank(entry.endDate, entry.validTo, DEFAULT_VALID_TO));
+        boolean missing = Boolean.TRUE.equals(entry.missingMaster);
+        boolean fallback = Boolean.TRUE.equals(entry.fallbackUsed) || missing || fixture.origin == DataOrigin.FALLBACK;
+        boolean cache = Boolean.TRUE.equals(entry.cacheHit);
+        response.setMeta(buildMeta(fixture.origin, fixture.snapshotVersion, fixture.version, cache, missing, fallback, null));
+        return response;
+    }
+
+    private OrcaAddressEntry toAddressEntry(FixtureAddressEntry entry, LoadedFixture<?> fixture) {
+        OrcaAddressEntry response = new OrcaAddressEntry();
+        response.setZip(firstNonBlank(entry.zip, entry.zipCode));
+        String prefCode = firstNonBlank(entry.prefCode, entry.prefectureCode);
+        response.setPrefCode(prefCode);
+        response.setCityCode(firstNonBlank(entry.cityCode, deriveCityCode(prefCode)));
+        response.setCity(entry.city);
+        response.setTown(entry.town);
+        response.setKana(entry.kana);
+        response.setRoman(entry.roman);
+        response.setFullAddress(firstNonBlank(entry.fullAddress, entry.addressLine, entry.address));
+        boolean missing = Boolean.TRUE.equals(entry.missingMaster);
+        boolean fallback = Boolean.TRUE.equals(entry.fallbackUsed) || missing || fixture.origin == DataOrigin.FALLBACK;
+        boolean cache = Boolean.TRUE.equals(entry.cacheHit);
+        response.setMeta(buildMeta(fixture.origin, fixture.snapshotVersion, fixture.version, cache, missing, fallback, null));
+        return response;
     }
 
     private OrcaTensuEntry toCommentEntry(OrcaMasterDao.CommentRecord entry, LoadedFixture<?> fixture) {
@@ -1319,6 +1595,18 @@ public class OrcaMasterResource extends AbstractResource {
         return false;
     }
 
+    private boolean matchesPref(String pref, FixtureHokenjaEntry entry) {
+        if (pref == null || pref.isBlank()) {
+            return true;
+        }
+        String candidate = firstNonBlank(entry.prefCode, entry.prefectureCode);
+        if (candidate != null && pref.equals(candidate)) {
+            return true;
+        }
+        String payerCode = firstNonBlank(entry.payerCode, entry.insurerNumber);
+        return payerCode != null && payerCode.startsWith(pref);
+    }
+
     private boolean matchesEtensuCategory(String category, FixtureEtensuEntry entry) {
         if (category == null || category.isBlank()) {
             return true;
@@ -1599,7 +1887,7 @@ public class OrcaMasterResource extends AbstractResource {
     }
 
     private java.util.Map<String, Object> buildTensuQueryDetails(String keyword, String category, String asOf,
-            String tensuVersion, MultivaluedMap<String, String> params) {
+            String tensuVersion, Double pointsMin, Double pointsMax, MultivaluedMap<String, String> params) {
         java.util.Map<String, Object> details = new java.util.LinkedHashMap<>();
         if (keyword != null && !keyword.isBlank()) {
             details.put("keywordPresent", true);
@@ -1616,6 +1904,12 @@ public class OrcaMasterResource extends AbstractResource {
         if (tensuVersion != null) {
             details.put("tensuVersion", tensuVersion);
         }
+        if (pointsMin != null) {
+            details.put("pointsMin", pointsMin);
+        }
+        if (pointsMax != null) {
+            details.put("pointsMax", pointsMax);
+        }
         if (params != null) {
             details.put("page", parsePositiveInt(params, "page", 1));
             details.put("size", parsePageSize(params, "size", 100));
@@ -1624,8 +1918,10 @@ public class OrcaMasterResource extends AbstractResource {
     }
 
     private java.util.Map<String, Object> buildEtensuAuditDetails(String keyword, String category, String asOf,
-            String tensuVersion, MultivaluedMap<String, String> params, EtensuDao.EtensuSearchResult result) {
-        java.util.Map<String, Object> details = buildTensuQueryDetails(keyword, category, asOf, tensuVersion, params);
+            String tensuVersion, Double pointsMin, Double pointsMax, MultivaluedMap<String, String> params,
+            EtensuDao.EtensuSearchResult result) {
+        java.util.Map<String, Object> details =
+                buildTensuQueryDetails(keyword, category, asOf, tensuVersion, pointsMin, pointsMax, params);
         if (result == null) {
             return details;
         }
@@ -1633,6 +1929,30 @@ public class OrcaMasterResource extends AbstractResource {
         details.put("rowCount", result.getRecords().size());
         details.put("dbTimeMs", result.getDbTimeMs());
         return details;
+    }
+
+    private Double parseNullableDouble(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private boolean matchesPointsRange(Double pointsMin, Double pointsMax, Double points) {
+        if (points == null) {
+            return pointsMin == null && pointsMax == null;
+        }
+        if (pointsMin != null && points.doubleValue() < pointsMin.doubleValue()) {
+            return false;
+        }
+        if (pointsMax != null && points.doubleValue() > pointsMax.doubleValue()) {
+            return false;
+        }
+        return true;
     }
 
     private Map<String, String> buildEtensuPerformanceHeaders(EtensuDao.EtensuSearchResult result, boolean cacheHit) {
@@ -1794,6 +2114,72 @@ public class OrcaMasterResource extends AbstractResource {
         public String categoryCode;
         public String parentClassCode;
         public Boolean isLeaf;
+        public String startDate;
+        public String endDate;
+        public String validFrom;
+        public String validTo;
+        public Boolean cacheHit;
+        public Boolean missingMaster;
+        public Boolean fallbackUsed;
+    }
+
+    private static final class FixtureGenericPriceEntry {
+        public String code;
+        public String srycd;
+        public String name;
+        public String drugName;
+        public String unit;
+        public Double price;
+        public Double minPrice;
+        public String youhouCode;
+        public String startDate;
+        public String endDate;
+        public String validFrom;
+        public String validTo;
+        public Boolean cacheHit;
+        public Boolean missingMaster;
+        public Boolean fallbackUsed;
+    }
+
+    private static final class FixtureHokenjaEntry {
+        public String payerCode;
+        public String insurerNumber;
+        public String payerName;
+        public String insurerName;
+        public String insurerKana;
+        public String payerType;
+        public String insurerType;
+        public Double payerRatio;
+        public String prefCode;
+        public String prefectureCode;
+        public String cityCode;
+        public String zip;
+        public String zipCode;
+        public String addressLine;
+        public String address;
+        public String phone;
+        public String startDate;
+        public String endDate;
+        public String validFrom;
+        public String validTo;
+        public Boolean cacheHit;
+        public Boolean missingMaster;
+        public Boolean fallbackUsed;
+    }
+
+    private static final class FixtureAddressEntry {
+        public String zip;
+        public String zipCode;
+        public String prefCode;
+        public String prefectureCode;
+        public String cityCode;
+        public String city;
+        public String town;
+        public String kana;
+        public String roman;
+        public String fullAddress;
+        public String addressLine;
+        public String address;
         public String startDate;
         public String endDate;
         public String validFrom;
