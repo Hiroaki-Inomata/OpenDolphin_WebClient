@@ -1486,7 +1486,7 @@ public class DemoResourceASP extends AbstractResource {
 
         for (ModuleModel module : retList) {
 
-            module.setModel((InfoModel)xmlDecode(module.getBeanBytes()));
+            module.setModel((InfoModel) ModelUtils.decodeModule(module));
 
             BundleDolphin bundle = (BundleDolphin) module.getModel();
             bundle.setOrderName(module.getModuleInfoBean().getEntity());
@@ -1612,7 +1612,7 @@ public class DemoResourceASP extends AbstractResource {
 
             for (ModuleModel bean : modules) {
 
-                bean.setModel((InfoModel) xmlDecode(bean.getBeanBytes()));
+                bean.setModel((InfoModel) ModelUtils.decodeModule(bean));
 
                 String role = bean.getModuleInfoBean().getStampRole();
 

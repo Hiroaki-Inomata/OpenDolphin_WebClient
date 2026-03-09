@@ -97,6 +97,21 @@ class DocumentIntegrityServiceTest {
                 });
     }
 
+    @Test
+    void verify_acceptsExternalizedAttachmentWithDigestAndUri() throws Exception {
+        DocumentModel document = buildDocument(false);
+        AttachmentModel attachment = document.getAttachment().get(0);
+        attachment.setDigest("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");
+        attachment.setUri("s3://test-bucket/attachments/doc-100/att-21-a.txt");
+        attachment.setBytes(null);
+
+        DocumentIntegrityEntity stored = buildStoredSeal(service, document);
+        when(em.find(DocumentIntegrityEntity.class, document.getId())).thenReturn(stored);
+
+        assertThatCode(() -> service.verifyDocumentOnRead(document))
+                .doesNotThrowAnyException();
+    }
+
     private static DocumentIntegrityEntity buildStoredSeal(DocumentIntegrityService service,
                                                            DocumentModel document) throws Exception {
         byte[] canonicalBytes = invokeCanonicalBytes(service, document);

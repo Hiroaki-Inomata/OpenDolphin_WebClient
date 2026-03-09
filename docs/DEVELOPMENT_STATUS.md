@@ -25,11 +25,17 @@
 - ORCA 公式仕様の firecrawl 取得物は `docs/server-modernization/operations/ORCA_FIRECRAWL_INDEX.md` を入口に参照する（非Legacy 側の索引）。
 - ORCA 接続情報は `docs/server-modernization/operations/ORCA_CERTIFICATION_ONLY.md` を正本として運用する（Phase2 版は Legacy）。
 - ORCA オーダー仕様の実装要件は `docs/server-modernization/ORCA-order-system-rule.md` を参照する。
+- module 永続化の現行方針は `beanJson` 優先ではなく、**新規書込を `beanJson` のみに寄せる** こととする。`beanBytes` は旧データ読込 fallback 専用として扱い、新規二重保存は行わない。
+- module 永続化は将来的に `beanJson` 専用化を目標とし、`beanBytes` の PostgreSQL `oid` 回帰は採らない。互換を切る場合も `oid` ではなく JSON 系へ統一する。
 
 ## 保留（現時点で削除しない）
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-09: module 永続化方針を更新し、`beanJson` のみへ寄せる方針を現行ルールとして明記（RUN_ID=20260309T080656Z）。
+  - 方針: 新規 module 書込は `beanJson` のみを正規経路とし、`beanBytes` は旧行読込 fallback としてのみ保持する。新規の JSON+XML 二重保存や `oid` 回帰は採らない。
+  - 適用先: `server-modernized` の module 保存・復元、および今後の migration / リファクタ判断。
+  - 成果物: `docs/DEVELOPMENT_STATUS.md` / `docs/server-modernization/README.md`。
 - 2026-02-28: `claim.sender=client` 相当（施設単位ORCA接続）へ向けた server-modernized/web-client 改修を実施（RUN_ID=20260228T131828Z）。
   - 計画書: `docs/server-modernization/claim-sender-client-equivalent-implementation-plan-20260228.md` を新規追加し、施設スコープ化・後方互換・検証方針を明文化。
   - 内容（server-modernized）: `OrcaConnectionConfigStore` を施設別 `records` 形式へ拡張し、旧単一JSON形式の後方互換読込を実装。`RestOrcaTransport` は施設ID（SessionTraceContext `FACILITY_ID` → `actorId` → MDC `remoteUser`）で設定を解決し、施設別キャッシュを保持。`AdminOrcaConnectionResource` はログインactorの施設IDで接続設定を読書きし、レスポンス/監査に `facilityId` を追加。

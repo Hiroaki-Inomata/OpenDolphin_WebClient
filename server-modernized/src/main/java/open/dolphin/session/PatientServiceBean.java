@@ -5,6 +5,8 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -100,12 +102,12 @@ public class PatientServiceBean {
         
         //-----------------------------------
         // 患者の健康保険を取得する
-        setHealthInsurances(ret);
+        populateHealthInsurances(ret);
         //-----------------------------------
         
 //masuda^   最終受診日設定
         if (!ret.isEmpty()) {
-            setPvtDate(fid, ret);
+            populatePvtDate(fid, ret);
         }
 //masuda$
 
@@ -144,12 +146,12 @@ public class PatientServiceBean {
 
         //-----------------------------------
         // 患者の健康保険を取得する
-        setHealthInsurances(ret);
+        populateHealthInsurances(ret);
         //-----------------------------------
         
 //masuda^   最終受診日設定
         if (!ret.isEmpty()) {
-            setPvtDate(fid, ret);
+            populatePvtDate(fid, ret);
         }
 //masuda$
         
@@ -180,12 +182,12 @@ public class PatientServiceBean {
 
         //-----------------------------------
         // 患者の健康保険を取得する
-        setHealthInsurances(ret);
+        populateHealthInsurances(ret);
         //-----------------------------------
         
 //masuda^   最終受診日設定
         if (!ret.isEmpty()) {
-            setPvtDate(fid, ret);
+            populatePvtDate(fid, ret);
         }
 //masuda$
 
@@ -204,18 +206,12 @@ public class PatientServiceBean {
 
         for (PatientVisitModel pvt : list) {
             PatientModel patient = pvt.getPatientModel();
-            List<HealthInsuranceModel> insurances
-                        = (List<HealthInsuranceModel>)em.createQuery(QUERY_INSURANCE_BY_PATIENT_PK)
-                        .setParameter(PK, patient.getId()).getResultList();
-                patient.setHealthInsurances(insurances);
             ret.add(patient);
-            
-            // 患者の健康保険を取得する
-            setHealthInsurances(patient);
 //masuda^   最終受診日設定
-           patient.setPvtDate(pvt.getPvtDate());
-//masuda$        
+            patient.setPvtDate(pvt.getPvtDate());
+//masuda$
         }
+        populateHealthInsurances(ret);
         return ret;
     }
 
@@ -243,7 +239,7 @@ public class PatientServiceBean {
 
         // Lazy Fetch の 基本属性を検索する
         // 患者の健康保険を取得する
-        setHealthInsurances(bean);
+        populateHealthInsurances(List.of(bean));
 
         return bean;
     }
@@ -403,24 +399,7 @@ public class PatientServiceBean {
     }
     
     private void setPvtDate(String fid, List<PatientModel> list) {
-        
-        final String sql =
-                "from PatientVisitModel p where p.facilityId = :fid and p.patient.id = :patientPk "
-                + "and p.status != :status order by p.pvtDate desc";
-        
-        for (PatientModel patient : list) {
-            try {
-                PatientVisitModel pvt = (PatientVisitModel) 
-                        em.createQuery(sql)
-                        .setParameter("fid", fid)
-                        .setParameter("patientPk", patient.getId())
-                        .setParameter("status", -1)
-                        .setMaxResults(1)
-                        .getSingleResult();
-                patient.setPvtDate(pvt.getPvtDate());
-            } catch (NoResultException e) {
-            }
-        }
+        populatePvtDate(fid, list);
     }
     
     public List<PatientModel> getPatientList(String fid, List<String> idList) {
@@ -435,17 +414,13 @@ public class PatientServiceBean {
                 .getResultList();
         
         // 患者の健康保険を取得する。忘れがちｗ
-        setHealthInsurances(list);
+        populateHealthInsurances(list);
         
         return list;
     }
 
     protected void setHealthInsurances(Collection<PatientModel> list) {
-        if (list != null && !list.isEmpty()) {
-            for (PatientModel pm : list) {
-                setHealthInsurances(pm);
-            }
-        }
+        populateHealthInsurances(list);
     }
     
     protected void setHealthInsurances(PatientModel pm) {
@@ -462,6 +437,86 @@ public class PatientServiceBean {
                 .setParameter(PK, pk)
                 .getResultList();
         return ins;
+    }
+
+    private void populateHealthInsurances(Collection<PatientModel> patients) {
+        if (patients == null || patients.isEmpty()) {
+            return;
+        }
+        Map<Long, List<HealthInsuranceModel>> insuranceMap = getHealthInsurancesByPatientIds(extractPatientIds(patients));
+        for (PatientModel patient : patients) {
+            if (patient == null) {
+                continue;
+            }
+            patient.setHealthInsurances(new ArrayList<>(insuranceMap.getOrDefault(patient.getId(), List.of())));
+        }
+    }
+
+    private void populatePvtDate(String fid, Collection<PatientModel> patients) {
+        if (fid == null || fid.isBlank() || patients == null || patients.isEmpty()) {
+            return;
+        }
+        Map<Long, String> pvtDateMap = getLatestPvtDates(fid, extractPatientIds(patients));
+        for (PatientModel patient : patients) {
+            if (patient == null) {
+                continue;
+            }
+            patient.setPvtDate(pvtDateMap.get(patient.getId()));
+        }
+    }
+
+    private List<Long> extractPatientIds(Collection<PatientModel> patients) {
+        LinkedHashMap<Long, Boolean> ids = new LinkedHashMap<>();
+        for (PatientModel patient : patients) {
+            if (patient != null && patient.getId() > 0) {
+                ids.put(patient.getId(), Boolean.TRUE);
+            }
+        }
+        return new ArrayList<>(ids.keySet());
+    }
+
+    private Map<Long, List<HealthInsuranceModel>> getHealthInsurancesByPatientIds(Collection<Long> patientIds) {
+        if (patientIds == null || patientIds.isEmpty()) {
+            return Map.of();
+        }
+        List<HealthInsuranceModel> rows = em.createQuery(
+                        "from HealthInsuranceModel h where h.patient.id in (:ids)",
+                        HealthInsuranceModel.class)
+                .setParameter("ids", patientIds)
+                .getResultList();
+        Map<Long, List<HealthInsuranceModel>> grouped = new LinkedHashMap<>();
+        for (HealthInsuranceModel insurance : rows) {
+            if (insurance == null || insurance.getPatient() == null) {
+                continue;
+            }
+            grouped.computeIfAbsent(insurance.getPatient().getId(), ignored -> new ArrayList<>())
+                    .add(insurance);
+        }
+        return grouped;
+    }
+
+    private Map<Long, String> getLatestPvtDates(String fid, Collection<Long> patientIds) {
+        if (patientIds == null || patientIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Object[]> rows = em.createQuery(
+                        "select p.patient.id, max(p.pvtDate) "
+                                + "from PatientVisitModel p "
+                                + "where p.facilityId = :fid and p.patient.id in (:ids) and p.status != :status "
+                                + "group by p.patient.id",
+                        Object[].class)
+                .setParameter("fid", fid)
+                .setParameter("ids", patientIds)
+                .setParameter("status", -1)
+                .getResultList();
+        Map<Long, String> grouped = new LinkedHashMap<>();
+        for (Object[] row : rows) {
+            if (row == null || row.length < 2 || !(row[0] instanceof Long patientId)) {
+                continue;
+            }
+            grouped.put(patientId, row[1] != null ? row[1].toString() : null);
+        }
+        return grouped;
     }
 
 //masuda$
@@ -482,7 +537,7 @@ public class PatientServiceBean {
             .setParameter(FID, fid)
             .getResultList();
         
-        setHealthInsurances(ret);
+        populateHealthInsurances(ret);
         
         return ret;
     }
@@ -543,7 +598,7 @@ public class PatientServiceBean {
             ret = new ArrayList<>();
         }
 
-        this.setHealthInsurances(ret);
+        this.populateHealthInsurances(ret);
 
         return ret;
     }

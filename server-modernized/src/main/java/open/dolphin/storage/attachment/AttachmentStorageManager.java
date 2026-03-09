@@ -2,7 +2,10 @@ package open.dolphin.storage.attachment;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Collection;
+import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
 import jakarta.annotation.PostConstruct;
@@ -102,14 +105,25 @@ public class AttachmentStorageManager {
     }
 
     public void populateBinary(AttachmentModel attachment) {
-        if (!settings.getMode().isS3() || attachment == null) {
+        if (attachment == null) {
             return;
+        }
+        if (attachment.getBytes() != null) {
+            return;
+        }
+        if (!hasText(attachment.getUri())) {
+            throw new AttachmentStorageException("Attachment " + attachment.getId()
+                    + " has neither inline bytes nor external uri");
+        }
+        if (!settings.getMode().isS3()) {
+            throw new AttachmentStorageException("Attachment " + attachment.getId()
+                    + " requires external storage, but S3 mode is disabled");
         }
         S3ObjectLocation location = resolveLocation(attachment)
                 .orElse(null);
         if (location == null) {
-            LOGGER.debug("Attachment {} has no S3 URI; skip download", attachment.getId());
-            return;
+            throw new AttachmentStorageException("Attachment " + attachment.getId()
+                    + " cannot resolve S3 object location from uri=" + attachment.getUri());
         }
 
         GetObjectRequest request = GetObjectRequest.builder()
@@ -145,17 +159,20 @@ public class AttachmentStorageManager {
     }
 
     private boolean uploadToS3(AttachmentModel attachment) {
-        // Idempotency check: if already uploaded to S3, skip
-        if ("s3".equals(attachment.getLocation()) && attachment.getUri() != null && !attachment.getUri().isBlank()) {
-            LOGGER.debug("Attachment {} is already in S3 ({}); skipping upload.", attachment.getId(), attachment.getUri());
+        if (attachment == null) {
             return false;
         }
-
         byte[] bytes = attachment.getBytes();
-        if (bytes == null || bytes.length == 0) {
+        if (isAlreadyExternalized(attachment, bytes)) {
+            LOGGER.debug("Attachment {} is already externalized (uri={}, digest={}); skipping upload.",
+                    attachment.getId(), attachment.getUri(), attachment.getDigest());
+            return false;
+        }
+        if (bytes == null) {
             LOGGER.debug("Attachment {} has no binary payload; skip upload", attachment.getId());
             return false;
         }
+        ensureDigest(attachment, bytes);
         AttachmentStorageSettings.S3Settings s3Settings = settings.getS3()
                 .orElseThrow(() -> new AttachmentStorageException("S3 settings missing"));
         String key = keyResolver.resolve(attachment);
@@ -175,11 +192,30 @@ public class AttachmentStorageManager {
             String s3Uri = String.format("s3://%s/%s", s3Settings.getBucket(), key);
             attachment.setUri(s3Uri);
             attachment.setLocation("s3");
+            attachment.setBytes(null);
             return true;
 
         } catch (Exception ex) {
             throw new AttachmentStorageException("Failed to upload attachment to S3: " + key, ex);
         }
+    }
+
+    private boolean isAlreadyExternalized(AttachmentModel attachment, byte[] bytes) {
+        if (!hasText(attachment.getUri())) {
+            return false;
+        }
+        // 永続済み判定は transient location ではなく uri + digest を基準にする。
+        if (!hasText(attachment.getDigest())) {
+            return bytes == null;
+        }
+        return true;
+    }
+
+    private void ensureDigest(AttachmentModel attachment, byte[] bytes) {
+        if (attachment == null || hasText(attachment.getDigest()) || bytes == null) {
+            return;
+        }
+        attachment.setDigest(sha256Hex(bytes));
     }
 
     private void registerRollbackHook(AttachmentModel attachment) {
@@ -255,6 +291,19 @@ public class AttachmentStorageManager {
 
         s3Settings.getEndpoint().ifPresent(builder::endpointOverride);
         return builder.build();
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private String sha256Hex(byte[] bytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(bytes));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 not available", ex);
+        }
     }
 
     private static final class S3ObjectLocation {

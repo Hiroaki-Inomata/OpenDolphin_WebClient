@@ -266,8 +266,8 @@ public class ScheduleServiceBean {
                     ProgressCourse soaProgress = new ProgressCourse();
                     soaProgress.setFreeText(sb.toString());
                     ModuleModel soaSpecModule = new ModuleModel();
-                    soaSpecModule.setBeanBytes(IOSHelper.toXMLBytes(soaProgress));
                     soaSpecModule.setBeanJson(ModelUtils.jsonEncode(soaProgress));
+                    soaSpecModule.setBeanBytes(null);
                     soaSpecModule.setConfirmed(latest.getConfirmed());
                     soaSpecModule.setStarted(latest.getStarted());
                     soaSpecModule.setRecorded(latest.getRecorded());
@@ -300,8 +300,8 @@ public class ScheduleServiceBean {
                     ProgressCourse pProgress = new ProgressCourse();
                     pProgress.setFreeText(sb.toString());
                     ModuleModel pSpecModule = new ModuleModel();
-                    pSpecModule.setBeanBytes(IOSHelper.toXMLBytes(pProgress));
                     pSpecModule.setBeanJson(ModelUtils.jsonEncode(pProgress));
+                    pSpecModule.setBeanBytes(null);
                     pSpecModule.setConfirmed(latest.getConfirmed());
                     pSpecModule.setStarted(latest.getStarted());
                     pSpecModule.setRecorded(latest.getRecorded());

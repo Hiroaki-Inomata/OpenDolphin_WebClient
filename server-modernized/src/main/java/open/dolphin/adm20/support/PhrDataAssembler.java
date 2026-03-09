@@ -25,6 +25,7 @@ import open.dolphin.infomodel.ClaimBundle;
 import open.dolphin.infomodel.ClaimItem;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.KarteBean;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.ModuleInfoBean;
 import open.dolphin.infomodel.NLaboItem;
@@ -124,7 +125,7 @@ public class PhrDataAssembler {
 
         List<PHRBundle> bundles = new ArrayList<>(modules.size());
         for (ModuleModel module : modules) {
-            ClaimBundle bundle = (ClaimBundle) IOSHelper.xmlDecode(module.getBeanBytes());
+            ClaimBundle bundle = (ClaimBundle) ModelUtils.decodeModule(module);
             PHRBundle phrBundle = new PHRBundle();
             applyModuleMetadata(phrBundle, module);
             applyClaimBundle(phrBundle, bundle, facilityNumber);
@@ -204,7 +205,7 @@ public class PhrDataAssembler {
                 pcb.setCatchId(phrCatch.getCatchId());
                 pcb.setBundleId(createModuleId(phrCatch.getStarted(), modules.size() - mm.getModuleInfoBean().getStampNumber()));
 
-                ClaimBundle bundle = (ClaimBundle) IOSHelper.xmlDecode(mm.getBeanBytes());
+                ClaimBundle bundle = (ClaimBundle) ModelUtils.decodeModule(mm);
                 applyClaimBundle(pcb, bundle, resolvedFacilityNumber);
             });
         });

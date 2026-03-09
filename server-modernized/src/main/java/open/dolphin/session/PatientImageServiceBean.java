@@ -116,15 +116,8 @@ public class PatientImageServiceBean {
         document.addAttachment(attachment);
 
         long documentId = karteServiceBean.addDocument(document);
-
-        // Resolve the attachment id created for this document.
-        Long attachmentId = em.createQuery(
-                        "select max(a.id) from AttachmentModel a where a.document.id=:docId and a.linkRelation=:rel",
-                        Long.class)
-                .setParameter("docId", documentId)
-                .setParameter("rel", LINK_RELATION_PATIENT_IMAGE_PHASEA)
-                .getSingleResult();
-        if (attachmentId == null) {
+        long attachmentId = attachment.getId();
+        if (attachmentId <= 0) {
             throw new IllegalStateException("Failed to resolve created attachment id for documentId=" + documentId);
         }
 
@@ -135,30 +128,33 @@ public class PatientImageServiceBean {
         Objects.requireNonNull(facilityId, "facilityId");
         Objects.requireNonNull(patientId, "patientId");
 
-        List<AttachmentModel> rows = em.createQuery(
-                        "select a from AttachmentModel a " +
+        List<Object[]> rows = em.createQuery(
+                        "select a.id, a.fileName, a.contentType, a.contentSize, a.confirmed, a.recorded " +
+                                "from AttachmentModel a " +
                                 "where a.document.karte.patient.facilityId=:fid " +
                                 "and a.document.karte.patient.patientId=:pid " +
                                 "and a.linkRelation=:rel " +
                                 "and a.status != 'D' " +
                                 "order by a.id desc",
-                        AttachmentModel.class)
+                        Object[].class)
                 .setParameter("fid", facilityId)
                 .setParameter("pid", patientId)
                 .setParameter("rel", LINK_RELATION_PATIENT_IMAGE_PHASEA)
                 .getResultList();
 
         List<PatientImageEntryResponse> result = new ArrayList<>(rows.size());
-        for (AttachmentModel a : rows) {
-            if (a == null) {
+        for (Object[] row : rows) {
+            if (row == null || row.length < 6) {
                 continue;
             }
             PatientImageEntryResponse entry = new PatientImageEntryResponse();
-            entry.setImageId(a.getId());
-            entry.setFileName(a.getFileName());
-            entry.setContentType(a.getContentType());
-            entry.setSize(a.getContentSize());
-            entry.setCreatedAt(formatInstant(a.getConfirmed() != null ? a.getConfirmed() : a.getRecorded()));
+            entry.setImageId(row[0] instanceof Number value ? value.longValue() : 0L);
+            entry.setFileName(row[1] != null ? row[1].toString() : null);
+            entry.setContentType(row[2] != null ? row[2].toString() : null);
+            entry.setSize(row[3] instanceof Number value ? value.longValue() : 0L);
+            Date confirmed = row[4] instanceof Date value ? value : null;
+            Date recorded = row[5] instanceof Date value ? value : null;
+            entry.setCreatedAt(formatInstant(confirmed != null ? confirmed : recorded));
             result.add(entry);
         }
         return result;

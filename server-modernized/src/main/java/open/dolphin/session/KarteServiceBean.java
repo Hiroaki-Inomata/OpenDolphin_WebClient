@@ -86,6 +86,14 @@ public class KarteServiceBean {
 
     private static final String QUERY_DOCUMENT_INCLUDE_MODIFIED = "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and d.status !='D'";
     private static final String QUERY_DOCUMENT = "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and (d.status='F' or d.status='T')";
+    private static final String QUERY_DOCUMENT_HEADERS_INCLUDE_MODIFIED =
+            "select d.id, d.linkId, d.confirmed, d.started, d.status, d.docInfo " +
+                    "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and d.status !='D' " +
+                    "order by d.started desc, d.id desc";
+    private static final String QUERY_DOCUMENT_HEADERS =
+            "select d.id, d.linkId, d.confirmed, d.started, d.status, d.docInfo " +
+                    "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and (d.status='F' or d.status='T') " +
+                    "order by d.started desc, d.id desc";
     private static final String QUERY_DOCUMENT_BY_LINK_ID = "from DocumentModel d where d.linkId=:id";
     private static final String QUERY_DOCUMENT_IDS_WITH_MED_ENTITY =
             "select d.id from DocumentModel d where d.karte.id=:karteId and d.status in ('F','T') " +
@@ -99,6 +107,26 @@ public class KarteServiceBean {
     private static final String QUERY_MODULE_BY_DOC_ID = "from ModuleModel m where m.document.id=:id order by m.id";
     private static final String QUERY_SCHEMA_BY_DOC_ID = "from SchemaModel i where i.document.id=:id order by i.id";
     private static final String QUERY_ATTACHMENT_BY_DOC_ID = "from AttachmentModel a where a.document.id=:id order by a.id";
+    private static final String QUERY_DOCUMENT_BY_IDS =
+            "select d from DocumentModel d left join fetch d.karte left join fetch d.creator where d.id in :ids";
+    private static final String QUERY_MODULES_BY_DOC_IDS =
+            "select m from ModuleModel m left join fetch m.karte left join fetch m.creator "
+                    + "where m.document.id in :ids order by m.document.id, m.id";
+    private static final String QUERY_SCHEMAS_BY_DOC_IDS =
+            "select i from SchemaModel i left join fetch i.karte left join fetch i.creator "
+                    + "where i.document.id in :ids order by i.document.id, i.id";
+    private static final String QUERY_ATTACHMENTS_BY_DOC_IDS =
+            "select a from AttachmentModel a left join fetch a.karte left join fetch a.creator "
+                    + "where a.document.id in :ids order by a.document.id, a.id";
+    private static final String QUERY_SCHEMA_METADATA_BY_DOC_IDS =
+            "select i.id, i.confirmed, i.started, i.ended, i.recorded, i.linkId, i.linkRelation, i.status, " +
+                    "i.userModel, i.karteBean, i.document.id, i.extRef " +
+                    "from SchemaModel i where i.document.id in :ids order by i.document.id, i.id";
+    private static final String QUERY_ATTACHMENT_METADATA_BY_DOC_IDS =
+            "select a.id, a.confirmed, a.started, a.ended, a.recorded, a.linkId, a.linkRelation, a.status, " +
+                    "a.userModel, a.karteBean, a.document.id, a.fileName, a.contentType, a.contentSize, a.lastModified, " +
+                    "a.digest, a.title, a.uri, a.extension, a.memo " +
+                    "from AttachmentModel a where a.document.id in :ids order by a.document.id, a.id";
 //s.oh$
 //s.oh^ 2014/08/20 添付ファイルの別読
     private static final String QUERY_ATTACHMENT_BY_ID = "from AttachmentModel a where a.id=:id";
@@ -450,27 +478,23 @@ public class KarteServiceBean {
      * @return DocInfo のコレクション
      */
     public List<DocInfoModel> getDocumentList(long karteId, Date fromDate, boolean includeModifid) {
+        String query = includeModifid ? QUERY_DOCUMENT_HEADERS_INCLUDE_MODIFIED : QUERY_DOCUMENT_HEADERS;
+        List<Object[]> rows = em.createQuery(query, Object[].class)
+                .setParameter(KARTE_ID, karteId)
+                .setParameter(FROM_DATE, fromDate)
+                .getResultList();
 
-        List<DocumentModel> documents;
-
-        if (includeModifid) {
-            documents = (List<DocumentModel>)em.createQuery(QUERY_DOCUMENT_INCLUDE_MODIFIED)
-            .setParameter(KARTE_ID, karteId)
-            .setParameter(FROM_DATE, fromDate)
-            .getResultList();
-        } else {
-            documents = (List<DocumentModel>)em.createQuery(QUERY_DOCUMENT)
-            .setParameter(KARTE_ID, karteId)
-            .setParameter(FROM_DATE, fromDate)
-            .getResultList();
-        }
-
-        List<DocInfoModel> result = new ArrayList<>();
-        for (DocumentModel doc : documents) {
-            // モデルからDocInfo へ必要なデータを移す
-            // クライアントが DocInfo だけを利用するケースがあるため
-            doc.toDetuch();
-            result.add(doc.getDocInfoModel());
+        List<DocInfoModel> result = new ArrayList<>(rows.size());
+        for (Object[] row : rows) {
+            if (row == null || row.length < 6 || !(row[5] instanceof DocInfoModel info)) {
+                continue;
+            }
+            info.setDocPk(row[0] instanceof Long docPk ? docPk : 0L);
+            info.setParentPk(row[1] instanceof Long parentPk ? parentPk : 0L);
+            info.setConfirmDate((Date) row[2]);
+            info.setFirstConfirmDate((Date) row[3]);
+            info.setStatus((String) row[4]);
+            result.add(info);
         }
         return result;
     }
@@ -534,48 +558,40 @@ public class KarteServiceBean {
      * @return DocumentModelのコレクション
      */
     public List<DocumentModel> getDocuments(List<Long> ids) {
-
-        List<DocumentModel> ret = new ArrayList<>(3);
-
-        // ループする
-        for (Long id : ids) {
-
-            // DocuentBean を取得する
-            DocumentModel document = (DocumentModel) em.find(DocumentModel.class, id);
-
-            // ModuleBean を取得する
-            List modules = em.createQuery(QUERY_MODULE_BY_DOC_ID)
-            .setParameter(ID, id)
-            .getResultList();
-            document.setModules(modules);
-            decodeModulePayloads(document.getModules());
-
-            // SchemaModel を取得する
-            List images = em.createQuery(QUERY_SCHEMA_BY_DOC_ID)
-            .setParameter(ID, id)
-            .getResultList();
-            document.setSchema(images);
-            
-            // AttachmentModel を取得する
-            List attachments = em.createQuery(QUERY_ATTACHMENT_BY_DOC_ID)
-            .setParameter(ID, id)
-            .getResultList();
-            document.setAttachment(attachments);
-
+        List<DocumentModel> ret = loadDocuments(ids, DocumentLoadMode.DETAIL);
+        // 詳細取得 API は完全性検証を維持する。
+        for (DocumentModel document : ret) {
             verifyDocumentOnRead(document);
-
-            ret.add(document);
+            document.toDetuch();
         }
-        
-//s.oh^ 不具合修正
-        for (DocumentModel doc : ret) {
-            // モデルからDocInfo へ必要なデータを移す
-            // クライアントがDocInfo だけを利用するケースがあるため
-            doc.toDetuch();
-        }
-//s.oh$
-
         return ret;
+    }
+
+    public List<DocumentModel> getDocumentsAttachmentLight(List<Long> ids) {
+        List<DocumentModel> documents = loadDocuments(ids, DocumentLoadMode.ATTACHMENT_LIGHT);
+        // 添付バイナリは別 download API で取得する。ここでは schema は維持し、attachment のみ軽量化する。
+        for (DocumentModel document : documents) {
+            verifyDocumentOnRead(document);
+            document.toDetuch();
+        }
+        return documents;
+    }
+
+    public List<DocumentModel> getDocumentsRevisionLight(List<Long> ids) {
+        List<DocumentModel> documents = loadDocuments(ids, DocumentLoadMode.REVISION_LIGHT);
+        // Revision browse は差分/履歴表示用の軽量経路。実バイナリ取得は attachment/image 個別 API に委譲する。
+        for (DocumentModel document : documents) {
+            document.toDetuch();
+        }
+        return documents;
+    }
+
+    public List<DocumentModel> getDocumentsWithModules(List<Long> ids) {
+        List<DocumentModel> documents = loadDocuments(ids, DocumentLoadMode.MODULES_ONLY);
+        for (DocumentModel document : documents) {
+            document.toDetuch();
+        }
+        return documents;
     }
     
     /**
@@ -589,27 +605,12 @@ public class KarteServiceBean {
                 document.getId(),
                 document.getDocInfoModel() != null ? document.getDocInfoModel().getDocId() : "null");
 
-        // 強制的に正の PK を採番する。負の id を持ってきてもここで上書きする。
-        if (document.getId() <= 0) {
-            Number seqValue = (Number) em
-                    .createNativeQuery("SELECT nextval('opendolphin.hibernate_sequence')")
-                    .getSingleResult();
-            document.setId(seqValue.longValue());
-        }
-
-        // DocInfo 側の docPk も同期しておく（レスポンス整合性と UI ガード用）
-        if (document.getDocInfoModel() != null) {
-            document.getDocInfoModel().setDocPk(document.getId());
-        }
-
-        // beanJson 優先保存（beanBytes はフォールバックとして維持）
-        encodeModulePayloads(document.getModules());
+        prepareDocumentForWrite(document);
 
         LOGGER.info("addDocument assigned seq id={}", document.getId());
 
         document = em.merge(document);
         sealDocument(document);
-        attachmentStorageManager.persistExternalAssets(document.getAttachment());
 
         // ID
         long id = document.getId();
@@ -684,8 +685,7 @@ public class KarteServiceBean {
         removeMissingSchemas(current.getSchema(), document.getSchema());
         removeMissingAttachments(current.getAttachment(), document.getAttachment());
 
-        // beanJson 優先保存（beanBytes はフォールバックとして維持）
-        encodeModulePayloads(document.getModules());
+        prepareDocumentForWrite(document);
 
         // addDocument で正の採番を保証しているが、念のため update でも防御（UI 側の不整合防止）
         if (document.getId() <= 0) {
@@ -694,7 +694,6 @@ public class KarteServiceBean {
 
         DocumentModel merged = em.merge(document);
         sealDocument(merged);
-        attachmentStorageManager.persistExternalAssets(merged.getAttachment());
         return merged.getId();
     }
 
@@ -871,11 +870,11 @@ public class KarteServiceBean {
 
     public long addDocumentAndUpdatePVTState(DocumentModel document, long pvtPK, int state) {
 
-        // beanJson 優先保存（beanBytes はフォールバックとして維持）
-        encodeModulePayloads(document.getModules());
+        prepareDocumentForWrite(document);
 
         // 永続化する
         em.persist(document);
+        sealDocument(document);
 
         // ID
         long id = document.getId();
@@ -1548,66 +1547,29 @@ public class KarteServiceBean {
 
 //s.oh^ 2014/07/22 一括カルテPDF出力
     public List<DocumentModel> getAllDocument(long patientPK) {
-        
-        List<DocumentModel> documents = null;
-        List<DocumentModel> result = new ArrayList<>();
-        
         try {
             List<KarteBean> kartes = em.createQuery(QUERY_KARTE)
-                                  .setParameter(PATIENT_PK, patientPK)
-                                  .getResultList();
-            KarteBean karte = kartes.get(0);
-            
-            documents = (List<DocumentModel>)em.createQuery("from DocumentModel d where d.karte.id=:karteId and (d.status='F' or d.status='T')")
-                .setParameter(KARTE_ID, karte.getId())
-                .getResultList();
+                    .setParameter(PATIENT_PK, patientPK)
+                    .setMaxResults(1)
+                    .getResultList();
+            if (kartes == null || kartes.isEmpty()) {
+                return new ArrayList<>();
+            }
+            List<Long> docIds = em.createQuery(
+                            "select d.id from DocumentModel d where d.karte.id=:karteId and (d.status='F' or d.status='T') order by d.started desc, d.id desc",
+                            Long.class)
+                    .setParameter(KARTE_ID, kartes.get(0).getId())
+                    .getResultList();
+            // Bulk export/list path: keep metadata complete but avoid per-document integrity verification.
+            List<DocumentModel> documents = loadDocuments(docIds, DocumentLoadMode.ATTACHMENT_LIGHT);
+            for (DocumentModel document : documents) {
+                document.toDetuch();
+            }
+            return documents;
         } catch (NoResultException e) {
             // 患者登録の際にカルテも生成してある
+            return new ArrayList<>();
         }
-        
-        if(documents != null) {
-            for (DocumentModel model : documents) {
-
-                model.toDetuch();
-                
-                long id = model.getId();
-
-                // ModuleBean を取得する
-                try {
-                    List modules = em.createQuery(QUERY_MODULE_BY_DOC_ID)
-                    .setParameter(ID, id)
-                    .getResultList();
-                    model.setModules(modules);
-                    decodeModulePayloads(model.getModules());
-                } catch (NoResultException e) {
-                    // 患者登録の際にカルテも生成してある
-                }
-
-                // SchemaModel を取得する
-                try {
-                    List images = em.createQuery(QUERY_SCHEMA_BY_DOC_ID)
-                    .setParameter(ID, id)
-                    .getResultList();
-                    model.setSchema(images);
-                } catch (NoResultException e) {
-                    // 患者登録の際にカルテも生成してある
-                }
-
-                // AttachmentModel を取得する
-                try {
-                    List attachments = em.createQuery(QUERY_ATTACHMENT_BY_DOC_ID)
-                    .setParameter(ID, id)
-                    .getResultList();
-                    model.setAttachment(attachments);
-                } catch (NoResultException e) {
-                    // 患者登録の際にカルテも生成してある
-                }
-
-                result.add(model);
-            }
-        }
-        
-        return result;
     }
 //s.oh$
     
@@ -1625,18 +1587,283 @@ public class KarteServiceBean {
     }
 //s.oh$
 
-    private List<DocumentModel> fetchDocumentsWithModules(List<Long> docIds) {
-        if (docIds == null || docIds.isEmpty()) {
+    private List<DocumentModel> loadDocuments(List<Long> ids, DocumentLoadMode mode) {
+        List<Long> orderedIds = normalizeDocumentIds(ids);
+        if (orderedIds.isEmpty()) {
             return Collections.emptyList();
         }
-        List<DocumentModel> documents = em.createQuery("select distinct d from DocumentModel d left join fetch d.modules m where d.id in :ids",
-                DocumentModel.class)
-                .setParameter("ids", docIds)
+
+        List<DocumentModel> documents = em.createQuery(QUERY_DOCUMENT_BY_IDS, DocumentModel.class)
+                .setParameter("ids", orderedIds)
                 .getResultList();
+        Map<Long, DocumentModel> documentById = new LinkedHashMap<>();
         for (DocumentModel document : documents) {
-            decodeModulePayloads(document.getModules());
+            if (document != null) {
+                documentById.put(document.getId(), document);
+            }
         }
-        return documents;
+
+        populateModules(documentById, orderedIds);
+        if (mode.loadsFullSchema()) {
+            populateSchemas(documentById, orderedIds);
+        } else if (mode.loadsSchemaMetadata()) {
+            populateSchemaMetadata(documentById, orderedIds);
+        } else {
+            clearSchema(documentById.values());
+        }
+
+        if (mode.loadsFullAttachment()) {
+            populateAttachments(documentById, orderedIds);
+        } else if (mode.loadsAttachmentMetadata()) {
+            populateAttachmentMetadata(documentById, orderedIds);
+        } else {
+            clearAttachments(documentById.values());
+        }
+
+        List<DocumentModel> ordered = new ArrayList<>(orderedIds.size());
+        for (Long id : orderedIds) {
+            DocumentModel document = documentById.get(id);
+            if (document != null) {
+                ordered.add(document);
+            }
+        }
+        return ordered;
+    }
+
+    private List<Long> normalizeDocumentIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Collections.emptyList();
+        }
+        LinkedHashSet<Long> ordered = new LinkedHashSet<>();
+        for (Long id : ids) {
+            if (id != null && id > 0) {
+                ordered.add(id);
+            }
+        }
+        return new ArrayList<>(ordered);
+    }
+
+    private void populateModules(Map<Long, DocumentModel> documentById, List<Long> orderedIds) {
+        List<ModuleModel> modules = em.createQuery(QUERY_MODULES_BY_DOC_IDS, ModuleModel.class)
+                .setParameter("ids", orderedIds)
+                .getResultList();
+        Map<Long, List<ModuleModel>> grouped = new LinkedHashMap<>();
+        for (ModuleModel module : modules) {
+            if (module == null || module.getDocumentModel() == null) {
+                continue;
+            }
+            grouped.computeIfAbsent(module.getDocumentModel().getId(), ignored -> new ArrayList<>())
+                    .add(module);
+        }
+        for (Long docId : orderedIds) {
+            DocumentModel document = documentById.get(docId);
+            if (document == null) {
+                continue;
+            }
+            List<ModuleModel> related = new ArrayList<>(grouped.getOrDefault(docId, List.of()));
+            decodeModulePayloads(related);
+            document.setModules(related);
+        }
+    }
+
+    private void populateSchemas(Map<Long, DocumentModel> documentById, List<Long> orderedIds) {
+        List<SchemaModel> rows = em.createQuery(QUERY_SCHEMAS_BY_DOC_IDS, SchemaModel.class)
+                .setParameter("ids", orderedIds)
+                .getResultList();
+        Map<Long, List<SchemaModel>> grouped = new LinkedHashMap<>();
+        for (SchemaModel schema : rows) {
+            if (schema == null || schema.getDocumentModel() == null) {
+                continue;
+            }
+            grouped.computeIfAbsent(schema.getDocumentModel().getId(), ignored -> new ArrayList<>())
+                    .add(schema);
+        }
+        for (Long docId : orderedIds) {
+            DocumentModel document = documentById.get(docId);
+            if (document != null) {
+                document.setSchema(new ArrayList<>(grouped.getOrDefault(docId, List.of())));
+            }
+        }
+    }
+
+    private void populateSchemaMetadata(Map<Long, DocumentModel> documentById, List<Long> orderedIds) {
+        List<Object[]> rows = em.createQuery(QUERY_SCHEMA_METADATA_BY_DOC_IDS, Object[].class)
+                .setParameter("ids", orderedIds)
+                .getResultList();
+        Map<Long, List<SchemaModel>> grouped = new LinkedHashMap<>();
+        for (Object[] row : rows) {
+            SchemaModel schema = toSchemaMetadata(row, documentById);
+            if (schema == null || schema.getDocumentModel() == null) {
+                continue;
+            }
+            grouped.computeIfAbsent(schema.getDocumentModel().getId(), ignored -> new ArrayList<>())
+                    .add(schema);
+        }
+        for (Long docId : orderedIds) {
+            DocumentModel document = documentById.get(docId);
+            if (document != null) {
+                document.setSchema(new ArrayList<>(grouped.getOrDefault(docId, List.of())));
+            }
+        }
+    }
+
+    private void populateAttachments(Map<Long, DocumentModel> documentById, List<Long> orderedIds) {
+        List<AttachmentModel> rows = em.createQuery(QUERY_ATTACHMENTS_BY_DOC_IDS, AttachmentModel.class)
+                .setParameter("ids", orderedIds)
+                .getResultList();
+        Map<Long, List<AttachmentModel>> grouped = new LinkedHashMap<>();
+        for (AttachmentModel attachment : rows) {
+            if (attachment == null || attachment.getDocumentModel() == null) {
+                continue;
+            }
+            grouped.computeIfAbsent(attachment.getDocumentModel().getId(), ignored -> new ArrayList<>())
+                    .add(attachment);
+        }
+        for (Long docId : orderedIds) {
+            DocumentModel document = documentById.get(docId);
+            if (document != null) {
+                document.setAttachment(new ArrayList<>(grouped.getOrDefault(docId, List.of())));
+            }
+        }
+    }
+
+    private void populateAttachmentMetadata(Map<Long, DocumentModel> documentById, List<Long> orderedIds) {
+        List<Object[]> rows = em.createQuery(QUERY_ATTACHMENT_METADATA_BY_DOC_IDS, Object[].class)
+                .setParameter("ids", orderedIds)
+                .getResultList();
+        Map<Long, List<AttachmentModel>> grouped = new LinkedHashMap<>();
+        for (Object[] row : rows) {
+            AttachmentModel attachment = toAttachmentMetadata(row, documentById);
+            if (attachment == null || attachment.getDocumentModel() == null) {
+                continue;
+            }
+            grouped.computeIfAbsent(attachment.getDocumentModel().getId(), ignored -> new ArrayList<>())
+                    .add(attachment);
+        }
+        for (Long docId : orderedIds) {
+            DocumentModel document = documentById.get(docId);
+            if (document != null) {
+                document.setAttachment(new ArrayList<>(grouped.getOrDefault(docId, List.of())));
+            }
+        }
+    }
+
+    private void clearSchema(Collection<DocumentModel> documents) {
+        for (DocumentModel document : documents) {
+            if (document != null) {
+                document.setSchema(new ArrayList<>());
+            }
+        }
+    }
+
+    private void clearAttachments(Collection<DocumentModel> documents) {
+        for (DocumentModel document : documents) {
+            if (document != null) {
+                document.setAttachment(new ArrayList<>());
+            }
+        }
+    }
+
+    private SchemaModel toSchemaMetadata(Object[] row, Map<Long, DocumentModel> documentById) {
+        if (row == null || row.length < 12 || !(row[0] instanceof Long id)) {
+            return null;
+        }
+        Long docId = row[10] instanceof Long value ? value : null;
+        DocumentModel document = docId != null ? documentById.get(docId) : null;
+        if (document == null) {
+            return null;
+        }
+        SchemaModel schema = new SchemaModel();
+        schema.setId(id);
+        schema.setConfirmed((Date) row[1]);
+        schema.setStarted((Date) row[2]);
+        schema.setEnded((Date) row[3]);
+        schema.setRecorded((Date) row[4]);
+        schema.setLinkId(row[5] instanceof Long linkId ? linkId : 0L);
+        schema.setLinkRelation((String) row[6]);
+        schema.setStatus((String) row[7]);
+        schema.setUserModel((UserModel) row[8]);
+        schema.setKarteBean((KarteBean) row[9]);
+        schema.setDocumentModel(document);
+        schema.setExtRefModel((ExtRefModel) row[11]);
+        schema.setJpegByte(null);
+        return schema;
+    }
+
+    private AttachmentModel toAttachmentMetadata(Object[] row, Map<Long, DocumentModel> documentById) {
+        if (row == null || row.length < 20 || !(row[0] instanceof Long id)) {
+            return null;
+        }
+        Long docId = row[10] instanceof Long value ? value : null;
+        DocumentModel document = docId != null ? documentById.get(docId) : null;
+        if (document == null) {
+            return null;
+        }
+        AttachmentModel attachment = new AttachmentModel();
+        attachment.setId(id);
+        attachment.setConfirmed((Date) row[1]);
+        attachment.setStarted((Date) row[2]);
+        attachment.setEnded((Date) row[3]);
+        attachment.setRecorded((Date) row[4]);
+        attachment.setLinkId(row[5] instanceof Long linkId ? linkId : 0L);
+        attachment.setLinkRelation((String) row[6]);
+        attachment.setStatus((String) row[7]);
+        attachment.setUserModel((UserModel) row[8]);
+        attachment.setKarteBean((KarteBean) row[9]);
+        attachment.setDocumentModel(document);
+        attachment.setFileName((String) row[11]);
+        attachment.setContentType((String) row[12]);
+        attachment.setContentSize(row[13] instanceof Number size ? size.longValue() : 0L);
+        attachment.setLastModified(row[14] instanceof Number lastModified ? lastModified.longValue() : 0L);
+        attachment.setDigest((String) row[15]);
+        attachment.setTitle((String) row[16]);
+        attachment.setUri((String) row[17]);
+        attachment.setExtension((String) row[18]);
+        attachment.setMemo((String) row[19]);
+        attachment.setBytes(null);
+        return attachment;
+    }
+
+    private List<DocumentModel> fetchDocumentsWithModules(List<Long> docIds) {
+        return getDocumentsWithModules(docIds);
+    }
+
+    private enum DocumentLoadMode {
+        DETAIL(true, false, true, false),
+        ATTACHMENT_LIGHT(true, false, false, true),
+        MODULES_ONLY(false, false, false, false),
+        REVISION_LIGHT(false, true, false, true);
+
+        private final boolean fullSchema;
+        private final boolean schemaMetadata;
+        private final boolean fullAttachment;
+        private final boolean attachmentMetadata;
+
+        DocumentLoadMode(boolean fullSchema,
+                         boolean schemaMetadata,
+                         boolean fullAttachment,
+                         boolean attachmentMetadata) {
+            this.fullSchema = fullSchema;
+            this.schemaMetadata = schemaMetadata;
+            this.fullAttachment = fullAttachment;
+            this.attachmentMetadata = attachmentMetadata;
+        }
+
+        boolean loadsFullSchema() {
+            return fullSchema;
+        }
+
+        boolean loadsSchemaMetadata() {
+            return schemaMetadata;
+        }
+
+        boolean loadsFullAttachment() {
+            return fullAttachment;
+        }
+
+        boolean loadsAttachmentMetadata() {
+            return attachmentMetadata;
+        }
     }
 
     private List<ModuleModel> filterMedModules(List<ModuleModel> modules) {
@@ -1764,7 +1991,11 @@ public class KarteServiceBean {
                 continue;
             }
             String json = ModelUtils.jsonEncode(module.getModel());
+            if (!hasText(json)) {
+                throw new IllegalStateException("Failed to encode module payload as JSON: moduleId=" + module.getId());
+            }
             module.setBeanJson(json);
+            module.setBeanBytes(null);
         }
     }
 
@@ -1872,6 +2103,42 @@ public class KarteServiceBean {
         }
         String trimmed = status.trim();
         return trimmed.isEmpty() ? null : trimmed.toUpperCase(Locale.ROOT);
+    }
+
+    private void prepareDocumentForWrite(DocumentModel document) {
+        if (document == null) {
+            return;
+        }
+        assignGeneratedIdIfNeeded(document);
+        if (document.getDocInfoModel() != null) {
+            document.getDocInfoModel().setDocPk(document.getId());
+        }
+        assignGeneratedIds(document.getAttachment());
+        encodeModulePayloads(document.getModules());
+        attachmentStorageManager.persistExternalAssets(document.getAttachment());
+    }
+
+    private <T extends KarteEntryBean> void assignGeneratedIds(Collection<T> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return;
+        }
+        for (T entry : entries) {
+            assignGeneratedIdIfNeeded(entry);
+        }
+    }
+
+    private void assignGeneratedIdIfNeeded(KarteEntryBean entry) {
+        if (entry == null || entry.getId() > 0) {
+            return;
+        }
+        entry.setId(nextSequenceValue());
+    }
+
+    private long nextSequenceValue() {
+        Number seqValue = (Number) em
+                .createNativeQuery("SELECT nextval('opendolphin.hibernate_sequence')")
+                .getSingleResult();
+        return seqValue.longValue();
     }
 
     private WebApplicationException finalizedUpdateDenied(long documentId,

@@ -19,6 +19,7 @@ import open.dolphin.infomodel.BundleDolphin;
 import open.dolphin.infomodel.BundleMed;
 import open.dolphin.infomodel.ClaimItem;
 import open.dolphin.infomodel.IInfoModel;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.NLaboItem;
 import open.dolphin.infomodel.NLaboModule;
@@ -305,7 +306,7 @@ public class TouchModuleService {
         }
         IInfoModel model = moduleModel.getModel();
         if (model == null) {
-            Object decoded = IOSHelper.xmlDecode(moduleModel.getBeanBytes());
+            Object decoded = ModelUtils.decodeModule(moduleModel);
             if (decoded instanceof IInfoModel infoModel) {
                 model = infoModel;
                 moduleModel.setModel(infoModel);

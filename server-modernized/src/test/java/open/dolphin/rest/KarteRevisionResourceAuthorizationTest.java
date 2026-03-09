@@ -57,7 +57,7 @@ class KarteRevisionResourceAuthorizationTest {
         when(karteRevisionServiceBean.findFacilityIdByRevisionId(111L)).thenReturn("FAC_B");
 
         assertForbidden(() -> resource.getRevision(111L));
-        verify(karteRevisionServiceBean, never()).getRevisionSnapshot(anyLong());
+        verify(karteRevisionServiceBean, never()).getRevisionSnapshotLight(anyLong());
     }
 
     @Test
@@ -82,4 +82,3 @@ class KarteRevisionResourceAuthorizationTest {
                 .satisfies(ex -> assertThat(((WebApplicationException) ex).getResponse().getStatus()).isEqualTo(403));
     }
 }
-
