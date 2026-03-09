@@ -115,8 +115,8 @@ public final class AttachmentModelConverter implements IInfoModelConverter {
         return model.getMemo();
     }
 
-    public byte[] getBytes() {
-        return model.getBytes();
+    public byte[] getContentBytes() {
+        return model.getContentBytes();
     }
     
     @Override

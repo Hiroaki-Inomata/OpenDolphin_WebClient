@@ -22,6 +22,7 @@ import open.dolphin.infomodel.FacilityModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.LicenseModel;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.TelephoneModel;
@@ -299,7 +300,7 @@ public class InitialAccountMaker {
         pm.setFullName(pm.getFamilyName() + " " + pm.getGivenName());
         pm.setGender(IInfoModel.MALE);
         pm.setGenderDesc(IInfoModel.MALE_DISP);
-        pm.setBirthday("1684-11-17");
+        pm.setBirthday(ModelUtils.parseDate("1684-11-17"));
         
         AddressModel am = new AddressModel();
         am.setZipCode("640-8156");

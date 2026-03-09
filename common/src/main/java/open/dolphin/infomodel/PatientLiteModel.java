@@ -1,5 +1,7 @@
 package open.dolphin.infomodel;
 
+import java.time.LocalDate;
+
 /**
  * PatientLiteModel
  *
@@ -12,7 +14,7 @@ public final class PatientLiteModel extends InfoModel {
     private String kanaName;
     private String gender;
     private String genderDesc;
-    private String birthday;
+    private LocalDate birthday;
 
     public String getPatientId() {
         return patientId;
@@ -54,11 +56,11 @@ public final class PatientLiteModel extends InfoModel {
         this.genderDesc = genderDesc;
     }
 
-    public String getBirthday() {
+    public LocalDate getBirthday() {
         return birthday;
     }
 
-    public void setBirthday(String birthday) {
+    public void setBirthday(LocalDate birthday) {
         this.birthday = birthday;
     }
     

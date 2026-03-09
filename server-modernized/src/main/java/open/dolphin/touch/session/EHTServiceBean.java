@@ -4,6 +4,7 @@
  */
 package open.dolphin.touch.session;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -28,6 +29,7 @@ import open.dolphin.infomodel.IStampTreeModel;
 import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.LastDateCount;
 import open.dolphin.infomodel.ModuleModel;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.NLaboItem;
 import open.dolphin.infomodel.NLaboModule;
 import open.dolphin.infomodel.ObservationModel;
@@ -57,7 +59,8 @@ public class EHTServiceBean {
     private static final String QUERY_FIRST_VISITOR_LIST = "from KarteBean k where k.patient.facilityId=:facilityId order by k.created desc";
     
     // 来院日検索
-    private static final String QUERY_PATIENT_BY_PVTDATE = "from PatientVisitModel p where p.facilityId = :fid and p.pvtDate like :date and p.status!=64";
+    private static final String QUERY_PATIENT_BY_PVTDATE
+            = "from PatientVisitModel p where p.facilityId = :fid and p.pvtDate >= :fromDate and p.pvtDate < :toDate and p.status!=64";
     
     // Karte
     private static final String QUERY_KARTE = "from KarteBean k where k.patient.id=:patientPk";
@@ -138,11 +141,16 @@ public class EHTServiceBean {
     }
     
     public List<PatientModel> getPatientsByPvtDate(String fid, String pvtDate) {
+        LocalDate targetDate = ModelUtils.parseDate(pvtDate);
+        if (targetDate == null) {
+            return List.of();
+        }
 
         List<PatientVisitModel> list =
                 em.createQuery(QUERY_PATIENT_BY_PVTDATE)
                   .setParameter("fid", fid)
-                  .setParameter("date", pvtDate+"%")
+                  .setParameter("fromDate", targetDate.atStartOfDay())
+                  .setParameter("toDate", targetDate.plusDays(1).atStartOfDay())
                   .getResultList();
 
         List<PatientModel> ret = new ArrayList<PatientModel>();
@@ -158,7 +166,7 @@ public class EHTServiceBean {
             // 患者の健康保険を取得する
             setHealthInsurances(patient);
 //masuda^   最終受診日設定
-           patient.setPvtDate(pvt.getPvtDate());
+           patient.setLastVisitAt(pvt.getPvtDate());
 //masuda$        
         }
         return ret;
@@ -211,11 +219,7 @@ public class EHTServiceBean {
         
         if (docCount!=0L) {
             // 最終文書日
-            Date lastDocDate = (Date)
-                    em.createNativeQuery("select max(m.started) from d_document m where m.karte_id=:karteId and m.docType=:docType and (m.status = 'F' or m.status = 'T')")
-                            .setParameter("karteId", karte.getId())
-                            .setParameter("docType", IInfoModel.DOCTYPE_KARTE)
-                            .getSingleResult();
+            Date lastDocDate = findLatestDocumentStarted(karte.getId(), IInfoModel.DOCTYPE_KARTE);
             result.setLastDocDate(lastDocDate);
         }
         
@@ -227,10 +231,7 @@ public class EHTServiceBean {
         
         if (labCount!=0L) {
             // 最終ラボ報告日
-            String lastLabDate = (String)
-                    em.createNativeQuery("select max(m.sampleDate) from d_nlabo_module m where m.patientId=:fidPid")
-                            .setParameter("fidPid", fidPid)
-                            .getSingleResult();
+            String lastLabDate = findLatestLabSampleDate(fidPid);
             result.setLastLabDate(lastLabDate);
         }
         
@@ -242,10 +243,7 @@ public class EHTServiceBean {
         
         if (imageCount!=0L) {
             // 最終ラボ報告日
-            Date lastImageDate = (Date)
-                    em.createNativeQuery("select max(m.started) from d_image m where m.karte_id=:karteId and (m.status = 'F' or m.status = 'T')")
-                            .setParameter("karteId", karte.getId())
-                            .getSingleResult();
+            Date lastImageDate = findLatestImageStarted(karte.getId());
             result.setLastImageDate(lastImageDate);
         }
         
@@ -681,16 +679,12 @@ public class EHTServiceBean {
     }
 
     public List<ModuleModel> getLastModule(long patientPk, String entity, String facilityId) {
-        // "select max(m.started) from d_document m where m.karte_id=:karteId and m.docType=:docType and (m.status = 'F' or m.status = 'T')"
-        // from ModuleModel m where m.karte.id=:karteId and m.moduleInfo.entity=:entity and m.status='F' order by m.started desc
-        // "from ModuleModel m where m.karte.id=:karteId and m.started=:started and (d.status='F' or d.status='T')"
         KarteBean karte = resolveKarte(patientPk, facilityId);
         
-        Date lastDocDate = (Date)
-                em.createNativeQuery("select max(m.started) from d_module m where m.karte_id=:karteId and m.entity=:entity and (m.status = 'F' or m.status = 'T')")
-                        .setParameter("karteId", karte.getId())
-                        .setParameter("entity", entity)
-                        .getSingleResult();
+        Date lastDocDate = findLatestModuleStarted(karte.getId(), entity);
+        if (lastDocDate == null) {
+            return new ArrayList<>();
+        }
         
         List<ModuleModel> list2 = (List<ModuleModel>)em.createQuery("from ModuleModel m where m.karte.id=:karteId and m.started=:started and m.moduleInfo.entity=:entity and (m.status='F' or m.status='T')")
                                                      .setParameter("karteId", karte.getId())
@@ -698,6 +692,57 @@ public class EHTServiceBean {
                                                      .setParameter("entity", entity)
                                                      .getResultList();
         return list2;
+    }
+
+    private Date findLatestDocumentStarted(long karteId, String docType) {
+        List<Date> startedDates = em.createQuery(
+                        "select d.started from DocumentModel d "
+                                + "where d.karte.id=:karteId and d.docInfoModel.docType=:docType "
+                                + "and (d.status='F' or d.status='T') order by d.started desc",
+                        Date.class)
+                .setParameter("karteId", karteId)
+                .setParameter("docType", docType)
+                .setMaxResults(1)
+                .getResultList();
+        return startedDates.isEmpty() ? null : startedDates.get(0);
+    }
+
+    private String findLatestLabSampleDate(String fidPid) {
+        List<String> sampleDates = em.createQuery(
+                        "from NLaboModule l where l.patientId=:fidPid order by l.sampleDate desc",
+                        NLaboModule.class)
+                .setParameter("fidPid", fidPid)
+                .setMaxResults(1)
+                .getResultList()
+                .stream()
+                .map(NLaboModule::getSampleDate)
+                .toList();
+        return sampleDates.isEmpty() ? null : sampleDates.get(0);
+    }
+
+    private Date findLatestImageStarted(long karteId) {
+        List<Date> startedDates = em.createQuery(
+                        "select s.started from SchemaModel s "
+                                + "where s.karte.id=:karteId and (s.status='F' or s.status='T') "
+                                + "order by s.started desc",
+                        Date.class)
+                .setParameter("karteId", karteId)
+                .setMaxResults(1)
+                .getResultList();
+        return startedDates.isEmpty() ? null : startedDates.get(0);
+    }
+
+    private Date findLatestModuleStarted(long karteId, String entity) {
+        List<Date> startedDates = em.createQuery(
+                        "select m.started from ModuleModel m "
+                                + "where m.karte.id=:karteId and m.moduleInfo.entity=:entity "
+                                + "and (m.status='F' or m.status='T') order by m.started desc",
+                        Date.class)
+                .setParameter("karteId", karteId)
+                .setParameter("entity", entity)
+                .setMaxResults(1)
+                .getResultList();
+        return startedDates.isEmpty() ? null : startedDates.get(0);
     }
     
     public List<NLaboModule> getLaboTest(String facilityId, String patientId, int firstResult, int maxResult) {

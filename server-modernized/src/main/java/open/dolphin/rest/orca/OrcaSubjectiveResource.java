@@ -29,7 +29,6 @@ import open.dolphin.rest.dto.orca.SubjectiveEntryResponse;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PatientServiceBean;
 import open.dolphin.session.UserServiceBean;
-import open.dolphin.touch.converter.IOSHelper;
 
 /**
  * Handles subjective POST requests.
@@ -229,7 +228,6 @@ public class OrcaSubjectiveResource extends AbstractOrcaRestResource {
         ModuleModel module = new ModuleModel();
         module.setModel(progress);
         module.setBeanJson(ModelUtils.jsonEncode(progress));
-        module.setBeanBytes(null);
         module.setConfirmed(performDate);
         module.setStarted(performDate);
         module.setRecorded(now);

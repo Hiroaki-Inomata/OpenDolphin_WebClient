@@ -2,6 +2,7 @@ package open.dolphin.adm10.converter;
 
 import open.dolphin.converter.*;
 import open.dolphin.infomodel.IInfoModel;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.PatientVisitModel;
 
 /**
@@ -37,7 +38,7 @@ public final class IPatientVisitModel implements IInfoModelConverter {
 
     // 来院日時
     public String getPvtDate() {
-        return model.getPvtDate();
+        return ModelUtils.formatDateTime(model.getPvtDate());
     }
 
     // 予約

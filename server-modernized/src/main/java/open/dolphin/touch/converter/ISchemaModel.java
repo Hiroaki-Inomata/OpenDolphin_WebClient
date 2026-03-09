@@ -36,7 +36,11 @@ public class ISchemaModel implements java.io.Serializable {
     
     private IExtRefModel extRef;
     
-    private byte[] jpegByte;
+    private String uri;
+
+    private String digest;
+
+    private byte[] imageBytes;
     
     
     public ISchemaModel() {
@@ -131,12 +135,28 @@ public class ISchemaModel implements java.io.Serializable {
         this.extRef = extRef;
     }
     
-    public byte[] getJpegByte() {
-        return jpegByte;
+    public String getUri() {
+        return uri;
     }
 
-    public void setJpegByte(byte[] jpegByte) {
-        this.jpegByte = jpegByte;
+    public void setUri(String uri) {
+        this.uri = uri;
+    }
+
+    public String getDigest() {
+        return digest;
+    }
+
+    public void setDigest(String digest) {
+        this.digest = digest;
+    }
+
+    public byte[] getImageBytes() {
+        return imageBytes;
+    }
+
+    public void setImageBytes(byte[] imageBytes) {
+        this.imageBytes = imageBytes;
     }
     
     public void fromModel(SchemaModel model) {
@@ -165,8 +185,9 @@ public class ISchemaModel implements java.io.Serializable {
         extRef.fromModel(model.getExtRefModel());
         this.setExtRefModel(extRef);
         
-        // base64
-        this.setJpegByte(model.getJpegByte());
+        this.setUri(model.getUri());
+        this.setDigest(model.getDigest());
+        this.setImageBytes(model.getImageBytes());
     }
     
     public SchemaModel toModel() {
@@ -195,8 +216,9 @@ public class ISchemaModel implements java.io.Serializable {
         
         ret.setExtRefModel(this.getExtRefModel().toModel());
         
-        // base64
-        ret.setJpegByte(this.getJpegByte());
+        ret.setUri(this.getUri());
+        ret.setDigest(this.getDigest());
+        ret.setImageBytes(this.getImageBytes());
         
         return ret;
     }

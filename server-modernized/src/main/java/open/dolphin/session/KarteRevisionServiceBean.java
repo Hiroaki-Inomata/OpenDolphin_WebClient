@@ -29,6 +29,7 @@ import open.dolphin.infomodel.DocumentModelCloner;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.SchemaModel;
+import open.dolphin.security.integrity.CanonicalJson;
 import open.dolphin.rest.dto.KarteRevisionDiffResponse;
 import open.dolphin.rest.dto.KarteRevisionEntryResponse;
 import open.dolphin.rest.dto.KarteRevisionGroupResponse;
@@ -356,14 +357,9 @@ public class KarteRevisionServiceBean {
 
                 String payload = module.getBeanJson();
                 if (payload != null) {
-                    digester.update(payload.getBytes(StandardCharsets.UTF_8));
+                    digester.update(CanonicalJson.canonicalBytes(payload));
                 } else {
-                    byte[] bytes = module.getBeanBytes();
-                    if (bytes != null) {
-                        digester.update(bytes);
-                    } else {
-                        digester.update((byte) 0);
-                    }
+                    digester.update((byte) 0);
                 }
                 // Separator to avoid concatenation ambiguity.
                 digester.update((byte) '\n');
@@ -379,11 +375,11 @@ public class KarteRevisionServiceBean {
                     if (image == null) {
                         continue;
                     }
-                    schemaDigest.update(Long.toString(image.getId()).getBytes(StandardCharsets.UTF_8));
+                    schemaDigest.update(utf8(Long.toString(image.getId())));
                     if (image.getExtRefModel() != null) {
-                        schemaDigest.update(Objects.toString(image.getExtRefModel().getHref(), "").getBytes(StandardCharsets.UTF_8));
-                        schemaDigest.update(Objects.toString(image.getExtRefModel().getTitle(), "").getBytes(StandardCharsets.UTF_8));
-                        schemaDigest.update(Objects.toString(image.getExtRefModel().getContentType(), "").getBytes(StandardCharsets.UTF_8));
+                        schemaDigest.update(utf8(Objects.toString(image.getExtRefModel().getHref(), "")));
+                        schemaDigest.update(utf8(Objects.toString(image.getExtRefModel().getTitle(), "")));
+                        schemaDigest.update(utf8(Objects.toString(image.getExtRefModel().getContentType(), "")));
                     }
                     schemaDigest.update((byte) '\n');
                 }
@@ -399,11 +395,11 @@ public class KarteRevisionServiceBean {
                     if (attachment == null) {
                         continue;
                     }
-                    attachmentDigest.update(Long.toString(attachment.getId()).getBytes(StandardCharsets.UTF_8));
-                    attachmentDigest.update(Objects.toString(attachment.getFileName(), "").getBytes(StandardCharsets.UTF_8));
-                    attachmentDigest.update(Objects.toString(attachment.getContentType(), "").getBytes(StandardCharsets.UTF_8));
-                    attachmentDigest.update(Long.toString(attachment.getContentSize()).getBytes(StandardCharsets.UTF_8));
-                    attachmentDigest.update(Objects.toString(attachment.getDigest(), "").getBytes(StandardCharsets.UTF_8));
+                    attachmentDigest.update(utf8(Long.toString(attachment.getId())));
+                    attachmentDigest.update(utf8(Objects.toString(attachment.getFileName(), "")));
+                    attachmentDigest.update(utf8(Objects.toString(attachment.getContentType(), "")));
+                    attachmentDigest.update(utf8(Long.toString(attachment.getContentSize())));
+                    attachmentDigest.update(utf8(Objects.toString(attachment.getDigest(), "")));
                     attachmentDigest.update((byte) '\n');
                 }
             }
@@ -498,6 +494,10 @@ public class KarteRevisionServiceBean {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("Missing SHA-256 implementation", e);
         }
+    }
+
+    private static byte[] utf8(String value) {
+        return value == null ? new byte[0] : value.getBytes(StandardCharsets.UTF_8);
     }
 
     private static String toHex(byte[] bytes) {

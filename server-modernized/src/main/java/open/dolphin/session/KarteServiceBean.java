@@ -32,6 +32,7 @@ import open.dolphin.security.integrity.DocumentIntegrityService;
 import open.dolphin.session.audit.DiagnosisAuditRecorder;
 import open.dolphin.session.framework.SessionOperation;
 import open.dolphin.storage.attachment.AttachmentStorageManager;
+import open.dolphin.storage.image.ImageStorageManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -120,7 +121,7 @@ public class KarteServiceBean {
                     + "where a.document.id in :ids order by a.document.id, a.id";
     private static final String QUERY_SCHEMA_METADATA_BY_DOC_IDS =
             "select i.id, i.confirmed, i.started, i.ended, i.recorded, i.linkId, i.linkRelation, i.status, " +
-                    "i.userModel, i.karteBean, i.document.id, i.extRef " +
+                    "i.userModel, i.karteBean, i.document.id, i.extRef, i.uri, i.digest " +
                     "from SchemaModel i where i.document.id in :ids order by i.document.id, i.id";
     private static final String QUERY_ATTACHMENT_METADATA_BY_DOC_IDS =
             "select a.id, a.confirmed, a.started, a.ended, a.recorded, a.linkId, a.linkRelation, a.status, " +
@@ -155,11 +156,6 @@ public class KarteServiceBean {
 
     private static final String QUERY_PATIENT_BY_FID_PID = "from PatientModel p where p.facilityId=:fid and p.patientId=:pid";
     
-//masuda^
-    private static final String QUERY_LASTDOC_DATE 
-            = "select max(m.started) from DocumentModel m where m.karte.id = :karteId and (m.status = 'F' or m.status = 'T')";
-//masuda$
-    
 //s.oh^ 2014/04/03 サマリー対応
     private static final String QUERY_FREEDOCU_BY_FPID = "from PatientFreeDocumentModel p where p.facilityPatId=:fpid";
     private static final String FPID = "fpid";
@@ -170,6 +166,9 @@ public class KarteServiceBean {
 
     @Inject
     private AttachmentStorageManager attachmentStorageManager;
+
+    @Inject
+    private ImageStorageManager imageStorageManager;
 
     @Inject
     private DiagnosisAuditRecorder diagnosisAuditRecorder;
@@ -279,7 +278,7 @@ public class KarteServiceBean {
                     // 2012-07-23
                     // cancelしている場合は返さない
                     // 来院日のみを使用する
-                    visits.add(bean.getPvtDate());
+                    visits.add(bean.getPvtDate().toString());
                 }
                 karte.setPatientVisits(visits);
             }
@@ -309,17 +308,12 @@ public class KarteServiceBean {
                 karte.setMemoList(memo);
             }
             
-//masuda^
             // 最終文書日
             try {
-                Date lastDocDate = (Date)
-                        em.createQuery(QUERY_LASTDOC_DATE)
-                        .setParameter(KARTE_ID, karteId)
-                        .getSingleResult();
+                Date lastDocDate = findLatestDocumentStarted(karteId);
                 karte.setLastDocDate(lastDocDate);
             } catch (NoResultException e) {
             }
-//masuda$            
 
             return karte;
         
@@ -419,7 +413,7 @@ public class KarteServiceBean {
                 List<String> visits = new ArrayList<>(latestVisits.size());
                 for (PatientVisitModel bean : latestVisits) {
                     // 来院日のみを使用する
-                    visits.add(bean.getPvtDate());
+                    visits.add(bean.getPvtDate().toString());
                 }
                 karte.setPatientVisits(visits);
             }
@@ -449,17 +443,12 @@ public class KarteServiceBean {
                 karte.setMemoList(memo);
             }
             
-//masuda^
             // 最終文書日
             try {
-                Date lastDocDate = (Date)
-                        em.createQuery(QUERY_LASTDOC_DATE)
-                        .setParameter(KARTE_ID, karteId)
-                        .getSingleResult();
+                Date lastDocDate = findLatestDocumentStarted(karteId);
                 karte.setLastDocDate(lastDocDate);
             } catch (NoResultException e) {
             }
-//masuda$
             return karte;
 
         } catch (NoResultException e) {
@@ -605,11 +594,10 @@ public class KarteServiceBean {
                 document.getId(),
                 document.getDocInfoModel() != null ? document.getDocInfoModel().getDocId() : "null");
 
-        prepareDocumentForWrite(document);
-
-        LOGGER.info("addDocument assigned seq id={}", document.getId());
-
-        document = em.merge(document);
+        prepareDocumentForInsert(document);
+        em.persist(document);
+        em.flush();
+        finalizePersistedDocument(document);
         sealDocument(document);
 
         // ID
@@ -685,14 +673,9 @@ public class KarteServiceBean {
         removeMissingSchemas(current.getSchema(), document.getSchema());
         removeMissingAttachments(current.getAttachment(), document.getAttachment());
 
-        prepareDocumentForWrite(document);
-
-        // addDocument で正の採番を保証しているが、念のため update でも防御（UI 側の不整合防止）
-        if (document.getId() <= 0) {
-            throw new IllegalArgumentException("Document id is required for update");
-        }
-
         DocumentModel merged = em.merge(document);
+        em.flush();
+        finalizePersistedDocument(merged);
         sealDocument(merged);
         return merged.getId();
     }
@@ -870,10 +853,10 @@ public class KarteServiceBean {
 
     public long addDocumentAndUpdatePVTState(DocumentModel document, long pvtPK, int state) {
 
-        prepareDocumentForWrite(document);
-
-        // 永続化する
+        prepareDocumentForInsert(document);
         em.persist(document);
+        em.flush();
+        finalizePersistedDocument(document);
         sealDocument(document);
 
         // ID
@@ -1102,6 +1085,9 @@ public class KarteServiceBean {
      */
     public SchemaModel getImage(long id) {
         SchemaModel image = (SchemaModel)em.find(SchemaModel.class, id);
+        if (image != null) {
+            imageStorageManager.populateBinary(image);
+        }
         return image;
     }
 
@@ -1765,7 +1751,7 @@ public class KarteServiceBean {
     }
 
     private SchemaModel toSchemaMetadata(Object[] row, Map<Long, DocumentModel> documentById) {
-        if (row == null || row.length < 12 || !(row[0] instanceof Long id)) {
+        if (row == null || row.length < 14 || !(row[0] instanceof Long id)) {
             return null;
         }
         Long docId = row[10] instanceof Long value ? value : null;
@@ -1786,7 +1772,9 @@ public class KarteServiceBean {
         schema.setKarteBean((KarteBean) row[9]);
         schema.setDocumentModel(document);
         schema.setExtRefModel((ExtRefModel) row[11]);
-        schema.setJpegByte(null);
+        schema.setUri((String) row[12]);
+        schema.setDigest((String) row[13]);
+        schema.setImageBytes(null);
         return schema;
     }
 
@@ -1820,7 +1808,7 @@ public class KarteServiceBean {
         attachment.setUri((String) row[17]);
         attachment.setExtension((String) row[18]);
         attachment.setMemo((String) row[19]);
-        attachment.setBytes(null);
+        attachment.setContentBytes(null);
         return attachment;
     }
 
@@ -1995,7 +1983,6 @@ public class KarteServiceBean {
                 throw new IllegalStateException("Failed to encode module payload as JSON: moduleId=" + module.getId());
             }
             module.setBeanJson(json);
-            module.setBeanBytes(null);
         }
     }
 
@@ -2105,40 +2092,131 @@ public class KarteServiceBean {
         return trimmed.isEmpty() ? null : trimmed.toUpperCase(Locale.ROOT);
     }
 
-    private void prepareDocumentForWrite(DocumentModel document) {
+    private Date findLatestDocumentStarted(long karteId) {
+        List<Date> startedDates = em.createQuery(
+                        "select d.started from DocumentModel d "
+                                + "where d.karte.id = :karteId and (d.status = 'F' or d.status = 'T') "
+                                + "order by d.started desc",
+                        Date.class)
+                .setParameter(KARTE_ID, karteId)
+                .setMaxResults(1)
+                .getResultList();
+        if (startedDates.isEmpty()) {
+            throw new NoResultException("Document started date not found for karteId=" + karteId);
+        }
+        return startedDates.get(0);
+    }
+
+    private void prepareDocumentForInsert(DocumentModel document) {
         if (document == null) {
             return;
         }
-        assignGeneratedIdIfNeeded(document);
+        synchronizeDocumentGraph(document);
+        encodeModulePayloads(document.getModules());
+    }
+
+    private void finalizePersistedDocument(DocumentModel document) {
+        if (document == null) {
+            return;
+        }
         if (document.getDocInfoModel() != null) {
             document.getDocInfoModel().setDocPk(document.getId());
         }
-        assignGeneratedIds(document.getAttachment());
-        encodeModulePayloads(document.getModules());
+        synchronizeDocumentGraph(document);
+        imageStorageManager.persistExternalAssets(document.getSchema());
         attachmentStorageManager.persistExternalAssets(document.getAttachment());
+        em.flush();
     }
 
-    private <T extends KarteEntryBean> void assignGeneratedIds(Collection<T> entries) {
-        if (entries == null || entries.isEmpty()) {
+    private void synchronizeDocumentGraph(DocumentModel document) {
+        if (document == null) {
             return;
         }
-        for (T entry : entries) {
-            assignGeneratedIdIfNeeded(entry);
-        }
-    }
+        KarteBean karte = document.getKarteBean();
+        UserModel creator = document.getUserModel();
+        Date started = document.getStarted();
+        Date confirmed = document.getConfirmed();
+        Date recorded = document.getRecorded();
+        String status = document.getStatus();
 
-    private void assignGeneratedIdIfNeeded(KarteEntryBean entry) {
-        if (entry == null || entry.getId() > 0) {
-            return;
+        if (document.getModules() != null) {
+            for (ModuleModel module : document.getModules()) {
+                if (module == null) {
+                    continue;
+                }
+                module.setDocumentModel(document);
+                if (module.getKarteBean() == null) {
+                    module.setKarteBean(karte);
+                }
+                if (module.getUserModel() == null) {
+                    module.setUserModel(creator);
+                }
+                if (module.getStarted() == null) {
+                    module.setStarted(started);
+                }
+                if (module.getConfirmed() == null) {
+                    module.setConfirmed(confirmed);
+                }
+                if (module.getRecorded() == null) {
+                    module.setRecorded(recorded);
+                }
+                if (module.getStatus() == null) {
+                    module.setStatus(status);
+                }
+            }
         }
-        entry.setId(nextSequenceValue());
-    }
-
-    private long nextSequenceValue() {
-        Number seqValue = (Number) em
-                .createNativeQuery("SELECT nextval('opendolphin.hibernate_sequence')")
-                .getSingleResult();
-        return seqValue.longValue();
+        if (document.getSchema() != null) {
+            for (SchemaModel schema : document.getSchema()) {
+                if (schema == null) {
+                    continue;
+                }
+                schema.setDocumentModel(document);
+                if (schema.getKarteBean() == null) {
+                    schema.setKarteBean(karte);
+                }
+                if (schema.getUserModel() == null) {
+                    schema.setUserModel(creator);
+                }
+                if (schema.getStarted() == null) {
+                    schema.setStarted(started);
+                }
+                if (schema.getConfirmed() == null) {
+                    schema.setConfirmed(confirmed);
+                }
+                if (schema.getRecorded() == null) {
+                    schema.setRecorded(recorded);
+                }
+                if (schema.getStatus() == null) {
+                    schema.setStatus(status);
+                }
+            }
+        }
+        if (document.getAttachment() != null) {
+            for (AttachmentModel attachment : document.getAttachment()) {
+                if (attachment == null) {
+                    continue;
+                }
+                attachment.setDocumentModel(document);
+                if (attachment.getKarteBean() == null) {
+                    attachment.setKarteBean(karte);
+                }
+                if (attachment.getUserModel() == null) {
+                    attachment.setUserModel(creator);
+                }
+                if (attachment.getStarted() == null) {
+                    attachment.setStarted(started);
+                }
+                if (attachment.getConfirmed() == null) {
+                    attachment.setConfirmed(confirmed);
+                }
+                if (attachment.getRecorded() == null) {
+                    attachment.setRecorded(recorded);
+                }
+                if (attachment.getStatus() == null) {
+                    attachment.setStatus(status);
+                }
+            }
+        }
     }
 
     private WebApplicationException finalizedUpdateDenied(long documentId,
@@ -2164,7 +2242,10 @@ public class KarteServiceBean {
     }
 
     private void removeMissingSchemas(List<SchemaModel> existing, List<SchemaModel> incoming) {
-        removeMissingChildren(existing, incoming, schema -> em.remove(em.contains(schema) ? schema : em.merge(schema)));
+        removeMissingChildren(existing, incoming, schema -> {
+            imageStorageManager.deleteExternalAsset(schema);
+            em.remove(em.contains(schema) ? schema : em.merge(schema));
+        });
     }
 
     private void removeMissingAttachments(List<AttachmentModel> existing, List<AttachmentModel> incoming) {

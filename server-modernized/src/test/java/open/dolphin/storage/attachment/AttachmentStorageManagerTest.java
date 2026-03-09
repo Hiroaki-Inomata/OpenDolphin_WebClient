@@ -69,7 +69,7 @@ class AttachmentStorageManagerTest {
         assertThat(uploaded).isTrue();
         assertThat(attachment.getUri()).isEqualTo("s3://test-bucket/attachments/doc-20/att-10-report.txt");
         assertThat(attachment.getDigest()).isEqualTo(sha256Hex("payload".getBytes(StandardCharsets.UTF_8)));
-        assertThat(attachment.getBytes()).isNull();
+        assertThat(attachment.getContentBytes()).isNull();
         verify(s3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
     }
 
@@ -78,7 +78,6 @@ class AttachmentStorageManagerTest {
         AttachmentModel attachment = buildAttachment("report.txt", null);
         attachment.setUri("s3://test-bucket/attachments/doc-20/att-10-report.txt");
         attachment.setDigest(sha256Hex("payload".getBytes(StandardCharsets.UTF_8)));
-        attachment.setLocation(null);
 
         boolean uploaded = manager.uploadToS3OutsideTransaction(attachment);
 
@@ -97,7 +96,7 @@ class AttachmentStorageManagerTest {
 
         manager.populateBinary(attachment);
 
-        assertThat(attachment.getBytes()).containsExactly(payload);
+        assertThat(attachment.getContentBytes()).containsExactly(payload);
         verify(s3Client).getObject(any(GetObjectRequest.class));
     }
 
@@ -115,7 +114,7 @@ class AttachmentStorageManagerTest {
         attachment.setId(10L);
         attachment.setFileName(fileName);
         attachment.setContentType("text/plain");
-        attachment.setBytes(bytes);
+        attachment.setContentBytes(bytes);
 
         DocumentModel document = new DocumentModel();
         document.setId(20L);

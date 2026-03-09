@@ -160,7 +160,7 @@ public class DolphinResourceASP extends AbstractResource {
             String sex = sexValueToDesc(patient.getGender());
             propertyString(ELEMENT_SEX, sex, sb);
 
-            propertyString(ELEMENT_BIRTHDAY, patient.getBirthday(), sb);
+            propertyString(ELEMENT_BIRTHDAY, toIsoBirtday(patient.getBirthday()), sb);
             propertyString(ELEMENT_FIRST_VISIT, simpleFormat(karte.getCreated()), sb);
 
             sb.append(PATIENT_END);
@@ -200,7 +200,7 @@ public class DolphinResourceASP extends AbstractResource {
         for (PatientVisitModel visit : list) {
 
             sb.append(ELEMENT_PATIENT_VISIT_START);
-            propertyString(ELEMENT_PVT_DATE, visit.getPvtDate(), sb);
+            propertyString(ELEMENT_PVT_DATE, toIsoPvtDate(visit.getPvtDate()), sb);
 
             PatientModel patient = visit.getPatientModel();
 
@@ -214,7 +214,7 @@ public class DolphinResourceASP extends AbstractResource {
             String sex = sexValueToDesc(patient.getGender());
             propertyString(ELEMENT_SEX, sex, sb);
 
-            propertyString(ELEMENT_BIRTHDAY, patient.getBirthday(), sb);
+            propertyString(ELEMENT_BIRTHDAY, toIsoBirtday(patient.getBirthday()), sb);
             
             sb.append(PATIENT_END);
             
@@ -269,7 +269,7 @@ public class DolphinResourceASP extends AbstractResource {
             sb.append(ELEMENT_PATIENT_VISIT_START);
 
             // 来院日
-            propertyString(ELEMENT_PVT_DATE, visit.getPvtDate(),sb);
+            propertyString(ELEMENT_PVT_DATE, toIsoPvtDate(visit.getPvtDate()),sb);
             
             // 診察終了 or Not
             propertyString(ELEMENT_PVT_STATUS, String.valueOf(visit.getState()), sb);
@@ -286,7 +286,7 @@ public class DolphinResourceASP extends AbstractResource {
             String sex = sexValueToDesc(patient.getGender());
             propertyString(ELEMENT_SEX, sex, sb);
 
-            propertyString(ELEMENT_BIRTHDAY, patient.getBirthday(),sb);
+            propertyString(ELEMENT_BIRTHDAY, toIsoBirtday(patient.getBirthday()),sb);
 
             sb.append(PATIENT_END);
 
@@ -353,7 +353,7 @@ public class DolphinResourceASP extends AbstractResource {
         for (PatientVisitModel visit : list) {
 
             sb.append(ELEMENT_PATIENT_VISIT_START);
-            propertyString(ELEMENT_PVT_DATE, visit.getPvtDate(),sb);
+            propertyString(ELEMENT_PVT_DATE, toIsoPvtDate(visit.getPvtDate()),sb);
 
             PatientModel patient = visit.getPatientModel();
 
@@ -367,7 +367,7 @@ public class DolphinResourceASP extends AbstractResource {
             String sex = sexValueToDesc(patient.getGender());
             propertyString(ELEMENT_SEX, sex, sb);
 
-            propertyString(ELEMENT_BIRTHDAY, patient.getBirthday(),sb);
+            propertyString(ELEMENT_BIRTHDAY, toIsoBirtday(patient.getBirthday()),sb);
 
             sb.append(PATIENT_END);
 
@@ -412,7 +412,7 @@ public class DolphinResourceASP extends AbstractResource {
         String sex = sexValueToDesc(patient.getGender());
         propertyString(ELEMENT_SEX, sex, sb);
 
-        propertyString(ELEMENT_BIRTHDAY, patient.getBirthday(), sb);
+        propertyString(ELEMENT_BIRTHDAY, toIsoBirtday(patient.getBirthday()), sb);
 
         if (patient.getSimpleAddressModel()!=null) {
             sb.append(ELEMENT_ADDRESS_START);
@@ -470,7 +470,7 @@ public class DolphinResourceASP extends AbstractResource {
         String sex = sexValueToDesc(patient.getGender());
         propertyString(ELEMENT_SEX, sex, sb);
 
-        propertyString(ELEMENT_BIRTHDAY, patient.getBirthday(), sb);
+        propertyString(ELEMENT_BIRTHDAY, toIsoBirtday(patient.getBirthday()), sb);
 
         if (patient.getSimpleAddressModel()!=null) {
             sb.append(ELEMENT_ADDRESS_START);
@@ -493,7 +493,7 @@ public class DolphinResourceASP extends AbstractResource {
 
             try {
                 // byte[] を XMLDecord
-                PVTHealthInsuranceModel hModel = (PVTHealthInsuranceModel)xmlDecode(model.getBeanBytes());
+                PVTHealthInsuranceModel hModel = (PVTHealthInsuranceModel) ModelUtils.jsonDecode(model.getBeanJson());
                 PVTPublicInsuranceItemModel[] publicItems = hModel.getPVTPublicInsuranceItem();
 
                 sb.append("<healthInsurance>");
@@ -601,7 +601,7 @@ public class DolphinResourceASP extends AbstractResource {
             String sex = sexValueToDesc(patient.getGender());
             propertyString(ELEMENT_SEX, sex, sb);
 
-            propertyString(ELEMENT_BIRTHDAY, patient.getBirthday(), sb);
+            propertyString(ELEMENT_BIRTHDAY, toIsoBirtday(patient.getBirthday()), sb);
 
             sb.append(PATIENT_END);
         }
@@ -1056,7 +1056,7 @@ public class DolphinResourceASP extends AbstractResource {
                     propertyString(ELEMENT_SOP, schema.getExtRefModel().getSop(), sb);
                 }
 
-                byte[] bytes = schema.getJpegByte();
+                byte[] bytes = schema.getImageBytes();
                 String base64Str = new String(Base64Utils.encode(bytes), StandardCharsets.UTF_8);
                 propertyString(ELEMENT_BASE64, base64Str, sb);
 
@@ -1202,7 +1202,7 @@ public class DolphinResourceASP extends AbstractResource {
                     }
 
                     // image bytes
-                    byte[] bytes = schema.getJpegByte();
+                    byte[] bytes = schema.getImageBytes();
                     String base64Str = new String(Base64Utils.encode(bytes), StandardCharsets.UTF_8);
                     propertyString(ELEMENT_BASE64, base64Str, sb);
 

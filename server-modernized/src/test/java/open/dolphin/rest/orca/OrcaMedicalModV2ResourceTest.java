@@ -3,6 +3,8 @@ package open.dolphin.rest.orca;
 import static org.junit.jupiter.api.Assertions.*;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.util.Date;
@@ -31,7 +33,6 @@ import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PatientServiceBean;
 import open.dolphin.session.PVTServiceBean;
 import open.dolphin.testsupport.RuntimeDelegateTestSupport;
-import open.dolphin.touch.converter.IOSHelper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -137,7 +138,7 @@ class OrcaMedicalModV2ResourceTest extends RuntimeDelegateTestSupport {
     }
 
     @Test
-    void postOutpatientMedical_readsJsonOnlyAndLegacyXmlModules() {
+    void postOutpatientMedical_readsJsonOnlyModules() {
         Map<String, Object> payload = new HashMap<>();
         payload.put("Patient_ID", "00001");
 
@@ -186,14 +187,14 @@ class OrcaMedicalModV2ResourceTest extends RuntimeDelegateTestSupport {
             patient.setPatientId("00001");
             patient.setFullName("テスト患者");
             patient.setKanaName("テスト");
-            patient.setBirthday("1990-01-01");
+            patient.setBirthday(LocalDate.parse("1990-01-01"));
             patient.setGender("F");
 
             PatientVisitModel visit = new PatientVisitModel();
             visit.setId(201L);
             visit.setFacilityId(fid);
             visit.setPatientModel(patient);
-            visit.setPvtDate(date + " 10:00:00");
+            visit.setPvtDate(LocalDateTime.parse(date + "T10:00:00"));
             visit.setDeptName("内科");
             visit.setDoctorName("山田医師");
             return List.of(visit);
@@ -239,7 +240,7 @@ class OrcaMedicalModV2ResourceTest extends RuntimeDelegateTestSupport {
             memoInfo.setEntity(IInfoModel.ENTITY_TEXT);
             ModuleModel memoModule = new ModuleModel();
             memoModule.setModuleInfoBean(memoInfo);
-            memoModule.setBeanBytes(IOSHelper.toXMLBytes(progress));
+            memoModule.setBeanJson(ModelUtils.jsonEncode(progress));
 
             DocumentModel document = new DocumentModel();
             document.setStarted(new Date());
@@ -269,7 +270,7 @@ class OrcaMedicalModV2ResourceTest extends RuntimeDelegateTestSupport {
             patient.setPatientId(pid);
             patient.setFullName("テスト患者");
             patient.setKanaName("テスト");
-            patient.setBirthday("1990-01-01");
+            patient.setBirthday(LocalDate.parse("1990-01-01"));
             patient.setGender("F");
             return patient;
         }

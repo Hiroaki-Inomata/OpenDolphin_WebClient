@@ -1,11 +1,9 @@
 package open.dolphin.infomodel;
 
-import java.io.Serializable;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+import java.io.Serializable;
 import javax.swing.ImageIcon;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 /**
  * カルテのアタッチメント（文書や画像）クラス。
@@ -27,10 +25,6 @@ public class AttachmentModel extends KarteEntryBean implements Serializable,java
     private String extension;
     private String memo; 
     
-    @JdbcTypeCode(SqlTypes.BINARY)
-    @Column(nullable=false, columnDefinition = "bytea")
-    private byte[] bytes;   // data
-    
     @ManyToOne
     @JoinColumn(name="doc_id", nullable=false)
     private DocumentModel document;
@@ -43,7 +37,7 @@ public class AttachmentModel extends KarteEntryBean implements Serializable,java
     private int attachmentNumber;
     
     @Transient
-    private String location;
+    private byte[] contentBytes;
 
     public String getTitle() {
         return title;
@@ -77,12 +71,12 @@ public class AttachmentModel extends KarteEntryBean implements Serializable,java
         this.memo = memo;
     }
 
-    public byte[] getBytes() {
-        return bytes;
+    public byte[] getContentBytes() {
+        return contentBytes;
     }
 
-    public void setBytes(byte[] bytes) {
-        this.bytes = bytes;
+    public void setContentBytes(byte[] contentBytes) {
+        this.contentBytes = contentBytes;
     }
 
     public DocumentModel getDocumentModel() {
@@ -149,14 +143,6 @@ public class AttachmentModel extends KarteEntryBean implements Serializable,java
         this.contentSize = contentSize;
     }
 
-    public String getLocation() {
-        return location;
-    }
-
-    public void setLocation(String location) {
-        this.location = location;
-    }
-    
     @Override
     protected Object clone() throws CloneNotSupportedException {
         AttachmentModel ret = new AttachmentModel();
@@ -178,16 +164,15 @@ public class AttachmentModel extends KarteEntryBean implements Serializable,java
         ret.setExtension(this.getExtension());
         ret.setMemo(this.getMemo()); 
         ret.setAttachmentNumber(this.getAttachmentNumber());
-        ret.setLocation(this.getLocation());
 
         if (this.getIcon()!=null) {
             ret.setIcon(new ImageIcon(this.getIcon().getImage()));
         }
 
-        if (this.getBytes()!=null) {
-            byte[] dest = new byte[this.getBytes().length];
-            System.arraycopy(this.getBytes(), 0, dest, 0, this.getBytes().length);
-            ret.setBytes(dest);
+        if (this.getContentBytes()!=null) {
+            byte[] dest = new byte[this.getContentBytes().length];
+            System.arraycopy(this.getContentBytes(), 0, dest, 0, this.getContentBytes().length);
+            ret.setContentBytes(dest);
         }
 
         return ret;

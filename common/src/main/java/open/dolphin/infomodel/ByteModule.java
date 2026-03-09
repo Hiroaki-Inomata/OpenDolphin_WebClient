@@ -16,7 +16,7 @@ public class ByteModule implements Serializable {
     private Long id;
 
     @Lob
-    private byte[] beanBytes;
+    private byte[] payloadBytes;
 
     public Long getId() {
         return id;
@@ -51,11 +51,11 @@ public class ByteModule implements Serializable {
         return "open.dolphin.infomodel.ByteModule[id=" + id + "]";
     }
 
-    public byte[] getBeanBytes() {
-        return beanBytes;
+    public byte[] getPayloadBytes() {
+        return payloadBytes;
     }
 
-    public void setBeanBytes(byte[] beanBytes) {
-        this.beanBytes = beanBytes;
+    public void setPayloadBytes(byte[] payloadBytes) {
+        this.payloadBytes = payloadBytes;
     }
 }

@@ -68,7 +68,6 @@ public class IBundleModule extends IAbstractModule {
         
         ClaimBundle bundle = model.toModel();
         ret.setBeanJson(ModelUtils.jsonEncode(bundle));
-        ret.setBeanBytes(null);
         
         return ret;
     }

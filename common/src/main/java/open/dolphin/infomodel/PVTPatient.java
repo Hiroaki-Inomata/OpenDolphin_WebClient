@@ -5,6 +5,7 @@
  */
 package open.dolphin.infomodel;
 
+import java.time.LocalDate;
 import java.util.LinkedList;
 import java.util.Vector;
 
@@ -26,7 +27,7 @@ public class PVTPatient extends InfoModel {
     private String prefix;
     private String degree;
     private String sex;
-    private String birthday;
+    private LocalDate birthday;
     private String nationality;
     private String marital;
     
@@ -148,11 +149,11 @@ public class PVTPatient extends InfoModel {
         sex = val;
     }
     
-    public String getBirthday() {
+    public LocalDate getBirthday() {
         return birthday;
     }
     
-    public void setBirthday(String val) {
+    public void setBirthday(LocalDate val) {
         birthday = val;
     }    
     

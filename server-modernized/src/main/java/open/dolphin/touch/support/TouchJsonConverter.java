@@ -8,9 +8,7 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import open.dolphin.infomodel.IStampTreeModel;
-import open.dolphin.infomodel.InfoModel;
 import open.dolphin.infomodel.StampModel;
-import open.dolphin.security.xml.SafeXmlDecoder;
 import open.dolphin.touch.JSONStampBuilder;
 import open.dolphin.touch.JSONStampTreeBuilder;
 import open.dolphin.touch.StampTreeDirector;
@@ -66,9 +64,7 @@ public class TouchJsonConverter {
         if (stampBytes == null) {
             return null;
         }
-        InfoModel model = SafeXmlDecoder.decode(stampBytes, InfoModel.class);
-        JSONStampBuilder builder = new JSONStampBuilder();
-        return builder.build(model);
+        throw new IOException("Legacy XML stamp conversion is no longer supported");
     }
 
     public String convertStampTreeOrNull(IStampTreeModel treeModel) {

@@ -39,7 +39,7 @@ public class LaboImportSummary implements Serializable {
     }
 
     public String getPatientBirthday() {
-            return this.getPatient().getBirthday();
+            return ModelUtils.formatDate(this.getPatient().getBirthday());
     }
 
     public String getPatientGender() {

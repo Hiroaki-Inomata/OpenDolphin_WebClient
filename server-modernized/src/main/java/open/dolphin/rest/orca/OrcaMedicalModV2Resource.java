@@ -31,7 +31,6 @@ import open.dolphin.rest.dto.outpatient.OutpatientFlagResponse;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PatientServiceBean;
 import open.dolphin.session.PVTServiceBean;
-import open.dolphin.touch.converter.IOSHelper;
 
 /**
  * `/orca21/medicalmodv2/outpatient` をモダナイズ版サーバー側で提供する。
@@ -198,7 +197,7 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
             PatientVisitModel visit = new PatientVisitModel();
             visit.setPatientModel(patient);
             visit.setFacilityId(facilityId);
-            visit.setPvtDate(targetDate.toString());
+            visit.setPvtDate(targetDate.atStartOfDay());
             return visit;
         } catch (RuntimeException ex) {
             return null;
@@ -227,7 +226,7 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         summary.setPatientId(patientId);
         summary.setWholeName(patient.getFullName());
         summary.setWholeNameKana(patient.getKanaName());
-        summary.setBirthDate(patient.getBirthday());
+        summary.setBirthDate(patient.getBirthday() != null ? patient.getBirthday().toString() : null);
         summary.setSex(patient.getGender());
         entry.setPatient(summary);
 

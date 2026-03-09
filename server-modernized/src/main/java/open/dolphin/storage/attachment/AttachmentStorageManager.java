@@ -108,7 +108,7 @@ public class AttachmentStorageManager {
         if (attachment == null) {
             return;
         }
-        if (attachment.getBytes() != null) {
+        if (attachment.getContentBytes() != null) {
             return;
         }
         if (!hasText(attachment.getUri())) {
@@ -133,7 +133,7 @@ public class AttachmentStorageManager {
 
         try (software.amazon.awssdk.core.ResponseInputStream<GetObjectResponse> response = s3Client.getObject(request)) {
             byte[] data = IoUtils.toByteArray((InputStream) response);
-            attachment.setBytes(data);
+            attachment.setContentBytes(data);
         } catch (IOException ex) {
             throw new AttachmentStorageException("Failed to download attachment " + location.key, ex);
         } catch (Exception ex) {
@@ -162,7 +162,7 @@ public class AttachmentStorageManager {
         if (attachment == null) {
             return false;
         }
-        byte[] bytes = attachment.getBytes();
+        byte[] bytes = attachment.getContentBytes();
         if (isAlreadyExternalized(attachment, bytes)) {
             LOGGER.debug("Attachment {} is already externalized (uri={}, digest={}); skipping upload.",
                     attachment.getId(), attachment.getUri(), attachment.getDigest());
@@ -191,8 +191,7 @@ public class AttachmentStorageManager {
             s3Client.putObject(builder.build(), RequestBody.fromBytes(bytes));
             String s3Uri = String.format("s3://%s/%s", s3Settings.getBucket(), key);
             attachment.setUri(s3Uri);
-            attachment.setLocation("s3");
-            attachment.setBytes(null);
+            attachment.setContentBytes(null);
             return true;
 
         } catch (Exception ex) {

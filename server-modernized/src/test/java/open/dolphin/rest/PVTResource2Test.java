@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -14,7 +16,9 @@ import java.util.Map;
 import open.dolphin.converter.PatientVisitListConverter;
 import open.dolphin.converter.PatientVisitModelConverter;
 import open.dolphin.infomodel.HealthInsuranceModel;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.PatientModel;
+import open.dolphin.infomodel.PVTHealthInsuranceModel;
 import open.dolphin.infomodel.PatientVisitModel;
 import open.dolphin.session.ChartEventServiceBean;
 import open.dolphin.session.PVTServiceBean;
@@ -29,7 +33,7 @@ class PVTResource2Test extends RuntimeDelegateTestSupport {
 
     private static final String FACILITY_REMOTE_USER = "F001:doctor01";
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
 
     private PVTResource2 resource;
     private RecordingPvtServiceBean pvtServiceBean;
@@ -63,9 +67,9 @@ class PVTResource2Test extends RuntimeDelegateTestSupport {
         PatientModel patient = new PatientModel();
         patient.setPatientId("000010");
         patient.setFacilityId("legacy");
-        patient.setBirthday("1980-01-01");
+        patient.setBirthday(LocalDate.parse("1980-01-01"));
         HealthInsuranceModel insurance = new HealthInsuranceModel();
-        insurance.setBeanBytes(new byte[]{1, 2, 3});
+        insurance.setBeanJson(ModelUtils.jsonEncode(new PVTHealthInsuranceModel()));
         patient.setHealthInsurances(Collections.singletonList(insurance));
 
         PatientVisitModel visit = new PatientVisitModel();
@@ -75,7 +79,7 @@ class PVTResource2Test extends RuntimeDelegateTestSupport {
         visit.setDeptCode("01");
         visit.setDoctorName("Smith");
         visit.setDoctorId("D01");
-        visit.setPvtDate("2025-11-03");
+        visit.setPvtDate(LocalDateTime.parse("2025-11-03T00:00:00"));
 
         String payload = mapper.writeValueAsString(visit);
 
@@ -96,7 +100,7 @@ class PVTResource2Test extends RuntimeDelegateTestSupport {
     void getPvtList_wrapsServiceResultInConverter() {
         PatientVisitModel visit = new PatientVisitModel();
         visit.setFacilityId("F001");
-        visit.setPvtDate("2025-11-03 10:00:00");
+        visit.setPvtDate(LocalDateTime.parse("2025-11-03T10:00:00"));
         chartEventServiceBean.setPvtList("F001", new ArrayList<>(Collections.singletonList(visit)));
 
         PatientVisitListConverter converter = resource.getPvtList();

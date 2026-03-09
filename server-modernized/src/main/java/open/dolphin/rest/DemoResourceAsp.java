@@ -70,7 +70,6 @@ import open.dolphin.touch.converter.IPatientModel;
 import open.dolphin.touch.converter.IPatientVisitModel;
 import open.dolphin.touch.converter.IRegisteredDiagnosis;
 import open.dolphin.touch.converter.ISchemaModel;
-import open.dolphin.touch.converter.IOSHelper;
 import open.dolphin.touch.session.IPhoneServiceBean;
 import open.dolphin.touch.TouchAuthHandler;
 import open.dolphin.touch.support.TouchAuditHelper;
@@ -258,7 +257,6 @@ public class DemoResourceAsp extends open.dolphin.touch.AbstractResource {
         validateFacility(facilityId, endpoint);
 
         List<DemoPatient> source = safeList(iPhoneServiceBean.getPatientVisitDemo(0, 30));
-        String pvtDate = DATE_FORMAT.format(LocalDate.now());
         List<IPatientVisitModel> visits = new ArrayList<>(source.size());
         for (DemoPatient demo : source) {
             DemoIdentifiers identifiers = new DemoIdentifiers(String.valueOf(demo.getId()), formatPatientId(demo.getId()));
@@ -267,7 +265,7 @@ public class DemoResourceAsp extends open.dolphin.touch.AbstractResource {
             visit.setId(Long.parseLong(identifiers.pk()));
             visit.setFacilityId(facilityId);
             visit.setPatientModel(patient);
-            visit.setPvtDate(pvtDate);
+            visit.setPvtDate(LocalDate.now().atStartOfDay());
             visit.setState(0);
             visits.add(toPatientVisit(visit));
         }
@@ -312,7 +310,7 @@ public class DemoResourceAsp extends open.dolphin.touch.AbstractResource {
             visit.setId(Long.parseLong(identifiers.pk()));
             visit.setFacilityId(facilityId);
             visit.setPatientModel(patient);
-            visit.setPvtDate(dateTime);
+            visit.setPvtDate(ModelUtils.parseDateTime(dateTime));
             visit.setState(processed++ < 30 ? 1 : 0);
             visits.add(toPatientVisit(visit));
 
@@ -362,7 +360,7 @@ public class DemoResourceAsp extends open.dolphin.touch.AbstractResource {
             visit.setId(Long.parseLong(identifiers.pk()));
             visit.setFacilityId(facilityId);
             visit.setPatientModel(patient);
-            visit.setPvtDate(dateTime);
+            visit.setPvtDate(ModelUtils.parseDateTime(dateTime));
             visit.setState(examDone++ < 30 ? 1 : 0);
             visits.add(toPatientVisit(visit));
 
@@ -467,7 +465,7 @@ public class DemoResourceAsp extends open.dolphin.touch.AbstractResource {
         List<HealthInsuranceDto> insurances = new ArrayList<>();
         List<HealthInsuranceModel> rawIns = safeList(pack.getInsurances());
         for (HealthInsuranceModel model : rawIns) {
-            Object decoded = IOSHelper.xmlDecode(model.getBeanBytes());
+            Object decoded = ModelUtils.jsonDecode(model.getBeanJson());
             if (decoded instanceof PVTHealthInsuranceModel health) {
                 List<PublicInsuranceDto> publics = new ArrayList<>();
                 PVTPublicInsuranceItemModel[] publicItems = health.getPVTPublicInsuranceItem();
@@ -927,7 +925,7 @@ public class DemoResourceAsp extends open.dolphin.touch.AbstractResource {
         model.setGender(gender);
         model.setGenderDesc(gender);
         if (demo.getBirthday() != null) {
-            model.setBirthday(toIsoBirtday(demo.getBirthday()));
+            model.setBirthday(ModelUtils.parseDate(toIsoBirtday(demo.getBirthday())));
         }
         SimpleAddressModel address = new SimpleAddressModel();
         address.setAddress(demo.getAddress());

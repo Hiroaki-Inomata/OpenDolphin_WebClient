@@ -85,7 +85,6 @@ public class IProgressCourseModule2 extends IAbstractModule {
         ret.setModuleInfoBean(this.getModuleInfo().toModel());
         
         ret.setBeanJson(ModelUtils.jsonEncode(model.toModel()));
-        ret.setBeanBytes(null);
         
         return ret;
     }

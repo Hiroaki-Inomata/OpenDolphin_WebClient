@@ -17,17 +17,17 @@ public class LetterModel extends KarteEntryBean implements java.io.Serializable 
     
     //@Lob // OpenDolphin-1.4 ではこのアノテーションなし
     @Column(nullable=false)
-    private byte[] beanBytes;
+    private byte[] payloadBytes;
     
     /** Creates a new instance of LetterModel */
     public LetterModel() {
     }
     
-    public byte[] getBeanBytes() {
-        return beanBytes;
+    public byte[] getPayloadBytes() {
+        return payloadBytes;
     }
 
-    public void setBeanBytes(byte[] beanBytes) {
-        this.beanBytes = beanBytes;
+    public void setPayloadBytes(byte[] payloadBytes) {
+        this.payloadBytes = payloadBytes;
     }
 }

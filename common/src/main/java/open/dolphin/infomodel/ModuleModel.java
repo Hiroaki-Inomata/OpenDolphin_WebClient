@@ -27,14 +27,8 @@ public class ModuleModel extends KarteEntryBean
     @JoinColumn(name="doc_id", nullable=false)
     private DocumentModel document;
 
-    @Lob
-    //@JdbcTypeCode(SqlTypes.BINARY)
-    //@Column(nullable=true, columnDefinition = "bytea")
-    private byte[] beanBytes;
-
-    @Lob
-    @JdbcTypeCode(SqlTypes.CLOB)
-    @Column(name = "bean_json", columnDefinition = "text")
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "bean_json", nullable = false, columnDefinition = "jsonb")
     private String beanJson;
     
     /**
@@ -84,22 +78,6 @@ public class ModuleModel extends KarteEntryBean
         return model;
     }
     
-    /**
-     * モジュールの永続化バイト配列を返す。
-     * @return モジュールの永続化バイト配列
-     */
-    public byte[] getBeanBytes() {
-        return beanBytes;
-    }
-
-    /**
-     * モジュールの永続化バイト配列を設定する。
-     * @param beanBytes モジュールの永続化バイト配列
-     */
-    public void setBeanBytes(byte[] beanBytes) {
-        this.beanBytes = beanBytes;
-    }
-
     public String getBeanJson() {
         return beanJson;
     }
@@ -134,13 +112,6 @@ public class ModuleModel extends KarteEntryBean
         ret.setRecorded(this.getRecorded());
         ret.setStarted(this.getStarted());
         ret.setStatus(this.getStatus());
-
-        byte[] bytes = this.getBeanBytes();
-        if (bytes!=null) {
-            byte[] dest = new byte[bytes.length];
-            System.arraycopy(bytes, 0, dest, 0, bytes.length);
-            ret.setBeanBytes(dest);
-        }
 
         if (beanJson != null) {
             ret.setBeanJson(beanJson);

@@ -202,7 +202,7 @@ class PatientImagesResourceTest {
     void download_returnsNoStoreHeaders() {
         byte[] bytes = new byte[] {1, 2, 3};
         AttachmentModel attachment = new AttachmentModel();
-        attachment.setBytes(bytes);
+        attachment.setContentBytes(bytes);
         attachment.setContentType("image/png");
         attachment.setFileName("test.png");
         when(patientImageServiceBean.getImageForDownload("F001", "P001", 10L)).thenReturn(attachment);

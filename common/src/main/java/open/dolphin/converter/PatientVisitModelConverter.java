@@ -1,5 +1,6 @@
 package open.dolphin.converter;
 
+import java.time.LocalDateTime;
 import java.util.Date;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.PatientVisitModel;
@@ -32,7 +33,7 @@ public final class PatientVisitModelConverter implements IInfoModelConverter {
         return model.getFacilityId();
     }
 
-    public String getPvtDate() {
+    public LocalDateTime getPvtDate() {
         return model.getPvtDate();
     }
 

@@ -4,26 +4,30 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import open.dolphin.infomodel.HealthInsuranceModel;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.PVTHealthInsuranceModel;
-import open.dolphin.touch.converter.IOSHelper;
 import org.junit.jupiter.api.Test;
 
 class PVTServiceBeanClinicalTest {
 
     @Test
-    void normalizePvtDateForStorage_acceptsDateOnly() {
-        String normalized = PVTServiceBean.normalizePvtDateForStorage("2025-11-03");
-        assertEquals("2025-11-03T00:00:00", normalized);
-        assertEquals("2025-11-03", PVTServiceBean.extractPvtDatePart("2025-11-03"));
+    void normalizePvtDateForStorage_stripsNanos() {
+        LocalDateTime normalized = PVTServiceBean.normalizePvtDateForStorage(
+                LocalDateTime.of(2025, 11, 3, 0, 0, 0, 123_000_000));
+        assertEquals(LocalDateTime.of(2025, 11, 3, 0, 0, 0), normalized);
+        assertEquals(LocalDate.of(2025, 11, 3), PVTServiceBean.extractPvtDatePart(normalized));
     }
 
     @Test
     void normalizePvtDateForStorage_keepsDateTime() {
-        String normalized = PVTServiceBean.normalizePvtDateForStorage("2025-11-03T12:34:56");
-        assertEquals("2025-11-03T12:34:56", normalized);
-        assertEquals("2025-11-03", PVTServiceBean.extractPvtDatePart(normalized));
+        LocalDateTime normalized = PVTServiceBean.normalizePvtDateForStorage(
+                LocalDateTime.of(2025, 11, 3, 12, 34, 56));
+        assertEquals(LocalDateTime.of(2025, 11, 3, 12, 34, 56), normalized);
+        assertEquals(LocalDate.of(2025, 11, 3), PVTServiceBean.extractPvtDatePart(normalized));
     }
 
     @Test
@@ -53,7 +57,7 @@ class PVTServiceBeanClinicalTest {
         pvtInsurance.setStartDate(startDate);
 
         HealthInsuranceModel model = new HealthInsuranceModel();
-        model.setBeanBytes(IOSHelper.toXMLBytes(pvtInsurance));
+        model.setBeanJson(ModelUtils.jsonEncode(pvtInsurance));
         return model;
     }
 }

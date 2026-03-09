@@ -11,6 +11,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.SimpleAddressModel;
 import open.dolphin.orca.OrcaGatewayException;
@@ -314,7 +315,7 @@ public class OrcaPatientSyncService {
             if (parts.length > 1) model.setGivenName(parts[1]);
         }
         model.setKanaName(kanaName);
-        model.setBirthday(birthday);
+        model.setBirthday(ModelUtils.parseDate(birthday));
         model.setGender(gender != null ? gender : "U");
         model.setTelephone(telephone);
         model.setMobilePhone(mobilePhone);
@@ -415,4 +416,3 @@ public class OrcaPatientSyncService {
         SKIPPED
     }
 }
-

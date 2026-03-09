@@ -18,6 +18,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import open.dolphin.audit.AuditEventEnvelope;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.SimpleAddressModel;
 import open.dolphin.orca.OrcaGatewayException;
@@ -627,7 +628,7 @@ public class PatientModV2OutpatientResource extends AbstractResource {
         }
         if (!equalsIfProvided(patch.name, existing.getFullName())) return false;
         if (!equalsIfProvided(patch.kana, existing.getKanaName())) return false;
-        if (!equalsIfProvided(patch.birthDate, existing.getBirthday())) return false;
+        if (!equalsIfProvided(patch.birthDate, ModelUtils.formatDate(existing.getBirthday()))) return false;
         if (!equalsIfProvided(patch.sex, existing.getGender())) return false;
 
         String existingPhone = firstNonBlank(existing.getTelephone(), existing.getMobilePhone());
@@ -659,7 +660,7 @@ public class PatientModV2OutpatientResource extends AbstractResource {
         record.put("patientId", model.getPatientId());
         record.put("name", model.getFullName());
         record.put("kana", model.getKanaName());
-        record.put("birthDate", model.getBirthday());
+        record.put("birthDate", ModelUtils.formatDate(model.getBirthday()));
         record.put("sex", model.getGender());
         String phone = firstNonBlank(model.getTelephone(), model.getMobilePhone());
         record.put("phone", phone);

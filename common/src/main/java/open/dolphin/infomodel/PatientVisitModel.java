@@ -3,6 +3,7 @@ package open.dolphin.infomodel;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.UnsupportedFlavorException;
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
@@ -54,7 +55,7 @@ public class PatientVisitModel extends InfoModel implements java.io.Serializable
     
     // 来院時間 
     @Column(nullable=false)
-    private String pvtDate;
+    private LocalDateTime pvtDate;
     
     // 予約 
     @Transient
@@ -170,20 +171,12 @@ public class PatientVisitModel extends InfoModel implements java.io.Serializable
         return number;
     }
     
-    public void setPvtDate(String time) {
+    public void setPvtDate(LocalDateTime time) {
         this.pvtDate = time;
     }
     
-    public String getPvtDate() {
+    public LocalDateTime getPvtDate() {
         return pvtDate;
-    }
-    
-    public String getPvtDateTrimTime() {
-        return ModelUtils.trimTime(pvtDate);
-    }
-    
-    public String getPvtDateTrimDate() {
-        return ModelUtils.trimDate(pvtDate);
     }
     
     public String getAppointment() {
@@ -257,7 +250,7 @@ public class PatientVisitModel extends InfoModel implements java.io.Serializable
         return ModelUtils.getAgeBirthday(getPatientModel().getBirthday());
     }
     
-    public String getPatientBirthday() {
+    public java.time.LocalDate getPatientBirthday() {
         return getPatientModel().getBirthday();
     }
 

@@ -1,5 +1,7 @@
 package open.dolphin.converter;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import open.dolphin.infomodel.HealthInsuranceModel;
@@ -49,7 +51,7 @@ public final class PatientModelConverter implements IInfoModelConverter {
         return model.getGenderDesc();
     }
 
-    public String getBirthday() {
+    public LocalDate getBirthday() {
         return model.getBirthday();
     }
 
@@ -107,11 +109,9 @@ public final class PatientModelConverter implements IInfoModelConverter {
         }
         return ret;
     }
-//masuda^    
-    public String getPvtDate() {
-        return model.getPvtDate();
+    public LocalDateTime getLastVisitAt() {
+        return model.getLastVisitAt();
     }
-//masuda$    
     
     public String getRelations() {
         return model.getRelations();
@@ -128,32 +128,6 @@ public final class PatientModelConverter implements IInfoModelConverter {
     }
 //s.oh$
     
-//s.oh^ 2014/08/29 患者情報の追加
-    public String getReserve1() {
-        return model.getReserve1();
-    }
-    
-    public String getReserve2() {
-        return model.getReserve2();
-    }
-    
-    public String getReserve3() {
-        return model.getReserve3();
-    }
-    
-    public String getReserve4() {
-        return model.getReserve4();
-    }
-    
-    public String getReserve5() {
-        return model.getReserve5();
-    }
-    
-    public String getReserve6() {
-        return model.getReserve6();
-    }
-//s.oh$
-
     @Override
     public void setModel(IInfoModel model) {
         this.model = (PatientModel)model;

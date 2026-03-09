@@ -74,12 +74,13 @@ public class ChartEventHistoryRepositoryImpl implements ChartEventHistoryReposit
 
     @Override
     public OptionalLong findLatestEventId() {
-        Object result = em.createNativeQuery("select max(event_id) from chart_event_history")
-                .getSingleResult();
-        if (result == null) {
+        List<?> results = em.createNativeQuery("select event_id from chart_event_history order by event_id desc")
+                .setMaxResults(1)
+                .getResultList();
+        if (results.isEmpty() || results.get(0) == null) {
             return OptionalLong.empty();
         }
-        long value = ((Number) result).longValue();
+        long value = ((Number) results.get(0)).longValue();
         return value > 0 ? OptionalLong.of(value) : OptionalLong.empty();
     }
 
