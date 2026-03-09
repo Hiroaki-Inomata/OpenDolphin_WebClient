@@ -26,6 +26,7 @@ import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.LastDateCount30;
 import open.dolphin.infomodel.ModelUtils;
+import open.dolphin.infomodel.NLaboModule;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.PVTHealthInsuranceModel;
 import open.dolphin.infomodel.PatientModel;
