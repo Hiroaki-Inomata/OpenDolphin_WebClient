@@ -375,11 +375,11 @@ public class KarteRevisionServiceBean {
                     if (image == null) {
                         continue;
                     }
-                    schemaDigest.update(Long.toString(image.getId()).getBytes(StandardCharsets.UTF_8));
+                    schemaDigest.update(utf8(Long.toString(image.getId())));
                     if (image.getExtRefModel() != null) {
-                        schemaDigest.update(Objects.toString(image.getExtRefModel().getHref(), "").getBytes(StandardCharsets.UTF_8));
-                        schemaDigest.update(Objects.toString(image.getExtRefModel().getTitle(), "").getBytes(StandardCharsets.UTF_8));
-                        schemaDigest.update(Objects.toString(image.getExtRefModel().getContentType(), "").getBytes(StandardCharsets.UTF_8));
+                        schemaDigest.update(utf8(Objects.toString(image.getExtRefModel().getHref(), "")));
+                        schemaDigest.update(utf8(Objects.toString(image.getExtRefModel().getTitle(), "")));
+                        schemaDigest.update(utf8(Objects.toString(image.getExtRefModel().getContentType(), "")));
                     }
                     schemaDigest.update((byte) '\n');
                 }
@@ -395,11 +395,11 @@ public class KarteRevisionServiceBean {
                     if (attachment == null) {
                         continue;
                     }
-                    attachmentDigest.update(Long.toString(attachment.getId()).getBytes(StandardCharsets.UTF_8));
-                    attachmentDigest.update(Objects.toString(attachment.getFileName(), "").getBytes(StandardCharsets.UTF_8));
-                    attachmentDigest.update(Objects.toString(attachment.getContentType(), "").getBytes(StandardCharsets.UTF_8));
-                    attachmentDigest.update(Long.toString(attachment.getContentSize()).getBytes(StandardCharsets.UTF_8));
-                    attachmentDigest.update(Objects.toString(attachment.getDigest(), "").getBytes(StandardCharsets.UTF_8));
+                    attachmentDigest.update(utf8(Long.toString(attachment.getId())));
+                    attachmentDigest.update(utf8(Objects.toString(attachment.getFileName(), "")));
+                    attachmentDigest.update(utf8(Objects.toString(attachment.getContentType(), "")));
+                    attachmentDigest.update(utf8(Long.toString(attachment.getContentSize())));
+                    attachmentDigest.update(utf8(Objects.toString(attachment.getDigest(), "")));
                     attachmentDigest.update((byte) '\n');
                 }
             }
@@ -494,6 +494,10 @@ public class KarteRevisionServiceBean {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("Missing SHA-256 implementation", e);
         }
+    }
+
+    private static byte[] utf8(String value) {
+        return value == null ? new byte[0] : value.getBytes(StandardCharsets.UTF_8);
     }
 
     private static String toHex(byte[] bytes) {
