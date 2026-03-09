@@ -1,6 +1,7 @@
 # OpenDolphin Web Client & Modernized Server
 
 本リポジトリは、オープンソース電子カルテシステム **OpenDolphin** をベースに、サーバーのモダナイゼーション（Jakarta EE 10 対応）と、新規 Web クライアントの開発を行うプロジェクトです。
+現時点では開発中のため、多数の不備が残っています。
 
 フォーク元の Legacy 資産（Java Swing クライアント、旧サーバー）は**参照専用**として保持し、並行して新しいアーキテクチャでの開発を進めています。
 
@@ -42,10 +43,24 @@
 > **修正・変更・保守作業は行いません。**
 
 
+### 謝辞
+*   本リポジトリは、以下のプロジェクトを大いに活用をさせて頂きました。
+*   常に進化しながら開発に伴走してくれたCodex、ワークツリーによる開発と工程管理を理解させてくれたKamuiOS、マルチエージェント開発の活用とtmux等について(楽しく)学ばせていただいたmulti-agent-shogunの開発者の方々に謝辞申し上げます。
+    - [multi-agent-shogun](https://github.com/yohey-w/multi-agent-shogun.git)
+    - [kamuios](https://github.com/dai-motoki/kamuios.git)
+    - [OpenAI Codex](https://github.com/openai/codex)
+  - 
+*   PR [#68](https://github.com/circlemouth/OpenDolphinNext/pull/68)  により、サーバーデータ保存形式の見直しに関する具体的な修正、ご意見を頂けた H.Inomata 様(https://x.com/h_inomata?s=21)に感謝いたします。
+*   ライセンス上の検討およびサーバーデータ保存形式に関する有益な議論に対し、[@allnightnihon2b](https://x.com/allnightnihon2b?s=21) 様に感謝いたします。
+*   カルテデータ保存形式に関する有益な議論に対し、[@air_h_128k_ili](https://x.com/air_h_128k_ili?s=21) 様に感謝いたします。
+
+
 
 ## Original License & Credits
 
 本プロジェクトは以下の OpenDolphin 2.7.1 をフォーク・継承しています。
+フォーク元のライセンスについては議論があります。必ずフォーク元のライセンスの議論についてはお調べ頂きますよう、お願いいたします。
+現時点では、問題となっている部分へのコードの依存が残っているため、以下の記載を温存せざるをえないと判断し、残しております。
 
 ### OpenDolphin 2.7.1
 *   皆川和史、王勝偉　[オープンドルフィン・ラボ](http://www.opendolphin.com)
@@ -59,3 +74,4 @@
     - 日本RedHat Takayoshi KimuraさんのJBoss as7 へのポーティング
 
 これらの部分の著作権はそれぞれの先生に帰属します。
+
