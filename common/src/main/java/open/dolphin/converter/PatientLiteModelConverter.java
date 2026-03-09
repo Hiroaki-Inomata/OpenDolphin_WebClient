@@ -1,5 +1,6 @@
 package open.dolphin.converter;
 
+import java.time.LocalDate;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.PatientLiteModel;
 
@@ -34,7 +35,7 @@ public final class PatientLiteModelConverter implements IInfoModelConverter {
         return model.getGenderDesc();
     }
 
-    public String getBirthday() {
+    public LocalDate getBirthday() {
         return model.getBirthday();
     }
 

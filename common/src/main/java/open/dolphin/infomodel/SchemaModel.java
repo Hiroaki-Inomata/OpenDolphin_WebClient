@@ -19,10 +19,11 @@ public class SchemaModel extends KarteEntryBean
     @Embedded
     private ExtRefModel extRef;
     
-    // Byte data
-    @Lob
-    @Column(nullable=false)
-    private byte[] jpegByte;
+    @Column(nullable = false)
+    private String uri;
+
+    @Column(nullable = false)
+    private String digest;
     
     // Document
     @ManyToOne
@@ -42,6 +43,9 @@ public class SchemaModel extends KarteEntryBean
     
     @Transient
     private ModuleModel imageStamp; // ModuleInfoBean + model 
+
+    @Transient
+    private byte[] imageBytes;
     
     
     /** Creates new Schema */
@@ -64,12 +68,28 @@ public class SchemaModel extends KarteEntryBean
         this.document = document;
     }
     
-    public byte[] getJpegByte() {
-        return jpegByte;
+    public String getUri() {
+        return uri;
     }
     
-    public void setJpegByte(byte[] jpegByte) {
-        this.jpegByte = jpegByte;
+    public void setUri(String uri) {
+        this.uri = uri;
+    }
+
+    public String getDigest() {
+        return digest;
+    }
+
+    public void setDigest(String digest) {
+        this.digest = digest;
+    }
+
+    public byte[] getImageBytes() {
+        return imageBytes;
+    }
+
+    public void setImageBytes(byte[] imageBytes) {
+        this.imageBytes = imageBytes;
     }
     
     public ImageIcon getIcon() {
@@ -140,10 +160,13 @@ public class SchemaModel extends KarteEntryBean
             ret.setIcon(new ImageIcon(this.getIcon().getImage()));
         }
 
-        if (this.getJpegByte()!=null) {
-            byte[] dest = new byte[this.getJpegByte().length];
-            System.arraycopy(this.getJpegByte(), 0, dest, 0, this.getJpegByte().length);
-            ret.setJpegByte(dest);
+        ret.setUri(this.getUri());
+        ret.setDigest(this.getDigest());
+
+        if (this.getImageBytes()!=null) {
+            byte[] dest = new byte[this.getImageBytes().length];
+            System.arraycopy(this.getImageBytes(), 0, dest, 0, this.getImageBytes().length);
+            ret.setImageBytes(dest);
         }
 
         return ret;
@@ -170,7 +193,8 @@ public class SchemaModel extends KarteEntryBean
         sb.append("medicalRole=").append(this.getExtRefModel().getMedicalRole()).append("\n");
         sb.append("title=").append(this.getExtRefModel().getTitle()).append("\n");
         sb.append("href=").append(this.getExtRefModel().getHref()).append("\n");
-        sb.append("byte length=").append(this.getJpegByte().length).append("\n");
+        sb.append("uri=").append(this.getUri()).append("\n");
+        sb.append("digest=").append(this.getDigest()).append("\n");
         return sb.toString();
     }
 }

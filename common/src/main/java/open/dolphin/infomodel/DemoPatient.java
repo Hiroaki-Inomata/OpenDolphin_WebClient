@@ -1,6 +1,7 @@
 package open.dolphin.infomodel;
 
 import java.io.Serializable;
+import java.time.LocalDate;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -31,7 +32,7 @@ public class DemoPatient implements Serializable {
 
     private String age;
 
-    private String birthday;
+    private LocalDate birthday;
 
     private String marital;
 
@@ -152,14 +153,14 @@ public class DemoPatient implements Serializable {
     /**
      * @return the birthday
      */
-    public String getBirthday() {
+    public LocalDate getBirthday() {
         return birthday;
     }
 
     /**
      * @param birthday the birthday to set
      */
-    public void setBirthday(String birthday) {
+    public void setBirthday(LocalDate birthday) {
         this.birthday = birthday;
     }
 

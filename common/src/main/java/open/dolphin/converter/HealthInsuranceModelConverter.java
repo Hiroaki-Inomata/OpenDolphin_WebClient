@@ -18,8 +18,8 @@ public final class HealthInsuranceModelConverter implements IInfoModelConverter 
         return model.getId();
     }
 
-    public byte[] getBeanBytes() {
-        return model.getBeanBytes();
+    public String getBeanJson() {
+        return model.getBeanJson();
     }
 
     @Override

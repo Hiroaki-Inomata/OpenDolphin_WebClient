@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import jakarta.persistence.*;
 
 /**
@@ -67,8 +69,8 @@ public class PatientModel extends InfoModel implements java.io.Serializable {
     @Transient
     private String genderCodeSys;
     
-    // 生年月日 yyyy-MM-dd
-    private String birthday;
+    // 生年月日
+    private LocalDate birthday;
     
     // 国籍コード値
     private String nationality;
@@ -131,36 +133,12 @@ public class PatientModel extends InfoModel implements java.io.Serializable {
     @Transient
     private Collection<TelephoneModel> telephones;
     
-//masuda^    
-    // 受診日。患者検索で使用
-    @Transient
-    private String pvtDate;
-    
 //s.oh^ 2014/08/19 施設患者一括表示機能
     private String appMemo;
 //s.oh$
-    
-//s.oh^ 2014/08/29 患者情報の追加
-    private String reserve1;
-    private String reserve2;
-    private String reserve3;
-    private String reserve4;
-    private String reserve5;
-    private String reserve6;
-//s.oh$
 
-    public String getPvtDate() {
-        return pvtDate;
-    }
-    public void setPvtDate(String pvtDate) {
-        this.pvtDate = pvtDate;
-    }
-    public String getPvtDateTrimTime() {
-        return ModelUtils.trimTime(pvtDate);
-    }
-    public String getPvtDateTrimDate() {
-        return ModelUtils.trimDate(pvtDate);
-    }
+    @Transient
+    private LocalDateTime lastVisitAt;
     
 //masuda^ 排他処理関連
     private String ownerUUID;   // 現在の所有者UUID
@@ -189,6 +167,14 @@ public class PatientModel extends InfoModel implements java.io.Serializable {
         this.firstVisited = firstVisited;
     }
 //minagawa$    
+
+    public LocalDateTime getLastVisitAt() {
+        return lastVisitAt;
+    }
+
+    public void setLastVisitAt(LocalDateTime lastVisitAt) {
+        this.lastVisitAt = lastVisitAt;
+    }
     
     /** 患者オブジェクトを生成する。*/
     public PatientModel() {
@@ -438,17 +424,17 @@ public class PatientModel extends InfoModel implements java.io.Serializable {
     
     /**
      * 生年月日を設定する。
-     * @param birthday 生年月日 yyyy-MM-dd
+     * @param birthday 生年月日
      */
-    public void setBirthday(String birthday) {
+    public void setBirthday(LocalDate birthday) {
         this.birthday = birthday;
     }
     
     /**
      * 生年月日を返す。
-     * @return 生年月日 yyyy-MM-dd
+     * @return 生年月日
      */
-    public String getBirthday() {
+    public LocalDate getBirthday() {
         return birthday;
     }
     
@@ -820,53 +806,4 @@ public class PatientModel extends InfoModel implements java.io.Serializable {
         this.relations = relations;
     }
 
-//s.oh^ 2014/08/29 患者情報の追加
-    public String getReserve1() {
-        return reserve1;
-    }
-
-    public void setReserve1(String reserve1) {
-        this.reserve1 = reserve1;
-    }
-
-    public String getReserve2() {
-        return reserve2;
-    }
-
-    public void setReserve2(String reserve2) {
-        this.reserve2 = reserve2;
-    }
-
-    public String getReserve3() {
-        return reserve3;
-    }
-
-    public void setReserve3(String reserve3) {
-        this.reserve3 = reserve3;
-    }
-
-    public String getReserve4() {
-        return reserve4;
-    }
-
-    public void setReserve4(String reserve4) {
-        this.reserve4 = reserve4;
-    }
-
-    public String getReserve5() {
-        return reserve5;
-    }
-
-    public void setReserve5(String reserve5) {
-        this.reserve5 = reserve5;
-    }
-
-    public String getReserve6() {
-        return reserve6;
-    }
-
-    public void setReserve6(String reserve6) {
-        this.reserve6 = reserve6;
-    }
-//s.oh$
 }

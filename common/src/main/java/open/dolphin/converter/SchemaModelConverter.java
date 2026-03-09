@@ -87,8 +87,16 @@ public final class SchemaModelConverter implements IInfoModelConverter {
         return null;
     }
 
-    public byte[] getJpegByte() {
-        return model.getJpegByte();
+    public String getUri() {
+        return model.getUri();
+    }
+
+    public String getDigest() {
+        return model.getDigest();
+    }
+
+    public byte[] getImageBytes() {
+        return model.getImageBytes();
     }
 
     @Override

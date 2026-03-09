@@ -88,10 +88,6 @@ public final class ModuleModelConverter implements IInfoModelConverter {
         return null;
     }
 
-    public byte[] getBeanBytes() {
-        return model.getBeanBytes();
-    }
-
     public String getBeanJson() {
         return model.getBeanJson();
     }

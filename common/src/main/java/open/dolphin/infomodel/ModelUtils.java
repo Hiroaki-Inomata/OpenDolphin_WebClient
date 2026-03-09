@@ -1,17 +1,15 @@
 package open.dolphin.infomodel;
 
-import java.beans.ExceptionListener;
-import java.beans.XMLDecoder;
-import java.io.BufferedInputStream;
-import java.io.ByteArrayInputStream;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * InfoModel
@@ -19,9 +17,10 @@ import org.slf4j.LoggerFactory;
  * @author Minagawa,Kazushi
  */
 public class ModelUtils implements IInfoModel {
-    
-    private static final Logger LOG = LoggerFactory.getLogger(ModelUtils.class);
+
     public static final Date AD1800 = new Date(-5362016400000L);
+    private static final DateTimeFormatter LOCAL_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
+    private static final DateTimeFormatter LOCAL_DATE_TIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
     
     public static String trimTime(String mmlDate) {
         
@@ -113,6 +112,10 @@ public class ModelUtils implements IInfoModel {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    public static String getAge(LocalDate birthday) {
+        return birthday == null ? null : getAge(birthday.toString());
     }
 
     public static int[] getAgeSpec(String mmlBirthday) {
@@ -560,27 +563,34 @@ public class ModelUtils implements IInfoModel {
         return sb.toString();
     }
 
-    public static Object xmlDecode(byte[] bytes) {
-        if (bytes == null) {
+    public static String formatDate(LocalDate date) {
+        return date == null ? null : LOCAL_DATE_FORMATTER.format(date);
+    }
+
+    public static String formatDateTime(LocalDateTime dateTime) {
+        return dateTime == null ? null : LOCAL_DATE_TIME_FORMATTER.format(dateTime);
+    }
+
+    public static LocalDate parseDate(String value) {
+        if (value == null || value.isBlank()) {
             return null;
         }
-        try {
-            ExceptionListener el = new ExceptionListener() {
-                public void exceptionThrown(Exception e) {
-                }
-            };
+        return LocalDate.parse(trimTime(value), LOCAL_DATE_FORMATTER);
+    }
 
-            XMLDecoder d = new XMLDecoder(
-                    new BufferedInputStream(
-                            new ByteArrayInputStream(bytes)));
-
-            d.setExceptionListener(el);
-
-            return d.readObject();
-        } catch (Exception e) {
-            LOG.warn("Failed to decode XML bytes for module payload", e);
+    public static LocalDateTime parseDateTime(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
         }
-        return null;
+        return LocalDateTime.parse(value, LOCAL_DATE_TIME_FORMATTER);
+    }
+
+    public static LocalDate toLocalDate(Date date) {
+        return date == null ? null : date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+    }
+
+    public static String getAgeBirthday(LocalDate birthday) {
+        return birthday == null ? null : getAgeBirthday(birthday.toString());
     }
 
     public static String jsonEncode(Object obj) {

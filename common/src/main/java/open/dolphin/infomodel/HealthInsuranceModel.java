@@ -1,6 +1,8 @@
 package open.dolphin.infomodel;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * HealthInsuranceModel
@@ -16,10 +18,9 @@ public class HealthInsuranceModel extends InfoModel implements java.io.Serializa
     @Id @GeneratedValue(strategy=GenerationType.AUTO)
     private long id;
     
-    // PVTHealthInsuranceのバイナリー
-    @Lob
-    @Column(nullable=false)
-    private byte[] beanBytes;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "bean_json", nullable = false, columnDefinition = "jsonb")
+    private String beanJson;
     
     // 患者
     @ManyToOne
@@ -43,19 +44,19 @@ public class HealthInsuranceModel extends InfoModel implements java.io.Serializa
     }
     
     /**
-     * PVTHealthInsuranceModelのバイナリデータを設定する。
-     * @param beanBytes バイト配列
+     * PVTHealthInsuranceModel の JSON データを設定する。
+     * @param beanJson JSON
      */
-    public void setBeanBytes(byte[] beanBytes) {
-        this.beanBytes = beanBytes;
+    public void setBeanJson(String beanJson) {
+        this.beanJson = beanJson;
     }
     
     /**
-     * PVTHealthInsuranceModelのバイナリデータを返す。
-     * @return バイト配列
+     * PVTHealthInsuranceModel の JSON データを返す。
+     * @return JSON
      */
-    public byte[] getBeanBytes() {
-        return beanBytes;
+    public String getBeanJson() {
+        return beanJson;
     }
     
     /**
