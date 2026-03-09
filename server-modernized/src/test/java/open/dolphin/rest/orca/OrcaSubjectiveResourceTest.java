@@ -27,13 +27,9 @@ import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PatientServiceBean;
 import open.dolphin.session.UserServiceBean;
 import open.dolphin.testsupport.RuntimeDelegateTestSupport;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.parallel.ResourceLock;
-import org.junit.jupiter.api.parallel.Resources;
 
-@ResourceLock(Resources.SYSTEM_PROPERTIES)
 class OrcaSubjectiveResourceTest extends RuntimeDelegateTestSupport {
 
     private OrcaSubjectiveResource resource;
@@ -92,28 +88,20 @@ class OrcaSubjectiveResourceTest extends RuntimeDelegateTestSupport {
                 });
     }
 
-    @AfterEach
-    void tearDown() {
-        System.clearProperty("orca.post.subjectives.mode");
-    }
-
     @Test
-    void postSubjectiveReturnsStubResponseInStubMode() {
-        System.setProperty("orca.post.subjectives.mode", "stub");
+    void postSubjectiveReturns400WhenSoapCategoryIsMissing() {
         SubjectiveEntryRequest payload = new SubjectiveEntryRequest();
         payload.setPatientId("00001");
 
-        SubjectiveEntryResponse response = resource.postSubjective(servletRequest, payload);
+        WebApplicationException ex = assertThrows(WebApplicationException.class,
+                () -> resource.postSubjective(servletRequest, payload));
 
-        assertNotNull(response);
-        assertEquals("79", response.getApiResult());
-        assertEquals("20260302T132537Z", response.getRunId());
+        assertValidationError(ex, "soapCategory");
         assertEquals(0, fakeKarteServiceBean.getAddDocumentCalls());
     }
 
     @Test
     void postSubjectivePersistsDocumentInRealMode() {
-        System.setProperty("orca.post.subjectives.mode", "real");
         SubjectiveEntryRequest payload = new SubjectiveEntryRequest();
         payload.setPatientId("00001");
         payload.setSoapCategory("S");
@@ -145,7 +133,6 @@ class OrcaSubjectiveResourceTest extends RuntimeDelegateTestSupport {
 
     @Test
     void postSubjectiveReturns400WhenPatientIdIsBlank() {
-        System.setProperty("orca.post.subjectives.mode", "real");
         SubjectiveEntryRequest payload = new SubjectiveEntryRequest();
         payload.setPatientId(" ");
 
@@ -157,7 +144,6 @@ class OrcaSubjectiveResourceTest extends RuntimeDelegateTestSupport {
 
     @Test
     void postSubjectiveReturns400WhenSoapCategoryIsInvalid() {
-        System.setProperty("orca.post.subjectives.mode", "real");
         SubjectiveEntryRequest payload = new SubjectiveEntryRequest();
         payload.setPatientId("00001");
         payload.setSoapCategory("X");
@@ -171,7 +157,6 @@ class OrcaSubjectiveResourceTest extends RuntimeDelegateTestSupport {
 
     @Test
     void postSubjectiveReturns400WhenBodyIsBlank() {
-        System.setProperty("orca.post.subjectives.mode", "real");
         SubjectiveEntryRequest payload = new SubjectiveEntryRequest();
         payload.setPatientId("00001");
         payload.setSoapCategory("S");
@@ -185,7 +170,6 @@ class OrcaSubjectiveResourceTest extends RuntimeDelegateTestSupport {
 
     @Test
     void postSubjectiveReturns400WhenBodyTooLong() {
-        System.setProperty("orca.post.subjectives.mode", "real");
         SubjectiveEntryRequest payload = new SubjectiveEntryRequest();
         payload.setPatientId("00001");
         payload.setSoapCategory("S");

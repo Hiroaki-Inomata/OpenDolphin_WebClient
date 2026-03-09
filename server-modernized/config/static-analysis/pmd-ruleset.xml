@@ -30,6 +30,4 @@
   <rule ref="category/java/performance.xml/AvoidInstantiatingObjectsInLoops">
     <priority>4</priority>
   </rule>
-
-  <exclude-pattern>.*/src/main/java/open/dolphin/touch/.*</exclude-pattern>
 </ruleset>
