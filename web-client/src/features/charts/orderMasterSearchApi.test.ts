@@ -220,6 +220,29 @@ describe('fetchOrderMasterSearch auth routing', () => {
     expect(init?.notifySessionExpired).toBe(false);
   });
 
+  it('etensu 検索で pointsMin/pointsMax を query に載せる', async () => {
+    const { httpFetch } = await import('../../libs/http/httpClient');
+    vi.mocked(httpFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ totalCount: 0, items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await fetchOrderMasterSearch({
+      type: 'etensu',
+      keyword: '処置',
+      pointsMin: 20,
+      pointsMax: 40,
+    });
+
+    expect(result.ok).toBe(true);
+    const requestUrl = vi.mocked(httpFetch).mock.calls[0]?.[0] ?? '';
+    expect(requestUrl).toContain('/orca/master/etensu?');
+    expect(requestUrl).toContain('pointsMin=20');
+    expect(requestUrl).toContain('pointsMax=40');
+  });
+
   it('treats TENSU_NOT_FOUND as empty result for etensu family searches', async () => {
     const { httpFetch } = await import('../../libs/http/httpClient');
     vi.mocked(httpFetch).mockResolvedValueOnce(

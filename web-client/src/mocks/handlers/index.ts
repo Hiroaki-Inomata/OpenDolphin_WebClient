@@ -10,6 +10,7 @@ import { orcaDeptInfoHandlers } from './orcaDeptInfo';
 import { orcaPatientMemoHandlers } from './orcaPatientMemo';
 import { orcaDiseaseHandlers } from './orcaDisease';
 import { orcaOrderBundleHandlers } from './orcaOrderBundles';
+import { orcaOrderSupportHandlers } from './orcaOrderSupport';
 import { stampTreeHandlers } from './stampTree';
 import { karteImageHandlers } from './karteImage';
 import { chartEventHandlers } from './chartEvents';
@@ -28,6 +29,7 @@ export const handlers = [
   ...orcaPatientMemoHandlers,
   ...orcaDiseaseHandlers,
   ...orcaOrderBundleHandlers,
+  ...orcaOrderSupportHandlers,
   ...stampTreeHandlers,
   ...karteImageHandlers,
   ...patientImagesHandlers,

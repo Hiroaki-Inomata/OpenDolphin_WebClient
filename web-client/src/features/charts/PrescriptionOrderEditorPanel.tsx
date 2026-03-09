@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { FocusTrapDialog } from '../../components/modals/FocusTrapDialog';
 import { resolveAriaLive } from '../../libs/observability/observability';
 import type { OrderBundleEditPanelMeta, OrderBundleEditPanelRequest, OrderBundleEditingContext } from './OrderBundleEditPanel';
 import type { OrderBundle } from './orderBundleApi';
@@ -27,6 +28,14 @@ import {
   type PrescriptionRefillPattern,
   type PrescriptionRp,
 } from './prescriptionOrderApi';
+import { fetchOrcaGenericPrice, type OrcaGenericPriceResult } from './orcaGenericPriceApi';
+import {
+  fetchOrcaOrderInputSetDetail,
+  fetchOrcaOrderInputSets,
+  type OrcaOrderInputSetDetailResult,
+  type OrcaOrderInputSetSummary,
+} from './orcaOrderInputSetApi';
+import { checkOrcaOrderInteractions } from './orcaOrderInteractionApi';
 
 export type PrescriptionSearchMethod = 'prefix' | 'partial';
 export type PrescriptionSearchScope = 'outside_adopted' | 'in_hospital_adopted' | 'inside_adopted';
@@ -44,6 +53,8 @@ type ValidationIssue = {
   rpIndex?: number;
   drugIndex?: number;
 };
+
+type GenericPriceCacheState = OrcaGenericPriceResult | { loading: true };
 
 export type PrescriptionOrderEditorPanelProps = {
   patientId?: string;
@@ -215,6 +226,53 @@ const mergeRpRequired = (order: PrescriptionOrder): { issue: ReturnType<typeof r
   return { issue: null, missing: [] };
 };
 
+const isOrcaDrugCode = (value?: string | null) => /^\d{9}$/.test((value ?? '').trim());
+
+const genericPriceCacheKey = (code: string, effective: string) => `${code}:${effective}`;
+
+const toRpFromInputSetDetail = (
+  detail: NonNullable<OrcaOrderInputSetDetailResult['bundle']>,
+  started: string,
+): PrescriptionRp => {
+  const drugs = detail.items
+    .filter((item) => Boolean(item.code?.trim() || item.name?.trim()))
+    .map((item) => ({
+      rowId: `drug-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      code: item.code?.trim() || undefined,
+      name: item.name?.trim() ?? '',
+      quantity: item.quantity?.trim() ?? '',
+      unit: item.unit?.trim() ?? '',
+      genericChangeAllowed: true,
+      drugComment: item.memo?.trim() ?? '',
+      claimComments: [],
+      patientRequest: true,
+    }));
+  return {
+    ...buildEmptyPrescriptionRp(detail.started ?? started),
+    name: detail.bundleName ?? '',
+    usage: detail.admin ?? '',
+    daysOrTimes: detail.bundleNumber ?? '1',
+    location: 'out',
+    category: 'regular',
+    drugs:
+      drugs.length > 0
+        ? drugs
+        : [
+            {
+              rowId: `drug-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+              code: undefined,
+              name: '',
+              quantity: '',
+              unit: '',
+              genericChangeAllowed: true,
+              drugComment: '',
+              claimComments: [],
+              patientRequest: true,
+            },
+          ],
+  };
+};
+
 export function PrescriptionOrderEditorPanel({
   patientId,
   meta,
@@ -250,8 +308,20 @@ export function PrescriptionOrderEditorPanel({
   const [searchMethod, setSearchMethod] = useState<PrescriptionSearchMethod>('prefix');
   const [searchScope, setSearchScope] = useState<PrescriptionSearchScope>('outside_adopted');
   const [manualSearchNonce, setManualSearchNonce] = useState(0);
-  const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string } | null>(null);
+  const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'warning' | 'error'; message: string } | null>(null);
   const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([]);
+  const [genericPriceCache, setGenericPriceCache] = useState<Record<string, GenericPriceCacheState>>({});
+  const [inputSetKeyword, setInputSetKeyword] = useState('');
+  const [inputSetLoading, setInputSetLoading] = useState(false);
+  const [inputSetItems, setInputSetItems] = useState<OrcaOrderInputSetSummary[]>([]);
+  const [interactionConfirmOpen, setInteractionConfirmOpen] = useState(false);
+  const [interactionPairs, setInteractionPairs] = useState<Array<{
+    code1: string;
+    code2: string;
+    interactionName?: string;
+    message?: string;
+  }>>([]);
+  const [pendingSaveAction, setPendingSaveAction] = useState<SaveAction | null>(null);
 
   const canFetchFromServer = Boolean(patientId) && !bundlesOverride && active;
   const sourceBundleQuery = useQuery({
@@ -563,6 +633,66 @@ export function PrescriptionOrderEditorPanel({
       .slice(0, 40);
   }, [drugSearchQuery.data?.items, searchMethod, trimmedSearchKeyword]);
 
+  const ensureGenericPrice = useCallback(
+    async (code?: string | null) => {
+      const normalizedCode = code?.trim() ?? '';
+      if (!isOrcaDrugCode(normalizedCode)) return;
+      const key = genericPriceCacheKey(normalizedCode, searchEffectiveDate);
+      if (genericPriceCache[key]) return;
+      setGenericPriceCache((prev) => {
+        if (prev[key]) return prev;
+        return { ...prev, [key]: { loading: true } };
+      });
+      try {
+        const result = await fetchOrcaGenericPrice({ srycd: normalizedCode, effective: searchEffectiveDate });
+        setGenericPriceCache((prev) => ({ ...prev, [key]: result }));
+      } catch (error) {
+        setGenericPriceCache((prev) => ({
+          ...prev,
+          [key]: {
+            ok: false,
+            status: 0,
+            message: error instanceof Error ? error.message : '最低薬価の取得に失敗しました。',
+          },
+        }));
+      }
+    },
+    [genericPriceCache, searchEffectiveDate],
+  );
+
+  useEffect(() => {
+    filteredCandidates.forEach((item) => {
+      if (typeof item.points === 'number') return;
+      void ensureGenericPrice(item.code);
+    });
+    if (selectedDrug?.code) {
+      void ensureGenericPrice(selectedDrug.code);
+    }
+  }, [ensureGenericPrice, filteredCandidates, selectedDrug?.code]);
+
+  const resolveCandidateGenericPrice = useCallback(
+    (item: OrderMasterSearchItem) => {
+      if (typeof item.points === 'number') return String(item.points);
+      const code = item.code?.trim() ?? '';
+      if (!isOrcaDrugCode(code)) return '-';
+      const cached = genericPriceCache[genericPriceCacheKey(code, searchEffectiveDate)];
+      if (!cached) return '-';
+      if ('loading' in cached) return '…';
+      return cached.ok && typeof cached.item?.minPrice === 'number' ? String(cached.item.minPrice) : '-';
+    },
+    [genericPriceCache, searchEffectiveDate],
+  );
+
+  const selectedDrugGenericPrice = useMemo(() => {
+    const code = selectedDrug?.code?.trim() ?? '';
+    if (!isOrcaDrugCode(code)) return null;
+    const cached = genericPriceCache[genericPriceCacheKey(code, searchEffectiveDate)];
+    if (!cached) return '-';
+    if ('loading' in cached) return '…';
+    if (!cached.ok) return '-';
+    return typeof cached.item?.minPrice === 'number' ? String(cached.item.minPrice) : '-';
+  }, [genericPriceCache, searchEffectiveDate, selectedDrug?.code]);
+
   const usageMasterQuery = useQuery({
     queryKey: ['charts-prescription-usage-master-v2', meta.visitDate ?? today],
     queryFn: () =>
@@ -593,6 +723,79 @@ export function PrescriptionOrderEditorPanel({
       candidate,
     });
   };
+
+  const handleInputSetSearch = useCallback(async () => {
+    const keyword = inputSetKeyword.trim();
+    if (!keyword || inputSetLoading) return;
+    setInputSetLoading(true);
+    try {
+      const result = await fetchOrcaOrderInputSets({
+        keyword,
+        entity: 'medOrder',
+        effective: searchEffectiveDate,
+        page: 1,
+        size: 20,
+      });
+      if (!result.ok) {
+        setInputSetItems([]);
+        setNotice({ tone: 'error', message: result.message ?? '入力セット検索に失敗しました。' });
+        return;
+      }
+      const sorted = [...result.items].sort((left, right) => {
+        const leftScore = left.entity === 'medOrder' ? 0 : left.entity == null ? 1 : 2;
+        const rightScore = right.entity === 'medOrder' ? 0 : right.entity == null ? 1 : 2;
+        if (leftScore !== rightScore) return leftScore - rightScore;
+        return (left.setCode ?? '').localeCompare(right.setCode ?? '');
+      });
+      setInputSetItems(sorted.slice(0, 20));
+    } finally {
+      setInputSetLoading(false);
+    }
+  }, [inputSetKeyword, inputSetLoading, searchEffectiveDate]);
+
+  const applyInputSet = useCallback(
+    async (item: OrcaOrderInputSetSummary) => {
+      const setCode = item.setCode?.trim();
+      if (!setCode || isPreviewMode) return;
+      const detail = await fetchOrcaOrderInputSetDetail({
+        setCode,
+        entity: item.entity ?? 'medOrder',
+        effective: searchEffectiveDate,
+      });
+      if (!detail.ok || !detail.bundle) {
+        setNotice({ tone: 'error', message: detail.message ?? '入力セット詳細の取得に失敗しました。' });
+        return;
+      }
+      if (detail.bundle.entity !== 'medOrder') {
+        setNotice({ tone: 'warning', message: 'medOrder 以外の入力セットは処方へ反映できません。' });
+        return;
+      }
+      const nextRp = toRpFromInputSetDetail(detail.bundle, today);
+      setOrder((prev) => ({
+        ...prev,
+        rps: [...prev.rps, nextRp],
+      }));
+      setSelectedRpIndex(order.rps.length);
+      setSelectedDrugIndex(0);
+      setNotice({ tone: 'success', message: 'ORCA入力セットを RP に反映しました。' });
+    },
+    [isPreviewMode, order.rps.length, searchEffectiveDate, today],
+  );
+
+  const extractInteractionCodes = useCallback(() => {
+    return Array.from(
+      new Set(
+        order.rps
+          .flatMap((rp) => rp.drugs.map((drug) => drug.code?.trim() ?? ''))
+          .filter((code) => isOrcaDrugCode(code)),
+      ),
+    );
+  }, [order.rps]);
+
+  const closeInteractionConfirm = useCallback(() => {
+    setInteractionConfirmOpen(false);
+    setPendingSaveAction(null);
+  }, []);
 
   const validate = (): ValidationIssue[] => {
     const issues: ValidationIssue[] = [];
@@ -679,6 +882,7 @@ export function PrescriptionOrderEditorPanel({
       setNotice({ tone: 'info', message: 'プレビューモードでは保存できません。' });
       return;
     }
+    if (interactionConfirmOpen) return;
     const issues = validate();
     setValidationIssues(issues);
     if (issues.length > 0) {
@@ -691,7 +895,33 @@ export function PrescriptionOrderEditorPanel({
       }
       return;
     }
-    mutation.mutate(action);
+    void (async () => {
+      const codes = extractInteractionCodes();
+      if (codes.length < 2) {
+        mutation.mutate(action);
+        return;
+      }
+      try {
+        const result = await checkOrcaOrderInteractions({ codes });
+        if (!result.ok) {
+          setNotice({ tone: 'warning', message: result.message ?? '相互作用チェックに失敗したため、そのまま保存します。' });
+          mutation.mutate(action);
+          return;
+        }
+        if (result.totalCount > 0) {
+          setInteractionPairs(result.pairs.slice(0, 20));
+          setPendingSaveAction(action);
+          setInteractionConfirmOpen(true);
+          return;
+        }
+      } catch (error) {
+        setNotice({
+          tone: 'warning',
+          message: error instanceof Error ? error.message : '相互作用チェックに失敗したため、そのまま保存します。',
+        });
+      }
+      mutation.mutate(action);
+    })();
   };
 
   const applyBulkDays = () => {
@@ -726,6 +956,49 @@ export function PrescriptionOrderEditorPanel({
 
   return (
     <section className="charts-side-panel__section" data-order-entity="medOrder" data-test-id="medOrder-prescription-editor-v2">
+      <FocusTrapDialog
+        open={interactionConfirmOpen}
+        title="相互作用チェックの警告"
+        description="保存前に相互作用の可能性が検出されました。"
+        role="alertdialog"
+        onClose={closeInteractionConfirm}
+        testId="prescription-interaction-confirm"
+      >
+        <div className="charts-side-panel__confirm">
+          {interactionPairs.length > 0 ? (
+            <ul className="charts-side-panel__confirm-list">
+              {interactionPairs.map((pair, index) => (
+                <li key={`${pair.code1}-${pair.code2}-${index}`}>
+                  {pair.code1} / {pair.code2} / {pair.interactionName ?? pair.message ?? '相互作用あり'}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="charts-side-panel__message">相互作用候補の詳細は取得できませんでした。</p>
+          )}
+          <div className="charts-side-panel__actions charts-side-panel__actions--dialog" role="group" aria-label="相互作用チェックの確認">
+            <button type="button" className="charts-side-panel__action" onClick={closeInteractionConfirm}>
+              編集に戻る
+            </button>
+            <button
+              type="button"
+              className="charts-side-panel__action charts-side-panel__action--save"
+              onClick={() => {
+                if (!pendingSaveAction || mutation.isPending) {
+                  closeInteractionConfirm();
+                  return;
+                }
+                const action = pendingSaveAction;
+                setInteractionConfirmOpen(false);
+                setPendingSaveAction(null);
+                mutation.mutate(action);
+              }}
+            >
+              今回だけ無視して保存
+            </button>
+          </div>
+        </div>
+      </FocusTrapDialog>
       <header className="charts-side-panel__section-header">
         <div className="charts-side-panel__section-header-main">
           <strong>処方（RP集合）</strong>
@@ -887,6 +1160,7 @@ export function PrescriptionOrderEditorPanel({
                     <span>コード</span>
                     <span>名称</span>
                     <span>単位</span>
+                    <span>最低薬価</span>
                     <span>分類</span>
                     <span>反映</span>
                   </div>
@@ -900,8 +1174,56 @@ export function PrescriptionOrderEditorPanel({
                       <span>{item.code ?? '-'}</span>
                       <span>{item.name}</span>
                       <span>{item.unit ?? '-'}</span>
+                      <span>{resolveCandidateGenericPrice(item)}</span>
                       <span>{item.category ?? '-'}</span>
                       <span>右へ反映</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="charts-side-panel__subsection charts-side-panel__subsection--search">
+              <div className="charts-side-panel__subheader">
+                <strong>ORCA入力セット</strong>
+                <span className="charts-side-panel__search-count">{inputSetItems.length}件</span>
+              </div>
+              <div className="charts-side-panel__field">
+                <label htmlFor={domId('inputset-keyword')}>keyword</label>
+                <input
+                  id={domId('inputset-keyword')}
+                  value={inputSetKeyword}
+                  onChange={(event) => setInputSetKeyword(event.target.value)}
+                  placeholder="入力セット名またはコード"
+                />
+              </div>
+              <button
+                type="button"
+                className="charts-side-panel__action charts-side-panel__action--search"
+                onClick={() => void handleInputSetSearch()}
+                disabled={inputSetLoading || !inputSetKeyword.trim()}
+              >
+                {inputSetLoading ? '検索中…' : '入力セット検索'}
+              </button>
+              {inputSetItems.length > 0 ? (
+                <div className="charts-side-panel__search-table">
+                  <div className="charts-side-panel__search-header">
+                    <span>setCode</span>
+                    <span>name</span>
+                    <span>itemCount</span>
+                    <span>反映</span>
+                  </div>
+                  {inputSetItems.map((item) => (
+                    <button
+                      key={`input-set-${item.setCode ?? item.name}`}
+                      type="button"
+                      className="charts-side-panel__search-row"
+                      onClick={() => void applyInputSet(item)}
+                    >
+                      <span>{item.setCode ?? '-'}</span>
+                      <span>{item.name ?? '-'}</span>
+                      <span>{item.itemCount ?? '-'}</span>
+                      <span>RPへ反映</span>
                     </button>
                   ))}
                 </div>
@@ -1123,6 +1445,9 @@ export function PrescriptionOrderEditorPanel({
                     <strong>薬剤行</strong>
                     <span className="charts-side-panel__search-count">{selectedRp.drugs.length}件</span>
                   </div>
+                  {selectedDrug ? (
+                    <p className="charts-side-panel__help">最低薬価: {selectedDrugGenericPrice ?? '-'}</p>
+                  ) : null}
                   {selectedRp.drugs.map((drug, drugIndex) => {
                     const enforceRule = !drug.patientRequest;
                     const rowIssueGeneric = issueByKey.get(`drug_rule_generic_${selectedRpIndex}_${drugIndex}`);

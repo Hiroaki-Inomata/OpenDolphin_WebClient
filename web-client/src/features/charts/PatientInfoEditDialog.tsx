@@ -7,6 +7,7 @@ import { recordOutpatientFunnel } from '../../libs/telemetry/telemetryClient';
 import { resolveAriaLive } from '../../libs/observability/observability';
 import type { DataSourceTransition } from '../../libs/observability/types';
 import { savePatient, type PatientRecord, type PatientMutationResult } from '../patients/api';
+import { fetchOrcaAddress } from '../patients/orcaAddressApi';
 import { PatientFormErrorAlert } from '../patients/PatientFormErrorAlert';
 import { diffPatientKeys, PATIENT_FIELD_LABEL, pickPatientSection, type PatientEditableSection } from '../patients/patientDiff';
 import { validatePatientMutation, type PatientOperation, type PatientValidationError } from '../patients/patientValidation';
@@ -54,6 +55,14 @@ const DRAFT_COMPARE_KEYS: Array<keyof PatientRecord> = [
 const normalizeDraftValue = (value: unknown) => (value === undefined || value === null ? '' : String(value)).trim();
 const isSameDraft = (left: PatientRecord | null | undefined, right: PatientRecord | null | undefined) =>
   DRAFT_COMPARE_KEYS.every((key) => normalizeDraftValue(left?.[key]) === normalizeDraftValue(right?.[key]));
+const normalizeZipDigits = (value?: string | null) => (value ?? '').replace(/\D+/g, '');
+const todayCompact = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}${month}${day}`;
+};
 
 export function PatientInfoEditDialog({
   open,
@@ -71,6 +80,7 @@ export function PatientInfoEditDialog({
   const [confirmChecked, setConfirmChecked] = useState(false);
   const [errors, setErrors] = useState<PatientValidationError[]>([]);
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'error'; message: string; detail?: string } | null>(null);
+  const [orcaAddressPending, setOrcaAddressPending] = useState(false);
   const draftRef = useRef<PatientRecord>({});
   const lastBaseDraftRef = useRef<PatientRecord | null>(null);
   const wasOpenRef = useRef(false);
@@ -255,6 +265,33 @@ export function PatientInfoEditDialog({
 
   const canEdit = editAllowedResolved && masterOk;
   const operation: PatientOperation = draft.patientId ? 'update' : 'create';
+
+  const handleOrcaAddressLookup = async () => {
+    const zip = normalizeZipDigits(draft.zip);
+    if (section !== 'basic' || !canEdit || step !== 'edit' || orcaAddressPending || zip.length !== 7) return;
+    setOrcaAddressPending(true);
+    try {
+      const result = await fetchOrcaAddress({ zip, effective: todayCompact() });
+      if (result.ok && result.item) {
+        const fullAddress = result.item.fullAddress ?? [result.item.city, result.item.town].filter(Boolean).join('');
+        setDraft((prev) => ({ ...prev, address: fullAddress || prev.address }));
+        setNotice({ tone: 'success', message: '住所を補完しました。', detail: fullAddress || '住所候補を取得しました。' });
+        return;
+      }
+      if (result.notFound) {
+        setNotice({ tone: 'error', message: '該当する住所が見つかりませんでした' });
+        return;
+      }
+      setNotice({ tone: 'error', message: result.message ?? '住所補完に失敗しました。' });
+    } catch (error) {
+      setNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '住所補完に失敗しました。',
+      });
+    } finally {
+      setOrcaAddressPending(false);
+    }
+  };
 
   const validate = () => {
     const validation = validatePatientMutation({
@@ -536,6 +573,14 @@ export function PatientInfoEditDialog({
                         aria-describedby={fieldErrorMap.has('zip') ? 'patient-edit-error-zip' : undefined}
                         placeholder="123-4567"
                       />
+                      <button
+                        type="button"
+                        className="patients-tab__ghost"
+                        onClick={() => void handleOrcaAddressLookup()}
+                        disabled={step !== 'edit' || !canEdit || orcaAddressPending || normalizeZipDigits(draft.zip).length !== 7}
+                      >
+                        {orcaAddressPending ? '住所補完中…' : '住所補完'}
+                      </button>
                       {fieldErrorMap.has('zip') ? (
                         <small id="patient-edit-error-zip" className="patient-edit__field-error" role="alert">
                           {fieldErrorMap.get('zip')}

@@ -252,6 +252,8 @@ export async function fetchOrderMasterSearch(params: {
   method?: OrderMasterDrugSearchMethod;
   scope?: string;
   category?: string;
+  pointsMin?: number;
+  pointsMax?: number;
   page?: number;
   size?: number;
   allowEmpty?: boolean;
@@ -276,6 +278,14 @@ export async function fetchOrderMasterSearch(params: {
     if (normalizedMethod) query.set('method', normalizedMethod);
     const normalizedScope = normalizeDrugSearchScope(params.scope ?? params.category);
     if (normalizedScope) query.set('scope', normalizedScope);
+  }
+  if (params.type === 'etensu') {
+    if (typeof params.pointsMin === 'number' && Number.isFinite(params.pointsMin)) {
+      query.set('pointsMin', String(params.pointsMin));
+    }
+    if (typeof params.pointsMax === 'number' && Number.isFinite(params.pointsMax)) {
+      query.set('pointsMax', String(params.pointsMax));
+    }
   }
   const hasExplicitPage = typeof params.page === 'number' && Number.isFinite(params.page);
   const hasExplicitSize = typeof params.size === 'number' && Number.isFinite(params.size);

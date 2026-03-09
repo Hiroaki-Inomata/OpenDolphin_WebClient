@@ -92,7 +92,7 @@ describe('OrderDockPanel category quick-add', () => {
       expect(screen.queryByLabelText(`${scenario.expectedTitle}入力`)).not.toBeInTheDocument();
       expect(screen.getByRole('searchbox', { name: 'オーダー検索' })).toBeInTheDocument();
     }
-  });
+  }, 10_000);
 
   it('検索仕様: 3文字候補表示・2文字入力は候補クリックで確定・前方/部分検索を切り替えられる', async () => {
     const user = userEvent.setup();

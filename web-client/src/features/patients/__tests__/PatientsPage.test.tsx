@@ -42,6 +42,9 @@ let mockMutationCallCount = 0;
 let mockSearchParams = new URLSearchParams();
 let mockLocationSearch = '';
 let mockLocationState: unknown = null;
+const mockEnqueue = vi.fn();
+const mockFetchOrcaAddress = vi.fn();
+const mockFetchOrcaHokenja = vi.fn();
 const mockSetSearchParams = vi.fn();
 const mockRegisterDirty = vi.fn();
 const mockGuardedNavigate = vi.fn();
@@ -138,7 +141,15 @@ vi.mock('../../../libs/admin/useAdminBroadcast', () => ({
 }));
 
 vi.mock('../../../libs/ui/appToast', () => ({
-  useAppToast: () => ({ enqueue: vi.fn(), dismiss: vi.fn() }),
+  useAppToast: () => ({ enqueue: mockEnqueue, dismiss: vi.fn() }),
+}));
+
+vi.mock('../orcaAddressApi', () => ({
+  fetchOrcaAddress: (...args: unknown[]) => mockFetchOrcaAddress(...args),
+}));
+
+vi.mock('../orcaHokenjaApi', () => ({
+  fetchOrcaHokenja: (...args: unknown[]) => mockFetchOrcaHokenja(...args),
 }));
 
 vi.mock('../../../AppRouter', () => ({
@@ -205,6 +216,9 @@ beforeEach(() => {
   mockSetSearchParams.mockClear();
   mockRegisterDirty.mockClear();
   mockGuardedNavigate.mockClear();
+  mockEnqueue.mockReset();
+  mockFetchOrcaAddress.mockReset();
+  mockFetchOrcaHokenja.mockReset();
 });
 
 const renderPatientsPage = () => {
@@ -648,6 +662,69 @@ describe('PatientsPage form safety', () => {
     if (!auditKeywordInput) return;
     await user.type(auditKeywordInput, '{enter}');
     expect(mockMutationCallCount).toBe(0);
+  });
+});
+
+describe('PatientsPage ORCA helpers', () => {
+  it('郵便番号から住所補完できる', async () => {
+    mockPatients({
+      patients: [
+        {
+          patientId: 'P-001',
+          name: '山田 花子',
+          zip: '100-0001',
+          address: '',
+        },
+      ],
+    });
+    mockFetchOrcaAddress.mockResolvedValue({
+      ok: true,
+      status: 200,
+      item: {
+        zip: '1000001',
+        fullAddress: '東京都千代田区千代田',
+      },
+    });
+    const user = userEvent.setup();
+
+    renderPatientsPage();
+    await clickPatientRowByName(user, '山田 花子');
+    await user.click(screen.getByText('住所補完'));
+
+    expect(mockFetchOrcaAddress).toHaveBeenCalledWith({ zip: '1000001', effective: expect.any(String) });
+    expect(screen.getByDisplayValue('東京都千代田区千代田')).toBeInTheDocument();
+  });
+
+  it('hokenja 検索結果を保険欄へ反映できる', async () => {
+    mockPatients();
+    mockFetchOrcaHokenja.mockResolvedValue({
+      ok: true,
+      status: 200,
+      totalCount: 1,
+      items: [
+        {
+          payerCode: '06123456',
+          payerName: '東京保険者',
+          payerType: '社保',
+          addressLine: '東京都千代田区',
+        },
+      ],
+    });
+    const user = userEvent.setup();
+
+    renderPatientsPage();
+    await clickPatientRowByName(user, '山田 花子');
+    await user.click(screen.getByRole('tab', { name: '保険' }));
+    await user.type(screen.getByLabelText('keyword'), '東京');
+    await user.click(screen.getByRole('button', { name: '検索' }));
+    await user.click(screen.getByRole('button', { name: '反映' }));
+
+    expect(mockFetchOrcaHokenja).toHaveBeenCalledWith({
+      keyword: '東京',
+      pref: '',
+      effective: expect.any(String),
+    });
+    expect(screen.getByDisplayValue('東京保険者 (06123456)')).toBeInTheDocument();
   });
 });
 

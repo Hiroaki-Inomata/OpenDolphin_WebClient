@@ -43,6 +43,40 @@ type DrugMasterItem = {
   validTo?: string;
 };
 
+type AddressItem = {
+  zip: string;
+  prefCode: string;
+  cityCode: string;
+  city: string;
+  town: string;
+  kana?: string;
+  roman?: string;
+  fullAddress: string;
+};
+
+type HokenjaItem = {
+  payerCode: string;
+  payerName: string;
+  payerType?: string;
+  payerRatio?: number;
+  prefCode?: string;
+  cityCode?: string;
+  zip?: string;
+  addressLine?: string;
+  phone?: string;
+  validFrom?: string;
+  validTo?: string;
+};
+
+type GenericPriceItem = {
+  code: string;
+  name: string;
+  minPrice: number;
+  unit?: string;
+  validFrom?: string;
+  validTo?: string;
+};
+
 const ETENSU_ITEMS: TensuItem[] = [
   { tensuCode: '111000110', name: '初診料', unit: '', category: '110', points: 291, noticeDate: '20240101', startDate: '20240101' },
   { tensuCode: '130003510', name: '静脈内注射', unit: '', category: '320', points: 37, noticeDate: '20240101', startDate: '20240101' },
@@ -122,6 +156,77 @@ const KENSA_SORT_ITEMS: DrugMasterItem[] = [
   },
 ];
 
+const ADDRESS_ITEMS: AddressItem[] = [
+  {
+    zip: '1000001',
+    prefCode: '13',
+    cityCode: '13101',
+    city: '東京都千代田区',
+    town: '千代田',
+    kana: 'トウキョウトチヨダクチヨダ',
+    roman: 'TOKYO CHIYODA CHIYODA',
+    fullAddress: '東京都千代田区千代田',
+  },
+  {
+    zip: '5300001',
+    prefCode: '27',
+    cityCode: '27127',
+    city: '大阪府大阪市北区',
+    town: '梅田',
+    kana: 'オオサカフオオサカシキタクウメダ',
+    roman: 'OSAKA KITA UMEDA',
+    fullAddress: '大阪府大阪市北区梅田',
+  },
+];
+
+const HOKENJA_ITEMS: HokenjaItem[] = [
+  {
+    payerCode: '06123456',
+    payerName: '東京保険者',
+    payerType: '社保',
+    payerRatio: 30,
+    prefCode: '13',
+    cityCode: '13101',
+    zip: '1000001',
+    addressLine: '東京都千代田区千代田1-1',
+    phone: '03-1111-2222',
+    validFrom: '20240401',
+    validTo: '99991231',
+  },
+  {
+    payerCode: '27123456',
+    payerName: '大阪国保',
+    payerType: '国保',
+    payerRatio: 30,
+    prefCode: '27',
+    cityCode: '27127',
+    zip: '5300001',
+    addressLine: '大阪府大阪市北区梅田1-1',
+    phone: '06-3333-4444',
+    validFrom: '20240401',
+    validTo: '99991231',
+  },
+];
+
+const GENERIC_PRICE_ITEMS: GenericPriceItem[] = [
+  {
+    code: '620000001',
+    name: 'アムロジピン錠5mg',
+    minPrice: 12.34,
+    unit: '錠',
+    validFrom: '20240401',
+    validTo: '99991231',
+  },
+  {
+    code: '620000002',
+    name: 'ロサルタン錠50mg',
+    minPrice: 15.5,
+    unit: '錠',
+    validFrom: '20240401',
+    validTo: '99991231',
+  },
+];
+
 const filterByKeyword = (items: TensuItem[], keyword: string) => {
   const normalized = keyword.trim().toLowerCase();
   if (!normalized) return items;
@@ -132,19 +237,48 @@ const filterByKeyword = (items: TensuItem[], keyword: string) => {
   });
 };
 
+const matchesEffective = (effective: string | null, validFrom?: string, validTo?: string) => {
+  const normalized = effective?.replace(/[^0-9]/g, '') ?? '';
+  if (!normalized || normalized.length !== 8) return true;
+  if (validFrom && normalized < validFrom) return false;
+  if (validTo && normalized > validTo) return false;
+  return true;
+};
+
 const handleEtensuRequest = (request: Request) => {
   const { runId, traceId } = resolveAuditHeaders(request);
   const url = new URL(request.url);
   const category = url.searchParams.get('category');
   const keyword = url.searchParams.get('keyword') ?? '';
+  const pointsMinRaw = url.searchParams.get('pointsMin');
+  const pointsMaxRaw = url.searchParams.get('pointsMax');
+  const pointsMin = pointsMinRaw ? Number(pointsMinRaw) : undefined;
+  const pointsMax = pointsMaxRaw ? Number(pointsMaxRaw) : undefined;
+  if ((pointsMinRaw && Number.isNaN(pointsMin)) || (pointsMaxRaw && Number.isNaN(pointsMax))) {
+    return HttpResponse.json(
+      { message: 'pointsMin/pointsMax must be numeric', errorCode: 'invalid_request', runId, traceId },
+      { status: 400, headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
+    );
+  }
+  if (typeof pointsMin === 'number' && typeof pointsMax === 'number' && pointsMin > pointsMax) {
+    return HttpResponse.json(
+      { message: 'pointsMin must be less than or equal to pointsMax', errorCode: 'invalid_request', runId, traceId },
+      { status: 400, headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
+    );
+  }
   const filteredByKeyword = filterByKeyword(ETENSU_ITEMS, keyword);
-  const items =
+  const categoryFiltered =
     category && category.trim().length > 0
       ? filteredByKeyword.filter((item) => {
           const value = item.category?.trim() ?? '';
           return value.startsWith(category.trim());
         })
       : filteredByKeyword;
+  const items = categoryFiltered.filter((item) => {
+    if (typeof pointsMin === 'number' && (item.points ?? 0) < pointsMin) return false;
+    if (typeof pointsMax === 'number' && (item.points ?? 0) > pointsMax) return false;
+    return true;
+  });
   return HttpResponse.json(
     { items, totalCount: items.length, runId, traceId },
     { headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
@@ -194,13 +328,86 @@ const handleDrugMasterRequest = (request: Request, items: DrugMasterItem[]) => {
   );
 };
 
+const handleAddressRequest = (request: Request) => {
+  const { runId, traceId } = resolveAuditHeaders(request);
+  const url = new URL(request.url);
+  const zip = (url.searchParams.get('zip') ?? '').replace(/[^0-9]/g, '');
+  const effective = url.searchParams.get('effective');
+  if (zip.length !== 7) {
+    return HttpResponse.json(
+      { message: 'zip must be 7 digits', errorCode: 'invalid_request', runId, traceId },
+      { status: 400, headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
+    );
+  }
+  const item = ADDRESS_ITEMS.find((entry) => entry.zip === zip && matchesEffective(effective, '20240401', '99991231'));
+  if (!item) {
+    return HttpResponse.json(
+      { message: '該当する住所が見つかりませんでした', errorCode: 'address_not_found', runId, traceId },
+      { status: 404, headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
+    );
+  }
+  return HttpResponse.json(
+    { ...item, runId, traceId },
+    { headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
+  );
+};
+
+const handleHokenjaRequest = (request: Request) => {
+  const { runId, traceId } = resolveAuditHeaders(request);
+  const url = new URL(request.url);
+  const keyword = (url.searchParams.get('keyword') ?? '').trim().toLowerCase();
+  const pref = (url.searchParams.get('pref') ?? '').replace(/[^0-9]/g, '');
+  const effective = url.searchParams.get('effective');
+  const page = Math.max(1, Number(url.searchParams.get('page') ?? '1') || 1);
+  const size = Math.min(100, Math.max(1, Number(url.searchParams.get('size') ?? '50') || 50));
+  const filtered = HOKENJA_ITEMS.filter((item) => {
+    const matchesKeyword =
+      !keyword || item.payerCode.toLowerCase().includes(keyword) || item.payerName.toLowerCase().includes(keyword);
+    const matchesPref = !pref || item.prefCode === pref;
+    return matchesKeyword && matchesPref && matchesEffective(effective, item.validFrom, item.validTo);
+  });
+  const offset = (page - 1) * size;
+  const items = filtered.slice(offset, offset + size);
+  return HttpResponse.json(
+    { items, totalCount: filtered.length, runId, traceId },
+    { headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
+  );
+};
+
+const handleGenericPriceRequest = (request: Request) => {
+  const { runId, traceId } = resolveAuditHeaders(request);
+  const url = new URL(request.url);
+  const srycd = (url.searchParams.get('srycd') ?? '').trim();
+  const effective = url.searchParams.get('effective');
+  if (!/^\d{9}$/.test(srycd)) {
+    return HttpResponse.json(
+      { message: 'srycd must be 9 digits', errorCode: 'invalid_request', runId, traceId },
+      { status: 400, headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
+    );
+  }
+  const item = GENERIC_PRICE_ITEMS.find((entry) => entry.code === srycd && matchesEffective(effective, entry.validFrom, entry.validTo));
+  if (!item) {
+    return HttpResponse.json(
+      { message: '最低薬価が見つかりませんでした', errorCode: 'generic_price_not_found', runId, traceId },
+      { status: 404, headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
+    );
+  }
+  return HttpResponse.json(
+    { ...item, runId, traceId },
+    { headers: { 'x-run-id': runId, 'x-trace-id': traceId } },
+  );
+};
+
 export const orcaMasterHandlers = [
-  http.get('/orca/tensu/etensu', ({ request }) => (shouldBypass(request) ? passthrough() : handleEtensuRequest(request))),
-  http.get('/orca/master/etensu', ({ request }) => (shouldBypass(request) ? passthrough() : handleEtensuRequest(request))),
-  http.get('/orca/master/bodypart', ({ request }) => (shouldBypass(request) ? passthrough() : handleBodypartRequest(request))),
-  http.get('/orca/master/comment', ({ request }) => (shouldBypass(request) ? passthrough() : handleCommentRequest(request))),
-  http.get('/orca/master/generic-class', ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, GENERIC_CLASS_ITEMS))),
-  http.get('/orca/master/material', ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, MATERIAL_ITEMS))),
-  http.get('/orca/master/youhou', ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, YOUHOU_ITEMS))),
-  http.get('/orca/master/kensa-sort', ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, KENSA_SORT_ITEMS))),
+  http.get(/\/orca\/tensu\/etensu/, ({ request }) => (shouldBypass(request) ? passthrough() : handleEtensuRequest(request))),
+  http.get(/\/orca\/master\/etensu/, ({ request }) => (shouldBypass(request) ? passthrough() : handleEtensuRequest(request))),
+  http.get(/\/orca\/master\/address/, ({ request }) => (shouldBypass(request) ? passthrough() : handleAddressRequest(request))),
+  http.get(/\/orca\/master\/hokenja/, ({ request }) => (shouldBypass(request) ? passthrough() : handleHokenjaRequest(request))),
+  http.get(/\/orca\/master\/generic-price/, ({ request }) => (shouldBypass(request) ? passthrough() : handleGenericPriceRequest(request))),
+  http.get(/\/orca\/master\/bodypart/, ({ request }) => (shouldBypass(request) ? passthrough() : handleBodypartRequest(request))),
+  http.get(/\/orca\/master\/comment/, ({ request }) => (shouldBypass(request) ? passthrough() : handleCommentRequest(request))),
+  http.get(/\/orca\/master\/generic-class/, ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, GENERIC_CLASS_ITEMS))),
+  http.get(/\/orca\/master\/material/, ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, MATERIAL_ITEMS))),
+  http.get(/\/orca\/master\/youhou/, ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, YOUHOU_ITEMS))),
+  http.get(/\/orca\/master\/kensa-sort/, ({ request }) => (shouldBypass(request) ? passthrough() : handleDrugMasterRequest(request, KENSA_SORT_ITEMS))),
 ];
