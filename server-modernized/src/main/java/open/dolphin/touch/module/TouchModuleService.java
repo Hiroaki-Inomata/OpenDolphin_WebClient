@@ -26,7 +26,6 @@ import open.dolphin.infomodel.NLaboModule;
 import open.dolphin.infomodel.RegisteredDiagnosisModel;
 import open.dolphin.infomodel.SchemaModel;
 import open.dolphin.infomodel.StampModel;
-import open.dolphin.touch.converter.IOSHelper;
 import open.dolphin.touch.module.TouchModuleDtos.Diagnosis;
 import open.dolphin.touch.module.TouchModuleDtos.LaboGraph;
 import open.dolphin.touch.module.TouchModuleDtos.LaboGraphResult;
@@ -234,7 +233,7 @@ public class TouchModuleService {
                 schemas.add(new Schema(
                         schemaModel.getExtRefModel() != null ? sanitize(schemaModel.getExtRefModel().getBucket()) : null,
                         schemaModel.getExtRefModel() != null ? sanitize(schemaModel.getExtRefModel().getSop()) : null,
-                        encodeBase64(schemaModel.getJpegByte())
+                        encodeBase64(schemaModel.getImageBytes())
                 ));
             }
         }
@@ -316,30 +315,6 @@ public class TouchModuleService {
         }
         if (model instanceof BundleDolphin bundle) {
             return bundle;
-        }
-        if (model instanceof StampModel stamp) {
-            return extractBundleFromStamp(stamp);
-        }
-        return null;
-    }
-
-    private BundleDolphin extractBundleFromStamp(StampModel stamp) {
-        if (stamp == null) {
-            return null;
-        }
-        byte[] bytes = stamp.getStampBytes();
-        if (bytes == null || bytes.length == 0) {
-            return null;
-        }
-        Object decoded = IOSHelper.xmlDecode(bytes);
-        if (decoded instanceof BundleDolphin bundle) {
-            return bundle;
-        }
-        if (decoded instanceof BundleMed med) {
-            return med;
-        }
-        if (decoded instanceof StampModel nested) {
-            return extractBundleFromStamp(nested);
         }
         return null;
     }

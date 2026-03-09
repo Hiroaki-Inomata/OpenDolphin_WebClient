@@ -156,7 +156,7 @@ public class PatientImagesResource extends AbstractResource {
                     Map.of("patientId", patientId, "imageId", imageId), null);
         }
 
-        byte[] bytes = attachment.getBytes();
+        byte[] bytes = attachment.getContentBytes();
         if (bytes == null) {
             throw restError(httpServletRequest, Response.Status.INTERNAL_SERVER_ERROR,
                     "image_bytes_missing", "Image bytes are not available",

@@ -29,6 +29,7 @@ import open.dolphin.infomodel.DocumentModelCloner;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.SchemaModel;
+import open.dolphin.security.integrity.CanonicalJson;
 import open.dolphin.rest.dto.KarteRevisionDiffResponse;
 import open.dolphin.rest.dto.KarteRevisionEntryResponse;
 import open.dolphin.rest.dto.KarteRevisionGroupResponse;
@@ -356,14 +357,9 @@ public class KarteRevisionServiceBean {
 
                 String payload = module.getBeanJson();
                 if (payload != null) {
-                    digester.update(payload.getBytes(StandardCharsets.UTF_8));
+                    digester.update(CanonicalJson.canonicalBytes(payload));
                 } else {
-                    byte[] bytes = module.getBeanBytes();
-                    if (bytes != null) {
-                        digester.update(bytes);
-                    } else {
-                        digester.update((byte) 0);
-                    }
+                    digester.update((byte) 0);
                 }
                 // Separator to avoid concatenation ambiguity.
                 digester.update((byte) '\n');

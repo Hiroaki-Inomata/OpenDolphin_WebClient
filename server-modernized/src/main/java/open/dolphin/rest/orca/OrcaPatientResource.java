@@ -9,6 +9,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -199,7 +200,7 @@ public class OrcaPatientResource extends AbstractOrcaRestResource {
         }
         model.setKanaName(payload.getWholeNameKana());
         model.setGender(Optional.ofNullable(payload.getSex()).orElse("0"));
-        model.setBirthday(payload.getBirthDate());
+        model.setBirthday(parseBirthDate(payload.getBirthDate()));
         model.setTelephone(payload.getTelephone());
         model.setMobilePhone(payload.getMobilePhone());
         if (payload.getAddressLine() != null || payload.getZipCode() != null) {
@@ -218,7 +219,8 @@ public class OrcaPatientResource extends AbstractOrcaRestResource {
         }
         compareText(conflicts, "wholeName", payload.getWholeName(), existing.getFullName());
         compareText(conflicts, "wholeNameKana", payload.getWholeNameKana(), existing.getKanaName());
-        compareText(conflicts, "birthDate", payload.getBirthDate(), existing.getBirthday());
+        compareText(conflicts, "birthDate", payload.getBirthDate(),
+                existing.getBirthday() != null ? existing.getBirthday().toString() : null);
         compareText(conflicts, "sex", payload.getSex(), existing.getGender());
         compareText(conflicts, "telephone", payload.getTelephone(), existing.getTelephone());
         compareText(conflicts, "mobilePhone", payload.getMobilePhone(), existing.getMobilePhone());
@@ -241,5 +243,12 @@ public class OrcaPatientResource extends AbstractOrcaRestResource {
         if (!normalizedRequest.equals(normalizedExisting)) {
             conflicts.add(field);
         }
+    }
+
+    private LocalDate parseBirthDate(String birthDate) {
+        if (birthDate == null || birthDate.isBlank()) {
+            return null;
+        }
+        return LocalDate.parse(birthDate.trim());
     }
 }

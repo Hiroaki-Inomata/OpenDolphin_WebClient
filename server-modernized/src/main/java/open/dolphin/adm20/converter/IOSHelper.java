@@ -1,14 +1,10 @@
 package open.dolphin.adm20.converter;
 
-import java.beans.XMLEncoder;
-import java.io.BufferedOutputStream;
-import java.io.ByteArrayOutputStream;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.logging.Logger;
-import open.dolphin.security.xml.SafeXmlDecoder;
 
 /**
  *
@@ -21,22 +17,6 @@ public class IOSHelper {
     //private static final String IOS_DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
     private static final String IOS_DATE_FORMAT = "yyyy-MM-dd HH:mm:ss.SSS";
     private static final String IOS_DATE_FORMAT_OLD = "yyyy-MM-dd HH:mm:ss";
-    
-    
-    public static byte[] toXMLBytes(Object bean)  {
-        if (bean!=null) {
-            ByteArrayOutputStream bo = new ByteArrayOutputStream();
-            XMLEncoder e = new XMLEncoder(new BufferedOutputStream(bo));
-            e.writeObject(bean);
-            e.close();
-            return bo.toByteArray();
-        }
-        return null;
-    }
-    
-    public static Object xmlDecode(byte[] bytes)  {
-        return SafeXmlDecoder.decode(bytes);
-    }
     
     public static Date toDate(String dateStr) {
         if (dateStr==null) {

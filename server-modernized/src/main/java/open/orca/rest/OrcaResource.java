@@ -1,6 +1,5 @@
 package open.orca.rest;
 
-import java.beans.XMLEncoder;
 import java.io.*;
 import java.sql.*;
 import java.text.ParseException;
@@ -1084,8 +1083,7 @@ public class OrcaResource {
             closeConnection(con);
             
             for (ModuleModel mm : retSet) {
-                byte[] bytes = getXMLBytes(mm.getModel());
-                mm.setBeanBytes(bytes);
+                mm.setBeanJson(ModelUtils.jsonEncode(mm.getModel()));
                 mm.setModel(null);
             }
             
@@ -1709,15 +1707,6 @@ public class OrcaResource {
         return null;
     }
     
-    private byte[] getXMLBytes(Object bean)  {
-        ByteArrayOutputStream bo = new ByteArrayOutputStream();
-        XMLEncoder e = new XMLEncoder(new BufferedOutputStream(bo));
-        e.writeObject(bean);
-        e.close();
-        return bo.toByteArray();
-    }
-    
-
     private static WebApplicationException badRequest(String message) {
         return new WebApplicationException(message, Response.Status.BAD_REQUEST);
     }

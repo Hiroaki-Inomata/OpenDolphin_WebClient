@@ -175,7 +175,7 @@ public class PhrDataAssembler {
             phrCatch.setPatientId(karte.getPatientModel().getPatientId());
             phrCatch.setPatientName(karte.getPatientModel().getFullName());
             phrCatch.setPatientSex(karte.getPatientModel().getGender());
-            phrCatch.setPatientBirthday(karte.getPatientModel().getBirthday());
+            phrCatch.setPatientBirthday(ModelUtils.formatDate(karte.getPatientModel().getBirthday()));
             phrCatch.setPhysicianId(doc.getUserModel().getUserId());
             phrCatch.setPhysicianName(doc.getUserModel().getCommonName());
             phrCatch.setDepartment(doc.getUserModel().getDepartmentModel().getDepartment());
@@ -313,7 +313,7 @@ public class PhrDataAssembler {
             phrModule.setCatchId(moduleId);
             phrModule.setPatientName(patient != null ? patient.getFullName() : module.getPatientName());
             phrModule.setPatientSex(patient != null ? patient.getGender() : module.getPatientSex());
-            phrModule.setPatientBirthday(patient != null ? patient.getBirthday() : null);
+            phrModule.setPatientBirthday(patient != null ? ModelUtils.formatDate(patient.getBirthday()) : null);
             phrModule.setFacilityId(facility != null ? facility.getFacilityId() : defaultString(module.getFacilityId()));
             phrModule.setFacilityName(facility != null ? facility.getFacilityName() : module.getFacilityName());
             phrModule.setFacilityNumber(facilityNumberForLab);

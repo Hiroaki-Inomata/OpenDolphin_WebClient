@@ -148,7 +148,7 @@ public class OrcaMedicalResource extends AbstractOrcaRestResource {
         summary.setPatientId(patient.getPatientId());
         summary.setWholeName(patient.getFullName());
         summary.setWholeNameKana(patient.getKanaName());
-        summary.setBirthDate(patient.getBirthday());
+        summary.setBirthDate(patient.getBirthday() != null ? patient.getBirthday().toString() : null);
         summary.setSex(patient.getGender());
         return summary;
     }

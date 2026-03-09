@@ -1,13 +1,15 @@
 package open.dolphin.adm10.rest;
 
 import java.io.*;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import open.dolphin.security.xml.SafeXmlDecoder;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.security.xml.SecureXml;
 import org.jdom.Document;
 import org.jdom.JDOMException;
@@ -259,10 +261,6 @@ public class AbstractResource {
         }
     }
 
-    protected static Object xmlDecode(byte[] bytes)  {
-        return SafeXmlDecoder.decode(bytes);
-    }
-
     protected static String sexValueToDesc(String code) {
 
         for (int i=0; i < MALES.length; i++) {
@@ -464,21 +462,11 @@ public class AbstractResource {
     protected void endIcon(StringBuilder sb) {
     }
 
-    protected String toIsoBirtday(String birthday) {
+    protected String toIsoBirtday(LocalDate birthday) {
+        return birthday != null ? birthday.toString() : null;
+    }
 
-        String[] spec = birthday.split("/");
-        StringBuilder sb = new StringBuilder();
-        sb.append(spec[0]);
-        sb.append("-");
-        if (spec[1].length() == 1) {
-            sb.append("0");
-        }
-        sb.append(spec[1]);
-        sb.append("-");
-        if (spec[2].length() == 1) {
-            sb.append("0");
-        }
-        sb.append(spec[2]);
-        return sb.toString();
+    protected String toIsoPvtDate(LocalDateTime pvtDate) {
+        return ModelUtils.formatDateTime(pvtDate);
     }
 }

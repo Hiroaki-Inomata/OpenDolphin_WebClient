@@ -33,7 +33,6 @@ import open.dolphin.infomodel.ProgressCourse;
 import open.dolphin.infomodel.RegisteredDiagnosisModel;
 import open.dolphin.infomodel.SchemaModel;
 import open.dolphin.infomodel.UserModel;
-import open.dolphin.security.xml.SafeXmlDecoder;
 import open.dolphin.session.audit.DiagnosisAuditRecorder;
 import open.dolphin.session.framework.SessionOperation;
 //import org.jboss.logging.Logger;
@@ -100,19 +99,15 @@ public class ADM20_AdmissionServiceBean {
     }
     
     public List<ModuleModel> getLastModule(long patientPk, String entity) {
-        // "select max(m.started) from d_document m where m.karte_id=:karteId and m.docType=:docType and (m.status = 'F' or m.status = 'T')"
-        // from ModuleModel m where m.karte.id=:karteId and m.moduleInfo.entity=:entity and m.status='F' order by m.started desc
-        // "from ModuleModel m where m.karte.id=:karteId and m.started=:started and (d.status='F' or d.status='T')"
         KarteBean karte = (KarteBean)
                         em.createQuery(QUERY_KARTE)
                           .setParameter("patientPk", patientPk)
                           .getSingleResult();
         
-        Date lastDocDate = (Date)
-                em.createNativeQuery("select max(m.started) from d_module m where m.karte_id=:karteId and m.entity=:entity and (m.status = 'F' or m.status = 'T')")
-                        .setParameter("karteId", karte.getId())
-                        .setParameter("entity", entity)
-                        .getSingleResult();
+        Date lastDocDate = findLatestModuleStarted(karte.getId(), entity);
+        if (lastDocDate == null) {
+            return new ArrayList<>();
+        }
         
         List<ModuleModel> list2 = (List<ModuleModel>)em.createQuery("from ModuleModel m where m.karte.id=:karteId and m.started=:started and m.moduleInfo.entity=:entity and (m.status='F' or m.status='T')")
                                                      .setParameter("karteId", karte.getId())
@@ -294,7 +289,6 @@ public class ADM20_AdmissionServiceBean {
             // CarePlan to ModuleModel
             ModuleModel module = cm.toModleModel();
             module.setBeanJson(ModelUtils.jsonEncode(module.getModel()));
-            module.setBeanBytes(null);
             schedule.addModule(module);
         }
         
@@ -314,7 +308,7 @@ public class ADM20_AdmissionServiceBean {
         // 受け付けた保険をデコードする
         PVTHealthInsuranceModel pvtHealthInsurance=null;
         for (HealthInsuranceModel m : insurances) {
-            pvtHealthInsurance = SafeXmlDecoder.decode(m.getBeanBytes(), PVTHealthInsuranceModel.class);
+            pvtHealthInsurance = (PVTHealthInsuranceModel) ModelUtils.jsonDecode(m.getBeanJson());
             break;
         }
         //--------------------------------------------------------------------------------
@@ -332,7 +326,6 @@ public class ADM20_AdmissionServiceBean {
         soaProgress.setFreeText(sb.toString());
         ModuleModel soaSpecModule = new ModuleModel();
         soaSpecModule.setBeanJson(ModelUtils.jsonEncode(soaProgress));
-        soaSpecModule.setBeanBytes(null);
         soaSpecModule.setConfirmed(now);
         soaSpecModule.setStarted(startDate);
         soaSpecModule.setRecorded(now);
@@ -366,7 +359,6 @@ public class ADM20_AdmissionServiceBean {
         pProgress.setFreeText(sb.toString());
         ModuleModel pSpecModule = new ModuleModel();
         pSpecModule.setBeanJson(ModelUtils.jsonEncode(pProgress));
-        pSpecModule.setBeanBytes(null);
         pSpecModule.setConfirmed(startDate);
         pSpecModule.setStarted(now);
         pSpecModule.setRecorded(now);
@@ -506,12 +498,7 @@ public class ADM20_AdmissionServiceBean {
         result.setDocCount(cnt.longValue());
         
         if (result.getDocCount()!=0L) {
-            // 最終文書日
-            Date lastDocDate = (Date)
-                    em.createNativeQuery("select max(m.started) from d_document m where m.karte_id=? and m.docType=? and (m.status = 'F' or m.status = 'T')")
-                            .setParameter(1, karte.getId())
-                            .setParameter(2, IInfoModel.DOCTYPE_KARTE)
-                            .getSingleResult();
+            Date lastDocDate = findLatestDocumentStarted(karte.getId(), IInfoModel.DOCTYPE_KARTE);
             result.setLastDocDate(lastDocDate);
         }
         
@@ -522,11 +509,7 @@ public class ADM20_AdmissionServiceBean {
         result.setLabCount(labCount.longValue());
         
         if (result.getLabCount()!=0L) {
-            // 最終ラボ報告日
-            String lastLabDate = (String)
-                    em.createNativeQuery("select max(m.sampleDate) from d_nlabo_module m where m.patientId=?")
-                            .setParameter(1, fidPid)
-                            .getSingleResult();
+            String lastLabDate = findLatestLabSampleDate(fidPid);
             result.setLastLabDate(lastLabDate);
         }
         
@@ -537,11 +520,7 @@ public class ADM20_AdmissionServiceBean {
         result.setImageCount(imageCount.longValue());
         
         if (result.getImageCount()!=0L) {
-            // 最終画像
-            Date lastImageDate = (Date)
-                    em.createNativeQuery("select max(m.started) from d_image m where m.karte_id=? and (m.status = 'F' or m.status = 'T')")
-                            .setParameter(1, karte.getId())
-                            .getSingleResult();
+            Date lastImageDate = findLatestImageStarted(karte.getId());
             result.setLastImageDate(lastImageDate);
         }
         
@@ -570,6 +549,54 @@ public class ADM20_AdmissionServiceBean {
         result.setOldestOndoDate(ondoDate);
         
         return result;       
+    }
+
+    private Date findLatestDocumentStarted(long karteId, String docType) {
+        List<Date> startedDates = em.createQuery(
+                        "select d.started from DocumentModel d "
+                                + "where d.karte.id=:karteId and d.docInfoModel.docType=:docType "
+                                + "and (d.status='F' or d.status='T') order by d.started desc",
+                        Date.class)
+                .setParameter("karteId", karteId)
+                .setParameter("docType", docType)
+                .setMaxResults(1)
+                .getResultList();
+        return startedDates.isEmpty() ? null : startedDates.get(0);
+    }
+
+    private String findLatestLabSampleDate(String fidPid) {
+        List<NLaboModule> modules = em.createQuery(
+                        "from NLaboModule l where l.patientId=:fidPid order by l.sampleDate desc",
+                        NLaboModule.class)
+                .setParameter("fidPid", fidPid)
+                .setMaxResults(1)
+                .getResultList();
+        return modules.isEmpty() ? null : modules.get(0).getSampleDate();
+    }
+
+    private Date findLatestImageStarted(long karteId) {
+        List<Date> startedDates = em.createQuery(
+                        "select s.started from SchemaModel s "
+                                + "where s.karte.id=:karteId and (s.status='F' or s.status='T') "
+                                + "order by s.started desc",
+                        Date.class)
+                .setParameter("karteId", karteId)
+                .setMaxResults(1)
+                .getResultList();
+        return startedDates.isEmpty() ? null : startedDates.get(0);
+    }
+
+    private Date findLatestModuleStarted(long karteId, String entity) {
+        List<Date> startedDates = em.createQuery(
+                        "select m.started from ModuleModel m "
+                                + "where m.karte.id=:karteId and m.moduleInfo.entity=:entity "
+                                + "and (m.status='F' or m.status='T') order by m.started desc",
+                        Date.class)
+                .setParameter("karteId", karteId)
+                .setParameter("entity", entity)
+                .setMaxResults(1)
+                .getResultList();
+        return startedDates.isEmpty() ? null : startedDates.get(0);
     }
     
     /**

@@ -11,7 +11,6 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.Query;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Field;
@@ -27,6 +26,8 @@ import open.dolphin.infomodel.DocInfoModel;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.ModuleModel;
+import open.dolphin.infomodel.SchemaModel;
+import open.dolphin.storage.image.ImageStorageManager;
 import open.dolphin.storage.attachment.AttachmentStorageManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,72 +44,84 @@ class KarteServiceBeanDocPkTest {
     private KarteServiceBean service;
     private EntityManager em;
     private AttachmentStorageManager attachmentStorageManager;
-    private Query seqQuery;
+    private ImageStorageManager imageStorageManager;
 
     @BeforeEach
     void setUp() throws Exception {
         service = new KarteServiceBean();
         em = mock(EntityManager.class);
         attachmentStorageManager = mock(AttachmentStorageManager.class);
-        seqQuery = mock(Query.class);
+        imageStorageManager = mock(ImageStorageManager.class);
 
         setField(service, "em", em);
         setField(service, "attachmentStorageManager", attachmentStorageManager);
+        setField(service, "imageStorageManager", imageStorageManager);
+        doAnswer(invocation -> {
+            DocumentModel document = invocation.getArgument(0);
+            if (document.getId() <= 0) {
+                document.setId(100L);
+            }
+            if (document.getAttachment() != null) {
+                long nextId = 101L;
+                for (AttachmentModel attachment : document.getAttachment()) {
+                    if (attachment.getId() <= 0) {
+                        attachment.setId(nextId++);
+                    }
+                }
+            }
+            if (document.getSchema() != null) {
+                long nextId = 201L;
+                for (SchemaModel schema : document.getSchema()) {
+                    if (schema.getId() <= 0) {
+                        schema.setId(nextId++);
+                    }
+                }
+            }
+            return null;
+        }).when(em).persist(any(DocumentModel.class));
+        when(em.merge(any(DocumentModel.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
     void addDocument_assignsPositivePk_andSyncsDocInfo() {
-        when(em.createNativeQuery("SELECT nextval('opendolphin.hibernate_sequence')")).thenReturn(seqQuery);
-        when(seqQuery.getSingleResult()).thenReturn(100L);
-        when(em.merge(any(DocumentModel.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
         DocumentModel document = buildDocumentWithModule();
-        document.setId(-5L);
+        document.setId(0L);
 
         long result = service.addDocument(document);
 
         assertThat(result).isEqualTo(100L);
         assertThat(document.getDocInfoModel().getDocPk()).isEqualTo(100L);
-        verify(em).createNativeQuery("SELECT nextval('opendolphin.hibernate_sequence')");
+        verify(em).persist(document);
+        verify(em, times(2)).flush();
     }
 
     @Test
     void addThenUpdate_roundTripsWithPositivePk() {
-        when(em.createNativeQuery("SELECT nextval('opendolphin.hibernate_sequence')")).thenReturn(seqQuery);
-        when(seqQuery.getSingleResult()).thenReturn(200L);
-        when(em.merge(any(DocumentModel.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
         DocumentModel current = buildDocumentWithModule();
-        current.setId(200L);
+        current.setId(100L);
         current.setStatus(IInfoModel.STATUS_TMP);
-        when(em.find(DocumentModel.class, 200L)).thenReturn(current);
+        when(em.find(DocumentModel.class, 100L)).thenReturn(current);
 
         DocumentModel incoming = buildDocumentWithModule();
-        incoming.setId(-1L); // will be overwritten by addDocument
+        incoming.setId(0L);
 
         long added = service.addDocument(incoming);
-        assertThat(added).isEqualTo(200L);
+        assertThat(added).isEqualTo(100L);
 
         // simulate client re-using returned PK
         incoming.setId(added);
         incoming.setStatus(IInfoModel.STATUS_TMP);
         long updated = service.updateDocument(incoming);
 
-        assertThat(updated).isEqualTo(200L);
+        assertThat(updated).isEqualTo(100L);
 
         ArgumentCaptor<DocumentModel> mergeCaptor = ArgumentCaptor.forClass(DocumentModel.class);
-        verify(em, times(2)).merge(mergeCaptor.capture());
-        List<DocumentModel> merged = mergeCaptor.getAllValues();
-        assertThat(merged).hasSize(2);
-        assertThat(merged.get(merged.size() - 1).getId()).isEqualTo(200L);
+        verify(em).merge(mergeCaptor.capture());
+        assertThat(mergeCaptor.getValue().getId()).isEqualTo(100L);
     }
 
     @Test
     void addDocument_externalizesAttachmentsAfterAssigningIdsAndBeforeMerge() {
-        when(em.createNativeQuery("SELECT nextval('opendolphin.hibernate_sequence')")).thenReturn(seqQuery);
-        when(seqQuery.getSingleResult()).thenReturn(400L, 401L);
-        when(em.merge(any(DocumentModel.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
         DocumentModel document = buildDocumentWithAttachment();
         document.setId(0L);
         AttachmentModel attachment = document.getAttachment().get(0);
@@ -117,29 +130,23 @@ class KarteServiceBeanDocPkTest {
             @SuppressWarnings("unchecked")
             Collection<AttachmentModel> attachments = invocation.getArgument(0, Collection.class);
             AttachmentModel uploaded = attachments.iterator().next();
-            assertThat(uploaded.getId()).isEqualTo(401L);
-            assertThat(uploaded.getDocumentModel().getId()).isEqualTo(400L);
-            uploaded.setDigest("digest-401");
-            uploaded.setUri("s3://bucket/doc-400/att-401.txt");
-            uploaded.setBytes(null);
+            assertThat(uploaded.getId()).isEqualTo(101L);
+            assertThat(uploaded.getDocumentModel().getId()).isEqualTo(100L);
+            uploaded.setDigest("digest-101");
+            uploaded.setUri("s3://bucket/doc-100/att-101.txt");
+            uploaded.setContentBytes(null);
             return null;
         }).when(attachmentStorageManager).persistExternalAssets(any());
 
         long result = service.addDocument(document);
 
-        assertThat(result).isEqualTo(400L);
-        assertThat(document.getDocInfoModel().getDocPk()).isEqualTo(400L);
-        assertThat(attachment.getId()).isEqualTo(401L);
-        assertThat(attachment.getBytes()).isNull();
-        assertThat(attachment.getDigest()).isEqualTo("digest-401");
-        assertThat(attachment.getUri()).isEqualTo("s3://bucket/doc-400/att-401.txt");
-
-        ArgumentCaptor<DocumentModel> mergeCaptor = ArgumentCaptor.forClass(DocumentModel.class);
-        verify(em).merge(mergeCaptor.capture());
-        AttachmentModel mergedAttachment = mergeCaptor.getValue().getAttachment().get(0);
-        assertThat(mergedAttachment.getBytes()).isNull();
-        assertThat(mergedAttachment.getDigest()).isEqualTo("digest-401");
-        assertThat(mergedAttachment.getUri()).isEqualTo("s3://bucket/doc-400/att-401.txt");
+        assertThat(result).isEqualTo(100L);
+        assertThat(document.getDocInfoModel().getDocPk()).isEqualTo(100L);
+        assertThat(attachment.getId()).isEqualTo(101L);
+        assertThat(attachment.getContentBytes()).isNull();
+        assertThat(attachment.getDigest()).isEqualTo("digest-101");
+        assertThat(attachment.getUri()).isEqualTo("s3://bucket/doc-100/att-101.txt");
+        verify(em).persist(document);
     }
 
     @Test
@@ -192,7 +199,7 @@ class KarteServiceBeanDocPkTest {
         AttachmentModel attachment = new AttachmentModel();
         attachment.setFileName("report.txt");
         attachment.setContentType("text/plain");
-        attachment.setBytes(new byte[]{1, 2, 3});
+        attachment.setContentBytes(new byte[]{1, 2, 3});
         attachment.setDocumentModel(document);
         document.setAttachment(List.of(attachment));
         return document;

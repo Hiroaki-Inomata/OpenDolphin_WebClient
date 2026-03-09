@@ -100,7 +100,7 @@ public class PatientImageServiceBean {
         attachment.setContentType(contentType);
         attachment.setContentSize(bytes.length);
         attachment.setLastModified(now.getTime());
-        attachment.setBytes(bytes);
+        attachment.setContentBytes(bytes);
         attachment.setTitle(fileName);
         attachment.setStatus(IInfoModel.STATUS_FINAL);
         attachment.setStarted(now);

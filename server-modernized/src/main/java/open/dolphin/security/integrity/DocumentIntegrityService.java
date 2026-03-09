@@ -215,7 +215,7 @@ public class DocumentIntegrityService {
         for (SchemaModel schemaModel : sortedSchemas(document.getSchema())) {
             ExtRefModel extRef = schemaModel.getExtRefModel();
             appendField(builder, "schema.href", extRef != null ? extRef.getHref() : null);
-            appendField(builder, "schema.jpegHash", sha256Hex(schemaModel.getJpegByte()));
+            appendField(builder, "schema.digest", nullSafe(schemaModel.getDigest()));
         }
 
         for (AttachmentModel attachment : sortedAttachments(document.getAttachment())) {
@@ -264,10 +264,7 @@ public class DocumentIntegrityService {
             return sha256Hex((byte[]) null);
         }
         String beanJson = module.getBeanJson();
-        if (beanJson != null && !beanJson.isBlank()) {
-            return sha256Hex(beanJson.getBytes(StandardCharsets.UTF_8));
-        }
-        return sha256Hex(module.getBeanBytes());
+        return sha256Hex(CanonicalJson.canonicalBytes(beanJson));
     }
 
     private String resolveAttachmentDigest(AttachmentModel attachment) {
@@ -278,7 +275,7 @@ public class DocumentIntegrityService {
         if (digest != null && !digest.isBlank()) {
             return digest.trim().toLowerCase(Locale.ROOT);
         }
-        return sha256Hex(attachment.getBytes());
+        return "";
     }
 
     private String formatInstant(Date date) {

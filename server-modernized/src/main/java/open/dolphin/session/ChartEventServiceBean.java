@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
 import java.text.SimpleDateFormat;
+import java.time.ZoneId;
 import java.util.*;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -436,7 +437,7 @@ public class ChartEventServiceBean {
 
         int byomeiCount = 0;
         int byomeiCountToday = 0;
-        Date pvtDate = ModelUtils.getCalendar(pvt.getPvtDate()).getTime();
+        Date pvtDate = Date.from(pvt.getPvtDate().atZone(ZoneId.systemDefault()).toInstant());
 
         // データベースから検索
         final String sql = "from RegisteredDiagnosisModel r where r.karte.id = :karteId";

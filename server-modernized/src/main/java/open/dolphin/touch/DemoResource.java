@@ -1327,7 +1327,7 @@ public class DemoResource extends AbstractResource {
 
                 sb.append(ELEMENT_SCHEMA_START);
 
-                byte[] bytes = schema.getJpegByte();
+                byte[] bytes = schema.getImageBytes();
                 String base64Str = new String(Base64Utils.encode(bytes), StandardCharsets.UTF_8);
                 propertyString(ELEMENT_BASE64, base64Str, sb);
 
@@ -1381,7 +1381,7 @@ public class DemoResource extends AbstractResource {
         String sex = sexValueToDesc(patient.getGender());
         propertyString(ELEMENT_SEX, sex, sb);
 
-        propertyString(ELEMENT_BIRTHDAY, patient.getBirthday(), sb);
+        propertyString(ELEMENT_BIRTHDAY, toIsoBirtday(patient.getBirthday()), sb);
 
         if (patient.getSimpleAddressModel()!=null) {
             sb.append(ELEMENT_ADDRESS_START);
@@ -1404,7 +1404,7 @@ public class DemoResource extends AbstractResource {
 
             try {
                 // byte[] を XMLDecord
-                PVTHealthInsuranceModel hModel = (PVTHealthInsuranceModel)xmlDecode(model.getBeanBytes());
+                PVTHealthInsuranceModel hModel = (PVTHealthInsuranceModel) ModelUtils.jsonDecode(model.getBeanJson());
                 PVTPublicInsuranceItemModel[] publicItems = hModel.getPVTPublicInsuranceItem();
 
                 sb.append("<healthInsurance>");
@@ -1680,7 +1680,7 @@ public class DemoResource extends AbstractResource {
 
                     sb.append(ELEMENT_SCHEMA_START);
 
-                    byte[] bytes = schema.getJpegByte();
+                    byte[] bytes = schema.getImageBytes();
                     String base64Str = new String(Base64Utils.encode(bytes), StandardCharsets.UTF_8);
                     propertyString(ELEMENT_BASE64, base64Str, sb);
 

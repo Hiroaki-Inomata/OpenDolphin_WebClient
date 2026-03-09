@@ -15,10 +15,8 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.sql.Connection;
-import java.sql.Blob;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -63,7 +61,6 @@ import open.dolphin.rest.dto.orca.OrcaOrderInteractionCheckResponse;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PatientServiceBean;
 import open.dolphin.session.UserServiceBean;
-import open.dolphin.touch.converter.IOSHelper;
 import open.orca.rest.ORCAConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -859,7 +856,6 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         module.setModuleInfoBean(info);
         module.setModel(bundle);
         module.setBeanJson(ModelUtils.jsonEncode(bundle));
-        module.setBeanBytes(null);
         module.setKarteBean(karte);
         module.setUserModel(user);
         module.setStarted(performDate);
@@ -1309,46 +1305,24 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         if (decoded instanceof BundleDolphin bundle) {
             return bundle;
         }
-        BundleDolphin fallback = decodeBundleFromLargeObject(module);
-        if (fallback != null) {
-            return fallback;
-        }
-        return null;
+        return decodeBundleFromDatabase(module);
     }
 
-    private BundleDolphin decodeBundleFromLargeObject(ModuleModel module) {
+    private BundleDolphin decodeBundleFromDatabase(ModuleModel module) {
         if (entityManager == null || module == null || module.getId() <= 0) {
             return null;
         }
-        Object[] row;
+        Object row;
         try {
-            row = (Object[]) entityManager
-                    .createNativeQuery("SELECT bean_json, beanbytes FROM d_module WHERE id = ?1")
+            row = entityManager
+                    .createNativeQuery("SELECT CAST(bean_json AS text) FROM d_module WHERE id = ?1")
                     .setParameter(1, module.getId())
                     .getSingleResult();
         } catch (Exception ex) {
             LOGGER.warn("Failed to fetch module payload for order bundle id={}", module.getId(), ex);
             return null;
         }
-        String beanJsonRaw = row != null && row.length > 0 && row[0] != null ? row[0].toString() : null;
-        BundleDolphin jsonBundle = decodeBundleFromJson(beanJsonRaw);
-        if (jsonBundle != null) {
-            return jsonBundle;
-        }
-        Object beanBytesRaw = row != null && row.length > 1 ? row[1] : null;
-        byte[] xmlBytes = resolveLargeObjectBytes(beanBytesRaw);
-        if (xmlBytes == null || xmlBytes.length == 0) {
-            return null;
-        }
-        try {
-            Object decoded = IOSHelper.xmlDecode(xmlBytes);
-            if (decoded instanceof BundleDolphin bundle) {
-                return bundle;
-            }
-        } catch (RuntimeException ex) {
-            LOGGER.warn("Failed to decode order bundle XML from large object id={}", module.getId(), ex);
-        }
-        return null;
+        return decodeBundleFromJson(row != null ? row.toString() : null);
     }
 
     private BundleDolphin decodeBundleFromJson(String beanJsonRaw) {
@@ -1359,111 +1333,7 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         if (decoded instanceof BundleDolphin bundle) {
             return bundle;
         }
-        Long oid = parseOid(beanJsonRaw);
-        if (oid == null) {
-            return null;
-        }
-        String json = fetchLargeObjectText(oid);
-        if (json == null || json.isBlank()) {
-            return null;
-        }
-        Object decodedLo = ModuleJsonConverter.getInstance().deserialize(json);
-        if (decodedLo instanceof BundleDolphin bundle) {
-            return bundle;
-        }
         return null;
-    }
-
-    private byte[] resolveLargeObjectBytes(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof byte[] bytes) {
-            return bytes;
-        }
-        if (value instanceof Blob blob) {
-            try {
-                return blob.getBytes(1, (int) blob.length());
-            } catch (Exception ex) {
-                return null;
-            }
-        }
-        Long oid = parseOid(value);
-        if (oid == null) {
-            return null;
-        }
-        return fetchLargeObjectBytes(oid);
-    }
-
-    private byte[] fetchLargeObjectBytes(long oid) {
-        if (oid <= 0) {
-            return null;
-        }
-        Object result;
-        try {
-            result = entityManager
-                    .createNativeQuery("SELECT lo_get(?1)")
-                    .setParameter(1, oid)
-                    .getSingleResult();
-        } catch (Exception ex) {
-            return null;
-        }
-        if (result instanceof byte[] bytes) {
-            return bytes;
-        }
-        if (result instanceof Blob blob) {
-            try {
-                return blob.getBytes(1, (int) blob.length());
-            } catch (Exception ex) {
-                return null;
-            }
-        }
-        if (result != null) {
-            return result.toString().getBytes(StandardCharsets.UTF_8);
-        }
-        return null;
-    }
-
-    private String fetchLargeObjectText(long oid) {
-        if (oid <= 0) {
-            return null;
-        }
-        Object result;
-        try {
-            result = entityManager
-                    .createNativeQuery("SELECT convert_from(lo_get(?1), 'UTF8')")
-                    .setParameter(1, oid)
-                    .getSingleResult();
-        } catch (Exception ex) {
-            return null;
-        }
-        return result != null ? result.toString() : null;
-    }
-
-    private Long parseOid(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number number) {
-            long oid = number.longValue();
-            return oid > 0 ? oid : null;
-        }
-        String text = value.toString().trim();
-        if (text.isEmpty()) {
-            return null;
-        }
-        for (int i = 0; i < text.length(); i++) {
-            char ch = text.charAt(i);
-            if (ch < '0' || ch > '9') {
-                return null;
-            }
-        }
-        try {
-            long oid = Long.parseLong(text);
-            return oid > 0 ? oid : null;
-        } catch (NumberFormatException ex) {
-            return null;
-        }
     }
 
     private String resolveBundleName(BundleDolphin bundle, ModuleInfoBean info) {

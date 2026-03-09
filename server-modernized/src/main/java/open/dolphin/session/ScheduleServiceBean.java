@@ -1,6 +1,6 @@
 package open.dolphin.session;
 
-import java.text.SimpleDateFormat;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -37,7 +37,6 @@ import open.dolphin.session.framework.SessionTraceAttributes;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
 import open.dolphin.security.audit.SessionAuditDispatcher;
-import open.dolphin.security.xml.SafeXmlDecoder;
 import open.dolphin.touch.converter.IOSHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,10 +54,10 @@ public class ScheduleServiceBean {
     private static final Logger LOGGER = LoggerFactory.getLogger(ScheduleServiceBean.class);
     
     private static final String QUERY_PVT_BY_FID_DATE
-            = "from PatientVisitModel p where p.facilityId=:fid and p.pvtDate like :date order by p.pvtDate";
+            = "from PatientVisitModel p where p.facilityId=:fid and p.pvtDate >= :fromDate and p.pvtDate < :toDate order by p.pvtDate";
     
     private static final String QUERY_PVT_BY_FID_DID_DATE
-            = "from PatientVisitModel p where p.facilityId=:fid and p.pvtDate like :date and (doctorId=:did or doctorId=:unassigned) order by p.pvtDate";
+            = "from PatientVisitModel p where p.facilityId=:fid and p.pvtDate >= :fromDate and p.pvtDate < :toDate and (doctorId=:did or doctorId=:unassigned) order by p.pvtDate";
     
     private static final String QUERY_INSURANCE_BY_PATIENT_ID 
             = "from HealthInsuranceModel h where h.patient.id=:id";
@@ -66,12 +65,6 @@ public class ScheduleServiceBean {
     private static final String QUERY_KARTE 
             = "from KarteBean k where k.patient.id=:patientPk";
 
-    private static final String QUERY_LASTDOC_DATE_BY_KARTEID_FINAL
-//minagawa^ LSC Test             
-            //= "select max(m.started) from DocumentModel m where m.karte.id=:karteId and (m.status='F' or m.status='T')";
-    = "select max(m.started) from d_document m where m.karte_id=:karteId and m.docType=:docType and (m.status = 'F' or m.status = 'T')";
-//minagawa$    
-    
     private static final String QUERY_DOCUMENT_BY_KARTEID_STARTDATE 
             = "from DocumentModel d where d.karte.id=:karteId and d.started=:started and (d.status='F' or d.status='T')";
     
@@ -114,6 +107,10 @@ public class ScheduleServiceBean {
 //s.oh$
     
     public List<PatientVisitModel> getPvt(String fid, String did, String unassigned, String date) {
+        LocalDate targetDate = ModelUtils.parseDate(date != null ? date.replace("%", "") : null);
+        if (targetDate == null) {
+            return List.of();
+        }
         
         Map<String, Object> auditDetails = new HashMap<>();
         auditDetails.put("facilityId", fid);
@@ -128,14 +125,16 @@ public class ScheduleServiceBean {
             if (did==null && unassigned==null) {
                 result = (List<PatientVisitModel>) em.createQuery(QUERY_PVT_BY_FID_DATE)
                                       .setParameter("fid", fid)
-                                      .setParameter("date", date+"%")
+                                      .setParameter("fromDate", targetDate.atStartOfDay())
+                                      .setParameter("toDate", targetDate.plusDays(1).atStartOfDay())
                                       .getResultList();
             } else {
                 result = (List<PatientVisitModel>) em.createQuery(QUERY_PVT_BY_FID_DID_DATE)
                                       .setParameter("fid", fid)
                                       .setParameter("did", did)
                                       .setParameter("unassigned", unassigned)
-                                      .setParameter("date", date+"%")
+                                      .setParameter("fromDate", targetDate.atStartOfDay())
+                                      .setParameter("toDate", targetDate.plusDays(1).atStartOfDay())
                                       .getResultList();
             }
 
@@ -143,7 +142,7 @@ public class ScheduleServiceBean {
 
             if (len != 0) {
                 // Dateへ変換
-                Date startDate = dateFromString(date);
+                Date startDate = dateFromString(targetDate);
 
                 // 来院情報と患者は ManyToOne の関係である
                 for (int i = 0; i < len; i++) {
@@ -208,7 +207,8 @@ public class ScheduleServiceBean {
             // 受け付けた保険をデコードする
             PVTHealthInsuranceModel pvtHealthInsurance=null;
             for (HealthInsuranceModel m : insurances) {
-                pvtHealthInsurance = SafeXmlDecoder.decode(m.getBeanBytes(), PVTHealthInsuranceModel.class);
+                Object decoded = ModelUtils.jsonDecode(m.getBeanJson());
+                pvtHealthInsurance = decoded instanceof PVTHealthInsuranceModel insurance ? insurance : null;
                 break;
             }
             
@@ -236,14 +236,7 @@ public class ScheduleServiceBean {
             DocumentModel schedule;
             
             try {
-                // Documentの最終日を得る
-                Date lastDocDate = (Date)
-//minagawa^ LSC Test                        
-                        em.createNativeQuery(QUERY_LASTDOC_DATE_BY_KARTEID_FINAL)
-                        .setParameter("karteId", karte.getId())
-                        .setParameter("docType", "karte")
-                        .getSingleResult();
-//minagawa$                
+                Date lastDocDate = findLatestKarteDocumentStarted(karte.getId());
                 
                 // そのDocumentを得る ToDo
                 List<DocumentModel> list2 = (List<DocumentModel>)em.createQuery(QUERY_DOCUMENT_BY_KARTEID_STARTDATE)
@@ -267,7 +260,6 @@ public class ScheduleServiceBean {
                     soaProgress.setFreeText(sb.toString());
                     ModuleModel soaSpecModule = new ModuleModel();
                     soaSpecModule.setBeanJson(ModelUtils.jsonEncode(soaProgress));
-                    soaSpecModule.setBeanBytes(null);
                     soaSpecModule.setConfirmed(latest.getConfirmed());
                     soaSpecModule.setStarted(latest.getStarted());
                     soaSpecModule.setRecorded(latest.getRecorded());
@@ -301,7 +293,6 @@ public class ScheduleServiceBean {
                     pProgress.setFreeText(sb.toString());
                     ModuleModel pSpecModule = new ModuleModel();
                     pSpecModule.setBeanJson(ModelUtils.jsonEncode(pProgress));
-                    pSpecModule.setBeanBytes(null);
                     pSpecModule.setConfirmed(latest.getConfirmed());
                     pSpecModule.setStarted(latest.getStarted());
                     pSpecModule.setRecorded(latest.getRecorded());
@@ -567,13 +558,21 @@ public class ScheduleServiceBean {
         return list;
     }
     
-    private Date dateFromString(String str) {
-        try {
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-            return sdf.parse(str);
-        } catch (Exception e) {           
-        }
-        return null;
+    private Date dateFromString(LocalDate date) {
+        return date != null ? ModelUtils.getDateAsObject(date.toString()) : null;
+    }
+
+    private Date findLatestKarteDocumentStarted(long karteId) {
+        List<Date> startedDates = em.createQuery(
+                        "select d.started from DocumentModel d "
+                                + "where d.karte.id=:karteId and d.docInfoModel.docType=:docType "
+                                + "and (d.status='F' or d.status='T') order by d.started desc",
+                        Date.class)
+                .setParameter("karteId", karteId)
+                .setParameter("docType", IInfoModel.DOCTYPE_KARTE)
+                .setMaxResults(1)
+                .getResultList();
+        return startedDates.isEmpty() ? null : startedDates.get(0);
     }
 
     private void writeScheduleAudit(String action, Map<String, Object> details, Throwable error, String patientId) {

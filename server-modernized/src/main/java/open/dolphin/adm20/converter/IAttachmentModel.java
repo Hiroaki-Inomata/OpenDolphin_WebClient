@@ -50,7 +50,7 @@ public class IAttachmentModel implements java.io.Serializable {
     private String extension;
     private String memo; 
     
-    private byte[] bytes;
+    private byte[] contentBytes;
     
     public IAttachmentModel() {
     }
@@ -207,12 +207,12 @@ public class IAttachmentModel implements java.io.Serializable {
         this.memo = memo;
     }
     
-    public byte[] getBytes() {
-        return bytes;
+    public byte[] getContentBytes() {
+        return contentBytes;
     }
 
-    public void setBytes(byte[] bytes) {
-        this.bytes = bytes;
+    public void setContentBytes(byte[] contentBytes) {
+        this.contentBytes = contentBytes;
     }
     
     public void fromModel(AttachmentModel model) {
@@ -246,7 +246,7 @@ public class IAttachmentModel implements java.io.Serializable {
         this.setMemo(model.getMemo());
         
         // base64
-        this.setBytes(model.getBytes());
+        this.setContentBytes(model.getContentBytes());
     }
     
     public AttachmentModel toModel() {
@@ -284,7 +284,7 @@ public class IAttachmentModel implements java.io.Serializable {
         ret.setMemo(this.getMemo());
         
         // base64
-        ret.setBytes(this.getBytes());
+        ret.setContentBytes(this.getContentBytes());
         
         return ret;
     }

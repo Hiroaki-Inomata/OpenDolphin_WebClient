@@ -10,6 +10,7 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
+import java.time.LocalDate;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -242,7 +243,6 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         DocumentModel saved = fakeKarteServiceBean.getLastAddedDocument();
         assertNotNull(saved);
         assertNotNull(saved.getModules().get(0).getBeanJson());
-        assertEquals(null, saved.getModules().get(0).getBeanBytes());
         BundleDolphin bundle = (BundleDolphin) saved.getModules().get(0).getModel();
         ClaimItem[] claimItems = bundle.getClaimItem();
         assertNotNull(claimItems);
@@ -278,7 +278,6 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         DocumentModel saved = fakeKarteServiceBean.getLastAddedDocument();
         assertNotNull(saved);
         assertNotNull(saved.getModules().get(0).getBeanJson());
-        assertEquals(null, saved.getModules().get(0).getBeanBytes());
         BundleDolphin bundle = (BundleDolphin) saved.getModules().get(0).getModel();
         ClaimItem[] claimItems = bundle.getClaimItem();
         assertNotNull(claimItems);
@@ -489,7 +488,7 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
             patient.setPatientId(pid);
             patient.setFullName("テスト患者");
             patient.setKanaName("テスト");
-            patient.setBirthday("1990-01-01");
+            patient.setBirthday(LocalDate.parse("1990-01-01"));
             patient.setGender("F");
             return patient;
         }
@@ -629,7 +628,6 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
                 ModuleModel module = document.getModules().get(0);
                 BundleDolphin bundle = (BundleDolphin) module.getModel();
                 module.setBeanJson(ModelUtils.jsonEncode(bundle));
-                module.setBeanBytes(null);
                 module.setModel(null);
                 return document;
             }).toList();

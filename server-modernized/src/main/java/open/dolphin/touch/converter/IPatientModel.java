@@ -7,9 +7,9 @@ import open.dolphin.converter.PVTHealthInsuranceModelConverter;
 import open.dolphin.converter.SimpleAddressModelConverter;
 import open.dolphin.infomodel.HealthInsuranceModel;
 import open.dolphin.infomodel.IInfoModel;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.PVTHealthInsuranceModel;
 import open.dolphin.infomodel.PatientModel;
-import open.dolphin.security.xml.SafeXmlDecoder;
 
 /**
  *
@@ -65,7 +65,7 @@ public final class IPatientModel implements IInfoModelConverter {
     }
 
     public String getBirthday() {
-        return model.getBirthday();
+        return model.getBirthday() != null ? model.getBirthday().toString() : null;
     }
 
     public String getNationality() {
@@ -115,32 +115,6 @@ public final class IPatientModel implements IInfoModelConverter {
     }
 //minagawa$
     
-//s.oh^ 2014/08/29 患者情報の追加
-    public String getReserve1() {
-        return model.getReserve1();
-    }
-
-    public String getReserve2() {
-        return model.getReserve2();
-    }
-
-    public String getReserve3() {
-        return model.getReserve3();
-    }
-
-    public String getReserve4() {
-        return model.getReserve4();
-    }
-
-    public String getReserve5() {
-        return model.getReserve5();
-    }
-
-    public String getReserve6() {
-        return model.getReserve6();
-    }
-//s.oh$
-    
     public List<PVTHealthInsuranceModelConverter> getHealthInsurances() {
         
         List<HealthInsuranceModel> list = model.getHealthInsurances();
@@ -153,8 +127,7 @@ public final class IPatientModel implements IInfoModelConverter {
         
         // HealthInsuranceModelをイテレートし
         for (HealthInsuranceModel hm : list) {
-            // PVTHealthInsuranceに戻す
-            PVTHealthInsuranceModel hModel = (PVTHealthInsuranceModel)xmlDecode(hm.getBeanBytes());
+            PVTHealthInsuranceModel hModel = (PVTHealthInsuranceModel) ModelUtils.jsonDecode(hm.getBeanJson());
             if (hModel == null) {
                 continue;
             }
@@ -173,11 +146,4 @@ public final class IPatientModel implements IInfoModelConverter {
         this.model = (PatientModel)m;
     }
     
-    private Object xmlDecode(byte[] bytes)  {
-        try {
-            return SafeXmlDecoder.decode(bytes);
-        } catch (IllegalArgumentException ex) {
-            return null;
-        }
-    }
 }

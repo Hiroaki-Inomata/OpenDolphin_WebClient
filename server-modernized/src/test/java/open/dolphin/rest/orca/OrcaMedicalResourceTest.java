@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.WebApplicationException;
+import java.time.LocalDate;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Date;
@@ -166,7 +167,7 @@ class OrcaMedicalResourceTest extends RuntimeDelegateTestSupport {
             patient.setPatientId(pid);
             patient.setFullName("テスト患者");
             patient.setKanaName("テスト");
-            patient.setBirthday("1990-01-01");
+            patient.setBirthday(LocalDate.parse("1990-01-01"));
             patient.setGender("F");
             return patient;
         }

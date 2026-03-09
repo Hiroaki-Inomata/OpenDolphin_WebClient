@@ -64,7 +64,7 @@ public class PVTResource2 extends AbstractResource {
 //        debug(cntStr);
 //
 //        return cntStr;   
-        ObjectMapper mapper = new ObjectMapper();
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         // 2013/06/24
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         PatientVisitModel model = mapper.readValue(json, PatientVisitModel.class);

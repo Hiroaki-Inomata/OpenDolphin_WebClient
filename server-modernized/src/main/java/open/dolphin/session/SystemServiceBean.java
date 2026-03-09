@@ -6,13 +6,13 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.Iterator;
 import java.util.List;
+import java.time.LocalDateTime;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
 import jakarta.persistence.EntityExistsException;
@@ -171,7 +171,7 @@ public class SystemServiceBean {
             for (Iterator iter2 = demoInsurances.iterator(); iter2.hasNext(); ) {
                 HealthInsuranceModel demoInsurance = (HealthInsuranceModel) iter2.next();
                 HealthInsuranceModel copyInsurance = new HealthInsuranceModel();
-                copyInsurance.setBeanBytes(demoInsurance.getBeanBytes());
+                copyInsurance.setBeanJson(demoInsurance.getBeanJson());
                 copyInsurance.setPatient(copyPatient);
                 copyPatient.addHealthInsurance(copyInsurance);
             }
@@ -416,8 +416,8 @@ public class SystemServiceBean {
         sql = sb.toString();
         obj = em.createQuery(sql)
                 .setParameter("fid", fid)
-                .setParameter("fromDate", pvtDateFromDate(from))
-                .setParameter("toDate", pvtDateFromDate(to))
+                .setParameter("fromDate", LocalDateTime.ofInstant(from.toInstant(), java.time.ZoneId.systemDefault()))
+                .setParameter("toDate", LocalDateTime.ofInstant(to.toInstant(), java.time.ZoneId.systemDefault()))
                 .setParameter("status", 6)
                 .getSingleResult();
         count = (long)obj;
@@ -585,16 +585,11 @@ public class SystemServiceBean {
         }
     }
     
-    private String pvtDateFromDate(Date d) {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
-        return sdf.format(d);
-    }
-    
     private String sampleDateFromDate(Date d) {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
         return sdf.format(d);
     }
-    
+
     private String getBindAddress() {
         String test = System.getProperty("jboss.bind.address");
         if (test==null) {
@@ -617,9 +612,9 @@ public class SystemServiceBean {
     private void log(String msg, long count) { 
         LOGGER.info("{}={}", msg, count);
     }
-    
+
     private void log(String msg, long count, long total) { 
-        LOGGER.info("{}={}/{}", msg, count, total);
+        LOGGER.info("{}={} / {}", msg, count, total);
     }
 //s.oh$
 }

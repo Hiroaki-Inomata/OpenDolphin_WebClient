@@ -50,7 +50,7 @@ public class IAttachmentModel implements java.io.Serializable {
     private String extension;
     private String memo; 
     
-    private byte[] bytes;
+    private byte[] contentBytes;
     
     public IAttachmentModel() {
     }
@@ -207,12 +207,12 @@ public class IAttachmentModel implements java.io.Serializable {
         this.memo = memo;
     }
     
-    public byte[] getBytes() {
-        return bytes;
+    public byte[] getContentBytes() {
+        return contentBytes;
     }
 
-    public void setBytes(byte[] bytes) {
-        this.bytes = bytes;
+    public void setContentBytes(byte[] contentBytes) {
+        this.contentBytes = contentBytes;
     }
     
     public void fromModel(AttachmentModel model) {
@@ -247,8 +247,7 @@ public class IAttachmentModel implements java.io.Serializable {
         
         // base64
 //s.oh^ 2014/08/20 添付ファイルの別読
-        this.setBytes(model.getBytes());
-        //this.setBytes(null);
+        this.setContentBytes(model.getContentBytes());
 //s.oh$
     }
     
@@ -287,7 +286,7 @@ public class IAttachmentModel implements java.io.Serializable {
         ret.setMemo(this.getMemo());
         
         // base64
-        ret.setBytes(this.getBytes());
+        ret.setContentBytes(this.getContentBytes());
         
         return ret;
     }

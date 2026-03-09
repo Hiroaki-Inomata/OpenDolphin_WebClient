@@ -2,15 +2,11 @@ package open.dolphin.touch.support;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.beans.XMLEncoder;
-import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import open.dolphin.infomodel.IStampTreeModel;
-import open.dolphin.infomodel.StampModel;
 import open.dolphin.infomodel.StampTreeModel;
-import open.dolphin.infomodel.TextStampModel;
 import open.dolphin.rest.jackson.LegacyObjectMapperProducer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,23 +35,6 @@ class TouchJsonConverterTest {
 
         assertNotNull(json);
         assertTrue(json.contains("stampTreeList"));
-    }
-
-    @Test
-    void convertsStampXml() throws Exception {
-        TextStampModel text = new TextStampModel();
-        text.setText("sample");
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        try (XMLEncoder encoder = new XMLEncoder(baos)) {
-            encoder.writeObject(text);
-        }
-        StampModel stamp = new StampModel();
-        stamp.setStampBytes(baos.toByteArray());
-
-        String json = converter.convertStamp(stamp);
-
-        assertNotNull(json);
-        assertFalse(json.isBlank());
     }
 
     @Test

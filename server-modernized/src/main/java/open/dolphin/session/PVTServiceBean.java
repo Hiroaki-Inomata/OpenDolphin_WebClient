@@ -14,11 +14,8 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashSet;
@@ -37,7 +34,6 @@ import jakarta.transaction.Transactional;
 import open.dolphin.infomodel.*;
 import open.dolphin.mbean.KanaToAscii;
 import open.dolphin.mbean.ServletContextHolder;
-import open.dolphin.security.xml.SafeXmlDecoder;
 import open.dolphin.session.framework.SessionOperation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,9 +51,9 @@ public class PVTServiceBean {
     private static final Logger LOGGER = LoggerFactory.getLogger(PVTServiceBean.class);
 
     private static final String QUERY_PATIENT_BY_FID_PID        = "from PatientModel p where p.facilityId=:fid and p.patientId=:pid";
-    private static final String QUERY_PVT_BY_FID_PID_DATE       = "from PatientVisitModel p where p.facilityId=:fid and p.pvtDate like :date and p.patient.patientId=:pid";
-    private static final String QUERY_PVT_BY_FID_DATE           = "from PatientVisitModel p where p.facilityId=:fid and p.pvtDate like :date order by p.pvtDate";
-    private static final String QUERY_PVT_BY_FID_DID_DATE       = "from PatientVisitModel p where p.facilityId=:fid and p.pvtDate like :date and (doctorId=:did or doctorId=:unassigned) order by p.pvtDate";
+    private static final String QUERY_PVT_BY_FID_PID_DATE       = "from PatientVisitModel p where p.facilityId=:fid and p.pvtDate >= :fromDate and p.pvtDate < :toDate and p.patient.patientId=:pid";
+    private static final String QUERY_PVT_BY_FID_DATE           = "from PatientVisitModel p where p.facilityId=:fid and p.pvtDate >= :fromDate and p.pvtDate < :toDate order by p.pvtDate";
+    private static final String QUERY_PVT_BY_FID_DID_DATE       = "from PatientVisitModel p where p.facilityId=:fid and p.pvtDate >= :fromDate and p.pvtDate < :toDate and (doctorId=:did or doctorId=:unassigned) order by p.pvtDate";
     private static final String QUERY_INSURANCE_BY_PATIENT_ID   = "from HealthInsuranceModel h where h.patient.id=:id";
     private static final String QUERY_KARTE_BY_PATIENT_ID       = "from KarteBean k where k.patient.id=:id";
     private static final String QUERY_APPO_BY_KARTE_ID_DATE     = "from AppointmentModel a where a.karte.id=:id and a.date=:date";
@@ -72,9 +68,9 @@ public class PVTServiceBean {
     private static final String UNASSIGNED = "unassigned";
     private static final String ID = "id";
     private static final String DATE = "date";
+    private static final String FROM_DATE = "fromDate";
+    private static final String TO_DATE = "toDate";
     private static final String PERCENT = "%";
-    private static final DateTimeFormatter PVT_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
-    private static final DateTimeFormatter PVT_DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
     private static final int LEGACY_FINALIZED_SAVE_BIT   = 1;
     private static final int LEGACY_FINALIZED_MODIFY_BIT = 2;
     private static final int LEGACY_FINALIZED_SAVE_STATE = 1 << LEGACY_FINALIZED_SAVE_BIT;   // 2
@@ -151,7 +147,7 @@ public class PVTServiceBean {
                 for (InsuranceUpdate update : mergeResult.updates()) {
                     HealthInsuranceModel persisted = update.persisted();
                     HealthInsuranceModel incoming = update.incoming();
-                    persisted.setBeanBytes(incoming.getBeanBytes());
+                    persisted.setBeanJson(incoming.getBeanJson());
                     persisted.setPatient(exist);
                 }
 
@@ -226,15 +222,16 @@ public class PVTServiceBean {
         if (!isToday(pvt.getPvtDate())) {
             LOGGER.info("scheduled PVT: {}", pvt.getPvtDate());
             // 2重登録をチェックする
-            String test = extractPvtDatePart(pvt.getPvtDate());
-            if (test == null) {
+            LocalDate visitDate = extractPvtDatePart(pvt.getPvtDate());
+            if (visitDate == null) {
                 LOGGER.warn("skip scheduled PVT registration because pvtDate is invalid: {}", pvt.getPvtDate());
                 return 0;
             }
             List<PatientVisitModel> list = (List<PatientVisitModel>)em
             .createQuery(QUERY_PVT_BY_FID_PID_DATE)
             .setParameter(FID, fid)
-            .setParameter(DATE, test+PERCENT)
+            .setParameter(FROM_DATE, visitDate.atStartOfDay())
+            .setParameter(TO_DATE, visitDate.plusDays(1).atStartOfDay())
             .setParameter(PID, patient.getPatientId())
             .getResultList();
         
@@ -408,9 +405,8 @@ public class PVTServiceBean {
         sb.append(rm).append(",");                                                // roman,
         String g = pvt.getPatientModel().getGender();
         sb.append(ModelUtils.getGenderMFDesc(g)).append(",");           // F | M,
-        String birth = pvt.getPatientModel().getBirthday();
-        birth = birth.replaceAll("-", "");
-        sb.append(birth);                                               // yyyyMMdd
+        LocalDate birth = pvt.getPatientModel().getBirthday();
+        sb.append(birth != null ? birth.format(DateTimeFormatter.BASIC_ISO_DATE) : ""); // yyyyMMdd
         return sb.toString();
     }
 
@@ -461,14 +457,12 @@ public class PVTServiceBean {
      * @param mmlDate yyyy-MM-ddTHH:mm:ss
      * @return 今日の時 true
      */
-    private boolean isToday(String mmlDate) {
-        String test = extractPvtDatePart(mmlDate);
+    private boolean isToday(LocalDateTime pvtDate) {
+        LocalDate test = extractPvtDatePart(pvtDate);
         if (test == null) {
             return false;
         }
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-        String today = sdf.format(new Date());
-        return test.equals(today);
+        return test.equals(LocalDate.now());
     }
 
     static InsuranceMergeResult mergeInsurances(List<HealthInsuranceModel> existing,
@@ -512,62 +506,12 @@ public class PVTServiceBean {
         return new InsuranceMergeResult(updates, additions, merged);
     }
 
-    static String normalizePvtDateForStorage(String rawPvtDate) {
-        String value = normalizeText(rawPvtDate);
-        if (value == null) {
-            return null;
-        }
-
-        try {
-            LocalDate date = LocalDate.parse(value, PVT_DATE_FORMATTER);
-            return date.atStartOfDay().format(PVT_DATE_TIME_FORMATTER);
-        } catch (DateTimeParseException ignore) {
-            // fall through
-        }
-
-        LocalDateTime dateTime = parseDateTime(value);
-        if (dateTime != null) {
-            return dateTime.withNano(0).format(PVT_DATE_TIME_FORMATTER);
-        }
-
-        String datePart = extractPvtDatePart(value);
-        if (datePart != null) {
-            return datePart + "T00:00:00";
-        }
-
-        return value;
+    static LocalDateTime normalizePvtDateForStorage(LocalDateTime rawPvtDate) {
+        return rawPvtDate == null ? null : rawPvtDate.withNano(0);
     }
 
-    static String extractPvtDatePart(String pvtDate) {
-        String value = normalizeText(pvtDate);
-        if (value == null || value.length() < 10) {
-            return null;
-        }
-        String candidate = value.substring(0, 10);
-        try {
-            LocalDate.parse(candidate, PVT_DATE_FORMATTER);
-            return candidate;
-        } catch (DateTimeParseException ex) {
-            return null;
-        }
-    }
-
-    private static LocalDateTime parseDateTime(String value) {
-        try {
-            return LocalDateTime.parse(value, PVT_DATE_TIME_FORMATTER);
-        } catch (DateTimeParseException ignore) {
-            // fall through
-        }
-        try {
-            return LocalDateTime.parse(value, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-        } catch (DateTimeParseException ignore) {
-            // fall through
-        }
-        try {
-            return OffsetDateTime.parse(value, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toLocalDateTime();
-        } catch (DateTimeParseException ignore) {
-            return null;
-        }
+    static LocalDate extractPvtDatePart(LocalDateTime pvtDate) {
+        return pvtDate == null ? null : pvtDate.toLocalDate();
     }
 
     private static String resolveInsuranceKey(HealthInsuranceModel model) {
@@ -593,21 +537,18 @@ public class PVTServiceBean {
             }
         }
 
-        byte[] bytes = model.getBeanBytes();
-        if (bytes != null && bytes.length > 0) {
-            return "bytes:" + Arrays.hashCode(bytes);
-        }
         return null;
     }
 
     private static PVTHealthInsuranceModel decodeInsurance(HealthInsuranceModel model) {
-        byte[] bytes = model != null ? model.getBeanBytes() : null;
-        if (bytes == null || bytes.length == 0) {
+        String json = model != null ? model.getBeanJson() : null;
+        if (json == null || json.isBlank()) {
             return null;
         }
         try {
-            return SafeXmlDecoder.decode(bytes, PVTHealthInsuranceModel.class);
-        } catch (IllegalArgumentException ignore) {
+            Object decoded = ModelUtils.jsonDecode(json);
+            return decoded instanceof PVTHealthInsuranceModel insurance ? insurance : null;
+        } catch (RuntimeException ignore) {
             return null;
         }
     }
@@ -817,16 +758,17 @@ public class PVTServiceBean {
      */
     
     public List<PatientVisitModel> getPvt(String fid, String date, int firstResult, String appoDateFrom, String appoDateTo) {
-
-        if (!date.endsWith(PERCENT)) {
-            date += PERCENT;
+        LocalDate targetDate = ModelUtils.parseDate(date != null ? date.replace("%", "") : null);
+        if (targetDate == null) {
+            return List.of();
         }
         
         // PatientVisitModelを施設IDで検索する
         List<PatientVisitModel> result =
                 (List<PatientVisitModel>) em.createQuery(QUERY_PVT_BY_FID_DATE)
                               .setParameter(FID, fid)
-                              .setParameter(DATE, date+PERCENT)
+                              .setParameter(FROM_DATE, targetDate.atStartOfDay())
+                              .setParameter(TO_DATE, targetDate.plusDays(1).atStartOfDay())
                               .setFirstResult(firstResult)
                               .getResultList();
 
@@ -836,8 +778,7 @@ public class PVTServiceBean {
             return result;
         }
 
-        int index = date.indexOf(PERCENT);
-        Date theDate = ModelUtils.getDateAsObject(date.substring(0, index));
+        Date theDate = ModelUtils.getDateAsObject(targetDate.toString());
 
         boolean searchAppo = (appoDateFrom != null && appoDateTo != null);
         attachVisitHealthInsurances(result);
@@ -850,9 +791,9 @@ public class PVTServiceBean {
 
     
     public List<PatientVisitModel> getPvt(String fid, String did, String unassigned, String date, int firstResult, String appoDateFrom, String appoDateTo) {
-
-        if (!date.endsWith(PERCENT)) {
-            date += PERCENT;
+        LocalDate targetDate = ModelUtils.parseDate(date != null ? date.replace("%", "") : null);
+        if (targetDate == null) {
+            return List.of();
         }
 
         // PatientVisitModelを施設IDで検索する
@@ -861,7 +802,8 @@ public class PVTServiceBean {
                               .setParameter(FID, fid)
                               .setParameter(DID, did)
                               .setParameter(UNASSIGNED, unassigned)
-                              .setParameter(DATE, date+PERCENT)
+                              .setParameter(FROM_DATE, targetDate.atStartOfDay())
+                              .setParameter(TO_DATE, targetDate.plusDays(1).atStartOfDay())
                               .setFirstResult(firstResult)
                               .getResultList();
 
@@ -871,8 +813,7 @@ public class PVTServiceBean {
             return result;
         }
 
-        int index = date.indexOf(PERCENT);
-        Date theDate = ModelUtils.getDateAsObject(date.substring(0, index));
+        Date theDate = ModelUtils.getDateAsObject(targetDate.toString());
 
         boolean searchAppo = (appoDateFrom != null && appoDateTo != null);
         attachVisitHealthInsurances(result);

@@ -84,7 +84,7 @@ class DocumentIntegrityServiceTest {
                 .doesNotThrowAnyException();
 
         DocumentModel tampered = buildDocument(false);
-        tampered.getModules().get(0).getBeanBytes()[0] ^= 0x01;
+        tampered.getModules().get(0).setBeanJson("{\"a\":2,\"z\":9}");
 
         assertThatThrownBy(() -> service.verifyDocumentOnRead(tampered))
                 .isInstanceOf(WebApplicationException.class)
@@ -103,13 +103,23 @@ class DocumentIntegrityServiceTest {
         AttachmentModel attachment = document.getAttachment().get(0);
         attachment.setDigest("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08");
         attachment.setUri("s3://test-bucket/attachments/doc-100/att-21-a.txt");
-        attachment.setBytes(null);
+        attachment.setContentBytes(null);
 
         DocumentIntegrityEntity stored = buildStoredSeal(service, document);
         when(em.find(DocumentIntegrityEntity.class, document.getId())).thenReturn(stored);
 
         assertThatCode(() -> service.verifyDocumentOnRead(document))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void canonical_moduleHash_ignoresJsonKeyOrder() throws Exception {
+        DocumentModel left = buildDocument(false);
+        left.getModules().get(0).setBeanJson("{\"z\":1,\"a\":2}");
+        DocumentModel right = buildDocument(false);
+        right.getModules().get(0).setBeanJson("{\"a\":2,\"z\":1}");
+
+        assertThat(invokeCanonicalBytes(service, left)).isEqualTo(invokeCanonicalBytes(service, right));
     }
 
     private static DocumentIntegrityEntity buildStoredSeal(DocumentIntegrityService service,
@@ -182,7 +192,7 @@ class DocumentIntegrityServiceTest {
         ModuleModel module1 = new ModuleModel();
         module1.setId(10L);
         module1.getModuleInfoBean().setEntity("medOrder");
-        module1.setBeanBytes(new byte[]{0x01, 0x02, 0x03});
+        module1.setBeanJson("{\"z\":1,\"a\":2}");
 
         ModuleModel module2 = new ModuleModel();
         module2.setId(20L);
@@ -197,14 +207,16 @@ class DocumentIntegrityServiceTest {
         ExtRefModel ext1 = new ExtRefModel();
         ext1.setHref("schema://1");
         schema1.setExtRefModel(ext1);
-        schema1.setJpegByte(new byte[]{0x0A, 0x0B, 0x0C});
+        schema1.setUri("s3://bucket/images/11.png");
+        schema1.setDigest("digest-11");
 
         SchemaModel schema2 = new SchemaModel();
         schema2.setId(12L);
         ExtRefModel ext2 = new ExtRefModel();
         ext2.setHref("schema://2");
         schema2.setExtRefModel(ext2);
-        schema2.setJpegByte(new byte[]{0x1A, 0x1B, 0x1C});
+        schema2.setUri("s3://bucket/images/12.png");
+        schema2.setDigest("digest-12");
 
         List<SchemaModel> schemas = reverseOrder ? List.of(schema2, schema1) : List.of(schema1, schema2);
         document.setSchema(schemas);
@@ -214,16 +226,18 @@ class DocumentIntegrityServiceTest {
         attachment1.setFileName("a.txt");
         attachment1.setContentType("text/plain");
         attachment1.setContentSize(3L);
-        attachment1.setUri("file://a");
-        attachment1.setBytes(new byte[]{0x21, 0x22, 0x23});
+        attachment1.setUri("s3://bucket/attachments/a.txt");
+        attachment1.setDigest("digest-a");
+        attachment1.setContentBytes(new byte[]{0x21, 0x22, 0x23});
 
         AttachmentModel attachment2 = new AttachmentModel();
         attachment2.setId(22L);
         attachment2.setFileName("b.txt");
         attachment2.setContentType("text/plain");
         attachment2.setContentSize(4L);
-        attachment2.setUri("file://b");
-        attachment2.setBytes(new byte[]{0x31, 0x32, 0x33, 0x34});
+        attachment2.setUri("s3://bucket/attachments/b.txt");
+        attachment2.setDigest("digest-b");
+        attachment2.setContentBytes(new byte[]{0x31, 0x32, 0x33, 0x34});
 
         List<AttachmentModel> attachments = reverseOrder ? List.of(attachment2, attachment1)
                 : List.of(attachment1, attachment2);

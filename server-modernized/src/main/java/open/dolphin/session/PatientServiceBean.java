@@ -1,11 +1,13 @@
 package open.dolphin.session;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.List;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -20,6 +22,7 @@ import open.dolphin.infomodel.ChartEventModel;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.HealthInsuranceModel;
 import open.dolphin.infomodel.KarteBean;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.PatientVisitModel;
 import open.dolphin.session.framework.SessionOperation;
@@ -37,7 +40,8 @@ public class PatientServiceBean {
     private static final Logger LOGGER = Logger.getLogger(PatientServiceBean.class.getName());
 
     // cancel status=64 を where 節へ追加
-    private static final String QUERY_PATIENT_BY_PVTDATE = "from PatientVisitModel p where p.facilityId = :fid and p.pvtDate like :date and p.status!=64";
+    private static final String QUERY_PATIENT_BY_PVTDATE
+            = "from PatientVisitModel p where p.facilityId = :fid and p.pvtDate >= :fromDate and p.pvtDate < :toDate and p.status!=64";
     private static final String QUERY_PATIENT_BY_NAME = "from PatientModel p where p.facilityId=:fid and p.fullName like :name";
     private static final String QUERY_PATIENT_BY_KANA = "from PatientModel p where p.facilityId=:fid and p.kanaName like :name";
     private static final String QUERY_PATIENT_BY_FID_PID = "from PatientModel p where p.facilityId=:fid and p.patientId like :pid";
@@ -55,7 +59,8 @@ public class PatientServiceBean {
     private static final String NAME = "name";
     private static final String NUMBER = "number";
     private static final String ZIPCODE = "zipCode";
-    private static final String DATE = "date";
+    private static final String FROM_DATE = "fromDate";
+    private static final String TO_DATE = "toDate";
     private static final String PERCENT = "%";
 //s.oh^ 2014/08/19 施設患者一括表示機能
     private static final String APPMEMO = "appMemo";
@@ -195,11 +200,16 @@ public class PatientServiceBean {
     }
     
     public List<PatientModel> getPatientsByPvtDate(String fid, String pvtDate) {
+        LocalDate targetDate = ModelUtils.parseDate(pvtDate);
+        if (targetDate == null) {
+            return List.of();
+        }
 
         List<PatientVisitModel> list =
                 em.createQuery(QUERY_PATIENT_BY_PVTDATE)
                   .setParameter(FID, fid)
-                  .setParameter(DATE, pvtDate+PERCENT)
+                  .setParameter(FROM_DATE, targetDate.atStartOfDay())
+                  .setParameter(TO_DATE, targetDate.plusDays(1).atStartOfDay())
                   .getResultList();
 
         List<PatientModel> ret = new ArrayList<PatientModel>();
@@ -208,7 +218,7 @@ public class PatientServiceBean {
             PatientModel patient = pvt.getPatientModel();
             ret.add(patient);
 //masuda^   最終受診日設定
-            patient.setPvtDate(pvt.getPvtDate());
+            patient.setLastVisitAt(pvt.getPvtDate());
 //masuda$
         }
         populateHealthInsurances(ret);
@@ -298,15 +308,11 @@ public class PatientServiceBean {
      * @return データベース Primary Key
      */
     public long addPatient(PatientModel patient) {
-        if (patient.getId() <= 0) {
-            Number seqValue = (Number) em
-                    .createNativeQuery("SELECT nextval('opendolphin.hibernate_sequence')")
-                    .getSingleResult();
-            patient.setId(seqValue.longValue());
-        }
-        PatientModel managed = em.merge(patient);
-        ensureKarte(managed);
-        return managed.getId();
+        em.persist(patient);
+        em.flush();
+        ensureKarte(patient);
+        em.flush();
+        return patient.getId();
     }
 
     /**
@@ -456,12 +462,12 @@ public class PatientServiceBean {
         if (fid == null || fid.isBlank() || patients == null || patients.isEmpty()) {
             return;
         }
-        Map<Long, String> pvtDateMap = getLatestPvtDates(fid, extractPatientIds(patients));
+        Map<Long, LocalDateTime> pvtDateMap = getLatestPvtDates(fid, extractPatientIds(patients));
         for (PatientModel patient : patients) {
             if (patient == null) {
                 continue;
             }
-            patient.setPvtDate(pvtDateMap.get(patient.getId()));
+            patient.setLastVisitAt(pvtDateMap.get(patient.getId()));
         }
     }
 
@@ -495,26 +501,29 @@ public class PatientServiceBean {
         return grouped;
     }
 
-    private Map<Long, String> getLatestPvtDates(String fid, Collection<Long> patientIds) {
+    private Map<Long, LocalDateTime> getLatestPvtDates(String fid, Collection<Long> patientIds) {
         if (patientIds == null || patientIds.isEmpty()) {
             return Map.of();
         }
         List<Object[]> rows = em.createQuery(
-                        "select p.patient.id, max(p.pvtDate) "
+                        "select p.patient.id, p.pvtDate "
                                 + "from PatientVisitModel p "
                                 + "where p.facilityId = :fid and p.patient.id in (:ids) and p.status != :status "
-                                + "group by p.patient.id",
+                                + "order by p.patient.id asc, p.pvtDate desc",
                         Object[].class)
                 .setParameter("fid", fid)
                 .setParameter("ids", patientIds)
-                .setParameter("status", -1)
+                .setParameter("status", 64)
                 .getResultList();
-        Map<Long, String> grouped = new LinkedHashMap<>();
+        Map<Long, LocalDateTime> grouped = new LinkedHashMap<>();
         for (Object[] row : rows) {
             if (row == null || row.length < 2 || !(row[0] instanceof Long patientId)) {
                 continue;
             }
-            grouped.put(patientId, row[1] != null ? row[1].toString() : null);
+            if (grouped.containsKey(patientId)) {
+                continue;
+            }
+            grouped.put(patientId, row[1] instanceof LocalDateTime value ? value : null);
         }
         return grouped;
     }

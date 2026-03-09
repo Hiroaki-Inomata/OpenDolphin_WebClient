@@ -11,7 +11,7 @@ public class FirstEncounterModel extends KarteEntryBean implements java.io.Seria
         
     //@Lob ASP サーバへ配備する時、コメントアウトしてはいけない
     @Column(nullable=false)
-    private byte[] beanBytes;
+    private byte[] payloadBytes;
     
     // discriminator 列を読み取り専用でマッピングする
     @Column(name = "docType", insertable = false, updatable = false)
@@ -21,12 +21,12 @@ public class FirstEncounterModel extends KarteEntryBean implements java.io.Seria
     public FirstEncounterModel() {
     }
 
-    public byte[] getBeanBytes() {
-        return beanBytes;
+    public byte[] getPayloadBytes() {
+        return payloadBytes;
     }
 
-    public void setBeanBytes(byte[] beanBytes) {
-        this.beanBytes = beanBytes;
+    public void setPayloadBytes(byte[] payloadBytes) {
+        this.payloadBytes = payloadBytes;
     }
 
     public String getDocType() {

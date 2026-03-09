@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.WebApplicationException;
+import java.time.LocalDate;
 import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.SimpleAddressModel;
 import open.dolphin.rest.dto.orca.PatientMutationRequest;
@@ -90,7 +91,7 @@ class OrcaPatientResourceIdempotencyTest {
         model.setPatientId(patientId);
         model.setFullName(name);
         model.setKanaName(kana);
-        model.setBirthday("1980-01-01");
+        model.setBirthday(LocalDate.parse("1980-01-01"));
         model.setGender("1");
         model.setTelephone("0311112222");
         SimpleAddressModel address = new SimpleAddressModel();

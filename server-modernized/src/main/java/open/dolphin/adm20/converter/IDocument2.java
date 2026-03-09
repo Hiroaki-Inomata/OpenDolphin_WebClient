@@ -476,7 +476,6 @@ public class IDocument2 implements java.io.Serializable {
             
             ModuleModel pSpecModule = new ModuleModel();
             pSpecModule.setBeanJson(ModelUtils.jsonEncode(pProgress));
-            pSpecModule.setBeanBytes(null);
             pSpecModule.setConfirmed(infoToSet.getConfirmed());
             pSpecModule.setStarted(infoToSet.getStarted());
             pSpecModule.setRecorded(infoToSet.getRecorded());
@@ -511,7 +510,6 @@ public class IDocument2 implements java.io.Serializable {
             }
             ModuleModel pSpecModule = new ModuleModel();
             pSpecModule.setBeanJson(ModelUtils.jsonEncode(pProgress));
-            pSpecModule.setBeanBytes(null);
             pSpecModule.setConfirmed(ret.getConfirmed());
             pSpecModule.setStarted(ret.getStarted());
             pSpecModule.setRecorded(ret.getRecorded());

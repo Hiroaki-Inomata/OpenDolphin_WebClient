@@ -2,8 +2,6 @@ package open.dolphin.adm;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.beans.XMLEncoder;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -27,6 +25,7 @@ import java.util.function.Supplier;
 import open.dolphin.infomodel.AllergyModel;
 import open.dolphin.infomodel.HealthInsuranceModel;
 import open.dolphin.infomodel.KarteBean;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.NLaboItem;
 import open.dolphin.infomodel.PVTHealthInsuranceModel;
 import open.dolphin.infomodel.PVTPublicInsuranceItemModel;
@@ -533,7 +532,7 @@ class AdmConverterSnapshotTest {
             patient.setRomanName("Taro Tanaka");
             patient.setGender("M");
             patient.setGenderDesc("男性");
-            patient.setBirthday("1980-05-05");
+            patient.setBirthday(LocalDate.parse("1980-05-05"));
             patient.setNationality("JP");
             patient.setNationalityDesc("日本");
             patient.setNationalityCodeSys("ISO3166-1");
@@ -549,20 +548,14 @@ class AdmConverterSnapshotTest {
             patient.setMobilePhone("080-0000-5678");
             patient.setEmail("taro.tanaka@example.com");
             patient.setFirstVisited(Date.from(LocalDate.of(2020, 4, 1).atStartOfDay(TOKYO).toInstant()));
-            patient.setReserve1("ワクチン待機");
-            patient.setReserve2("在宅酸素");
-            patient.setReserve3("MRワクチン済");
-            patient.setReserve4("要薬剤指導");
-            patient.setReserve5("家族付き添い");
-            patient.setReserve6("要通訳");
             patient.setRelations("妻: 田中花子");
             patient.setOwnerUUID("client-uuid-12345");
-            patient.setPvtDate("2025-11-08T09:05:00");
+            patient.setLastVisitAt(LocalDateTime.parse("2025-11-08T09:05:00"));
             patient.setAppMemo("月次訪問リハビリ");
 
             HealthInsuranceModel insurance = new HealthInsuranceModel();
             insurance.setPatient(patient);
-            insurance.setBeanBytes(xmlEncode(createPvtHealthInsurance()));
+            insurance.setBeanJson(ModelUtils.jsonEncode(createPvtHealthInsurance()));
             patient.setHealthInsurances(List.of(insurance));
             return patient;
         }
@@ -720,7 +713,7 @@ class AdmConverterSnapshotTest {
             visit.setPatientModel(patient);
             visit.setFacilityId(patient.getFacilityId());
             visit.setNumber(7);
-            visit.setPvtDate("2025-11-08T09:10:00");
+            visit.setPvtDate(LocalDateTime.parse("2025-11-08T09:10:00"));
             visit.setAppointment("09:15 定期");
             visit.setDepartment("内科");
             visit.setState(3);
@@ -770,15 +763,5 @@ class AdmConverterSnapshotTest {
             return patientMemoModel;
         }
 
-        private static byte[] xmlEncode(Object bean) {
-            try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                 XMLEncoder encoder = new XMLEncoder(baos)) {
-                encoder.writeObject(bean);
-                encoder.flush();
-                return baos.toByteArray();
-            } catch (IOException e) {
-                throw new IllegalStateException("Failed to encode bean", e);
-            }
-        }
     }
 }

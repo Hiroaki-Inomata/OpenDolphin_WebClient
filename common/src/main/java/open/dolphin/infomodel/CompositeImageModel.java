@@ -36,7 +36,7 @@ public class CompositeImageModel extends KarteEntryBean implements java.io.Seria
     
     @Lob
     @Column(nullable=false)
-    private byte[] jpegByte;
+    private byte[] imageBytes;
     
     @Column(nullable=false)
     private long compositor;
@@ -97,12 +97,12 @@ public class CompositeImageModel extends KarteEntryBean implements java.io.Seria
         this.icon = icon;
     }
 
-    public byte[] getJpegByte() {
-        return jpegByte;
+    public byte[] getImageBytes() {
+        return imageBytes;
     }
 
-    public void setJpegByte(byte[] jpegByte) {
-        this.jpegByte = jpegByte;
+    public void setImageBytes(byte[] imageBytes) {
+        this.imageBytes = imageBytes;
     }
 
     public long getCompositor() {

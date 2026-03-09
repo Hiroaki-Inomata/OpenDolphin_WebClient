@@ -34,6 +34,7 @@ import open.dolphin.infomodel.DemoRp;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.ExtRefModel;
 import open.dolphin.infomodel.HealthInsuranceModel;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.ModuleInfoBean;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.NLaboItem;
@@ -60,7 +61,6 @@ import open.dolphin.touch.converter.IPatientModel;
 import open.dolphin.touch.converter.IPatientVisitModel;
 import open.dolphin.touch.converter.IRegisteredDiagnosis;
 import open.dolphin.touch.converter.ISchemaModel;
-import open.dolphin.touch.converter.IOSHelper;
 import open.dolphin.touch.session.IPhoneServiceBean;
 import open.dolphin.testsupport.RuntimeDelegateTestSupport;
 import open.dolphin.touch.TouchAuthHandler;
@@ -190,7 +190,7 @@ class DemoResourceAspTest extends RuntimeDelegateTestSupport {
         demo.setName("田中 太郎");
         demo.setKana("タナカタロウ");
         demo.setSex("M");
-        demo.setBirthday("1980/01/02");
+        demo.setBirthday(LocalDate.of(1980, 1, 2));
         demo.setAddress("東京都千代田区");
         demo.setAddressCode("1000001");
         demo.setTelephone("03-0000-0000");
@@ -223,7 +223,7 @@ class DemoResourceAspTest extends RuntimeDelegateTestSupport {
         demo.setName("田中 太郎");
         demo.setKana("タナカタロウ");
         demo.setSex("M");
-        demo.setBirthday("1980/01/02");
+        demo.setBirthday(LocalDate.of(1980, 1, 2));
         when(service.getFirstVisitorsDemo(anyInt(), anyInt())).thenReturn(List.of(demo));
 
         IPatientList list = resource.getFirstVisitors(FACILITY_ID + ",0,20,pad");
@@ -264,7 +264,7 @@ class DemoResourceAspTest extends RuntimeDelegateTestSupport {
         insurance.setPVTPublicInsuranceItem(new PVTPublicInsuranceItemModel[] { publicItem });
 
         HealthInsuranceModel stored = new HealthInsuranceModel();
-        stored.setBeanBytes(IOSHelper.toXMLBytes(insurance));
+        stored.setBeanJson(ModelUtils.jsonEncode(insurance));
 
         AllergyModel allergy = new AllergyModel();
         allergy.setFactor("ペニシリン");
@@ -311,7 +311,7 @@ class DemoResourceAspTest extends RuntimeDelegateTestSupport {
         item.setNumber("3");
         item.setUnit("錠");
         bundle.addClaimItem(item);
-        module.setBeanBytes(IOSHelper.toXMLBytes(bundle));
+        module.setBeanJson(ModelUtils.jsonEncode(bundle));
 
         when(service.getModuleCount(eq(1L), eq("treatmentOrder"))).thenReturn(1L);
         when(service.getModules(eq(1L), eq("treatmentOrder"), eq(0), eq(20))).thenReturn(List.of(module));
@@ -366,7 +366,7 @@ class DemoResourceAspTest extends RuntimeDelegateTestSupport {
     void getSchemaReturnsConverters() throws Exception {
         configureAuth(FACILITY_ID, USER_ID);
         SchemaModel schema = new SchemaModel();
-        schema.setJpegByte(new byte[] {1, 2, 3});
+        schema.setImageBytes(new byte[] {1, 2, 3});
         ExtRefModel extRef = new ExtRefModel();
         extRef.setContentType("image/jpeg");
         schema.setExtRefModel(extRef);
@@ -400,7 +400,7 @@ class DemoResourceAspTest extends RuntimeDelegateTestSupport {
         ModuleInfoBean soaInfo = new ModuleInfoBean();
         soaInfo.setStampRole("soaSpec");
         soaModule.setModuleInfoBean(soaInfo);
-        soaModule.setBeanBytes(IOSHelper.toXMLBytes(progress));
+        soaModule.setBeanJson(ModelUtils.jsonEncode(progress));
 
         BundleMed bundle = new BundleMed();
         bundle.setOrderName("medOrder");
@@ -415,10 +415,10 @@ class DemoResourceAspTest extends RuntimeDelegateTestSupport {
         ModuleInfoBean orderInfo = new ModuleInfoBean();
         orderInfo.setStampRole("p");
         orderModule.setModuleInfoBean(orderInfo);
-        orderModule.setBeanBytes(IOSHelper.toXMLBytes(bundle));
+        orderModule.setBeanJson(ModelUtils.jsonEncode(bundle));
 
         SchemaModel schema = new SchemaModel();
-        schema.setJpegByte(new byte[] {1, 2, 3});
+        schema.setImageBytes(new byte[] {1, 2, 3});
         ExtRefModel extRef = new ExtRefModel();
         extRef.setContentType("image/jpeg");
         schema.setExtRefModel(extRef);
@@ -554,12 +554,12 @@ class DemoResourceAspTest extends RuntimeDelegateTestSupport {
         demo.setName("来院 患者");
         demo.setKana("ライインカンジャ");
         demo.setSex("M");
-        demo.setBirthday("1985/02/03");
+        demo.setBirthday(LocalDate.of(1985, 2, 3));
         when(service.getPatientVisitDemo(0, 30)).thenReturn(List.of(demo));
 
         List<IPatientVisitModel> visits = resource.getPatientVisit(FACILITY_ID + ",0,30");
         assertThat(visits).hasSize(1);
-        String today = LocalDate.now().toString();
+        String today = LocalDate.now() + "T00:00:00";
         assertMatchesFixture("demo_patient_visit.json", visits, Map.of("{{TODAY}}", today));
     }
 
@@ -580,7 +580,7 @@ class DemoResourceAspTest extends RuntimeDelegateTestSupport {
         demo.setName("山田 花子");
         demo.setKana("ヤマダハナコ");
         demo.setSex("F");
-        demo.setBirthday("1990/03/04");
+        demo.setBirthday(LocalDate.of(1990, 3, 4));
         when(service.getPatientVisitRangeDemo(eq(0), eq(60))).thenReturn(List.of(demo));
 
         List<IPatientVisitModel> visits = resource.getPatientVisitRange("2.100,2024-04-01 09:00:00,2024-04-01 18:00:00,0,0,pad");

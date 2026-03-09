@@ -1,9 +1,6 @@
 package open.dolphin.mbean;
 
-import java.beans.XMLEncoder;
-import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -234,7 +231,7 @@ public final class PVTBuilder {
                     // 永続化のためのホルダ HealthInsuranceModelに変換し
                     // それを患者属性に追加する
                     HealthInsuranceModel insModel = new HealthInsuranceModel();
-                    insModel.setBeanBytes(getXMLBytes(bean));
+                    insModel.setBeanJson(ModelUtils.jsonEncode(bean));
                     // EJB 3.0 の関連を設定する
                     patientModel.addHealthInsurance(insModel);
                     insModel.setPatient(patientModel);
@@ -266,9 +263,9 @@ public final class PVTBuilder {
             // (予定カルテ対応)
             //model.setPvtDate(pvtClaim.getClaimRegistTime());            // 受付登録日時
             if (isAfterToday(pvtClaim.getClaimRegistTime())) {
-                model.setPvtDate(dateAsSchedule(pvtClaim.getClaimRegistTime())); // 受付登録日時
+                model.setPvtDate(ModelUtils.parseDateTime(dateAsSchedule(pvtClaim.getClaimRegistTime()))); // 受付登録日時
             } else {
-                model.setPvtDate(pvtClaim.getClaimRegistTime());            // 受付登録日時
+                model.setPvtDate(ModelUtils.parseDateTime(pvtClaim.getClaimRegistTime()));            // 受付登録日時
             }
             model.setInsuranceUid(pvtClaim.getInsuranceUid());          // UUID
             if (pvtInsurnaces != null && pvtInsurnaces.size() > 0) {
@@ -440,7 +437,7 @@ public final class PVTBuilder {
                 }
                 
             } else if (qname.equals(mmlPi_birthday)) {
-                patientModel.setBirthday(child.getTextTrim());
+                patientModel.setBirthday(ModelUtils.parseDate(child.getTextTrim()));
                 if (DEBUG) {
                     LOGGER.fine("Parsed birthday element");
                 }
@@ -718,14 +715,6 @@ public final class PVTBuilder {
         if (DEBUG) {
             LOGGER.fine("Parsed claim metadata");
         }
-    }
-    
-    protected byte[] getXMLBytes(Object bean) {
-        ByteArrayOutputStream bo = new ByteArrayOutputStream();
-        XMLEncoder e = new XMLEncoder(new BufferedOutputStream(bo));
-        e.writeObject(bean);
-        e.close();
-        return bo.toByteArray();
     }
     
     // (予定カルテ対応)
