@@ -293,8 +293,8 @@ public class ADM20_AdmissionServiceBean {
         for (CarePlanModel cm : carePlanList) {
             // CarePlan to ModuleModel
             ModuleModel module = cm.toModleModel();
-            module.setBeanBytes(IOSHelper.toXMLBytes(module.getModel()));
             module.setBeanJson(ModelUtils.jsonEncode(module.getModel()));
+            module.setBeanBytes(null);
             schedule.addModule(module);
         }
         
@@ -331,8 +331,8 @@ public class ADM20_AdmissionServiceBean {
         ProgressCourse soaProgress = new ProgressCourse();
         soaProgress.setFreeText(sb.toString());
         ModuleModel soaSpecModule = new ModuleModel();
-        soaSpecModule.setBeanBytes(IOSHelper.toXMLBytes(soaProgress));
         soaSpecModule.setBeanJson(ModelUtils.jsonEncode(soaProgress));
+        soaSpecModule.setBeanBytes(null);
         soaSpecModule.setConfirmed(now);
         soaSpecModule.setStarted(startDate);
         soaSpecModule.setRecorded(now);
@@ -365,8 +365,8 @@ public class ADM20_AdmissionServiceBean {
         ProgressCourse pProgress = new ProgressCourse();
         pProgress.setFreeText(sb.toString());
         ModuleModel pSpecModule = new ModuleModel();
-        pSpecModule.setBeanBytes(IOSHelper.toXMLBytes(pProgress));
         pSpecModule.setBeanJson(ModelUtils.jsonEncode(pProgress));
+        pSpecModule.setBeanBytes(null);
         pSpecModule.setConfirmed(startDate);
         pSpecModule.setStarted(now);
         pSpecModule.setRecorded(now);

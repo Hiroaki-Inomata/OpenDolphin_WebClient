@@ -40,7 +40,7 @@ public class IBundleModule extends IAbstractModule {
         this.getModuleInfo().fromModel(m.getModuleInfoBean());
         
         // decord
-        ClaimBundle bundle = (ClaimBundle)IOSHelper.xmlDecode(m.getBeanBytes());
+        ClaimBundle bundle = (ClaimBundle) ModelUtils.decodeModule(m);
         IClaimBundle ib = new IClaimBundle();
         ib.fromModel(bundle);
         this.setModel(ib);
@@ -67,8 +67,8 @@ public class IBundleModule extends IAbstractModule {
         ret.setModuleInfoBean(this.getModuleInfo().toModel());
         
         ClaimBundle bundle = model.toModel();
-        ret.setBeanBytes(IOSHelper.toXMLBytes(bundle));
         ret.setBeanJson(ModelUtils.jsonEncode(bundle));
+        ret.setBeanBytes(null);
         
         return ret;
     }

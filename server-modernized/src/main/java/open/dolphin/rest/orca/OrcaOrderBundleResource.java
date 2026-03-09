@@ -667,8 +667,8 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         info.setStampNumber(0);
         module.setModuleInfoBean(info);
         module.setModel(bundle);
-        module.setBeanBytes(IOSHelper.toXMLBytes(bundle));
         module.setBeanJson(ModelUtils.jsonEncode(bundle));
+        module.setBeanBytes(null);
         module.setKarteBean(karte);
         module.setUserModel(user);
         module.setStarted(performDate);
@@ -1415,7 +1415,7 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
     }
 
     private DocumentModel fetchDocument(long documentId) {
-        List<DocumentModel> list = karteServiceBean.getDocuments(List.of(documentId));
+        List<DocumentModel> list = karteServiceBean.getDocumentsWithModules(List.of(documentId));
         if (list == null || list.isEmpty()) {
             return null;
         }
@@ -1440,6 +1440,6 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         if (ids.isEmpty()) {
             return List.of();
         }
-        return karteServiceBean.getDocuments(ids);
+        return karteServiceBean.getDocumentsWithModules(ids);
     }
 }

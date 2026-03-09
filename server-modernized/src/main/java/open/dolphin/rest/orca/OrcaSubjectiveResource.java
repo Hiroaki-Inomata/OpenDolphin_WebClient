@@ -228,8 +228,8 @@ public class OrcaSubjectiveResource extends AbstractOrcaRestResource {
 
         ModuleModel module = new ModuleModel();
         module.setModel(progress);
-        module.setBeanBytes(IOSHelper.toXMLBytes(progress));
         module.setBeanJson(ModelUtils.jsonEncode(progress));
+        module.setBeanBytes(null);
         module.setConfirmed(performDate);
         module.setStarted(performDate);
         module.setRecorded(now);

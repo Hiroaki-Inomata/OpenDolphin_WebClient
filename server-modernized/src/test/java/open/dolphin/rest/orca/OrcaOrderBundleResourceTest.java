@@ -19,6 +19,7 @@ import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.LicenseModel;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.ModuleInfoBean;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.PatientModel;
@@ -161,6 +162,21 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
     }
 
     @Test
+    void getBundles_readsJsonOnlyModulePayload() throws Exception {
+        injectField(resource, "karteServiceBean", new FakeJsonOnlyKarteServiceBean());
+
+        OrderBundleFetchResponse response = resource.getBundles(
+                servletRequest,
+                "00001",
+                "medOrder",
+                "2025-01-01");
+
+        assertNotNull(response);
+        assertEquals(2, response.getBundles().size());
+        assertEquals("降圧薬セット", response.getBundles().get(0).getBundleName());
+    }
+
+    @Test
     void postBundlesRejectsInvalidStartDate() {
         OrderBundleMutationRequest payload = new OrderBundleMutationRequest();
         payload.setPatientId("00001");
@@ -219,6 +235,8 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
 
         DocumentModel saved = fakeKarteServiceBean.getLastAddedDocument();
         assertNotNull(saved);
+        assertNotNull(saved.getModules().get(0).getBeanJson());
+        assertEquals(null, saved.getModules().get(0).getBeanBytes());
         BundleDolphin bundle = (BundleDolphin) saved.getModules().get(0).getModel();
         ClaimItem[] claimItems = bundle.getClaimItem();
         assertNotNull(claimItems);
@@ -253,6 +271,8 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
 
         DocumentModel saved = fakeKarteServiceBean.getLastAddedDocument();
         assertNotNull(saved);
+        assertNotNull(saved.getModules().get(0).getBeanJson());
+        assertEquals(null, saved.getModules().get(0).getBeanBytes());
         BundleDolphin bundle = (BundleDolphin) saved.getModules().get(0).getModel();
         ClaimItem[] claimItems = bundle.getClaimItem();
         assertNotNull(claimItems);
@@ -311,7 +331,7 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         }
     }
 
-    private static final class FakeKarteServiceBean extends KarteServiceBean {
+    private static class FakeKarteServiceBean extends KarteServiceBean {
         private long nextDocumentId = 9000L;
         private DocumentModel lastAddedDocument;
 
@@ -341,6 +361,11 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         }
 
         @Override
+        public List<DocumentModel> getDocumentsWithModules(List<Long> ids) {
+            return getDocuments(ids);
+        }
+
+        @Override
         public long addDocument(DocumentModel document) {
             if (document.getId() <= 0) {
                 nextDocumentId++;
@@ -361,7 +386,7 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
             // no-op for unit test
         }
 
-        private DocumentModel buildDocument(Long documentId) {
+        protected DocumentModel buildDocument(Long documentId) {
             DocumentModel document = new DocumentModel();
             document.setId(documentId != null ? documentId : 0L);
             document.setStarted(new Date(1735603200000L)); // 2024-12-31
@@ -429,6 +454,26 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
             user.setUserId(userId);
             user.setCommonName("テスト医師");
             return user;
+        }
+    }
+
+    private static final class FakeJsonOnlyKarteServiceBean extends FakeKarteServiceBean {
+        @Override
+        public List<DocumentModel> getDocuments(List<Long> ids) {
+            return ids.stream().map(id -> {
+                DocumentModel document = super.buildDocument(id);
+                ModuleModel module = document.getModules().get(0);
+                BundleDolphin bundle = (BundleDolphin) module.getModel();
+                module.setBeanJson(ModelUtils.jsonEncode(bundle));
+                module.setBeanBytes(null);
+                module.setModel(null);
+                return document;
+            }).toList();
+        }
+
+        @Override
+        public List<DocumentModel> getDocumentsWithModules(List<Long> ids) {
+            return getDocuments(ids);
         }
     }
 }

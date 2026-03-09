@@ -51,8 +51,7 @@ public class IProgressCourseModule30 extends IAbstractModule30 {
         this.setModuleInfo(info);
         
         // FreeText
-        byte[] bytes = model.getBeanBytes();
-        ProgressCourse pc = (ProgressCourse)(IOSHelper.xmlDecode(bytes));
+        ProgressCourse pc = (ProgressCourse) ModelUtils.decodeModule(model);
         String text = pc.getFreeText();
         String noHTMLString = text.replaceAll("\\<.*?>","");
         pc.setFreeText(noHTMLString);
@@ -87,8 +86,8 @@ public class IProgressCourseModule30 extends IAbstractModule30 {
         
         ret.setModuleInfoBean(this.getModuleInfo().toModel());
         
-        ret.setBeanBytes(IOSHelper.toXMLBytes(model.toModel()));
         ret.setBeanJson(ModelUtils.jsonEncode(model.toModel()));
+        ret.setBeanBytes(null);
         
         return ret;
     }

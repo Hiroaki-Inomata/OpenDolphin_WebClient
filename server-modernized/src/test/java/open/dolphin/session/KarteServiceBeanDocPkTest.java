@@ -16,9 +16,13 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import open.dolphin.infomodel.AttachmentModel;
+import open.dolphin.infomodel.BundleDolphin;
+import open.dolphin.infomodel.ClaimItem;
 import open.dolphin.infomodel.DocInfoModel;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.IInfoModel;
@@ -27,6 +31,7 @@ import open.dolphin.storage.attachment.AttachmentStorageManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import static org.mockito.Mockito.doAnswer;
 
 /**
  * addDocument/updateDocument の PK 正数化と docPk 同期を検証する簡易テスト。
@@ -99,6 +104,45 @@ class KarteServiceBeanDocPkTest {
     }
 
     @Test
+    void addDocument_externalizesAttachmentsAfterAssigningIdsAndBeforeMerge() {
+        when(em.createNativeQuery("SELECT nextval('opendolphin.hibernate_sequence')")).thenReturn(seqQuery);
+        when(seqQuery.getSingleResult()).thenReturn(400L, 401L);
+        when(em.merge(any(DocumentModel.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        DocumentModel document = buildDocumentWithAttachment();
+        document.setId(0L);
+        AttachmentModel attachment = document.getAttachment().get(0);
+
+        doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Collection<AttachmentModel> attachments = invocation.getArgument(0, Collection.class);
+            AttachmentModel uploaded = attachments.iterator().next();
+            assertThat(uploaded.getId()).isEqualTo(401L);
+            assertThat(uploaded.getDocumentModel().getId()).isEqualTo(400L);
+            uploaded.setDigest("digest-401");
+            uploaded.setUri("s3://bucket/doc-400/att-401.txt");
+            uploaded.setBytes(null);
+            return null;
+        }).when(attachmentStorageManager).persistExternalAssets(any());
+
+        long result = service.addDocument(document);
+
+        assertThat(result).isEqualTo(400L);
+        assertThat(document.getDocInfoModel().getDocPk()).isEqualTo(400L);
+        assertThat(attachment.getId()).isEqualTo(401L);
+        assertThat(attachment.getBytes()).isNull();
+        assertThat(attachment.getDigest()).isEqualTo("digest-401");
+        assertThat(attachment.getUri()).isEqualTo("s3://bucket/doc-400/att-401.txt");
+
+        ArgumentCaptor<DocumentModel> mergeCaptor = ArgumentCaptor.forClass(DocumentModel.class);
+        verify(em).merge(mergeCaptor.capture());
+        AttachmentModel mergedAttachment = mergeCaptor.getValue().getAttachment().get(0);
+        assertThat(mergedAttachment.getBytes()).isNull();
+        assertThat(mergedAttachment.getDigest()).isEqualTo("digest-401");
+        assertThat(mergedAttachment.getUri()).isEqualTo("s3://bucket/doc-400/att-401.txt");
+    }
+
+    @Test
     void updateDocument_rejectsFinalizedDocumentWithConflictPayload() {
         DocumentModel current = buildDocumentWithModule();
         current.setId(300L);
@@ -129,14 +173,29 @@ class KarteServiceBeanDocPkTest {
         document.setStatus(IInfoModel.STATUS_TMP);
 
         ModuleModel module = new ModuleModel();
-        module.setModel(new DummyModel()); // jsonEncode target
+        BundleDolphin bundle = new BundleDolphin();
+        bundle.setClassCode("212");
+        ClaimItem item = new ClaimItem();
+        item.setCode("100001");
+        item.setName("テスト薬剤");
+        item.setNumber("1");
+        item.setUnit("錠");
+        bundle.setClaimItem(new ClaimItem[]{item});
+        module.setModel(bundle);
 
         document.setModules(List.of(module));
         return document;
     }
 
-    private static class DummyModel implements IInfoModel {
-        private static final long serialVersionUID = 1L;
+    private static DocumentModel buildDocumentWithAttachment() {
+        DocumentModel document = buildDocumentWithModule();
+        AttachmentModel attachment = new AttachmentModel();
+        attachment.setFileName("report.txt");
+        attachment.setContentType("text/plain");
+        attachment.setBytes(new byte[]{1, 2, 3});
+        attachment.setDocumentModel(document);
+        document.setAttachment(List.of(attachment));
+        return document;
     }
 
     private static void setField(Object target, String name, Object value) throws Exception {

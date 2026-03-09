@@ -16,6 +16,7 @@ import open.dolphin.infomodel.DocInfoModel;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.KarteBean;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.ModuleInfoBean;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.PatientModel;
@@ -135,6 +136,19 @@ class OrcaMedicalModV2ResourceTest extends RuntimeDelegateTestSupport {
         assertEquals(0, entry.getSections().get("memo").getRecordsReturned());
     }
 
+    @Test
+    void postOutpatientMedical_readsJsonOnlyAndLegacyXmlModules() {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("Patient_ID", "00001");
+
+        MedicalOutpatientResponse response = resource.postOutpatientMedical(servletRequest, payload);
+
+        assertNotNull(response);
+        MedicalOutpatientResponse.MedicalOutpatientEntry entry = response.getOutpatientList().get(0);
+        assertEquals(1, entry.getSections().get("prescription").getRecordsReturned());
+        assertEquals(1, entry.getSections().get("memo").getRecordsReturned());
+    }
+
     private static void injectField(Object target, String fieldName, Object value) throws Exception {
         Class<?> type = target.getClass();
         Field field = null;
@@ -217,7 +231,7 @@ class OrcaMedicalModV2ResourceTest extends RuntimeDelegateTestSupport {
             bundleInfo.setEntity(IInfoModel.ENTITY_MED_ORDER);
             ModuleModel bundleModule = new ModuleModel();
             bundleModule.setModuleInfoBean(bundleInfo);
-            bundleModule.setBeanBytes(IOSHelper.toXMLBytes(bundle));
+            bundleModule.setBeanJson(ModelUtils.jsonEncode(bundle));
 
             ProgressCourse progress = new ProgressCourse();
             progress.setFreeText("経過良好");
@@ -231,6 +245,11 @@ class OrcaMedicalModV2ResourceTest extends RuntimeDelegateTestSupport {
             document.setStarted(new Date());
             document.setModules(List.of(bundleModule, memoModule));
             return List.of(document);
+        }
+
+        @Override
+        public List<DocumentModel> getDocumentsWithModules(List<Long> ids) {
+            return getDocuments(ids);
         }
 
         @Override

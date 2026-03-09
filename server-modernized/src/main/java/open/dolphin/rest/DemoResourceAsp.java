@@ -33,6 +33,7 @@ import open.dolphin.infomodel.DemoRp;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.FacilityModel;
 import open.dolphin.infomodel.HealthInsuranceModel;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.ModuleInfoBean;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.NLaboItem;
@@ -526,7 +527,7 @@ public class DemoResourceAsp extends open.dolphin.touch.AbstractResource {
         List<ModuleModel> modules = safeList(iPhoneServiceBean.getModules(pk, entity, firstResult, maxResult));
         List<ClaimBundleDto> bundles = new ArrayList<>(modules.size());
         for (ModuleModel module : modules) {
-            Object decoded = IOSHelper.xmlDecode(module.getBeanBytes());
+            Object decoded = ModelUtils.decodeModule(module);
             if (!(decoded instanceof BundleDolphin bundle)) {
                 continue;
             }
@@ -787,7 +788,7 @@ public class DemoResourceAsp extends open.dolphin.touch.AbstractResource {
             String pSpec = null;
 
             for (ModuleModel module : safeCollection(doc.getModules())) {
-                Object decoded = IOSHelper.xmlDecode(module.getBeanBytes());
+                Object decoded = ModelUtils.decodeModule(module);
                 String role = module.getModuleInfoBean() != null ? module.getModuleInfoBean().getStampRole() : null;
 
                 if (ROLE_SOA_SPEC.equals(role) && decoded instanceof ProgressCourse progress) {

@@ -20,6 +20,7 @@ import open.dolphin.infomodel.ClaimItem;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.KarteBean;
+import open.dolphin.infomodel.ModelUtils;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.PatientVisitModel;
@@ -452,7 +453,7 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         if (ids.isEmpty()) {
             return List.of();
         }
-        List<DocumentModel> documents = karteServiceBean.getDocuments(ids);
+        List<DocumentModel> documents = karteServiceBean.getDocumentsWithModules(ids);
         if (documents == null || documents.isEmpty()) {
             return List.of();
         }
@@ -495,11 +496,11 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
     }
 
     private Object decodeModule(ModuleModel module) {
-        if (module == null || module.getBeanBytes() == null || module.getBeanBytes().length == 0) {
+        if (module == null) {
             return null;
         }
         try {
-            return IOSHelper.xmlDecode(module.getBeanBytes());
+            return ModelUtils.decodeModule(module);
         } catch (RuntimeException ex) {
             return null;
         }
