@@ -31,7 +31,6 @@ import open.dolphin.rest.dto.outpatient.OutpatientFlagResponse;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PatientServiceBean;
 import open.dolphin.session.PVTServiceBean;
-import open.dolphin.touch.converter.IOSHelper;
 
 /**
  * `/orca21/medicalmodv2/outpatient` をモダナイズ版サーバー側で提供する。

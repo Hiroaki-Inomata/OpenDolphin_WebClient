@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
-- 更新日: 2026-02-20
-- RUN_ID: 20260219T210316Z
+- 更新日: 2026-03-09
+- RUN_ID: 20260309T145604Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -23,7 +23,6 @@
 - `docs/server-modernization/orca-master-reference-update-platform-design-20260212.md`
 - `docs/server-modernization/api-architecture-consolidation-plan.md`
 - `docs/server-modernization/rest-api-modernization.md`
-- `docs/server-modernization/stub-endpoint-control.md`
 
 ### module 永続化方針
 - 新規 module 書込は `beanJson` のみを正規経路とする。

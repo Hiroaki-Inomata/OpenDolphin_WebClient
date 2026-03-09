@@ -16,13 +16,12 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDate;
 import java.sql.Connection;
-import java.sql.Blob;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -63,7 +62,6 @@ import open.dolphin.rest.dto.orca.OrcaOrderInteractionCheckResponse;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PatientServiceBean;
 import open.dolphin.session.UserServiceBean;
-import open.dolphin.touch.converter.IOSHelper;
 import open.orca.rest.ORCAConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -1335,19 +1333,6 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         if (jsonBundle != null) {
             return jsonBundle;
         }
-        Object beanBytesRaw = row != null && row.length > 1 ? row[1] : null;
-        byte[] xmlBytes = resolveLargeObjectBytes(beanBytesRaw);
-        if (xmlBytes == null || xmlBytes.length == 0) {
-            return null;
-        }
-        try {
-            Object decoded = IOSHelper.xmlDecode(xmlBytes);
-            if (decoded instanceof BundleDolphin bundle) {
-                return bundle;
-            }
-        } catch (RuntimeException ex) {
-            LOGGER.warn("Failed to decode order bundle XML from large object id={}", module.getId(), ex);
-        }
         return null;
     }
 
@@ -1370,56 +1355,6 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         Object decodedLo = ModuleJsonConverter.getInstance().deserialize(json);
         if (decodedLo instanceof BundleDolphin bundle) {
             return bundle;
-        }
-        return null;
-    }
-
-    private byte[] resolveLargeObjectBytes(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof byte[] bytes) {
-            return bytes;
-        }
-        if (value instanceof Blob blob) {
-            try {
-                return blob.getBytes(1, (int) blob.length());
-            } catch (Exception ex) {
-                return null;
-            }
-        }
-        Long oid = parseOid(value);
-        if (oid == null) {
-            return null;
-        }
-        return fetchLargeObjectBytes(oid);
-    }
-
-    private byte[] fetchLargeObjectBytes(long oid) {
-        if (oid <= 0) {
-            return null;
-        }
-        Object result;
-        try {
-            result = entityManager
-                    .createNativeQuery("SELECT lo_get(?1)")
-                    .setParameter(1, oid)
-                    .getSingleResult();
-        } catch (Exception ex) {
-            return null;
-        }
-        if (result instanceof byte[] bytes) {
-            return bytes;
-        }
-        if (result instanceof Blob blob) {
-            try {
-                return blob.getBytes(1, (int) blob.length());
-            } catch (Exception ex) {
-                return null;
-            }
-        }
-        if (result != null) {
-            return result.toString().getBytes(StandardCharsets.UTF_8);
         }
         return null;
     }

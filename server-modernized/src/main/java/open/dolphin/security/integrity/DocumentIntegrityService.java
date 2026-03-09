@@ -267,7 +267,7 @@ public class DocumentIntegrityService {
         if (beanJson != null && !beanJson.isBlank()) {
             return sha256Hex(beanJson.getBytes(StandardCharsets.UTF_8));
         }
-        return sha256Hex(module.getBeanBytes());
+        return sha256Hex((byte[]) null);
     }
 
     private String resolveAttachmentDigest(AttachmentModel attachment) {

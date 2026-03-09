@@ -174,10 +174,6 @@ public class OrcaPatientLocalSearchResource extends AbstractResource {
         if (header != null && !header.isBlank()) {
             return header.trim();
         }
-        String legacy = request.getHeader("facilityId");
-        if (legacy != null && !legacy.isBlank()) {
-            return legacy.trim();
-        }
         return null;
     }
 

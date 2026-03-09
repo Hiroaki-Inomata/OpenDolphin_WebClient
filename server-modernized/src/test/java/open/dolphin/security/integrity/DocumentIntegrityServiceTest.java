@@ -84,7 +84,7 @@ class DocumentIntegrityServiceTest {
                 .doesNotThrowAnyException();
 
         DocumentModel tampered = buildDocument(false);
-        tampered.getModules().get(0).getBeanBytes()[0] ^= 0x01;
+        tampered.getModules().get(0).setBeanJson("{\"order\":\"tampered\"}");
 
         assertThatThrownBy(() -> service.verifyDocumentOnRead(tampered))
                 .isInstanceOf(WebApplicationException.class)
@@ -182,7 +182,7 @@ class DocumentIntegrityServiceTest {
         ModuleModel module1 = new ModuleModel();
         module1.setId(10L);
         module1.getModuleInfoBean().setEntity("medOrder");
-        module1.setBeanBytes(new byte[]{0x01, 0x02, 0x03});
+        module1.setBeanJson("{\"order\":\"original\"}");
 
         ModuleModel module2 = new ModuleModel();
         module2.setId(20L);

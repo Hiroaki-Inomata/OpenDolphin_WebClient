@@ -117,25 +117,6 @@ const run = async () => {
     },
   });
 
-  // Debug Legacy REST
-  await runStep({
-    label: 'Debug Legacy REST Console',
-    url: `${baseURL}/f/${encodeURIComponent(facilityId)}/debug/legacy-rest`,
-    expected: 'アクセス拒否または Legacy REST コンソールが表示',
-    action: async () => {
-      await page.goto(`/f/${encodeURIComponent(facilityId)}/debug/legacy-rest`, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(1200);
-      const denied = await checkDenied(page, '権限がないため Legacy REST コンソールへのアクセスを拒否しました。');
-      const consoleVisible = (await page.getByText('Legacy REST 互換 API コンソール').count()) > 0;
-      const redirected = page.url().includes('/login');
-      const shot = await writeScreenshot(page, '04-debug-legacy-rest');
-      if (!denied && !consoleVisible && redirected) {
-        throw new Error(`redirected to ${page.url()}`);
-      }
-      return `url=${page.url()} / ${shot} / denied=${denied} / console=${consoleVisible}`;
-    },
-  });
-
   await context.close();
   await browser.close();
 
