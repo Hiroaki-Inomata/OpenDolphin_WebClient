@@ -26,11 +26,6 @@
     <filter-class>open.dolphin.rest.CsrfProtectionFilter</filter-class>
     <async-supported>true</async-supported>
   </filter>
-  <filter>
-    <filter-name>StubEndpointExposureFilter</filter-name>
-    <filter-class>open.dolphin.rest.StubEndpointExposureFilter</filter-class>
-    <async-supported>true</async-supported>
-  </filter>
   <filter-mapping>
     <filter-name>SecurityHeadersFilter</filter-name>
     <url-pattern>/*</url-pattern>
@@ -61,16 +56,6 @@
     <url-pattern>/orca/*</url-pattern>
     <dispatcher>REQUEST</dispatcher>
   </filter-mapping>
-  <filter-mapping>
-    <filter-name>StubEndpointExposureFilter</filter-name>
-    <url-pattern>/orca/*</url-pattern>
-    <dispatcher>REQUEST</dispatcher>
-  </filter-mapping>
-  <filter-mapping>
-    <filter-name>StubEndpointExposureFilter</filter-name>
-    <url-pattern>/resources/*</url-pattern>
-    <dispatcher>REQUEST</dispatcher>
-  </filter-mapping>
   
     <context-param>
         <param-name>resteasy.resources</param-name>
@@ -79,9 +64,7 @@
                 open.dolphin.rest.KarteResource,
                 open.dolphin.rest.KarteRevisionResource,
                 open.dolphin.rest.LetterResource,
-                open.dolphin.rest.NLabResource,
                 open.dolphin.rest.PVTResource,
-                open.dolphin.rest.PatientResource,
                 open.dolphin.rest.OrcaAcceptanceListResource,
                 open.dolphin.rest.OrcaSystemManagementResource,
                 open.dolphin.rest.OrcaReportResource,
@@ -90,15 +73,19 @@
                 open.dolphin.rest.OrcaMedicalApiResource,
                 open.dolphin.rest.OrcaAdditionalApiResource,
                 open.dolphin.rest.PatientModV2OutpatientResource,
+                open.dolphin.rest.PatientImagesResource,
                 open.dolphin.rest.AdminConfigResource,
+                open.dolphin.rest.AdminAccessResource,
                 open.dolphin.rest.AdminMasterUpdateResource,
                 open.dolphin.rest.AdminOrcaConnectionResource,
                 open.dolphin.rest.AdminOrcaUserResource,
                 open.dolphin.rest.OrcaQueueResource,
+                open.dolphin.rest.ReceptionRealtimeStreamResource,
                 open.dolphin.rest.orca.OrcaMedicalResource,
                 open.dolphin.rest.orca.OrcaDiseaseResource,
                 open.dolphin.rest.orca.OrcaOrderBundleResource,
                 open.dolphin.rest.orca.OrcaPatientResource,
+                open.dolphin.rest.orca.OrcaPrescriptionOrderResource,
                 open.dolphin.rest.orca.OrcaSubjectiveResource,
                 open.dolphin.rest.orca.OrcaMedicalAdministrationResource,
                 open.dolphin.rest.StampResource,
@@ -106,24 +93,16 @@
                 open.dolphin.rest.UserResource,
                 open.dolphin.rest.SessionAuthResource,
                 open.dolphin.rest.LogoutResource,
-                open.dolphin.rest.ScheduleResource,
-                open.dolphin.rest.ChartEventResource,
                 open.dolphin.rest.ChartEventStreamResource,
-                open.dolphin.rest.PVTResource2,
-                open.dolphin.rest.ServerInfoResource,
-                open.dolphin.rest.ReportingResource,
                 open.dolphin.rest.orca.OrcaMedicalModV2Resource,
                 open.orca.rest.OrcaResource,
                 open.orca.rest.OrcaMasterResource,
-                open.orca.rest.OrcaMasterApiAliasResource,
                 open.orca.rest.OrcaMasterReferenceStatusResource,
                 open.dolphin.orca.rest.OrcaAppointmentResource,
                 open.dolphin.orca.rest.OrcaVisitResource,
                 open.dolphin.orca.rest.OrcaPatientLocalSearchResource,
                 open.dolphin.orca.rest.OrcaPatientBatchResource,
-                open.dolphin.orca.rest.OrcaPatientSyncResource,
-                <!-- DemoResource / DemoResourceASP are intentionally not listed.
-                     Demo endpoints must never be auto-discovered in production. -->
+                open.dolphin.orca.rest.OrcaPatientSyncResource
         </param-value>
     </context-param>
 

@@ -32,8 +32,6 @@ import open.dolphin.session.UserServiceBean;
 
 /**
  * Handles subjective POST requests.
- * REAL mode records subjectives to the local medical record database.
- * STUB mode skips persistence and returns a stub response.
  */
 @Path("/orca/chart")
 public class OrcaSubjectiveResource extends AbstractOrcaRestResource {
@@ -69,17 +67,6 @@ public class OrcaSubjectiveResource extends AbstractOrcaRestResource {
                     "invalid_request", "patientId is required");
             recordAudit(request, "ORCA_SUBJECTIVES_MUTATION", audit, AuditEventEnvelope.Outcome.FAILURE);
             throw validationError(request, "patientId", "patientId is required");
-        }
-
-        if (!OrcaPostFeatureFlags.useRealSubjectives()) {
-            SubjectiveEntryResponse response = buildStubResponse(runId);
-            Map<String, Object> audit = new HashMap<>();
-            audit.put("facilityId", facilityId);
-            audit.put("patientId", payload.getPatientId());
-            audit.put("runId", runId);
-            audit.put("status", "blocked");
-            recordAudit(request, "ORCA_SUBJECTIVES_MUTATION", audit, AuditEventEnvelope.Outcome.FAILURE);
-            return response;
         }
 
         String soapCategory = normalizeSoapCategory(payload.getSoapCategory());
@@ -191,16 +178,6 @@ public class OrcaSubjectiveResource extends AbstractOrcaRestResource {
         audit.put("documentId", documentId);
         markSuccessDetails(audit);
         recordAudit(request, "ORCA_SUBJECTIVES_MUTATION", audit, AuditEventEnvelope.Outcome.SUCCESS);
-        return response;
-    }
-
-    private SubjectiveEntryResponse buildStubResponse(String runId) {
-        SubjectiveEntryResponse response = new SubjectiveEntryResponse();
-        response.setApiResult("79");
-        response.setApiResultMessage("Spec-based implementation / Trial未検証");
-        response.setRunId(runId);
-        response.setRecordedAt(Instant.now().toString());
-        response.setMessageDetail("WebORCA Trial では subjectivesv2 が未開放のためローカル記録は行っていません。");
         return response;
     }
 

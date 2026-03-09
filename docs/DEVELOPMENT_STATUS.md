@@ -1,4 +1,4 @@
-# 開発状況（単一参照, 更新日: 2026-02-28）
+# 開発状況（単一参照, 更新日: 2026-03-09）
 
 ## 現行ステータス
 - Phase2 開発ドキュメントは **Legacy/Archive（参照専用）**。Phase2 を現行フェーズとして扱わない。
@@ -32,6 +32,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-09: `server-modernized` の legacy cutover を実施し、現行 web-client / 現行 ORCA 連携に不要な過去互換を削除（RUN_ID=20260309T145604Z）。
+  - 基準: `web-client/src/**` の production code から API path allowlist を作成し、`docs/legacy-cutover-allowlist.md` を source of truth として server 側削除判断に使用。
+  - 内容（web-client）: Legacy REST console / administration panel / `debug/legacy-rest` route / legacy redirect 導線 / 関連テストを削除。`httpClient.ts` は current contract に必要な prefix のみ維持し、QA 補助 script からも legacy-rest 導線を除去。
+  - 内容（server-modernized/common）: `PatientResource` / `NLabResource` / `ReportingResource` / `ChartEventResource` / `PVTResource2` / `ScheduleResource` / `ServerInfoResource` / `/api/orca/master/*` alias を削除。`SessionAuthResource` / `UserResource` / `AuthSessionSupport` は touch DTO 依存を外し current DTO 化。`AbstractOrcaRestResource` / `AbstractOrcaWrapperResource` / `PatientModV2OutpatientResource` / `OrcaPatientLocalSearchResource` から `facilityId` header fallback を削除し `X-Facility-Id` のみに統一。`StubEndpointExposureFilter` / `OrcaPostFeatureFlags` / demo resource/config を削除し、ORCA POST は実運用経路に固定。module payload は `beanJson` のみで復元し、`DocumentIntegrityService` / `OrcaOrderBundleResource` / `ModuleJsonConverter` の `beanBytes` / XML fallback を除去。
+  - 追加整理: `web.xml` の REST 登録を current contract に合わせて整理し、touch/adm10/adm20 前提の static-analysis 除外と互換 sample env を削除。`OrcaConnectionConfigStore` は旧 single-record JSON fallback を廃止し records 形式のみ受理。
+  - 検証: `npm -C web-client run typecheck` PASS、`npm -C web-client run test -- --run` PASS、`npm -C web-client run build` PASS、`mvn -f pom.server-modernized.xml -Dtest=ModuleJsonConverterTest,SessionAuthResourceTest,UserResourceTest,WebXmlEndpointExposureTest,DocumentIntegrityServiceTest,OrcaOrderBundleResourceTest,OrcaConnectionConfigStoreTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS、`mvn -f pom.server-modernized.xml -pl server-modernized -DskipITs test` PASS、`mvn -f pom.server-modernized.xml -pl server-modernized -Dtest=OrcaSubjectiveResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS。
 - 2026-03-09: module 永続化方針を更新し、`beanJson` のみへ寄せる方針を現行ルールとして明記（RUN_ID=20260309T080656Z）。
   - 方針: 新規 module 書込は `beanJson` のみを正規経路とし、`beanBytes` は旧行読込 fallback としてのみ保持する。新規の JSON+XML 二重保存や `oid` 回帰は採らない。
   - 適用先: `server-modernized` の module 保存・復元、および今後の migration / リファクタ判断。

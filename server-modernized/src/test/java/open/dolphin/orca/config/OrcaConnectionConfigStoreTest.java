@@ -3,6 +3,7 @@ package open.dolphin.orca.config;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -168,6 +169,35 @@ class OrcaConnectionConfigStoreTest {
         );
 
         assertEquals("weborca_requires_https", ex.getErrorCategory());
+    }
+
+    @Test
+    void initRejectsLegacySingleRecordConfig() throws Exception {
+        originalDataDir = System.getProperty("jboss.server.data.dir");
+        System.setProperty("jboss.server.data.dir", tempDir.toString());
+
+        Path configFile = tempDir.resolve("opendolphin").resolve("orca-connection-config.json");
+        Files.createDirectories(configFile.getParent());
+        Files.writeString(configFile, """
+                {
+                  "version": 1,
+                  "serverUrl": "https://legacy.example.orca",
+                  "port": 443,
+                  "username": "legacy-user",
+                  "passwordEncrypted": "encrypted",
+                  "useWeborca": true
+                }
+                """);
+
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> newStore(buildProtector())
+        );
+
+        assertEquals(
+                "Legacy single-record ORCA connection config is no longer supported. Migrate to the records format.",
+                ex.getMessage()
+        );
     }
 
     private OrcaConnectionConfigStore newStore(TotpSecretProtector protector) throws Exception {

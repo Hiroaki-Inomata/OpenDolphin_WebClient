@@ -233,7 +233,7 @@ const isOrcaEndpoint = (url?: URL | null): boolean => {
   // ORCA-family endpoints and legacy resources may return per-resource auth errors
   // without meaning the app session itself is expired.
   const pattern =
-    /^\/(orca\d*|api\/orca(?:\d+)?|api01(rv2)?|api21|blobapi|karte|odletter|touch|user|api\/admin|api\/chart-events|chart-events|api\/realtime|realtime)(\/|$)/;
+    /^\/(orca\d*|api\/orca(?:\d+)?|api01(rv2)?|api21|blobapi|karte|odletter|user|api\/admin|api\/chart-events|chart-events|api\/realtime|realtime)(\/|$)/;
   return pattern.test(url.pathname);
 };
 
@@ -241,7 +241,7 @@ const shouldUseNoStoreCache = (url?: URL | null, method = 'GET') => {
   if (!url || !isSameOrigin(url) || method !== 'GET') {
     return false;
   }
-  return /^\/(karte|odletter|patient|pvt|reporting|letter|lab|user|api\/session)(\/|$)/.test(url.pathname);
+  return /^\/(karte|odletter|letter|user|api\/session)(\/|$)/.test(url.pathname);
 };
 
 const applyCsrfHeaders = (init?: RequestInit, url?: URL | null): RequestInit => {

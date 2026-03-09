@@ -24,7 +24,6 @@ public abstract class AbstractOrcaRestResource extends AbstractResource {
     protected static final DateTimeFormatter RUN_ID_FORMAT =
             DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC);
     private static final String FACILITY_HEADER = "X-Facility-Id";
-    private static final String LEGACY_FACILITY_HEADER = "facilityId";
 
     @Inject
     protected SessionAuditDispatcher sessionAuditDispatcher;
@@ -151,10 +150,6 @@ public abstract class AbstractOrcaRestResource extends AbstractResource {
             String header = request.getHeader(FACILITY_HEADER);
             if (header != null && !header.trim().isEmpty()) {
                 return header.trim();
-            }
-            String legacy = request.getHeader(LEGACY_FACILITY_HEADER);
-            if (legacy != null && !legacy.trim().isEmpty()) {
-                return legacy.trim();
             }
         }
         return facility;

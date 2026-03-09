@@ -21,7 +21,6 @@ import open.dolphin.orca.transport.OrcaTransportSettings;
 import open.dolphin.orca.sync.OrcaPatientSyncScheduler;
 import open.dolphin.session.ChartEventServiceBean;
 import open.dolphin.session.SystemServiceBean;
-import open.dolphin.rest.StubEndpointExposureFilter;
 import open.dolphin.rest.masterupdate.MasterUpdateScheduler;
 import open.dolphin.runtime.RuntimeConfigurationSupport;
 import open.orca.rest.ORCAConnection;
@@ -147,7 +146,6 @@ public class ServletStartup {
 
     private void logRuntimeConfigurationSummary() {
         String environment = RuntimeConfigurationSupport.resolveEnvironment();
-        boolean stubEndpointsAllowed = StubEndpointExposureFilter.resolveAllowStubEndpoints();
         boolean orcaPatientSyncEnabled = OrcaPatientSyncScheduler.resolveEnabledFromEnvironment();
         boolean masterUpdateSchedulerEnabled = MasterUpdateScheduler.resolveEnabledFromEnvironment();
         String dataDir = RuntimeConfigurationSupport.describeServerDataDirectory();
@@ -156,7 +154,6 @@ public class ServletStartup {
                 : Path.of(dataDir, "opendolphin").toString();
         LOGGER.info(() -> "Runtime config summary: environment=" + safe(environment)
                 + ", timezone=" + DEFAULT_ZONE.getId()
-                + ", stubEndpoints=" + (stubEndpointsAllowed ? "allow" : "block")
                 + ", schedulers={orcaPatientSync:" + (orcaPatientSyncEnabled ? "on" : "off")
                 + ",masterUpdate:" + (masterUpdateSchedulerEnabled ? "on" : "off") + "}"
                 + ", configStorePath=" + configStorePath);

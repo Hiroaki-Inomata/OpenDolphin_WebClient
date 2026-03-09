@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Utility to serialize/deserialize module payloads with polymorphic typing.
+ * Current module payloads are restored from beanJson only.
  */
 public final class ModuleJsonConverter {
 
@@ -53,8 +54,7 @@ public final class ModuleJsonConverter {
         try {
             return typedMapper.writeValueAsString(payload);
         } catch (JsonProcessingException e) {
-            LOG.warn("Failed to serialize module payload to beanJson. type={}"
-                    , payload.getClass().getName(), e);
+            LOG.warn("Failed to serialize module payload to beanJson. type={}", payload.getClass().getName(), e);
             return null;
         }
     }
@@ -76,10 +76,14 @@ public final class ModuleJsonConverter {
     }
 
     /**
-     * ModuleModel から payload を復元する。
+     * ModuleModel から payload を復元する。current path は beanJson のみを扱う。
      */
     public Object decode(ModuleModel module) {
         if (module == null) {
+            return null;
+        }
+        if (module.getBeanJson() == null || module.getBeanJson().trim().isEmpty()) {
+            LOG.warn("Module payload beanJson is missing. moduleId={}", module.getId());
             return null;
         }
         return deserialize(module.getBeanJson());

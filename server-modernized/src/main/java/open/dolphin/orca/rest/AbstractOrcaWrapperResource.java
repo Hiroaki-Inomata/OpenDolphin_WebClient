@@ -22,7 +22,6 @@ public abstract class AbstractOrcaWrapperResource extends AbstractOrcaRestResour
     private static final String DATA_SOURCE_SERVER = "server";
     private static final String TRACE_HEADER = "X-Request-Id";
     private static final String FACILITY_HEADER = "X-Facility-Id";
-    private static final String LEGACY_FACILITY_HEADER = "facilityId";
     @Inject
     protected SessionTraceManager sessionTraceManager;
 
@@ -200,10 +199,6 @@ public abstract class AbstractOrcaWrapperResource extends AbstractOrcaRestResour
         String header = request.getHeader(FACILITY_HEADER);
         if (header != null && !header.trim().isEmpty()) {
             return header.trim();
-        }
-        String legacy = request.getHeader(LEGACY_FACILITY_HEADER);
-        if (legacy != null && !legacy.trim().isEmpty()) {
-            return legacy.trim();
         }
         return null;
     }

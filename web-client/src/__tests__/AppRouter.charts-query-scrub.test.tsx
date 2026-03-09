@@ -90,9 +90,6 @@ vi.mock('../features/debug/DebugHubPage', () => ({
 vi.mock('../features/debug/OrcaApiConsolePage', () => ({
   OrcaApiConsolePage: () => <div data-testid="debug-orca-api">debug-orca</div>,
 }));
-vi.mock('../features/debug/LegacyRestConsolePage', () => ({
-  LegacyRestConsolePage: () => <div data-testid="debug-legacy-rest">debug-legacy</div>,
-}));
 vi.mock('../features/images/pages/MobileImagesUploadPage', () => ({
   MobileImagesUploadPage: () => <div data-testid="mobile-images-page">mobile-images</div>,
 }));

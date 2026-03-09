@@ -280,11 +280,9 @@ public class OrcaConnectionConfigStore {
             }
         }
 
-        // Backward compatibility: old single-record JSON is treated as default facility settings.
         if (hasConnectionPayload(raw) && !loaded.containsKey(DEFAULT_FACILITY_RECORD_KEY)) {
-            OrcaConnectionConfigRecord legacyDefault = applyDefaults(copyWithoutRecords(raw));
-            legacyDefault.setFacilityId(null);
-            loaded.put(DEFAULT_FACILITY_RECORD_KEY, legacyDefault);
+            throw new IllegalStateException(
+                    "Legacy single-record ORCA connection config is no longer supported. Migrate to the records format.");
         }
 
         if (loaded.isEmpty()) {

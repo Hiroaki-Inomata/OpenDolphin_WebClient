@@ -15,8 +15,8 @@ import java.util.List;
 import open.dolphin.infomodel.FacilityModel;
 import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.UserModel;
+import open.dolphin.rest.dto.CurrentUserResponse;
 import open.dolphin.session.UserServiceBean;
-import open.dolphin.touch.JsonTouchSharedService;
 import open.dolphin.testsupport.RuntimeDelegateTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,7 +58,7 @@ class UserResourceTest extends RuntimeDelegateTestSupport {
         when(request.getRemoteUser()).thenReturn(USER_01);
         when(userServiceBean.getUser(USER_01)).thenReturn(user);
 
-        JsonTouchSharedService.SafeUserResponse response = resource.getUser(request, USER_01);
+        CurrentUserResponse response = resource.getUser(request, USER_01);
         String json = new ObjectMapper().writeValueAsString(response);
         assertThat(json)
                 .doesNotContain("password")

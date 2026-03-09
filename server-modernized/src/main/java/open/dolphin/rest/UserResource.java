@@ -18,8 +18,8 @@ import open.dolphin.infomodel.FacilityModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.UserModel;
+import open.dolphin.rest.dto.CurrentUserResponse;
 import open.dolphin.session.UserServiceBean;
-import open.dolphin.touch.JsonTouchSharedService;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -41,7 +41,7 @@ public class UserResource extends AbstractResource {
     @GET
     @Path("/{userId}")
     @Produces(MediaType.APPLICATION_JSON)
-    public JsonTouchSharedService.SafeUserResponse getUser(@Context HttpServletRequest servletReq,
+    public CurrentUserResponse getUser(@Context HttpServletRequest servletReq,
             @PathParam("userId") String userId) throws IOException {
         String remoteUser = servletReq != null ? servletReq.getRemoteUser() : null;
         if (remoteUser == null || remoteUser.isBlank()) {
@@ -55,12 +55,12 @@ public class UserResource extends AbstractResource {
             Logger.getLogger("open.dolphin").log(Level.WARNING, "Denied user read for actor={0}", new Object[]{remoteUser});
             throw restError(servletReq, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
         }
-        return JsonTouchSharedService.toSafeUserResponse(result);
+        return CurrentUserResponse.from(result);
     }
 
     @GET
     @Produces(MediaType.APPLICATION_JSON)
-    public List<JsonTouchSharedService.SafeUserResponse> getAllUser(@Context HttpServletRequest servletReq) {
+    public List<CurrentUserResponse> getAllUser(@Context HttpServletRequest servletReq) {
         
 //s.oh^ 脆弱性対応
         // 管理者権限かチェック
@@ -77,7 +77,7 @@ public class UserResource extends AbstractResource {
 
         List<UserModel> result = userServiceBean.getAllUser(fid);
         return result.stream()
-                .map(JsonTouchSharedService::toSafeUserResponse)
+                .map(CurrentUserResponse::from)
                 .collect(Collectors.toList());
     }
 
