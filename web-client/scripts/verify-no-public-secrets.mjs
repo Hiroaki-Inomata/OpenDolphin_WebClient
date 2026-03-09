@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +45,21 @@ const hasSecretLikeName = (key) => {
   return upper.startsWith(PUBLIC_PREFIX) && KEYWORDS.some((keyword) => upper.includes(keyword));
 };
 
+const isGitIgnored = (filePath) => {
+  const relativePath = path.relative(repoRootDir, filePath);
+  const result = spawnSync('git', ['check-ignore', '--quiet', relativePath], {
+    cwd: repoRootDir,
+    stdio: 'ignore',
+  });
+  if (result.status === 0) {
+    return true;
+  }
+  if (result.status === 1) {
+    return false;
+  }
+  return false;
+};
+
 const scanFile = (filePath) => {
   const content = readFileSync(filePath, 'utf8');
   const lines = content.split(/\r?\n/);
@@ -61,15 +77,15 @@ const scanFile = (filePath) => {
   return findings;
 };
 
-const files = listEnvFiles(repoRootDir);
+const files = listEnvFiles(repoRootDir).filter((filePath) => !isGitIgnored(filePath));
 const findings = files.flatMap((filePath) => scanFile(filePath));
 
 if (findings.length > 0) {
-  console.error('[verify:no-public-secrets] web-client 配下の .env* から VITE_公開変数に秘密名キーワードを含むキーを検出しました。');
+  console.error('[verify:no-public-secrets] web-client 配下の gitignore 対象外 .env* から VITE_公開変数に秘密名キーワードを含むキーを検出しました。');
   for (const finding of findings) {
     console.error(` - ${path.relative(repoRootDir, finding.filePath)}:${finding.line} ${finding.key}`);
   }
   process.exit(2);
 }
 
-console.log('[verify:no-public-secrets] web-client 配下の .env* に問題は検出されませんでした。');
+console.log('[verify:no-public-secrets] web-client 配下の gitignore 対象外 .env* に問題は検出されませんでした。');
