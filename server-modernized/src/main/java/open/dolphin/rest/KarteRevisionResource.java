@@ -27,10 +27,8 @@ import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import open.dolphin.converter.DocumentModelConverter;
-import open.dolphin.infomodel.AttachmentModel;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.IInfoModel;
-import open.dolphin.infomodel.SchemaModel;
 import open.dolphin.rest.dto.KarteRevisionDiffResponse;
 import open.dolphin.rest.dto.KarteRevisionHistoryResponse;
 import open.dolphin.rest.dto.KarteRevisionWriteRequest;
@@ -95,7 +93,7 @@ public class KarteRevisionResource extends AbstractResource {
         }
         ensureRevisionFacilityAccess(revisionId);
 
-        DocumentModel doc = karteRevisionServiceBean.getRevisionSnapshot(revisionId);
+        DocumentModel doc = karteRevisionServiceBean.getRevisionSnapshotLight(revisionId);
         if (doc == null) {
             recordAudit("KARTE_REVISION_GET", Map.of(
                     "status", "MISSING",
@@ -107,8 +105,6 @@ public class KarteRevisionResource extends AbstractResource {
                     Map.of("revisionId", revisionId),
                     null);
         }
-
-        stripHeavyBytes(doc);
         // Use legacy converters to avoid infinite recursion in Hibernate entities
         // (e.g. UserModel.roles <-> RoleModel.userModel).
         DocumentModelConverter converter = new DocumentModelConverter();
@@ -286,28 +282,6 @@ public class KarteRevisionResource extends AbstractResource {
                 "createdRevisionId", createdRevisionId
         ), source));
         return response;
-    }
-
-    private void stripHeavyBytes(DocumentModel doc) {
-        if (doc == null) {
-            return;
-        }
-        List<AttachmentModel> attachments = doc.getAttachment();
-        if (attachments != null) {
-            for (AttachmentModel attachment : attachments) {
-                if (attachment != null) {
-                    attachment.setBytes(null);
-                }
-            }
-        }
-        List<SchemaModel> schema = doc.getSchema();
-        if (schema != null) {
-            for (SchemaModel image : schema) {
-                if (image != null) {
-                    image.setJpegByte(null);
-                }
-            }
-        }
     }
 
     private void ensureKarteFacilityAccess(long karteId) {

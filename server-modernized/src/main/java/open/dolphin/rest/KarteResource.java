@@ -199,18 +199,7 @@ public class KarteResource extends AbstractResource {
             list.add(docId);
         }
 
-        List<DocumentModel> result = karteServiceBean.getDocuments(list);
-        
-//s.oh^ 2014/08/20 添付ファイルの別読
-        for(DocumentModel model : result) {
-            List<AttachmentModel> attachments = model.getAttachment();
-            if(attachments != null) {
-                for(AttachmentModel attachment : attachments) {
-                    attachment.setBytes(null);
-                }
-            }
-        }
-//s.oh$
+        List<DocumentModel> result = karteServiceBean.getDocumentsAttachmentLight(list);
 
         DocumentList wrapper = new DocumentList();
         wrapper.setList(result);
@@ -827,17 +816,6 @@ public class KarteResource extends AbstractResource {
         ensurePatientFacilityAccess(pk, null);
 
         List<DocumentModel> result = karteServiceBean.getAllDocument(pk);
-        
-//s.oh^ 2014/08/20 添付ファイルの別読
-        for(DocumentModel model : result) {
-            List<AttachmentModel> attachments = model.getAttachment();
-            if(attachments != null) {
-                for(AttachmentModel attachment : attachments) {
-                    attachment.setBytes(null);
-                }
-            }
-        }
-//s.oh$
 
         DocumentList wrapper = new DocumentList();
         wrapper.setList(result);

@@ -840,37 +840,9 @@ public class PVTServiceBean {
         Date theDate = ModelUtils.getDateAsObject(date.substring(0, index));
 
         boolean searchAppo = (appoDateFrom != null && appoDateTo != null);
-
-        // 来院情報と患者は ManyToOne の関係である
-        for (int i = 0; i < len; i++) {
-            //for (int i = firstResult; i < len; i++) {
-            
-            PatientVisitModel pvt = result.get(i);
-            PatientModel patient = pvt.getPatientModel();
-
-            // 患者の健康保険を取得する
-            List<HealthInsuranceModel> insurances = (List<HealthInsuranceModel>)em.createQuery(QUERY_INSURANCE_BY_PATIENT_ID)
-            .setParameter(ID, patient.getId()).getResultList();
-            patient.setHealthInsurances(insurances);
-
-            // 予約を検索する
-            if (searchAppo) {
-                KarteBean karte = (KarteBean)em.createQuery(QUERY_KARTE_BY_PATIENT_ID)
-                .setParameter(ID, patient.getId())
-                .getSingleResult();
-                // カルテの PK を得る
-                long karteId = karte.getId();
-
-                List c = em.createQuery(QUERY_APPO_BY_KARTE_ID_DATE)
-                .setParameter(ID, karteId)
-                .setParameter(DATE, theDate)
-                .getResultList();
-                if (c != null && c.size() > 0) {
-                    // 当日の予約で最初のもの
-                    AppointmentModel appo = (AppointmentModel) c.get(0);
-                    pvt.setAppointment(appo.getName());
-                }
-            }
+        attachVisitHealthInsurances(result);
+        if (searchAppo) {
+            attachVisitAppointments(result, theDate);
         }
 
         return result;
@@ -903,40 +875,112 @@ public class PVTServiceBean {
         Date theDate = ModelUtils.getDateAsObject(date.substring(0, index));
 
         boolean searchAppo = (appoDateFrom != null && appoDateTo != null);
-
-        // 来院情報と患者は ManyToOne の関係である
-        for (int i = 0; i < len; i++) {
-            //for (int i = firstResult; i < len; i++) {
-
-            PatientVisitModel pvt = result.get(i);
-            PatientModel patient = pvt.getPatientModel();
-
-            // 患者の健康保険を取得する
-            List<HealthInsuranceModel> insurances = (List<HealthInsuranceModel>)em.createQuery(QUERY_INSURANCE_BY_PATIENT_ID)
-            .setParameter(ID, patient.getId()).getResultList();
-            patient.setHealthInsurances(insurances);
-
-            // 予約を検索する
-            if (searchAppo) {
-                KarteBean karte = (KarteBean)em.createQuery(QUERY_KARTE_BY_PATIENT_ID)
-                .setParameter(ID, patient.getId())
-                .getSingleResult();
-                // カルテの PK を得る
-                long karteId = karte.getId();
-
-                List c = em.createQuery(QUERY_APPO_BY_KARTE_ID_DATE)
-                .setParameter(ID, karteId)
-                .setParameter(DATE, theDate)
-                .getResultList();
-                if (c != null && c.size() > 0) {
-                    // 当日の予約で最初のもの
-                    AppointmentModel appo = (AppointmentModel) c.get(0);
-                    pvt.setAppointment(appo.getName());
-                }
-            }
+        attachVisitHealthInsurances(result);
+        if (searchAppo) {
+            attachVisitAppointments(result, theDate);
         }
 
         return result;
+    }
+
+    private void attachVisitHealthInsurances(List<PatientVisitModel> visits) {
+        List<Long> patientIds = extractPatientIds(visits);
+        if (patientIds.isEmpty()) {
+            return;
+        }
+        List<HealthInsuranceModel> insurances = em.createQuery(
+                        "from HealthInsuranceModel h where h.patient.id in (:ids)",
+                        HealthInsuranceModel.class)
+                .setParameter("ids", patientIds)
+                .getResultList();
+        Map<Long, List<HealthInsuranceModel>> grouped = new LinkedHashMap<>();
+        for (HealthInsuranceModel insurance : insurances) {
+            if (insurance == null || insurance.getPatient() == null) {
+                continue;
+            }
+            grouped.computeIfAbsent(insurance.getPatient().getId(), ignored -> new ArrayList<>())
+                    .add(insurance);
+        }
+        for (PatientVisitModel visit : visits) {
+            if (visit == null || visit.getPatientModel() == null) {
+                continue;
+            }
+            visit.getPatientModel().setHealthInsurances(
+                    new ArrayList<>(grouped.getOrDefault(visit.getPatientModel().getId(), List.of())));
+        }
+    }
+
+    private void attachVisitAppointments(List<PatientVisitModel> visits, Date targetDate) {
+        if (targetDate == null) {
+            return;
+        }
+        List<Long> patientIds = extractPatientIds(visits);
+        if (patientIds.isEmpty()) {
+            return;
+        }
+        List<KarteBean> kartes = em.createQuery(
+                        "from KarteBean k where k.patient.id in (:ids)",
+                        KarteBean.class)
+                .setParameter("ids", patientIds)
+                .getResultList();
+        Map<Long, KarteBean> karteByPatientId = new LinkedHashMap<>();
+        for (KarteBean karte : kartes) {
+            if (karte != null && karte.getPatient() != null) {
+                karteByPatientId.putIfAbsent(karte.getPatient().getId(), karte);
+            }
+        }
+
+        List<Long> karteIds = new ArrayList<>();
+        for (KarteBean karte : karteByPatientId.values()) {
+            if (karte != null && karte.getId() > 0) {
+                karteIds.add(karte.getId());
+            }
+        }
+        if (karteIds.isEmpty()) {
+            return;
+        }
+
+        List<AppointmentModel> appointments = em.createQuery(
+                        "from AppointmentModel a where a.karte.id in (:ids) and a.date = :date order by a.karte.id, a.id",
+                        AppointmentModel.class)
+                .setParameter("ids", karteIds)
+                .setParameter("date", targetDate)
+                .getResultList();
+        Map<Long, AppointmentModel> firstAppointmentByKarteId = new LinkedHashMap<>();
+        for (AppointmentModel appointment : appointments) {
+            if (appointment == null || appointment.getKarteBean() == null) {
+                continue;
+            }
+            firstAppointmentByKarteId.putIfAbsent(appointment.getKarteBean().getId(), appointment);
+        }
+
+        for (PatientVisitModel visit : visits) {
+            if (visit == null || visit.getPatientModel() == null) {
+                continue;
+            }
+            KarteBean karte = karteByPatientId.get(visit.getPatientModel().getId());
+            if (karte == null) {
+                continue;
+            }
+            AppointmentModel appointment = firstAppointmentByKarteId.get(karte.getId());
+            if (appointment != null) {
+                visit.setAppointment(appointment.getName());
+            }
+        }
+    }
+
+    private List<Long> extractPatientIds(List<PatientVisitModel> visits) {
+        LinkedHashMap<Long, Boolean> ids = new LinkedHashMap<>();
+        for (PatientVisitModel visit : visits) {
+            if (visit == null || visit.getPatientModel() == null) {
+                continue;
+            }
+            long patientId = visit.getPatientModel().getId();
+            if (patientId > 0) {
+                ids.put(patientId, Boolean.TRUE);
+            }
+        }
+        return new ArrayList<>(ids.keySet());
     }
     
       

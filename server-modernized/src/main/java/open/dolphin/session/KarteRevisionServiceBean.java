@@ -150,13 +150,23 @@ public class KarteRevisionServiceBean {
 
     /**
      * Returns a single revision snapshot as DocumentModel (modules/schema/attachments are loaded).
-     * The caller should strip heavy binary fields before returning it to the client.
      */
     public DocumentModel getRevisionSnapshot(long revisionId) {
         if (revisionId <= 0) {
             return null;
         }
         List<DocumentModel> docs = karteServiceBean.getDocuments(List.of(revisionId));
+        if (docs == null || docs.isEmpty()) {
+            return null;
+        }
+        return docs.get(0);
+    }
+
+    public DocumentModel getRevisionSnapshotLight(long revisionId) {
+        if (revisionId <= 0) {
+            return null;
+        }
+        List<DocumentModel> docs = karteServiceBean.getDocumentsRevisionLight(List.of(revisionId));
         if (docs == null || docs.isEmpty()) {
             return null;
         }
