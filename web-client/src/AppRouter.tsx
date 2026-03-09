@@ -321,15 +321,6 @@ const resolveOrcaTopStatus = (result: OrcaConnectionTestResponse): OrcaTopStatus
   };
 };
 
-const LEGACY_ROUTES = [
-  'reception',
-  'charts',
-  'charts/print/outpatient',
-  'charts/print/document',
-  'patients',
-  'administration',
-];
-
 const isSensitiveScrubPath = (pathname: string): boolean => {
   const facility = parseFacilityPath(pathname);
   if (facility?.suffix) {
@@ -359,9 +350,6 @@ const DebugHubPage = DEBUG_PAGES_ENABLED
   : null;
 const OrcaApiConsolePage = DEBUG_PAGES_ENABLED
   ? lazy(() => import('./features/debug/OrcaApiConsolePage').then((m) => ({ default: m.OrcaApiConsolePage })))
-  : null;
-const LegacyRestConsolePage = DEBUG_PAGES_ENABLED
-  ? lazy(() => import('./features/debug/LegacyRestConsolePage').then((m) => ({ default: m.LegacyRestConsolePage })))
   : null;
 const MobilePatientPickerDemoPage = DEBUG_PAGES_ENABLED
   ? lazy(() => import('./features/debug/MobilePatientPickerDemoPage').then((m) => ({ default: m.MobilePatientPickerDemoPage })))
@@ -693,9 +681,6 @@ export function AppRouterWithNavigation() {
         }
       >
         <Route path="login" element={<FacilityLoginResolver />} />
-        {LEGACY_ROUTES.map((path) => (
-          <Route key={path} path={path} element={<LegacyRootRedirect session={session} />} />
-        ))}
         <Route path="outpatient-mock" element={<LegacyOutpatientMockNotFound />} />
         <Route path="f/:facilityId/login" element={<FacilityLoginScreen onLoginSuccess={handleLoginSuccess} />} />
         <Route path="f/:facilityId/*" element={<FacilityShell session={session} />} />
@@ -783,9 +768,6 @@ function FacilityShell({ session }: { session: Session | null }) {
         <Route path="debug/mobile-patient-picker" element={<DebugMobilePatientPickerGate session={session} />} />
       ) : null}
       {DEBUG_PAGES_ENABLED ? <Route path="debug/orca-api" element={<DebugOrcaApiGate session={session} />} /> : null}
-      {DEBUG_PAGES_ENABLED ? (
-        <Route path="debug/legacy-rest" element={<DebugLegacyRestGate session={session} />} />
-      ) : null}
       <Route path="*" element={<Navigate to={buildFacilityPath(session.facilityId, '/reception')} replace />} />
     </Routes>
   );
@@ -1201,75 +1183,6 @@ function DebugOrcaApiGate({ session }: { session: Session }) {
   return (
     <Suspense fallback={<div className="status-message">ORCA API Console を読み込み中…</div>}>
       <OrcaApiConsolePage />
-    </Suspense>
-  );
-}
-
-function DebugLegacyRestGate({ session }: { session: Session }) {
-  const navigate = useNavigate();
-  const hasEnvAccess = DEBUG_PAGES_ENABLED;
-  const hasRoleAccess = isSystemAdminRole(session.role);
-  const isAllowed = hasEnvAccess && hasRoleAccess;
-  const envFlagValue = DEBUG_PAGES_ENABLED ? '1' : '0';
-
-  useEffect(() => {
-    if (isAllowed) return;
-    const denialReasons: string[] = [];
-    if (!hasEnvAccess) denialReasons.push('env flag disabled');
-    if (!hasRoleAccess) denialReasons.push('role missing');
-    logAuditEvent({
-      runId: session.runId,
-      source: 'authz',
-      note: 'debug access denied',
-      payload: {
-        action: 'navigate',
-        screen: 'debug',
-        debug: true,
-        debugFeature: 'legacy-rest-console',
-        requiredRole: 'system_admin',
-        role: session.role,
-        envFlags: { VITE_ENABLE_DEBUG_PAGES: envFlagValue },
-        denialReasons,
-        actor: `${session.facilityId}:${session.userId}`,
-      },
-    });
-  }, [
-    envFlagValue,
-    hasEnvAccess,
-    hasRoleAccess,
-    isAllowed,
-    session.facilityId,
-    session.role,
-    session.runId,
-    session.userId,
-  ]);
-
-  if (!isAllowed) {
-    return (
-      <div style={{ maxWidth: '620px', margin: '2rem auto' }}>
-        <div className="status-message is-error" role="status">
-          <p>権限がないため Legacy REST コンソールへのアクセスを拒否しました。</p>
-          <p>必要ロール: system_admin / 現在: {session.role}</p>
-          <p>ENV: VITE_ENABLE_DEBUG_PAGES={envFlagValue}</p>
-          {!hasEnvAccess ? <p>環境フラグが OFF のため表示されません。</p> : null}
-          <p>ログイン中: 施設ID={describeFacilityId(session.facilityId)} / ユーザー={session.userId}</p>
-        </div>
-        <div className="login-form__actions" style={{ marginTop: '1rem' }}>
-          <button
-            type="button"
-            onClick={() => navigate(buildFacilityPath(session.facilityId, '/reception'), { replace: true })}
-          >
-            Reception へ戻る
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!LegacyRestConsolePage) return null;
-  return (
-    <Suspense fallback={<div className="status-message">Legacy REST Console を読み込み中…</div>}>
-      <LegacyRestConsolePage />
     </Suspense>
   );
 }

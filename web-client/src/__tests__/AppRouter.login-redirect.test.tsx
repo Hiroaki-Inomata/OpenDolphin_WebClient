@@ -103,10 +103,6 @@ vi.mock('../features/debug/DebugHubPage', () => ({
 vi.mock('../features/debug/OrcaApiConsolePage', () => ({
   OrcaApiConsolePage: () => <div data-testid="debug-orca-api">debug-orca</div>,
 }));
-vi.mock('../features/debug/LegacyRestConsolePage', () => ({
-  LegacyRestConsolePage: () => <div data-testid="debug-legacy-rest">debug-legacy</div>,
-}));
-
 declare global {
   // eslint-disable-next-line no-var
   var __mockLoginResult: any;

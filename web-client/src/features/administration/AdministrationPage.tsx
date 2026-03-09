@@ -63,7 +63,6 @@ import {
   type MedicalRecordEntry,
   type OrcaInternalWrapperBase,
 } from './orcaInternalWrapperApi';
-import { LegacyRestPanel } from './LegacyRestPanel';
 import { AccessManagementPanel } from './AccessManagementPanel';
 import { OrcaUserManagementPanel } from './OrcaUserManagementPanel';
 import { MasterUpdatesPanel } from './MasterUpdatesPanel';
@@ -158,8 +157,7 @@ type GuardAction =
   | 'medicalset-search'
   | 'orca-xml-proxy'
   | 'orca-internal-wrapper'
-  | 'orca-connection'
-  | 'legacy-rest';
+  | 'orca-connection';
 
 const DEFAULT_ORCA_ENDPOINT =
   (import.meta.env as Record<string, string | undefined>).VITE_ORCA_ENDPOINT ?? 'https://localhost:9080/openDolphin/resources';
@@ -2350,14 +2348,6 @@ export function AdministrationPage({ runId, role }: AdministrationPageProps) {
                     onReset={handleInternalWrapperReset}
                   />
                 </div>
-                <LegacyRestPanel
-                  runId={resolvedRunId ?? session.runId ?? 'RUN-UNSET'}
-                  role={role}
-                  actorId={actorId}
-                  environmentLabel={environmentLabel}
-                  isSystemAdmin={isSystemAdmin}
-                  onGuarded={(detail) => reportGuardedAction('legacy-rest', detail)}
-                />
               </>
             ) : null}
           </>

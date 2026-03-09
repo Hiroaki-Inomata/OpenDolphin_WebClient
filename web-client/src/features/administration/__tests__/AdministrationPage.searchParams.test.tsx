@@ -70,10 +70,6 @@ vi.mock('../../shared/RunIdBadge', () => ({
   RunIdBadge: ({ runId }: { runId?: string }) => <div data-testid="runid-badge">{runId}</div>,
 }));
 
-vi.mock('../LegacyRestPanel', () => ({
-  LegacyRestPanel: () => <div data-testid="legacy-rest-panel" />,
-}));
-
 vi.mock('../AccessManagementPanel', () => ({
   AccessManagementPanel: () => <div data-testid="access-management-panel" />,
 }));
