@@ -10,6 +10,7 @@ import org.hibernate.type.SqlTypes;
  * ModuleModel
  *
  * @author Kazushi Minagawa, Digital Globe, Inc.
+ * modified Hiroaki-Inomata
  */
 @Entity
 @Table(name = "d_module")
@@ -27,8 +28,8 @@ public class ModuleModel extends KarteEntryBean
     private DocumentModel document;
 
     @Lob
-    @JdbcTypeCode(SqlTypes.BINARY)
-    @Column(nullable=true, columnDefinition = "bytea")
+    //@JdbcTypeCode(SqlTypes.BINARY)
+    //@Column(nullable=true, columnDefinition = "bytea")
     private byte[] beanBytes;
 
     @Lob
