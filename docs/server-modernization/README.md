@@ -25,6 +25,12 @@
 - `docs/server-modernization/rest-api-modernization.md`
 - `docs/server-modernization/stub-endpoint-control.md`
 
+### module 永続化方針
+- 新規 module 書込は `beanJson` のみを正規経路とする。
+- `beanBytes` は旧データ読込 fallback 専用とし、新規の JSON+XML 二重保存は行わない。
+- 互換を将来整理する場合も PostgreSQL `oid` への回帰は採らず、JSON 系へ統一する。
+- 判断に迷う場合は `docs/DEVELOPMENT_STATUS.md` の最新方針を優先する。
+
 ### 運用 / 接続
 - `docs/server-modernization/operations/ORCA_CERTIFICATION_ONLY.md`
 - `docs/server-modernization/operations/ORCA_FIRECRAWL_INDEX.md`
