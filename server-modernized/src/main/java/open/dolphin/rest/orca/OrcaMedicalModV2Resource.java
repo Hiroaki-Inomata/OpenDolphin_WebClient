@@ -165,7 +165,8 @@ public class OrcaMedicalModV2Resource extends AbstractOrcaRestResource {
         if (pvtServiceBean == null || facilityId == null || facilityId.isBlank()) {
             return List.of();
         }
-        return pvtServiceBean.getPvt(facilityId, targetDate.toString(), 0, null, null);
+        return pvtServiceBean.getPvt(facilityId, targetDate.toString(), 0, PVTServiceBean.DEFAULT_PVT_PAGE_SIZE, null,
+                null);
     }
 
     private LocalDate resolveTargetDate(Map<String, Object> payload) {

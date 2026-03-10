@@ -34,13 +34,15 @@ public class PVTResource extends AbstractResource {
     @GET
     @Path("/{param}")
     @Produces(MediaType.APPLICATION_JSON)
-    public PatientVisitListConverter getPvt(@Context HttpServletRequest servletReq, @PathParam("param") String param) {
+    public PatientVisitListConverter getPvt(@Context HttpServletRequest servletReq, @PathParam("param") String param,
+            @QueryParam("limit") Integer limit) {
 
         // 施設
         String fid = getRemoteFacility(servletReq.getRemoteUser());
         debug(fid);
 
         List<PatientVisitModel> result;
+        int pageSize = PVTServiceBean.normalizePvtPageSize(limit != null ? limit : PVTServiceBean.DEFAULT_PVT_PAGE_SIZE);
 
         String[] params = param.split(CAMMA);
         if (params.length==4) {
@@ -48,7 +50,7 @@ public class PVTResource extends AbstractResource {
             int firstResult = Integer.parseInt(params[1]);
             String appoDateFrom = params[2];
             String appoDateTo = params[3];
-            result = pVTServiceBean.getPvt(fid, pvtDate, firstResult, appoDateFrom, appoDateTo);
+            result = pVTServiceBean.getPvt(fid, pvtDate, firstResult, pageSize, appoDateFrom, appoDateTo);
         } else {
             String did = params[0];
             String unassigned = params[1];
@@ -56,7 +58,8 @@ public class PVTResource extends AbstractResource {
             int firstResult = Integer.parseInt(params[3]);
             String appoDateFrom = params[4];
             String appoDateTo = params[5];
-            result = pVTServiceBean.getPvt(fid, did, unassigned, pvtDate, firstResult, appoDateFrom, appoDateTo);
+            result = pVTServiceBean.getPvt(fid, did, unassigned, pvtDate, firstResult, pageSize, appoDateFrom,
+                    appoDateTo);
         }
         
         PatientVisitList list = new PatientVisitList();

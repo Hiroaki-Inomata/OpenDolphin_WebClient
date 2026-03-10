@@ -76,6 +76,8 @@ public class PVTServiceBean {
     private static final int LEGACY_FINALIZED_SAVE_STATE = 1 << LEGACY_FINALIZED_SAVE_BIT;   // 2
     private static final int LEGACY_FINALIZED_MODIFY_STATE = 1 << LEGACY_FINALIZED_MODIFY_BIT; // 4
     private static final int BIT_CANCEL = 6;
+    public static final int DEFAULT_PVT_PAGE_SIZE = 50;
+    public static final int MAX_PVT_PAGE_SIZE = 200;
     private static final String CSV_EXPORT_ENABLED_PROP = "pvt.csv.export.enabled";
     private static final String CSV_EXPORT_ENABLED_ENV = "PVT_CSV_EXPORT_ENABLED";
     private static final Path CSV_EXPORT_ALLOWED_DIR = Paths.get("/opt/jboss/data/opendolphin/exports")
@@ -758,10 +760,17 @@ public class PVTServiceBean {
      */
     
     public List<PatientVisitModel> getPvt(String fid, String date, int firstResult, String appoDateFrom, String appoDateTo) {
+        return getPvt(fid, date, firstResult, DEFAULT_PVT_PAGE_SIZE, appoDateFrom, appoDateTo);
+    }
+
+    public List<PatientVisitModel> getPvt(String fid, String date, int firstResult, int maxResult, String appoDateFrom,
+            String appoDateTo) {
         LocalDate targetDate = ModelUtils.parseDate(date != null ? date.replace("%", "") : null);
         if (targetDate == null) {
             return List.of();
         }
+        int safeFirst = normalizePvtFirstResult(firstResult);
+        int safeMax = normalizePvtPageSize(maxResult);
         
         // PatientVisitModelを施設IDで検索する
         List<PatientVisitModel> result =
@@ -769,7 +778,8 @@ public class PVTServiceBean {
                               .setParameter(FID, fid)
                               .setParameter(FROM_DATE, targetDate.atStartOfDay())
                               .setParameter(TO_DATE, targetDate.plusDays(1).atStartOfDay())
-                              .setFirstResult(firstResult)
+                              .setFirstResult(safeFirst)
+                              .setMaxResults(safeMax)
                               .getResultList();
 
         int len = result.size();
@@ -790,11 +800,19 @@ public class PVTServiceBean {
     }
 
     
-    public List<PatientVisitModel> getPvt(String fid, String did, String unassigned, String date, int firstResult, String appoDateFrom, String appoDateTo) {
+    public List<PatientVisitModel> getPvt(String fid, String did, String unassigned, String date, int firstResult,
+            String appoDateFrom, String appoDateTo) {
+        return getPvt(fid, did, unassigned, date, firstResult, DEFAULT_PVT_PAGE_SIZE, appoDateFrom, appoDateTo);
+    }
+
+    public List<PatientVisitModel> getPvt(String fid, String did, String unassigned, String date, int firstResult,
+            int maxResult, String appoDateFrom, String appoDateTo) {
         LocalDate targetDate = ModelUtils.parseDate(date != null ? date.replace("%", "") : null);
         if (targetDate == null) {
             return List.of();
         }
+        int safeFirst = normalizePvtFirstResult(firstResult);
+        int safeMax = normalizePvtPageSize(maxResult);
 
         // PatientVisitModelを施設IDで検索する
         List<PatientVisitModel> result =
@@ -804,7 +822,8 @@ public class PVTServiceBean {
                               .setParameter(UNASSIGNED, unassigned)
                               .setParameter(FROM_DATE, targetDate.atStartOfDay())
                               .setParameter(TO_DATE, targetDate.plusDays(1).atStartOfDay())
-                              .setFirstResult(firstResult)
+                              .setFirstResult(safeFirst)
+                              .setMaxResults(safeMax)
                               .getResultList();
 
         int len = result.size();
@@ -822,6 +841,17 @@ public class PVTServiceBean {
         }
 
         return result;
+    }
+
+    static int normalizePvtFirstResult(int firstResult) {
+        return Math.max(firstResult, 0);
+    }
+
+    public static int normalizePvtPageSize(int maxResult) {
+        if (maxResult <= 0) {
+            return DEFAULT_PVT_PAGE_SIZE;
+        }
+        return Math.min(maxResult, MAX_PVT_PAGE_SIZE);
     }
 
     private void attachVisitHealthInsurances(List<PatientVisitModel> visits) {

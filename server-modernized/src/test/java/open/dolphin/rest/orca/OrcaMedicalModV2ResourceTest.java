@@ -182,7 +182,8 @@ class OrcaMedicalModV2ResourceTest extends RuntimeDelegateTestSupport {
 
     private static final class FakePVTServiceBean extends PVTServiceBean {
         @Override
-        public List<PatientVisitModel> getPvt(String fid, String date, int firstResult, String appoDateFrom, String appoDateTo) {
+        public List<PatientVisitModel> getPvt(
+                String fid, String date, int firstResult, int maxResult, String appoDateFrom, String appoDateTo) {
             PatientModel patient = new PatientModel();
             patient.setPatientId("00001");
             patient.setFullName("テスト患者");
