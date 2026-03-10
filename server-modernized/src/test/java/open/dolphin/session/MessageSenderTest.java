@@ -56,6 +56,29 @@ class MessageSenderTest {
         verify(pvtServiceBean, never()).addPvt(org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void auditEnvelopeIsAcceptedWithoutPvtImport() throws Exception {
+        TextMessage message = mock(TextMessage.class);
+        when(message.propertyExists(anyString())).thenReturn(false);
+        when(message.getText()).thenReturn(
+                "{\"type\":\"AUDIT_EVENT\",\"audit\":{\"action\":\"ORCA_ACCEPT_LIST\",\"outcome\":\"SUCCESS\"}}");
+
+        sender.onMessage(message);
+
+        verify(pvtServiceBean, never()).addPvt(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void pvtEnvelopeWithBlankXmlIsRejectedWithoutProcessing() throws Exception {
+        TextMessage message = mock(TextMessage.class);
+        when(message.propertyExists(anyString())).thenReturn(false);
+        when(message.getText()).thenReturn("{\"type\":\"PVT_XML\",\"pvtXml\":\"   \"}");
+
+        sender.onMessage(message);
+
+        verify(pvtServiceBean, never()).addPvt(org.mockito.ArgumentMatchers.any());
+    }
+
     private static void setField(Object target, String fieldName, Object value) throws Exception {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);

@@ -35,6 +35,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P1-07「PVT 受信と JMS 連携の性格確認テストを書く」を完了し、受信後業務結果の正常/失敗条件を固定（RUN_ID=20260310T215953Z）。
+  - 追加（JMS受信）: `server-modernized/src/test/java/open/dolphin/session/MessageSenderTest.java` に `auditEnvelopeIsAcceptedWithoutPvtImport` / `pvtEnvelopeWithBlankXmlIsRejectedWithoutProcessing` を追加し、監査イベント受理と空PVT拒否を固定。
+  - 追加（PVT登録）: `server-modernized/src/test/java/open/dolphin/rest/PVTResourceLimitTest.java` に `postPvt_setsFacilityAndInsuranceRelationBeforeAdd` / `putPvtState_throwsNotFoundWhenUpdateCountIsZero` を追加し、施設ID付与・保険親参照構築・更新失敗時404を固定。
+  - 追加（代表入力整理）: `docs/modernization/p1-07-pvt-jms-test-matrix.md` を新規作成し、代表メッセージ3種（JMS監査/JMS空PVT/REST PVT登録）と機能別判定表を記録。
+  - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の P1-07 を ☑ 化し、RUN_ID を更新。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=MessageSenderTest,PVTResourceLimitTest,PVTServiceBeanPaginationTest,ReceptionRealtimeStreamResourceTest,ReceptionRealtimeSseSupportTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（19 tests）。
 - 2026-03-11: P1-06「ORCA 連携の性格確認テストを書く」を完了し、残す ORCA 業務機能の正常系/代表失敗系を固定（RUN_ID=20260310T215509Z）。
   - 追加（患者検索）: `server-modernized/src/test/java/open/dolphin/rest/OrcaPatientApiResourceRunIdTest.java` に `getPatient_rejectsMissingIdAndRecordsFailureAudit` を追加し、`patientgetv2` の必須 `id` 欠落時に `400` + 監査失敗記録となることを固定。
   - 追加（患者更新）: `server-modernized/src/test/java/open/dolphin/rest/orca/OrcaPatientResourceIdempotencyTest.java` に `updateReturnsSuccessWhenPatientExists` / `updateReturnsNotFoundWhenPatientMissing` を追加し、`/orca/patient/mutation` の update 成功/404 条件を固定。

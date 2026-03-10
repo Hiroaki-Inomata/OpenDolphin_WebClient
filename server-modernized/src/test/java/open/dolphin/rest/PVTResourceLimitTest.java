@@ -2,14 +2,18 @@ package open.dolphin.rest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.NotFoundException;
 import java.lang.reflect.Field;
 import java.time.LocalDateTime;
 import java.util.List;
+import open.dolphin.infomodel.HealthInsuranceModel;
 import open.dolphin.converter.PatientVisitListConverter;
 import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.PatientVisitModel;
@@ -66,6 +70,41 @@ class PVTResourceLimitTest {
         assertEquals(1, response.getList().size());
     }
 
+    @Test
+    void postPvt_setsFacilityAndInsuranceRelationBeforeAdd() throws Exception {
+        String json = """
+                {
+                  "patientModel": {
+                    "patientId": "00001",
+                    "fullName": "テスト患者",
+                    "healthInsurances": [
+                      {"insuranceNumber": "H001"}
+                    ]
+                  }
+                }
+                """;
+
+        String result = resource.postPvt(request, json);
+
+        assertEquals("1", result);
+        assertNotNull(pvtServiceBean.lastAdded);
+        assertEquals("F001", pvtServiceBean.lastAdded.getFacilityId());
+        assertEquals("F001", pvtServiceBean.lastAdded.getPatientModel().getFacilityId());
+        HealthInsuranceModel insurance =
+                pvtServiceBean.lastAdded.getPatientModel().getHealthInsurances().iterator().next();
+        assertSame(pvtServiceBean.lastAdded.getPatientModel(), insurance.getPatient());
+    }
+
+    @Test
+    void putPvtState_throwsNotFoundWhenUpdateCountIsZero() {
+        pvtServiceBean.updateStateResult = 0;
+
+        assertThrows(NotFoundException.class, () -> resource.putPvtState(request, "1001,1"));
+        assertEquals("F001", pvtServiceBean.lastFacilityIdForUpdateState);
+        assertEquals(1001L, pvtServiceBean.lastPvtPkForUpdateState);
+        assertEquals(1, pvtServiceBean.lastStateForUpdateState);
+    }
+
     private static void setField(Object target, String fieldName, Object value) throws Exception {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
@@ -78,6 +117,11 @@ class PVTResourceLimitTest {
         private int lastMaxResult = -1;
         private String lastFacilityId;
         private String lastDoctorId;
+        private PatientVisitModel lastAdded;
+        private int updateStateResult = 1;
+        private String lastFacilityIdForUpdateState;
+        private long lastPvtPkForUpdateState;
+        private int lastStateForUpdateState;
 
         @Override
         public List<PatientVisitModel> getPvt(String fid, String date, int firstResult, int maxResult,
@@ -96,6 +140,20 @@ class PVTResourceLimitTest {
             lastDoctorId = did;
             lastMaxResult = maxResult;
             return visitList(fid);
+        }
+
+        @Override
+        public int addPvt(PatientVisitModel pvt) {
+            lastAdded = pvt;
+            return 1;
+        }
+
+        @Override
+        public int updatePvtStateForFacility(String fid, long pvtPK, int state) {
+            lastFacilityIdForUpdateState = fid;
+            lastPvtPkForUpdateState = pvtPK;
+            lastStateForUpdateState = state;
+            return updateStateResult;
         }
 
         private List<PatientVisitModel> visitList(String fid) {
