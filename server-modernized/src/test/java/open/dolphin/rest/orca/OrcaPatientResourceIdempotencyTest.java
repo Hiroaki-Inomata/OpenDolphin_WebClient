@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -85,6 +86,60 @@ class OrcaPatientResourceIdempotencyTest {
         assertFalse(service.addCalled);
     }
 
+    @Test
+    void updateReturnsSuccessWhenPatientExists() {
+        StubPatientService service = new StubPatientService();
+        PatientModel existing = buildPatient("facility", "00001", "山田 太郎", "ヤマダ タロウ");
+        existing.setId(12L);
+        service.existing = existing;
+
+        OrcaPatientResource resource = new OrcaPatientResource();
+        resource.setPatientServiceBean(service);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getRemoteUser()).thenReturn("facility:doctor1");
+        when(request.getRequestURI()).thenReturn("/orca/patient/mutation");
+        when(request.getHeader("X-Run-Id")).thenReturn("20260125T112249Z");
+
+        PatientMutationRequest payload = new PatientMutationRequest();
+        payload.setOperation("update");
+        PatientMutationRequest.PatientPayload patient = new PatientMutationRequest.PatientPayload();
+        patient.setPatientId("00001");
+        patient.setWholeName("山田 太郎");
+        patient.setWholeNameKana("ヤマダ タロウ");
+        payload.setPatient(patient);
+
+        PatientMutationResponse response = resource.mutatePatient(request, payload);
+
+        assertEquals("00", response.getApiResult());
+        assertEquals("更新完了", response.getApiResultMessage());
+        assertEquals(12L, response.getPatientDbId());
+        assertTrue(service.updateCalled);
+    }
+
+    @Test
+    void updateReturnsNotFoundWhenPatientMissing() {
+        StubPatientService service = new StubPatientService();
+
+        OrcaPatientResource resource = new OrcaPatientResource();
+        resource.setPatientServiceBean(service);
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getRemoteUser()).thenReturn("facility:doctor1");
+        when(request.getRequestURI()).thenReturn("/orca/patient/mutation");
+
+        PatientMutationRequest payload = new PatientMutationRequest();
+        payload.setOperation("update");
+        PatientMutationRequest.PatientPayload patient = new PatientMutationRequest.PatientPayload();
+        patient.setPatientId("00001");
+        payload.setPatient(patient);
+
+        WebApplicationException ex = assertThrows(WebApplicationException.class,
+                () -> resource.mutatePatient(request, payload));
+        assertEquals(404, ex.getResponse().getStatus());
+        assertFalse(service.updateCalled);
+    }
+
     private static PatientModel buildPatient(String facilityId, String patientId, String name, String kana) {
         PatientModel model = new PatientModel();
         model.setFacilityId(facilityId);
@@ -104,6 +159,7 @@ class OrcaPatientResourceIdempotencyTest {
     private static final class StubPatientService extends PatientServiceBean {
         private PatientModel existing;
         private boolean addCalled;
+        private boolean updateCalled;
 
         @Override
         public PatientModel getPatientById(String fid, String pid) {
@@ -118,6 +174,7 @@ class OrcaPatientResourceIdempotencyTest {
 
         @Override
         public int update(PatientModel patient) {
+            updateCalled = true;
             return 1;
         }
     }
