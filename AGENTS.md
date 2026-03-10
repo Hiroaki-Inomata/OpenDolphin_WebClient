@@ -18,6 +18,8 @@
 - **正本ドキュメント**: 現行状況は `docs/DEVELOPMENT_STATUS.md` のみが正本。
   - `Phase2` と名のつくドキュメントは全て **過去の遺物(Legacy/Archive)** である。参照してもよいが、現行ルールとして従ってはならない。
 - **現行ハブ**: `docs/web-client/CURRENT.md` / `docs/server-modernization/README.md` を入口とする。
+- **当面の server-modernized 作業計画**: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` を参照する。
+  - WBS 記載タスクを順番に進める場合の作業根拠とし、`docs/DEVELOPMENT_STATUS.md`・`AGENTS.md`・最新指示と矛盾する場合はそちらを優先する。
 - **文字コード**: 日本語を含むファイルは **UTF-8 (BOMなし)** で保存。
 - **RUN_ID**: 作業開始時に `YYYYMMDDThhmmssZ` を採番し、ログや報告で使用する。
 
@@ -31,7 +33,7 @@
   - **標準接続先**: WebORCA Trial（XML/UTF-8 + Basic）。公開 Trial の既定値（URL/ユーザー/パス）は上記ドキュメント §2 の入力欄に記載。
 
 ## 4. ワーキングフロー (作業手順)
-1. **理解**: 指示内容と `docs/DEVELOPMENT_STATUS.md` を確認。
+1. **理解**: 指示内容と `docs/DEVELOPMENT_STATUS.md` を確認する。`server-modernized` の当面作業では `docs/server-modernization/planning/server_modernization_wbs_detailed.md` も確認する。
 2. **実装**: `client` (Legacy) や `server` (Legacy) を参照しつつ、Web用コードまたは `server-modernized` を実装。
 3. **検証**: ローカルで起動確認。エラーが出たら自律的に修正。
 4. **Git操作**:

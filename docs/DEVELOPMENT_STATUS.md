@@ -1,8 +1,9 @@
-# 開発状況（単一参照, 更新日: 2026-03-09）
+# 開発状況（単一参照, 更新日: 2026-03-11）
 
 ## 現行ステータス
 - Phase2 開発ドキュメントは **Legacy/Archive（参照専用）**。Phase2 を現行フェーズとして扱わない。
 - 現行のドキュメント入口は `docs/web-client/CURRENT.md` / `docs/server-modernization/README.md`。
+- `server-modernized` の当面作業は `docs/server-modernization/planning/server_modernization_wbs_detailed.md` を実行順付きの作業根拠として追跡する。
 - ORCA 接続情報の正本は `docs/server-modernization/operations/ORCA_CERTIFICATION_ONLY.md`（Phase2 版は Legacy）。
 - 現行の作業内容はフェーズ名では判断せず、最新のタスク指示/チケット/マネージャー指示に従う。
 
@@ -10,9 +11,10 @@
 1. `docs/DEVELOPMENT_STATUS.md`（本ファイル）
 2. `AGENTS.md` / `GEMINI.md`（共通ルールと制約）
 3. 現行ハブ: `docs/web-client/CURRENT.md` / `docs/server-modernization/README.md`
-4. 環境手順: `web-client/README.md` と `setup-modernized-env.sh`
-5. Web クライアント設計: `docs/web-client/`（`planning/phase2/` と `docs/web-client/README.md` は Legacy）
-6. サーバーモダナイズ: `docs/server-modernization/`（`phase2/` と `docs/server-modernized/phase2/` は Legacy）
+4. 当面の server-modernized 作業WBS: `docs/server-modernization/planning/server_modernization_wbs_detailed.md`
+5. 環境手順: `web-client/README.md` と `setup-modernized-env.sh`
+6. Web クライアント設計: `docs/web-client/`（`planning/phase2/` と `docs/web-client/README.md` は Legacy）
+7. サーバーモダナイズ: `docs/server-modernization/`（`phase2/` と `docs/server-modernized/phase2/` は Legacy）
 
 ## Legacy 参照（Phase2）
 - ロールオフ方針: `docs/server-modernization/phase2/PHASE2_DOCS_ROLLOFF.md`
@@ -25,6 +27,7 @@
 - ORCA 公式仕様の firecrawl 取得物は `docs/server-modernization/operations/ORCA_FIRECRAWL_INDEX.md` を入口に参照する（非Legacy 側の索引）。
 - ORCA 接続情報は `docs/server-modernization/operations/ORCA_CERTIFICATION_ONLY.md` を正本として運用する（Phase2 版は Legacy）。
 - ORCA オーダー仕様の実装要件は `docs/server-modernization/ORCA-order-system-rule.md` を参照する。
+- `server-modernized` の当面作業を順番に進める場合は `docs/server-modernization/planning/server_modernization_wbs_detailed.md` を参照し、完了更新は WBS の ☐ / ☑ を用いて管理する。
 - module 永続化の現行方針は `beanJson` 優先ではなく、**新規書込を `beanJson` のみに寄せる** こととする。`beanBytes` は旧データ読込 fallback 専用として扱い、新規二重保存は行わない。
 - module 永続化は将来的に `beanJson` 専用化を目標とし、`beanBytes` の PostgreSQL `oid` 回帰は採らない。互換を切る場合も `oid` ではなく JSON 系へ統一する。
 
@@ -32,6 +35,10 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: `server_modernization_wbs_detailed.md` を現行 docs 配下へ移設し、`server-modernized` の当面作業根拠として参照導線を整理（RUN_ID=20260310T201058Z）。
+  - 配置変更: リポジトリ直下の `server_modernization_wbs_detailed.md` を `docs/server-modernization/planning/server_modernization_wbs_detailed.md` へ移設。
+  - 文書反映: `docs/DEVELOPMENT_STATUS.md` / `docs/server-modernization/README.md` / `AGENTS.md` に WBS の位置付け、参照順、優先ルールを追記。
+  - 運用: `server-modernized` の当面作業を順番に進める場合は本 WBS を参照し、完了更新は ☐ / ☑ で管理する。
 - 2026-03-09: `server-modernized` の legacy cutover を実施し、現行 web-client / 現行 ORCA 連携に不要な過去互換を削除（RUN_ID=20260309T145604Z）。
   - 基準: `web-client/src/**` の production code から API path allowlist を作成し、`docs/legacy-cutover-allowlist.md` を source of truth として server 側削除判断に使用。
   - 内容（web-client）: Legacy REST console / administration panel / `debug/legacy-rest` route / legacy redirect 導線 / 関連テストを削除。`httpClient.ts` は current contract に必要な prefix のみ維持し、QA 補助 script からも legacy-rest 導線を除去。
