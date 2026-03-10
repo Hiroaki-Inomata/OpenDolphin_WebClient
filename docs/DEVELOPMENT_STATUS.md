@@ -35,6 +35,10 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P0-05「刷新方針を1枚に固定する」を完了し、刷新判断の正本を追加（RUN_ID=20260310T203518Z）。
+  - 追加: `docs/modernization/architecture-principles.md` を新規作成。後方互換非前提、旧入口削除、ORCA境界分離、common解体、ローカルファイル保存廃止を固定化。
+  - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の P0-05 を ☑ 化し、RUN_ID を更新。
+  - 導線: `docs/server-modernization/README.md` に刷新方針書リンクを追加。
 - 2026-03-11: `server_modernization_wbs_detailed.md` を現行 docs 配下へ移設し、`server-modernized` の当面作業根拠として参照導線を整理（RUN_ID=20260310T201058Z）。
   - 配置変更: リポジトリ直下の `server_modernization_wbs_detailed.md` を `docs/server-modernization/planning/server_modernization_wbs_detailed.md` へ移設。
   - 文書反映: `docs/DEVELOPMENT_STATUS.md` / `docs/server-modernization/README.md` / `AGENTS.md` に WBS の位置付け、参照順、優先ルールを追記。
