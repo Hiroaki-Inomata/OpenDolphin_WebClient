@@ -21,6 +21,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -216,6 +217,34 @@ class PatientImagesResourceTest {
         assertThat(actual.getHeaderString("Content-Disposition")).isEqualTo("attachment; filename=\"test.png\"");
         assertThat((byte[]) actual.getEntity()).containsExactly(bytes);
         verify(response).setHeader("Cache-Control", "private, no-store, max-age=0, must-revalidate");
+    }
+
+    @Test
+    void download_returnsPdfPayloadWithNoStoreHeaders() {
+        byte[] bytes = "%PDF-1.4\nmock\n".getBytes(StandardCharsets.UTF_8);
+        AttachmentModel attachment = new AttachmentModel();
+        attachment.setContentBytes(bytes);
+        attachment.setContentType("application/pdf");
+        attachment.setFileName("report.pdf");
+        when(patientImageServiceBean.getImageForDownload("F001", "P001", 11L)).thenReturn(attachment);
+
+        Response actual = resource.download("P001", 11L);
+
+        assertThat(actual.getStatus()).isEqualTo(200);
+        assertThat(actual.getMediaType().toString()).isEqualTo("application/pdf");
+        assertThat(actual.getHeaderString("Cache-Control")).isEqualTo("private, no-store, max-age=0, must-revalidate");
+        assertThat(actual.getHeaderString("Content-Disposition")).isEqualTo("attachment; filename=\"report.pdf\"");
+        assertThat((byte[]) actual.getEntity()).containsExactly(bytes);
+    }
+
+    @Test
+    void download_returnsNotFoundWhenAttachmentDoesNotExist() {
+        when(patientImageServiceBean.getImageForDownload("F001", "P001", 999L)).thenReturn(null);
+
+        assertThatThrownBy(() -> resource.download("P001", 999L))
+                .isInstanceOf(WebApplicationException.class)
+                .extracting(ex -> ((WebApplicationException) ex).getResponse().getStatus())
+                .isEqualTo(404);
     }
 
     private static byte[] createPng(int width, int height) throws Exception {

@@ -74,6 +74,21 @@ class AttachmentStorageManagerTest {
     }
 
     @Test
+    void uploadToS3OutsideTransaction_handlesPdfPayload() {
+        byte[] pdfBytes = "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n"
+                .getBytes(StandardCharsets.UTF_8);
+        AttachmentModel attachment = buildAttachment("report.pdf", "application/pdf", pdfBytes);
+
+        boolean uploaded = manager.uploadToS3OutsideTransaction(attachment);
+
+        assertThat(uploaded).isTrue();
+        assertThat(attachment.getUri()).isEqualTo("s3://test-bucket/attachments/doc-20/att-10-report.pdf");
+        assertThat(attachment.getDigest()).isEqualTo(sha256Hex(pdfBytes));
+        assertThat(attachment.getContentBytes()).isNull();
+        verify(s3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
+    }
+
+    @Test
     void uploadToS3OutsideTransaction_isIdempotentWithoutTransientLocation() {
         AttachmentModel attachment = buildAttachment("report.txt", null);
         attachment.setUri("s3://test-bucket/attachments/doc-20/att-10-report.txt");
@@ -101,6 +116,20 @@ class AttachmentStorageManagerTest {
     }
 
     @Test
+    void populateBinary_downloadsPdfBytesWithoutMutation() {
+        byte[] payload = "%PDF-1.4\nmock\n".getBytes(StandardCharsets.UTF_8);
+        AttachmentModel attachment = buildAttachment("report.pdf", "application/pdf", null);
+        attachment.setUri("s3://test-bucket/attachments/doc-20/att-10-report.pdf");
+        when(s3Client.getObject(any(GetObjectRequest.class))).thenReturn(new ResponseInputStream<>(
+                GetObjectResponse.builder().build(),
+                AbortableInputStream.create(new ByteArrayInputStream(payload))));
+
+        manager.populateBinary(attachment);
+
+        assertThat(attachment.getContentBytes()).containsExactly(payload);
+    }
+
+    @Test
     void populateBinary_rejectsAttachmentWithoutBytesAndUri() {
         AttachmentModel attachment = buildAttachment("report.txt", null);
 
@@ -110,10 +139,14 @@ class AttachmentStorageManagerTest {
     }
 
     private static AttachmentModel buildAttachment(String fileName, byte[] bytes) {
+        return buildAttachment(fileName, "text/plain", bytes);
+    }
+
+    private static AttachmentModel buildAttachment(String fileName, String contentType, byte[] bytes) {
         AttachmentModel attachment = new AttachmentModel();
         attachment.setId(10L);
         attachment.setFileName(fileName);
-        attachment.setContentType("text/plain");
+        attachment.setContentType(contentType);
         attachment.setContentBytes(bytes);
 
         DocumentModel document = new DocumentModel();

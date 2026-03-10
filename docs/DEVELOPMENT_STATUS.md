@@ -35,6 +35,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P1-08「添付画像・PDF の保存と取得の性格確認テストを書く」を完了し、添付保存/取得の不変条件を固定（RUN_ID=20260310T220429Z）。
+  - 追加（添付ストレージ）: `server-modernized/src/test/java/open/dolphin/storage/attachment/AttachmentStorageManagerTest.java` に `uploadToS3OutsideTransaction_handlesPdfPayload` / `populateBinary_downloadsPdfBytesWithoutMutation` を追加し、PDF添付の外部保存（digest/uri設定）と取得時バイト不変を固定。
+  - 追加（ダウンロード経路）: `server-modernized/src/test/java/open/dolphin/rest/PatientImagesResourceTest.java` に `download_returnsPdfPayloadWithNoStoreHeaders` / `download_returnsNotFoundWhenAttachmentDoesNotExist` を追加し、PDF応答ヘッダと不存在時404を固定。
+  - 追加（判定表）: `docs/modernization/p1-08-attachment-test-matrix.md` を新規作成し、画像1件/PDF1件の最小ケースと正常/失敗判定を整理。
+  - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の P1-08 を ☑ 化し、RUN_ID を更新。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=AttachmentStorageManagerTest,PatientImagesResourceTest,PatientImageServiceBeanTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（18 tests）。
 - 2026-03-11: P1-07「PVT 受信と JMS 連携の性格確認テストを書く」を完了し、受信後業務結果の正常/失敗条件を固定（RUN_ID=20260310T215953Z）。
   - 追加（JMS受信）: `server-modernized/src/test/java/open/dolphin/session/MessageSenderTest.java` に `auditEnvelopeIsAcceptedWithoutPvtImport` / `pvtEnvelopeWithBlankXmlIsRejectedWithoutProcessing` を追加し、監査イベント受理と空PVT拒否を固定。
   - 追加（PVT登録）: `server-modernized/src/test/java/open/dolphin/rest/PVTResourceLimitTest.java` に `postPvt_setsFacilityAndInsuranceRelationBeforeAdd` / `putPvtState_throwsNotFoundWhenUpdateCountIsZero` を追加し、施設ID付与・保険親参照構築・更新失敗時404を固定。
