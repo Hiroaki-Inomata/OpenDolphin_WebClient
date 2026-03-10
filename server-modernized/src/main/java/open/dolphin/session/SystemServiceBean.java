@@ -6,19 +6,25 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.function.Consumer;
+import java.util.function.ObjLongConsumer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Named;
 import jakarta.persistence.EntityExistsException;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.Query;
 import open.dolphin.infomodel.*;
 import open.dolphin.msg.OidSender;
 import open.dolphin.session.framework.SessionOperation;
@@ -263,126 +269,8 @@ public class SystemServiceBean {
      * @return 
      */
     public ActivityModel countTotalActivities(String fid) {
-        
-        ActivityModel am = new ActivityModel();
-        
-        // ユーザー数
-        StringBuilder sb = new StringBuilder();
-        sb.append("select count(u.id) from UserModel u where u.userId like :fid and u.memberType!=:memberType");
-        String sql = sb.toString();
-        Object obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .setParameter("memberType", "EXPIRED")
-                .getSingleResult();
-        long count = (long)obj;
-        am.setNumOfUsers(count);
-        
-        // 全患者数
-        sb = new StringBuilder();
-        sb.append("select count(p.id) from PatientModel p where p.facilityId=:fid");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid)
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfPatients(count);
-        
-        // 延べ来院患者
-        sb = new StringBuilder();
-        sb.append("select count(p.id) from PatientVisitModel p where p.facilityId=:fid and p.status!=:status");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid)
-                .setParameter("status", 6)
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfPatientVisits(count);
-        
-        // 全カルテ数
-        sb = new StringBuilder();
-        sb.append("select count(d.id) from DocumentModel d where d.creator.userId like :fid and d.status='F'");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfKarte(count);
-        
-        // 全画像数
-        sb = new StringBuilder();
-        sb.append("select count(s.id) from SchemaModel s where s.creator.userId like :fid and s.status='F'");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfImages(count);
-        
-        // 添付文書数
-        sb = new StringBuilder();
-        sb.append("select count(a.id) from AttachmentModel a where a.creator.userId like :fid and a.status='F'");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfAttachments(count);
-        
-        // 病名数 RegisteredDiagnosisModel
-        sb = new StringBuilder();
-        sb.append("select count(r.id) from RegisteredDiagnosisModel r where r.creator.userId like :fid");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfDiagnosis(count);
-        
-        // 紹介状数
-        sb = new StringBuilder();
-        sb.append("select count(l.id) from LetterModule l where l.creator.userId like :fid and l.status='F'");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfLetters(count);
-        
-        // 検査数
-        sb = new StringBuilder();
-        sb.append("select count(l.id) from NLaboModule l where l.patientId like :fid");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfLabTests(count);
-        
-        // 医療機関情報
-        sb = new StringBuilder();
-        sb.append("from FacilityModel f where f.facilityId=:fid");
-        sql = sb.toString();
-        FacilityModel fm = (FacilityModel)em.createQuery(sql)
-                .setParameter("fid", fid)
-                .getSingleResult();
-        am.setFacilityId(fm.getFacilityId());
-        am.setFacilityName(fm.getFacilityName());
-        am.setFacilityZip(fm.getZipCode());
-        am.setFacilityAddress(fm.getAddress());
-        am.setFacilityTelephone(fm.getTelephone());
-        am.setFacilityFacimile(fm.getFacsimile());
-        
-        // DB size
-        sb = new StringBuilder();
-        sb.append("select pg_size_pretty(pg_database_size('dolphin'))");
-        sql = sb.toString();
-        obj = em.createNativeQuery(sql).getSingleResult();
-        am.setDbSize(obj.toString());
-        
-        // bind address
-        am.setBindAddress(this.getBindAddress());
-        
-        return am;
+        FacilityModel facility = findFacilityModel(fid);
+        return countTotalActivitiesBulk(List.of(facility)).get(fid);
     }
     
     /**
@@ -393,112 +281,15 @@ public class SystemServiceBean {
      * @return 
      */
     public ActivityModel countActivities(String fid, Date from, Date to) {
-        
-        ActivityModel am = new ActivityModel();
-        am.setFromDate(from);
-        am.setToDate(to);
-        
-        // 対象期間の新規患者
-        StringBuilder sb = new StringBuilder();
-        sb.append("select count(p.id) from PatientModel p, KarteBean k where p.id=k.patient.id and p.facilityId=:fid and k.created between :fromDate and :toDate");
-        String sql = sb.toString();
-        Object obj = em.createQuery(sql)
-                .setParameter("fid", fid)
-                .setParameter("fromDate", from)
-                .setParameter("toDate", to)
-                .getSingleResult();
-        long count = (long)obj;
-        am.setNumOfPatients(count);
-        
-        // 対象期間の来院数
-        sb = new StringBuilder();
-        sb.append("select count(p.id) from PatientVisitModel p where p.facilityId=:fid and p.pvtDate between :fromDate and :toDate and p.status!=:status");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid)
-                .setParameter("fromDate", LocalDateTime.ofInstant(from.toInstant(), java.time.ZoneId.systemDefault()))
-                .setParameter("toDate", LocalDateTime.ofInstant(to.toInstant(), java.time.ZoneId.systemDefault()))
-                .setParameter("status", 6)
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfPatientVisits(count);
-        
-        // 対象期間のカルテ枚数
-        sb = new StringBuilder();
-        sb.append("select count(d.id) from DocumentModel d where d.creator.userId like :fid and d.started between :fromDate and :toDate and d.status='F'");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .setParameter("fromDate", from)
-                .setParameter("toDate", to)
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfKarte(count);
-        
-        // 対象期間画像数
-        sb = new StringBuilder();
-        sb.append("select count(s.id) from SchemaModel s where s.creator.userId like :fid and s.started between :fromDate and :toDate and s.status='F'");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .setParameter("fromDate", from)
-                .setParameter("toDate", to)
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfImages(count);
-        
-        // 対象期間添付文書数
-        sb = new StringBuilder();
-        sb.append("select count(a.id) from AttachmentModel a where a.creator.userId like :fid and a.started between :fromDate and :toDate and a.status='F'");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .setParameter("fromDate", from)
-                .setParameter("toDate", to)
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfAttachments(count);
-        
-        // 対象期間病名数
-        sb = new StringBuilder();
-        sb.append("select count(r.id) from RegisteredDiagnosisModel r where r.creator.userId like :fid and r.started between :fromDate and :toDate");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .setParameter("fromDate", from)
-                .setParameter("toDate", to)
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfDiagnosis(count);
-        
-        // 対象期間の紹介状数
-        sb = new StringBuilder();
-        sb.append("select count(l.id) from LetterModule l where l.creator.userId like :fid and l.started between :fromDate and :toDate and l.status='F'");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .setParameter("fromDate", from)
-                .setParameter("toDate", to)
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfLetters(count);
-        
-        // 対象期間の検査数
-        sb = new StringBuilder();
-        sb.append("select count(l.id) from NLaboModule l where l.patientId like :fid and l.sampleDate between :fromDate and :toDate");
-        sql = sb.toString();
-        obj = em.createQuery(sql)
-                .setParameter("fid", fid+":%")
-                .setParameter("fromDate", sampleDateFromDate(from))
-                .setParameter("toDate", sampleDateFromDate(to))
-                .getSingleResult();
-        count = (long)obj;
-        am.setNumOfLabTests(count);
-        
-        return am;
+        FacilityModel facility = findFacilityModel(fid);
+        return countMonthlyActivitiesBulk(List.of(facility), from, to).get(fid);
     }
     
     public void mailActivities(ActivityModel[] ams) {
+        mailActivities(ams, new OidSender());
+    }
+
+    public void mailActivities(ActivityModel[] ams, OidSender sender) {
         
         ActivityModel am = ams[0];
         ActivityModel total = ams[1];
@@ -551,13 +342,178 @@ public class SystemServiceBean {
         //    }
         //}
         LOGGER.info("ActivityModel message has received. Reporting will start(Not Que).");
-        OidSender sender = new OidSender();
         try {
             sender.sendActivity(ams);
         } catch (Exception ex) {
             ex.printStackTrace(System.err);
             LOGGER.warn("ActivityModel message send error : {}", ex.getMessage());
         }
+    }
+
+    Map<String, ActivityModel> countTotalActivitiesBulk(List<FacilityModel> facilities) {
+        Map<String, ActivityModel> activities = initializeActivities(facilities);
+        if (activities.isEmpty()) {
+            return activities;
+        }
+
+        applyGroupedCount(
+                "select substring(u.userId, 1, locate(':', u.userId) - 1), count(u.id) "
+                        + "from UserModel u where u.memberType!=:memberType "
+                        + "group by substring(u.userId, 1, locate(':', u.userId) - 1)",
+                activities,
+                ActivityModel::setNumOfUsers,
+                query -> query.setParameter("memberType", "EXPIRED"));
+        applyGroupedCount(
+                "select p.facilityId, count(p.id) from PatientModel p group by p.facilityId",
+                activities,
+                ActivityModel::setNumOfPatients);
+        applyGroupedCount(
+                "select p.facilityId, count(p.id) from PatientVisitModel p where p.status!=:status group by p.facilityId",
+                activities,
+                ActivityModel::setNumOfPatientVisits,
+                query -> query.setParameter("status", 6));
+        applyGroupedCount(
+                "select substring(d.creator.userId, 1, locate(':', d.creator.userId) - 1), count(d.id) "
+                        + "from DocumentModel d where d.status='F' "
+                        + "group by substring(d.creator.userId, 1, locate(':', d.creator.userId) - 1)",
+                activities,
+                ActivityModel::setNumOfKarte);
+        applyGroupedCount(
+                "select substring(s.creator.userId, 1, locate(':', s.creator.userId) - 1), count(s.id) "
+                        + "from SchemaModel s where s.status='F' "
+                        + "group by substring(s.creator.userId, 1, locate(':', s.creator.userId) - 1)",
+                activities,
+                ActivityModel::setNumOfImages);
+        applyGroupedCount(
+                "select substring(a.creator.userId, 1, locate(':', a.creator.userId) - 1), count(a.id) "
+                        + "from AttachmentModel a where a.status='F' "
+                        + "group by substring(a.creator.userId, 1, locate(':', a.creator.userId) - 1)",
+                activities,
+                ActivityModel::setNumOfAttachments);
+        applyGroupedCount(
+                "select substring(r.creator.userId, 1, locate(':', r.creator.userId) - 1), count(r.id) "
+                        + "from RegisteredDiagnosisModel r "
+                        + "group by substring(r.creator.userId, 1, locate(':', r.creator.userId) - 1)",
+                activities,
+                ActivityModel::setNumOfDiagnosis);
+        applyGroupedCount(
+                "select substring(l.creator.userId, 1, locate(':', l.creator.userId) - 1), count(l.id) "
+                        + "from LetterModule l where l.status='F' "
+                        + "group by substring(l.creator.userId, 1, locate(':', l.creator.userId) - 1)",
+                activities,
+                ActivityModel::setNumOfLetters);
+        applyGroupedCount(
+                "select substring(l.patientId, 1, locate(':', l.patientId) - 1), count(l.id) "
+                        + "from NLaboModule l "
+                        + "group by substring(l.patientId, 1, locate(':', l.patientId) - 1)",
+                activities,
+                ActivityModel::setNumOfLabTests);
+
+        String dbSize = em.createNativeQuery("select pg_size_pretty(pg_database_size('dolphin'))")
+                .getSingleResult()
+                .toString();
+        String bindAddress = getBindAddress();
+        for (ActivityModel activity : activities.values()) {
+            activity.setDbSize(dbSize);
+            activity.setBindAddress(bindAddress);
+        }
+        return activities;
+    }
+
+    Map<String, ActivityModel> countMonthlyActivitiesBulk(List<FacilityModel> facilities, Date from, Date to) {
+        Map<String, ActivityModel> activities = initializeActivities(facilities);
+        if (activities.isEmpty()) {
+            return activities;
+        }
+
+        for (ActivityModel activity : activities.values()) {
+            activity.setFromDate(from);
+            activity.setToDate(to);
+        }
+
+        applyGroupedCount(
+                "select p.facilityId, count(p.id) from PatientModel p, KarteBean k "
+                        + "where p.id=k.patient.id and k.created between :fromDate and :toDate "
+                        + "group by p.facilityId",
+                activities,
+                ActivityModel::setNumOfPatients,
+                query -> {
+                    query.setParameter("fromDate", from);
+                    query.setParameter("toDate", to);
+                });
+        applyGroupedCount(
+                "select p.facilityId, count(p.id) from PatientVisitModel p "
+                        + "where p.pvtDate between :fromDate and :toDate and p.status!=:status "
+                        + "group by p.facilityId",
+                activities,
+                ActivityModel::setNumOfPatientVisits,
+                query -> {
+                    query.setParameter("fromDate", toLocalDateTime(from));
+                    query.setParameter("toDate", toLocalDateTime(to));
+                    query.setParameter("status", 6);
+                });
+        applyGroupedCount(
+                "select substring(d.creator.userId, 1, locate(':', d.creator.userId) - 1), count(d.id) "
+                        + "from DocumentModel d where d.started between :fromDate and :toDate and d.status='F' "
+                        + "group by substring(d.creator.userId, 1, locate(':', d.creator.userId) - 1)",
+                activities,
+                ActivityModel::setNumOfKarte,
+                query -> {
+                    query.setParameter("fromDate", from);
+                    query.setParameter("toDate", to);
+                });
+        applyGroupedCount(
+                "select substring(s.creator.userId, 1, locate(':', s.creator.userId) - 1), count(s.id) "
+                        + "from SchemaModel s where s.started between :fromDate and :toDate and s.status='F' "
+                        + "group by substring(s.creator.userId, 1, locate(':', s.creator.userId) - 1)",
+                activities,
+                ActivityModel::setNumOfImages,
+                query -> {
+                    query.setParameter("fromDate", from);
+                    query.setParameter("toDate", to);
+                });
+        applyGroupedCount(
+                "select substring(a.creator.userId, 1, locate(':', a.creator.userId) - 1), count(a.id) "
+                        + "from AttachmentModel a where a.started between :fromDate and :toDate and a.status='F' "
+                        + "group by substring(a.creator.userId, 1, locate(':', a.creator.userId) - 1)",
+                activities,
+                ActivityModel::setNumOfAttachments,
+                query -> {
+                    query.setParameter("fromDate", from);
+                    query.setParameter("toDate", to);
+                });
+        applyGroupedCount(
+                "select substring(r.creator.userId, 1, locate(':', r.creator.userId) - 1), count(r.id) "
+                        + "from RegisteredDiagnosisModel r where r.started between :fromDate and :toDate "
+                        + "group by substring(r.creator.userId, 1, locate(':', r.creator.userId) - 1)",
+                activities,
+                ActivityModel::setNumOfDiagnosis,
+                query -> {
+                    query.setParameter("fromDate", from);
+                    query.setParameter("toDate", to);
+                });
+        applyGroupedCount(
+                "select substring(l.creator.userId, 1, locate(':', l.creator.userId) - 1), count(l.id) "
+                        + "from LetterModule l where l.started between :fromDate and :toDate and l.status='F' "
+                        + "group by substring(l.creator.userId, 1, locate(':', l.creator.userId) - 1)",
+                activities,
+                ActivityModel::setNumOfLetters,
+                query -> {
+                    query.setParameter("fromDate", from);
+                    query.setParameter("toDate", to);
+                });
+        applyGroupedCount(
+                "select substring(l.patientId, 1, locate(':', l.patientId) - 1), count(l.id) "
+                        + "from NLaboModule l where l.sampleDate between :fromDate and :toDate "
+                        + "group by substring(l.patientId, 1, locate(':', l.patientId) - 1)",
+                activities,
+                ActivityModel::setNumOfLabTests,
+                query -> {
+                    query.setParameter("fromDate", sampleDateFromDate(from));
+                    query.setParameter("toDate", sampleDateFromDate(to));
+                });
+
+        return activities;
     }
     
     public void sendMonthlyActivities(int year, int month) {
@@ -570,24 +526,83 @@ public class SystemServiceBean {
         GregorianCalendar gcTo = new GregorianCalendar(year, month, gcFrom.getActualMaximum(Calendar.DAY_OF_MONTH), 23, 59, 59);
         Date toDate = gcTo.getTime();
         
-        List<FacilityModel> list = (List<FacilityModel>)em.createQuery("from FacilityModel f").getResultList();
+        List<FacilityModel> list = loadFacilities();
+        Map<String, ActivityModel> totalActivities = countTotalActivitiesBulk(list);
+        Map<String, ActivityModel> monthlyActivities = countMonthlyActivitiesBulk(list, fromDate, toDate);
+        OidSender sender = new OidSender();
         for (FacilityModel fm : list) {
-            
-            ActivityModel total = this.countTotalActivities(fm.getFacilityId());
+            ActivityModel total = totalActivities.get(fm.getFacilityId());
+            if (total == null) {
+                continue;
+            }
             total.setFlag("T");
-            
-            ActivityModel target = this.countActivities(fm.getFacilityId(), fromDate, toDate);
+
+            ActivityModel target = monthlyActivities.get(fm.getFacilityId());
+            if (target == null) {
+                continue;
+            }
             target.setFlag("M");
-            target.setFromDate(fromDate);
-            target.setToDate(toDate);
-            
-            this.mailActivities(new ActivityModel[]{target, total});
+
+            this.mailActivities(new ActivityModel[]{target, total}, sender);
         }
     }
     
     private String sampleDateFromDate(Date d) {
-        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
-        return sdf.format(d);
+        return d.toInstant().atZone(ZoneId.systemDefault()).toLocalDate().toString();
+    }
+
+    private Map<String, ActivityModel> initializeActivities(List<FacilityModel> facilities) {
+        Map<String, ActivityModel> activities = new LinkedHashMap<>();
+        for (FacilityModel facility : facilities) {
+            ActivityModel activity = new ActivityModel();
+            activity.setFacilityId(facility.getFacilityId());
+            activity.setFacilityName(facility.getFacilityName());
+            activity.setFacilityZip(facility.getZipCode());
+            activity.setFacilityAddress(facility.getAddress());
+            activity.setFacilityTelephone(facility.getTelephone());
+            activity.setFacilityFacimile(facility.getFacsimile());
+            activities.put(facility.getFacilityId(), activity);
+        }
+        return activities;
+    }
+
+    private void applyGroupedCount(String jpql, Map<String, ActivityModel> activities, ObjLongConsumer<ActivityModel> setter) {
+        applyGroupedCount(jpql, activities, setter, query -> {
+        });
+    }
+
+    @SuppressWarnings("unchecked")
+    private void applyGroupedCount(
+            String jpql,
+            Map<String, ActivityModel> activities,
+            ObjLongConsumer<ActivityModel> setter,
+            Consumer<Query> parameterizer
+    ) {
+        Query query = em.createQuery(jpql);
+        parameterizer.accept(query);
+        List<Object[]> rows = query.getResultList();
+        for (Object[] row : rows) {
+            String facilityId = (String) row[0];
+            ActivityModel activity = activities.get(facilityId);
+            if (activity != null) {
+                setter.accept(activity, ((Number) row[1]).longValue());
+            }
+        }
+    }
+
+    private LocalDateTime toLocalDateTime(Date date) {
+        return LocalDateTime.ofInstant(date.toInstant(), ZoneId.systemDefault());
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<FacilityModel> loadFacilities() {
+        return (List<FacilityModel>) em.createQuery("from FacilityModel f").getResultList();
+    }
+
+    private FacilityModel findFacilityModel(String fid) {
+        return (FacilityModel) em.createQuery("from FacilityModel f where f.facilityId=:fid")
+                .setParameter(FID, fid)
+                .getSingleResult();
     }
 
     private String getBindAddress() {
