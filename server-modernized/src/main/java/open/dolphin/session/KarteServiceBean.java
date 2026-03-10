@@ -50,6 +50,7 @@ public class KarteServiceBean {
     private static final DateTimeFormatter ISO_INSTANT_FORMATTER = DateTimeFormatter.ISO_INSTANT;
     private static final DateTimeFormatter ISO_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC);
     private static final String FINALIZED_UPDATE_DENIED_ERROR_CODE = "karte.document.finalized_update_denied";
+    private static final int WRITE_BATCH_SIZE = 50;
     
     // parameters
     private static final String PATIENT_PK = "patientPk";
@@ -61,10 +62,15 @@ public class KarteServiceBean {
     private static final String FID = "fid";
     private static final String PID = "pid";
 
-    private static final String QUERY_KARTE = "from KarteBean k where k.patient.id=:patientPk";
+    private static final String QUERY_KARTE = "select k from KarteBean k join fetch k.patient p where p.id=:patientPk";
+    private static final String QUERY_KARTE_BY_FID_PID =
+            "select k from KarteBean k join fetch k.patient p where p.facilityId=:fid and p.patientId=:pid";
     private static final String QUERY_ALLERGY = "from ObservationModel o where o.karte.id=:karteId and o.observation='Allergy'";
     private static final String QUERY_BODY_HEIGHT = "from ObservationModel o where o.karte.id=:karteId and o.observation='PhysicalExam' and o.phenomenon='bodyHeight'";
     private static final String QUERY_BODY_WEIGHT = "from ObservationModel o where o.karte.id=:karteId and o.observation='PhysicalExam' and o.phenomenon='bodyWeight'";
+    private static final String QUERY_RELEVANT_OBSERVATIONS =
+            "from ObservationModel o where o.karte.id=:karteId and (o.observation='Allergy' "
+                    + "or (o.observation='PhysicalExam' and o.phenomenon in ('bodyHeight','bodyWeight')))";
     // Cancel status=64 を where へ追加
     private static final String QUERY_PATIENT_VISIT = "from PatientVisitModel p where p.patient.id=:patientPk and p.pvtDate >= :fromDate and p.status!=64";
     private static final String QUERY_DOC_INFO = "from DocumentModel d where d.karte.id=:karteId and d.started >= :fromDate and (d.status='F' or d.status='T')";
@@ -132,6 +138,18 @@ public class KarteServiceBean {
 //s.oh^ 2014/08/20 添付ファイルの別読
     private static final String QUERY_ATTACHMENT_BY_ID = "from AttachmentModel a where a.id=:id";
 //s.oh$
+    private static final String QUERY_MARK_DOCUMENT_MODIFIED =
+            "update DocumentModel d set d.ended=:ended, d.status=:status where d.id=:id";
+    private static final String QUERY_MARK_MODULES_MODIFIED =
+            "update ModuleModel m set m.ended=:ended, m.status=:status where m.document.id=:id";
+    private static final String QUERY_MARK_SCHEMAS_MODIFIED =
+            "update SchemaModel s set s.ended=:ended, s.status=:status where s.document.id=:id";
+    private static final String QUERY_MARK_ATTACHMENTS_MODIFIED =
+            "update AttachmentModel a set a.ended=:ended, a.status=:status where a.document.id=:id";
+    private static final String QUERY_DELETE_DIAGNOSIS_BY_IDS =
+            "delete from RegisteredDiagnosisModel r where r.id in :ids";
+    private static final String QUERY_DELETE_OBSERVATIONS_BY_IDS =
+            "delete from ObservationModel o where o.id in :ids";
 //minagawa^ LSC Test
     //private static final String QUERY_MODULE_BY_ENTITY = "from ModuleModel m where m.karte.id=:karteId and m.moduleInfo.entity=:entity and m.started between :fromDate and :toDate and m.status='F'";
     private static final String QUERY_MODULE_BY_ENTITY = "from ModuleModel m where m.karte.id=:karteId and m.moduleInfo.entity=:entity and m.started between :fromDate and :toDate and m.status='F' order by m.started";
@@ -154,8 +172,6 @@ public class KarteServiceBean {
 
     private static final String QUERY_APPO_BY_KARTE_ID_PERIOD = "from AppointmentModel a where a.karte.id = :karteId and a.date between :fromDate and :toDate";
 
-    private static final String QUERY_PATIENT_BY_FID_PID = "from PatientModel p where p.facilityId=:fid and p.patientId=:pid";
-    
 //s.oh^ 2014/04/03 サマリー対応
     private static final String QUERY_FREEDOCU_BY_FPID = "from PatientFreeDocumentModel p where p.facilityPatId=:fpid";
     private static final String FPID = "fpid";
@@ -185,144 +201,12 @@ public class KarteServiceBean {
 //s.oh$
     
     public KarteBean getKarte(String fid, String pid, Date fromDate) {
-        
         try {
-            
-            // 患者レコードは FacilityId と patientId で複合キーになっている
-            PatientModel patient
-                = (PatientModel)em.createQuery(QUERY_PATIENT_BY_FID_PID)
-                .setParameter(FID, fid)
-                .setParameter(PID, pid)
-                .getSingleResult();
-
-            long patientPK = patient.getId();
-            
-            // 最初に患者のカルテを取得する
-            List<KarteBean> kartes = em.createQuery(QUERY_KARTE)
-                                  .setParameter(PATIENT_PK, patientPK)
-                                  .getResultList();
-            if (kartes == null || kartes.isEmpty()) {
-                LOGGER.warn("getKarte: no karte found for patientPk={} (fid={}, pid={})", patientPK, fid, pid);
-                return null;
-            }
-            KarteBean karte = kartes.get(0);
-
-            // カルテの PK を得る
-            long karteId = karte.getId();
-
-            // アレルギーデータを取得する
-            List<ObservationModel> list1 =
-                    (List<ObservationModel>)em.createQuery(QUERY_ALLERGY)
-                                              .setParameter(KARTE_ID, karteId)
-                                              .getResultList();
-            if (!list1.isEmpty()) {
-                List<AllergyModel> allergies = new ArrayList<>(list1.size());
-                for (ObservationModel observation : list1) {
-                    AllergyModel allergy = new AllergyModel();
-                    allergy.setObservationId(observation.getId());
-                    allergy.setFactor(observation.getPhenomenon());
-                    allergy.setSeverity(observation.getCategoryValue());
-                    allergy.setIdentifiedDate(observation.confirmDateAsString());
-                    allergy.setMemo(observation.getMemo());
-                    allergies.add(allergy);
-                }
-                karte.setAllergies(allergies);
-            }
-
-            // 身長データを取得する
-            List<ObservationModel> list2 =
-                    (List<ObservationModel>)em.createQuery(QUERY_BODY_HEIGHT)
-                                              .setParameter(KARTE_ID, karteId)
-                                              .getResultList();
-            if (!list2.isEmpty()) {
-                List<PhysicalModel> physicals = new ArrayList<>(list2.size());
-                for (ObservationModel observation : list2) {
-                    PhysicalModel physical = new PhysicalModel();
-                    physical.setHeightId(observation.getId());
-                    physical.setHeight(observation.getValue());
-                    physical.setIdentifiedDate(observation.confirmDateAsString());
-                    physical.setMemo(ModelUtils.getDateAsString(observation.getRecorded()));
-                    physicals.add(physical);
-                }
-                karte.setHeights(physicals);
-            }
-
-            // 体重データを取得する
-            List<ObservationModel> list3 =
-                    (List<ObservationModel>)em.createQuery(QUERY_BODY_WEIGHT)
-                                              .setParameter(KARTE_ID, karteId)
-                                              .getResultList();
-            if (!list3.isEmpty()) {
-                List<PhysicalModel> physicals = new ArrayList<>(list3.size());
-                for (ObservationModel observation : list3) {
-                    PhysicalModel physical = new PhysicalModel();
-                    physical.setWeightId(observation.getId());
-                    physical.setWeight(observation.getValue());
-                    physical.setIdentifiedDate(observation.confirmDateAsString());
-                    physical.setMemo(ModelUtils.getDateAsString(observation.getRecorded()));
-                    physicals.add(physical);
-                }
-                karte.setWeights(physicals);
-            }
-
-            // 直近の来院日エントリーを取得しカルテに設定する
-            List<PatientVisitModel> latestVisits =
-                    (List<PatientVisitModel>)em.createQuery(QUERY_PATIENT_VISIT)
-                                               .setParameter(PATIENT_PK, patientPK)
-                                               .setParameter(FROM_DATE, ModelUtils.getDateAsString(fromDate))
-                                               .getResultList();
-
-            if (!latestVisits.isEmpty()) {
-                List<String> visits = new ArrayList<>(latestVisits.size());
-                for (PatientVisitModel bean : latestVisits) {
-                    // 2012-07-23
-                    // cancelしている場合は返さない
-                    // 来院日のみを使用する
-                    visits.add(bean.getPvtDate().toString());
-                }
-                karte.setPatientVisits(visits);
-            }
-
-            // 文書履歴エントリーを取得しカルテに設定する
-            List<DocumentModel> documents =
-                    (List<DocumentModel>)em.createQuery(QUERY_DOC_INFO)
-                                           .setParameter(KARTE_ID, karteId)
-                                           .setParameter(FROM_DATE, fromDate)
-                                           .getResultList();
-
-            if (!documents.isEmpty()) {
-                List<DocInfoModel> c = new ArrayList<>(documents.size());
-                for (DocumentModel docBean : documents) {
-                    docBean.toDetuch();
-                    c.add(docBean.getDocInfoModel());
-                }
-                karte.setDocInfoList(c);
-            }
-
-            // 患者Memoを取得する
-            List<PatientMemoModel> memo =
-                    (List<PatientMemoModel>)em.createQuery(QUERY_PATIENT_MEMO)
-                                              .setParameter(KARTE_ID, karteId)
-                                              .getResultList();
-            if (!memo.isEmpty()) {
-                karte.setMemoList(memo);
-            }
-            
-            // 最終文書日
-            try {
-                Date lastDocDate = findLatestDocumentStarted(karteId);
-                karte.setLastDocDate(lastDocDate);
-            } catch (NoResultException e) {
-            }
-
-            return karte;
-        
-            
+            return populateKarteDetails(loadKarteByFacilityAndPatientId(fid, pid), fromDate);
         } catch (Exception e) {
             LOGGER.warn("getKarte: failed to resolve karte (fid={}, pid={})", fid, pid, e);
+            return null;
         }
-        
-        return null;
     }
 
     /**
@@ -332,131 +216,158 @@ public class KarteServiceBean {
      * @return 基礎的な情報をフェッチした KarteBean
      */
     public KarteBean getKarte(long patientPK, Date fromDate) {
-
         try {
-            // 最初に患者のカルテを取得する
-            List<KarteBean> kartes = em.createQuery(QUERY_KARTE)
-                                  .setParameter(PATIENT_PK, patientPK)
-                                  .getResultList();
-            if (kartes == null || kartes.isEmpty()) {
-                LOGGER.warn("getKarte: no karte found for patientPk={}", patientPK);
-                return null;
-            }
-            KarteBean karte = kartes.get(0);
+            return populateKarteDetails(loadKarteByPatientPk(patientPK), fromDate);
+        } catch (Exception e) {
+            LOGGER.warn("getKarte: failed to resolve karte for patientPk={}", patientPK, e);
+            return null;
+        }
+    }
 
-            // カルテの PK を得る
-            long karteId = karte.getId();
+    private KarteBean loadKarteByFacilityAndPatientId(String fid, String pid) {
+        List<KarteBean> kartes = em.createQuery(QUERY_KARTE_BY_FID_PID, KarteBean.class)
+                .setParameter(FID, fid)
+                .setParameter(PID, pid)
+                .setMaxResults(1)
+                .getResultList();
+        if (kartes == null || kartes.isEmpty()) {
+            LOGGER.warn("getKarte: no karte found for fid={}, pid={}", fid, pid);
+            return null;
+        }
+        return kartes.get(0);
+    }
 
-            // アレルギーデータを取得する
-            List<ObservationModel> list1 =
-                    (List<ObservationModel>)em.createQuery(QUERY_ALLERGY)
-                                              .setParameter(KARTE_ID, karteId)
-                                              .getResultList();
-            if (!list1.isEmpty()) {
-                List<AllergyModel> allergies = new ArrayList<>(list1.size());
-                for (ObservationModel observation : list1) {
-                    AllergyModel allergy = new AllergyModel();
-                    allergy.setObservationId(observation.getId());
-                    allergy.setFactor(observation.getPhenomenon());
-                    allergy.setSeverity(observation.getCategoryValue());
-                    allergy.setIdentifiedDate(observation.confirmDateAsString());
-                    allergy.setMemo(observation.getMemo());
-                    allergies.add(allergy);
-                }
-                karte.setAllergies(allergies);
-            }
+    private KarteBean loadKarteByPatientPk(long patientPk) {
+        List<KarteBean> kartes = em.createQuery(QUERY_KARTE, KarteBean.class)
+                .setParameter(PATIENT_PK, patientPk)
+                .setMaxResults(1)
+                .getResultList();
+        if (kartes == null || kartes.isEmpty()) {
+            LOGGER.warn("getKarte: no karte found for patientPk={}", patientPk);
+            return null;
+        }
+        return kartes.get(0);
+    }
 
-            // 身長データを取得する
-            List<ObservationModel> list2 =
-                    (List<ObservationModel>)em.createQuery(QUERY_BODY_HEIGHT)
-                                              .setParameter(KARTE_ID, karteId)
-                                              .getResultList();
-            if (!list2.isEmpty()) {
-                List<PhysicalModel> physicals = new ArrayList<>(list2.size());
-                for (ObservationModel observation : list2) {
-                    PhysicalModel physical = new PhysicalModel();
-                    physical.setHeightId(observation.getId());
-                    physical.setHeight(observation.getValue());
-                    physical.setIdentifiedDate(observation.confirmDateAsString());
-                    physical.setMemo(ModelUtils.getDateAsString(observation.getRecorded()));
-                    physicals.add(physical);
-                }
-                karte.setHeights(physicals);
-            }
+    private KarteBean populateKarteDetails(KarteBean karte, Date fromDate) {
+        if (karte == null) {
+            return null;
+        }
 
-            // 体重データを取得する
-            List<ObservationModel> list3 =
-                    (List<ObservationModel>)em.createQuery(QUERY_BODY_WEIGHT)
-                                              .setParameter(KARTE_ID, karteId)
-                                              .getResultList();
-            if (!list3.isEmpty()) {
-                List<PhysicalModel> physicals = new ArrayList<>(list3.size());
-                for (ObservationModel observation : list3) {
-                    PhysicalModel physical = new PhysicalModel();
-                    physical.setWeightId(observation.getId());
-                    physical.setWeight(observation.getValue());
-                    physical.setIdentifiedDate(observation.confirmDateAsString());
-                    physical.setMemo(ModelUtils.getDateAsString(observation.getRecorded()));
-                    physicals.add(physical);
-                }
-                karte.setWeights(physicals);
-            }
+        long karteId = karte.getId();
+        long patientPk = karte.getPatientModel() != null ? karte.getPatientModel().getId() : 0L;
 
-            // 直近の来院日エントリーを取得しカルテに設定する
+        List<ObservationModel> observations = em.createQuery(QUERY_RELEVANT_OBSERVATIONS, ObservationModel.class)
+                .setParameter(KARTE_ID, karteId)
+                .getResultList();
+        List<AllergyModel> allergies = mapAllergies(observations);
+        if (!allergies.isEmpty()) {
+            karte.setAllergies(allergies);
+        }
+        List<PhysicalModel> heights = mapHeights(observations);
+        if (!heights.isEmpty()) {
+            karte.setHeights(heights);
+        }
+        List<PhysicalModel> weights = mapWeights(observations);
+        if (!weights.isEmpty()) {
+            karte.setWeights(weights);
+        }
+
+        if (patientPk > 0L) {
             List<PatientVisitModel> latestVisits =
-                    (List<PatientVisitModel>)em.createQuery(QUERY_PATIENT_VISIT)
-                                               .setParameter(PATIENT_PK, patientPK)
-                                               .setParameter(FROM_DATE, ModelUtils.getDateAsString(fromDate))
-                                               .getResultList();
-
+                    em.createQuery(QUERY_PATIENT_VISIT, PatientVisitModel.class)
+                            .setParameter(PATIENT_PK, patientPk)
+                            .setParameter(FROM_DATE, ModelUtils.getDateAsString(fromDate))
+                            .getResultList();
             if (!latestVisits.isEmpty()) {
                 List<String> visits = new ArrayList<>(latestVisits.size());
                 for (PatientVisitModel bean : latestVisits) {
-                    // 来院日のみを使用する
                     visits.add(bean.getPvtDate().toString());
                 }
                 karte.setPatientVisits(visits);
             }
-
-            // 文書履歴エントリーを取得しカルテに設定する
-            List<DocumentModel> documents =
-                    (List<DocumentModel>)em.createQuery(QUERY_DOC_INFO)
-                                           .setParameter(KARTE_ID, karteId)
-                                           .setParameter(FROM_DATE, fromDate)
-                                           .getResultList();
-
-            if (!documents.isEmpty()) {
-                List<DocInfoModel> c = new ArrayList<>(documents.size());
-                for (DocumentModel docBean : documents) {
-                    docBean.toDetuch();
-                    c.add(docBean.getDocInfoModel());
-                }
-                karte.setDocInfoList(c);
-            }
-
-            // 患者Memoを取得する
-            List<PatientMemoModel> memo =
-                    (List<PatientMemoModel>)em.createQuery(QUERY_PATIENT_MEMO)
-                                              .setParameter(KARTE_ID, karteId)
-                                              .getResultList();
-            if (!memo.isEmpty()) {
-                karte.setMemoList(memo);
-            }
-            
-            // 最終文書日
-            try {
-                Date lastDocDate = findLatestDocumentStarted(karteId);
-                karte.setLastDocDate(lastDocDate);
-            } catch (NoResultException e) {
-            }
-            return karte;
-
-        } catch (NoResultException e) {
-            // 患者登録の際にカルテも生成してある
-            LOGGER.warn("getKarte: NoResultException for patientPk={}", patientPK, e);
         }
 
-        return null;
+        List<DocumentModel> documents = em.createQuery(QUERY_DOC_INFO, DocumentModel.class)
+                .setParameter(KARTE_ID, karteId)
+                .setParameter(FROM_DATE, fromDate)
+                .getResultList();
+        if (!documents.isEmpty()) {
+            List<DocInfoModel> docInfo = new ArrayList<>(documents.size());
+            for (DocumentModel docBean : documents) {
+                docBean.toDetuch();
+                docInfo.add(docBean.getDocInfoModel());
+            }
+            karte.setDocInfoList(docInfo);
+        }
+
+        List<PatientMemoModel> memo = em.createQuery(QUERY_PATIENT_MEMO, PatientMemoModel.class)
+                .setParameter(KARTE_ID, karteId)
+                .getResultList();
+        if (!memo.isEmpty()) {
+            karte.setMemoList(memo);
+        }
+
+        try {
+            karte.setLastDocDate(findLatestDocumentStarted(karteId));
+        } catch (NoResultException e) {
+            // ignore
+        }
+        return karte;
+    }
+
+    private List<AllergyModel> mapAllergies(List<ObservationModel> observations) {
+        if (observations == null || observations.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<AllergyModel> allergies = new ArrayList<>();
+        for (ObservationModel observation : observations) {
+            if (observation == null || !"Allergy".equals(observation.getObservation())) {
+                continue;
+            }
+            AllergyModel allergy = new AllergyModel();
+            allergy.setObservationId(observation.getId());
+            allergy.setFactor(observation.getPhenomenon());
+            allergy.setSeverity(observation.getCategoryValue());
+            allergy.setIdentifiedDate(observation.confirmDateAsString());
+            allergy.setMemo(observation.getMemo());
+            allergies.add(allergy);
+        }
+        return allergies;
+    }
+
+    private List<PhysicalModel> mapHeights(List<ObservationModel> observations) {
+        return mapPhysicals(observations, "bodyHeight");
+    }
+
+    private List<PhysicalModel> mapWeights(List<ObservationModel> observations) {
+        return mapPhysicals(observations, "bodyWeight");
+    }
+
+    private List<PhysicalModel> mapPhysicals(List<ObservationModel> observations, String phenomenon) {
+        if (observations == null || observations.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<PhysicalModel> physicals = new ArrayList<>();
+        for (ObservationModel observation : observations) {
+            if (observation == null
+                    || !"PhysicalExam".equals(observation.getObservation())
+                    || !Objects.equals(phenomenon, observation.getPhenomenon())) {
+                continue;
+            }
+            PhysicalModel physical = new PhysicalModel();
+            if ("bodyHeight".equals(phenomenon)) {
+                physical.setHeightId(observation.getId());
+                physical.setHeight(observation.getValue());
+            } else {
+                physical.setWeightId(observation.getId());
+                physical.setWeight(observation.getValue());
+            }
+            physical.setIdentifiedDate(observation.confirmDateAsString());
+            physical.setMemo(ModelUtils.getDateAsString(observation.getRecorded()));
+            physicals.add(physical);
+        }
+        return physicals;
     }
 
     /**
@@ -605,43 +516,8 @@ public class KarteServiceBean {
 
         // 修正版の処理を行う
         long parentPk = document.getDocInfoModel().getParentPk();
-
         if (parentPk != 0L) {
-
-            // 適合終了日を新しい版の確定日にする
-            Date ended = document.getConfirmed();
-
-            // オリジナルを取得し 終了日と status = M を設定する
-            DocumentModel old = (DocumentModel)em.find(DocumentModel.class, parentPk);
-            old.setEnded(ended);
-            old.setStatus(IInfoModel.STATUS_MODIFIED);
-
-            // 関連するモジュールとイメージに同じ処理を実行する
-            Collection oldModules = em.createQuery(QUERY_MODULE_BY_DOC_ID)
-            .setParameter(ID, parentPk).getResultList();
-            for (Iterator iter = oldModules.iterator(); iter.hasNext(); ) {
-                ModuleModel model = (ModuleModel)iter.next();
-                model.setEnded(ended);
-                model.setStatus(IInfoModel.STATUS_MODIFIED);
-            }
-
-            // Schema
-            Collection oldImages = em.createQuery(QUERY_SCHEMA_BY_DOC_ID)
-            .setParameter(ID, parentPk).getResultList();
-            for (Iterator iter = oldImages.iterator(); iter.hasNext(); ) {
-                SchemaModel model = (SchemaModel)iter.next();
-                model.setEnded(ended);
-                model.setStatus(IInfoModel.STATUS_MODIFIED);
-            }
-            
-            // Attachment
-            Collection oldAttachments = em.createQuery(QUERY_ATTACHMENT_BY_DOC_ID)
-            .setParameter(ID, parentPk).getResultList();
-            for (Iterator iter = oldAttachments.iterator(); iter.hasNext(); ) {
-                AttachmentModel model = (AttachmentModel)iter.next();
-                model.setEnded(ended);
-                model.setStatus(IInfoModel.STATUS_MODIFIED);
-            }
+            markRevisionSourceAsModified(parentPk, document.getConfirmed());
         }
         
         return id;
@@ -864,43 +740,8 @@ public class KarteServiceBean {
 
         // 修正版の処理を行う
         long parentPk = document.getDocInfoModel().getParentPk();
-
         if (parentPk != 0L) {
-
-            // 適合終了日を新しい版の確定日にする
-            Date ended = document.getConfirmed();
-
-            // オリジナルを取得し 終了日と status = M を設定する
-            DocumentModel old = (DocumentModel) em.find(DocumentModel.class, parentPk);
-            old.setEnded(ended);
-            old.setStatus(IInfoModel.STATUS_MODIFIED);
-
-            // 関連するモジュールとイメージに同じ処理を実行する
-            Collection oldModules = em.createQuery(QUERY_MODULE_BY_DOC_ID)
-            .setParameter(ID, parentPk).getResultList();
-            for (Iterator iter = oldModules.iterator(); iter.hasNext(); ) {
-                ModuleModel model = (ModuleModel)iter.next();
-                model.setEnded(ended);
-                model.setStatus(IInfoModel.STATUS_MODIFIED);
-            }
-
-            // Schema
-            Collection oldImages = em.createQuery(QUERY_SCHEMA_BY_DOC_ID)
-            .setParameter(ID, parentPk).getResultList();
-            for (Iterator iter = oldImages.iterator(); iter.hasNext(); ) {
-                SchemaModel model = (SchemaModel)iter.next();
-                model.setEnded(ended);
-                model.setStatus(IInfoModel.STATUS_MODIFIED);
-            }
-            
-            // Attachment
-            Collection oldAttachments = em.createQuery(QUERY_ATTACHMENT_BY_DOC_ID)
-            .setParameter(ID, parentPk).getResultList();
-            for (Iterator iter = oldAttachments.iterator(); iter.hasNext(); ) {
-                AttachmentModel model = (AttachmentModel)iter.next();
-                model.setEnded(ended);
-                model.setStatus(IInfoModel.STATUS_MODIFIED);
-            }
+            markRevisionSourceAsModified(parentPk, document.getConfirmed());
         }
         
         //------------------------------------------------------------
@@ -1146,28 +987,29 @@ public class KarteServiceBean {
     public List<Long> postPutSendDiagnosis(DiagnosisSendWrapper wrapper) {
 
         List<RegisteredDiagnosisModel> deletedList = wrapper.getDeletedDiagnosis();
-        if (deletedList != null) {
-            for (RegisteredDiagnosisModel bean : deletedList) {
-                if (bean.getId() != 0L) {
-                    RegisteredDiagnosisModel delete = em.find(RegisteredDiagnosisModel.class, bean.getId());
-                    em.remove(delete);
-                }
-            }
+        if (deletedList != null && !deletedList.isEmpty()) {
+            bulkDeleteByIds(QUERY_DELETE_DIAGNOSIS_BY_IDS, collectDiagnosisIds(deletedList));
         }
 
         List<RegisteredDiagnosisModel> updatedList = wrapper.getUpdatedDiagnosis();
         if (updatedList != null) {
+            int processed = 0;
             for (RegisteredDiagnosisModel bean : updatedList) {
                 em.merge(bean);
+                processed++;
+                flushAndClearIfNeeded(processed);
             }
         }
 
         List<RegisteredDiagnosisModel> addedList = wrapper.getAddedDiagnosis();
         List<Long> ret = new ArrayList<>(addedList != null ? addedList.size() : 0);
         if (addedList != null) {
+            int processed = 0;
             for (RegisteredDiagnosisModel bean : addedList) {
                 em.persist(bean);
                 ret.add(bean.getId());
+                processed++;
+                flushAndClearIfNeeded(processed);
             }
         }
         
@@ -1185,11 +1027,18 @@ public class KarteServiceBean {
      */
     public List<Long> addDiagnosis(List<RegisteredDiagnosisModel> addList) {
 
+        if (addList == null || addList.isEmpty()) {
+            return Collections.emptyList();
+        }
+
         List<Long> ret = new ArrayList<>(addList.size());
 
+        int processed = 0;
         for (RegisteredDiagnosisModel bean : addList) {
             em.persist(bean);
-            ret.add(new Long(bean.getId()));
+            ret.add(bean.getId());
+            processed++;
+            flushAndClearIfNeeded(processed);
         }
 
         return ret;
@@ -1201,12 +1050,16 @@ public class KarteServiceBean {
      * @return 更新数
      */
     public int updateDiagnosis(List<RegisteredDiagnosisModel> updateList) {
+        if (updateList == null || updateList.isEmpty()) {
+            return 0;
+        }
 
         int cnt = 0;
 
         for (RegisteredDiagnosisModel bean : updateList) {
             em.merge(bean);
             cnt++;
+            flushAndClearIfNeeded(cnt);
         }
 
         return cnt;
@@ -1218,16 +1071,7 @@ public class KarteServiceBean {
      * @return 削除数
      */
     public int removeDiagnosis(List<Long> removeList) {
-
-        int cnt = 0;
-
-        for (Long id : removeList) {
-            RegisteredDiagnosisModel bean = (RegisteredDiagnosisModel) em.find(RegisteredDiagnosisModel.class, id);
-            em.remove(bean);
-            cnt++;
-        }
-
-        return cnt;
+        return bulkDeleteByIds(QUERY_DELETE_DIAGNOSIS_BY_IDS, normalizeIds(removeList));
     }
 
     /**
@@ -1284,9 +1128,12 @@ public class KarteServiceBean {
 
             List<Long> ret = new ArrayList<>(observations.size());
 
+            int processed = 0;
             for (ObservationModel model : observations) {
                 em.persist(model);
-                ret.add(new Long(model.getId()));
+                ret.add(model.getId());
+                processed++;
+                flushAndClearIfNeeded(processed);
             }
 
             return ret;
@@ -1306,6 +1153,7 @@ public class KarteServiceBean {
             for (ObservationModel model : observations) {
                 em.merge(model);
                 cnt++;
+                flushAndClearIfNeeded(cnt);
             }
             return cnt;
         }
@@ -1319,16 +1167,7 @@ public class KarteServiceBean {
      */
     
     public int removeObservations(List<Long> observations) {
-        if (observations != null && observations.size() > 0) {
-            int cnt = 0;
-            for (Long id : observations) {
-                ObservationModel model = (ObservationModel) em.find(ObservationModel.class, id);
-                em.remove(model);
-                cnt++;
-            }
-            return cnt;
-        }
-        return 0;
+        return bulkDeleteByIds(QUERY_DELETE_OBSERVATIONS_BY_IDS, normalizeIds(observations));
     }
 
     /**
@@ -2105,6 +1944,67 @@ public class KarteServiceBean {
             throw new NoResultException("Document started date not found for karteId=" + karteId);
         }
         return startedDates.get(0);
+    }
+
+    private void markRevisionSourceAsModified(long parentPk, Date ended) {
+        if (parentPk <= 0L) {
+            return;
+        }
+        String modifiedStatus = IInfoModel.STATUS_MODIFIED;
+        executeRevisionBulkUpdate(QUERY_MARK_DOCUMENT_MODIFIED, parentPk, ended, modifiedStatus);
+        executeRevisionBulkUpdate(QUERY_MARK_MODULES_MODIFIED, parentPk, ended, modifiedStatus);
+        executeRevisionBulkUpdate(QUERY_MARK_SCHEMAS_MODIFIED, parentPk, ended, modifiedStatus);
+        executeRevisionBulkUpdate(QUERY_MARK_ATTACHMENTS_MODIFIED, parentPk, ended, modifiedStatus);
+    }
+
+    private void executeRevisionBulkUpdate(String query, long documentId, Date ended, String status) {
+        em.createQuery(query)
+                .setParameter(ID, documentId)
+                .setParameter("ended", ended)
+                .setParameter("status", status)
+                .executeUpdate();
+    }
+
+    private List<Long> collectDiagnosisIds(List<RegisteredDiagnosisModel> deletedList) {
+        if (deletedList == null || deletedList.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Long> ids = new ArrayList<>(deletedList.size());
+        for (RegisteredDiagnosisModel bean : deletedList) {
+            if (bean != null && bean.getId() > 0L) {
+                ids.add(bean.getId());
+            }
+        }
+        return ids;
+    }
+
+    private List<Long> normalizeIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Long> normalized = new ArrayList<>(ids.size());
+        for (Long id : ids) {
+            if (id != null && id > 0L) {
+                normalized.add(id);
+            }
+        }
+        return normalized;
+    }
+
+    private int bulkDeleteByIds(String query, List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        return em.createQuery(query)
+                .setParameter("ids", ids)
+                .executeUpdate();
+    }
+
+    private void flushAndClearIfNeeded(int processed) {
+        if (processed > 0 && processed % WRITE_BATCH_SIZE == 0) {
+            em.flush();
+            em.clear();
+        }
     }
 
     private void prepareDocumentForInsert(DocumentModel document) {
