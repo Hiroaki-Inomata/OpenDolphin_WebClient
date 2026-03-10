@@ -35,6 +35,10 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P1-01「最重要業務フローを決める」を完了し、刷新時に守る業務結果を固定（RUN_ID=20260310T203518Z）。
+  - 追加: `docs/modernization/business-critical-flows.md` を新規作成。最重要フロー7本（第1群4本 + 第2群3本）と優先度判定表を定義。
+  - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の P1-01 を ☑ 化。
+  - 導線: `docs/server-modernization/README.md` に最重要業務フロー定義へのリンクを追加。
 - 2026-03-11: P0-06「一時据え置き領域を明記する」を完了し、対象外スコープを固定（RUN_ID=20260310T203518Z）。
   - 追加: `docs/modernization/deferred-scope.md` を新規作成。据え置き対象、解除トリガー、後続候補、着手禁止ルールを明文化。
   - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の P0-06 を ☑ 化。
