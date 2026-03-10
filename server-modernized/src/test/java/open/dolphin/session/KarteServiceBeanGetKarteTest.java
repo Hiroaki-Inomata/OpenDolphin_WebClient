@@ -67,26 +67,31 @@ class KarteServiceBeanGetKarteTest {
                 allergyObservation(100L),
                 physicalObservation(101L, "bodyHeight", "170.0"),
                 physicalObservation(102L, "bodyWeight", "60.0")));
+        TypedQuery<ObservationModel> observationsQuery2 = typedQuery(List.of(
+                allergyObservation(100L),
+                physicalObservation(101L, "bodyHeight", "170.0"),
+                physicalObservation(102L, "bodyWeight", "60.0")));
         TypedQuery<PatientVisitModel> visitsQuery = typedQuery(List.of(visit("2026-03-01")));
+        TypedQuery<PatientVisitModel> visitsQuery2 = typedQuery(List.of(visit("2026-03-01")));
         TypedQuery<DocumentModel> docInfoQuery = typedQuery(List.of(document(500L, fromDate)));
+        TypedQuery<DocumentModel> docInfoQuery2 = typedQuery(List.of(document(500L, fromDate)));
         TypedQuery<PatientMemoModel> memoQuery = typedQuery(List.of(memo("memo-1")));
+        TypedQuery<PatientMemoModel> memoQuery2 = typedQuery(List.of(memo("memo-1")));
         TypedQuery<Date> latestDocQuery = typedQuery(List.of(latestDocDate));
+        TypedQuery<Date> latestDocQuery2 = typedQuery(List.of(latestDocDate));
 
         when(em.createQuery(QUERY_KARTE_BY_FID_PID, KarteBean.class)).thenReturn(karteByFidPidQuery);
         when(em.createQuery(QUERY_KARTE, KarteBean.class)).thenReturn(karteByPatientPkQuery);
         when(em.createQuery(QUERY_RELEVANT_OBSERVATIONS, ObservationModel.class))
-                .thenReturn(observationsQuery, typedQuery(List.of(
-                        allergyObservation(100L),
-                        physicalObservation(101L, "bodyHeight", "170.0"),
-                        physicalObservation(102L, "bodyWeight", "60.0"))));
+                .thenReturn(observationsQuery, observationsQuery2);
         when(em.createQuery(QUERY_PATIENT_VISIT, PatientVisitModel.class))
-                .thenReturn(visitsQuery, typedQuery(List.of(visit("2026-03-01"))));
+                .thenReturn(visitsQuery, visitsQuery2);
         when(em.createQuery(QUERY_DOC_INFO, DocumentModel.class))
-                .thenReturn(docInfoQuery, typedQuery(List.of(document(500L, fromDate))));
+                .thenReturn(docInfoQuery, docInfoQuery2);
         when(em.createQuery(QUERY_PATIENT_MEMO, PatientMemoModel.class))
-                .thenReturn(memoQuery, typedQuery(List.of(memo("memo-1"))));
+                .thenReturn(memoQuery, memoQuery2);
         when(em.createQuery(QUERY_LATEST_DOC_STARTED, Date.class))
-                .thenReturn(latestDocQuery, typedQuery(List.of(latestDocDate)));
+                .thenReturn(latestDocQuery, latestDocQuery2);
 
         KarteBean byFidPid = service.getKarte("FAC_A", "P0001", fromDate);
         KarteBean byPatientPk = service.getKarte(20L, fromDate);
@@ -114,8 +119,10 @@ class KarteServiceBeanGetKarteTest {
 
     @Test
     void getKarteReturnsNullWhenKarteIsMissing() {
-        when(em.createQuery(QUERY_KARTE_BY_FID_PID, KarteBean.class)).thenReturn(typedQuery(List.of()));
-        when(em.createQuery(QUERY_KARTE, KarteBean.class)).thenReturn(typedQuery(List.of()));
+        TypedQuery<KarteBean> emptyByFidPidQuery = typedQuery(List.of());
+        TypedQuery<KarteBean> emptyByPatientPkQuery = typedQuery(List.of());
+        when(em.createQuery(QUERY_KARTE_BY_FID_PID, KarteBean.class)).thenReturn(emptyByFidPidQuery);
+        when(em.createQuery(QUERY_KARTE, KarteBean.class)).thenReturn(emptyByPatientPkQuery);
 
         assertThat(service.getKarte("FAC_A", "missing", new Date())).isNull();
         assertThat(service.getKarte(999L, new Date())).isNull();

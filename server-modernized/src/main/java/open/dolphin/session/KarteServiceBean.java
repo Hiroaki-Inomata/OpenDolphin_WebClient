@@ -19,15 +19,16 @@ import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
-import open.dolphin.converter.ModuleModelConverter;
 import open.dolphin.infomodel.*;
 import open.dolphin.rest.AbstractResource;
+import open.dolphin.rest.dto.KarteRevisionDocumentResponse;
 import open.dolphin.rest.dto.RoutineMedicationResponse;
 import open.dolphin.rest.dto.RpHistoryDrugResponse;
 import open.dolphin.rest.dto.RpHistoryEntryResponse;
 import open.dolphin.rest.dto.DiagnosisSummaryResponse;
 import open.dolphin.rest.dto.SafetySummaryResponse;
 import open.dolphin.rest.dto.UserPropertyResponse;
+import open.dolphin.rest.support.KarteRevisionResponseMapper;
 import open.dolphin.security.integrity.DocumentIntegrityService;
 import open.dolphin.session.audit.DiagnosisAuditRecorder;
 import open.dolphin.session.framework.SessionOperation;
@@ -1731,17 +1732,13 @@ public class KarteServiceBean {
         return null;
     }
 
-    private List<ModuleModelConverter> convertModules(List<ModuleModel> modules) {
+    private List<KarteRevisionDocumentResponse.ModuleResponse> convertModules(List<ModuleModel> modules) {
         if (modules == null || modules.isEmpty()) {
             return Collections.emptyList();
         }
-        List<ModuleModelConverter> converters = new ArrayList<>(modules.size());
-        for (ModuleModel module : modules) {
-            ModuleModelConverter converter = new ModuleModelConverter();
-            converter.setModel(module);
-            converters.add(converter);
-        }
-        return converters;
+        List<KarteRevisionDocumentResponse.ModuleResponse> responses =
+                KarteRevisionResponseMapper.mapModuleResponses(modules);
+        return responses != null ? responses : Collections.emptyList();
     }
 
     private String formatIso(Date date) {

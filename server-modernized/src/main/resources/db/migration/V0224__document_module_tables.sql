@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS d_module (
     stampNumber INTEGER NOT NULL,
     entity VARCHAR(255) NOT NULL,
     performFlag VARCHAR(1),
-    beanBytes BYTEA NOT NULL,
+    bean_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     doc_id BIGINT NOT NULL,
     CONSTRAINT d_module_pkey PRIMARY KEY (id),
     CONSTRAINT fk_d_module_creator FOREIGN KEY (creator_id) REFERENCES d_users(id),

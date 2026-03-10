@@ -23,11 +23,13 @@ import open.dolphin.infomodel.ChartEventModel;
 import open.dolphin.infomodel.DiagnosisSendWrapper;
 import open.dolphin.infomodel.DocInfoModel;
 import open.dolphin.infomodel.DocumentModel;
+import open.dolphin.infomodel.HealthInsuranceModel;
 import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.PVTHealthInsuranceModel;
 import open.dolphin.infomodel.PVTPublicInsuranceItemModel;
 import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.RegisteredDiagnosisModel;
+import open.dolphin.infomodel.SimpleAddressModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.infomodel.VisitPackage;
 import open.dolphin.session.ChartEventServiceBean;
@@ -39,7 +41,6 @@ import open.dolphin.touch.converter.IVisitPackage;
 import open.dolphin.touch.session.IPhoneServiceBean;
 import open.dolphin.touch.KanjiHelper;
 import open.orca.rest.ORCAConnection;
-import org.apache.commons.lang3.SerializationUtils;
 
 /**
  * Shared implementation for JsonTouch style endpoints.
@@ -486,6 +487,143 @@ public class JsonTouchSharedService {
     }
 
     private static PatientModel clonePatient(PatientModel patient) {
-        return patient == null ? null : SerializationUtils.clone(patient);
+        if (patient == null) {
+            return null;
+        }
+        PatientModel copy = new PatientModel();
+        copy.setId(patient.getId());
+        copy.setFacilityId(patient.getFacilityId());
+        copy.setPatientId(patient.getPatientId());
+        copy.setFamilyName(patient.getFamilyName());
+        copy.setGivenName(patient.getGivenName());
+        copy.setFullName(patient.getFullName());
+        copy.setKanaFamilyName(patient.getKanaFamilyName());
+        copy.setKanaGivenName(patient.getKanaGivenName());
+        copy.setKanaName(patient.getKanaName());
+        copy.setRomanFamilyName(patient.getRomanFamilyName());
+        copy.setRomanGivenName(patient.getRomanGivenName());
+        copy.setRomanName(patient.getRomanName());
+        copy.setGender(patient.getGender());
+        copy.setGenderDesc(patient.getGenderDesc());
+        copy.setBirthday(patient.getBirthday());
+        copy.setNationality(patient.getNationality());
+        copy.setNationalityDesc(patient.getNationalityDesc());
+        copy.setMaritalStatus(patient.getMaritalStatus());
+        copy.setMaritalStatusDesc(patient.getMaritalStatusDesc());
+        copy.setJpegPhoto(copyBytes(patient.getJpegPhoto()));
+        copy.setMemo(patient.getMemo());
+        copy.setSimpleAddressModel(copyAddress(patient.getSimpleAddressModel()));
+        copy.setTelephone(patient.getTelephone());
+        copy.setMobilePhone(patient.getMobilePhone());
+        copy.setEmail(patient.getEmail());
+        copy.setRelations(patient.getRelations());
+        copy.setHealthInsurances(copyHealthInsurances(patient.getHealthInsurances()));
+        copy.setPvtHealthInsurances(copyPvtHealthInsurances(patient.getPvtHealthInsurances()));
+        copy.setFirstVisited(patient.getFirstVisited());
+        copy.setAppMemo(patient.getAppMemo());
+        copy.setLastVisitAt(patient.getLastVisitAt());
+        copy.setOwnerUUID(patient.getOwnerUUID());
+        return copy;
+    }
+
+    private static byte[] copyBytes(byte[] source) {
+        return source != null ? Arrays.copyOf(source, source.length) : null;
+    }
+
+    private static SimpleAddressModel copyAddress(SimpleAddressModel address) {
+        if (address == null) {
+            return null;
+        }
+        SimpleAddressModel copy = new SimpleAddressModel();
+        copy.setZipCode(address.getZipCode());
+        copy.setAddress(address.getAddress());
+        return copy;
+    }
+
+    private static List<HealthInsuranceModel> copyHealthInsurances(List<HealthInsuranceModel> insurances) {
+        if (insurances == null) {
+            return null;
+        }
+        List<HealthInsuranceModel> copies = new ArrayList<>(insurances.size());
+        for (HealthInsuranceModel insurance : insurances) {
+            if (insurance == null) {
+                continue;
+            }
+            HealthInsuranceModel copy = new HealthInsuranceModel();
+            copy.setId(insurance.getId());
+            copy.setBeanJson(insurance.getBeanJson());
+            copies.add(copy);
+        }
+        return copies;
+    }
+
+    private static List<PVTHealthInsuranceModel> copyPvtHealthInsurances(List<PVTHealthInsuranceModel> insurances) {
+        if (insurances == null) {
+            return null;
+        }
+        List<PVTHealthInsuranceModel> copies = new ArrayList<>(insurances.size());
+        for (PVTHealthInsuranceModel insurance : insurances) {
+            if (insurance == null) {
+                continue;
+            }
+            PVTHealthInsuranceModel copy = new PVTHealthInsuranceModel();
+            copy.setGUID(insurance.getGUID());
+            copy.setInsuranceClass(insurance.getInsuranceClass());
+            copy.setInsuranceClassCode(insurance.getInsuranceClassCode());
+            copy.setInsuranceClassCodeSys(insurance.getInsuranceClassCodeSys());
+            copy.setInsuranceNumber(insurance.getInsuranceNumber());
+            copy.setClientGroup(insurance.getClientGroup());
+            copy.setClientNumber(insurance.getClientNumber());
+            copy.setFamilyClass(insurance.getFamilyClass());
+            copy.setStartDate(insurance.getStartDate());
+            copy.setExpiredDate(insurance.getExpiredDate());
+            copy.setContinuedDisease(insurance.getContinuedDisease() != null
+                    ? Arrays.copyOf(insurance.getContinuedDisease(), insurance.getContinuedDisease().length)
+                    : null);
+            copy.setPayInRatio(insurance.getPayInRatio());
+            copy.setPayOutRatio(insurance.getPayOutRatio());
+            copy.setPVTPublicInsuranceItem(copyPublicInsuranceItems(insurance.getPVTPublicInsuranceItem()));
+            copy.setPublicItems(copyPublicInsuranceItemList(insurance.getPublicItems()));
+            copies.add(copy);
+        }
+        return copies;
+    }
+
+    private static PVTPublicInsuranceItemModel[] copyPublicInsuranceItems(PVTPublicInsuranceItemModel[] items) {
+        if (items == null) {
+            return null;
+        }
+        PVTPublicInsuranceItemModel[] copies = new PVTPublicInsuranceItemModel[items.length];
+        for (int index = 0; index < items.length; index++) {
+            copies[index] = copyPublicInsuranceItem(items[index]);
+        }
+        return copies;
+    }
+
+    private static List<PVTPublicInsuranceItemModel> copyPublicInsuranceItemList(List<PVTPublicInsuranceItemModel> items) {
+        if (items == null) {
+            return null;
+        }
+        List<PVTPublicInsuranceItemModel> copies = new ArrayList<>(items.size());
+        for (PVTPublicInsuranceItemModel item : items) {
+            copies.add(copyPublicInsuranceItem(item));
+        }
+        return copies;
+    }
+
+    private static PVTPublicInsuranceItemModel copyPublicInsuranceItem(PVTPublicInsuranceItemModel item) {
+        if (item == null) {
+            return null;
+        }
+        PVTPublicInsuranceItemModel copy = new PVTPublicInsuranceItemModel();
+        copy.setPriority(item.getPriority());
+        copy.setProviderName(item.getProviderName());
+        copy.setProvider(item.getProvider());
+        copy.setRecipient(item.getRecipient());
+        copy.setStartDate(item.getStartDate());
+        copy.setExpiredDate(item.getExpiredDate());
+        copy.setPaymentRatio(item.getPaymentRatio());
+        copy.setPaymentRatioType(item.getPaymentRatioType());
+        return copy;
     }
 }

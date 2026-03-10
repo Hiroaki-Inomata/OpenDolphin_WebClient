@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Calendar;
 import java.util.Date;
-import open.dolphin.converter.DocumentModelConverter;
 import open.dolphin.infomodel.AttachmentModel;
 import open.dolphin.infomodel.DocInfoModel;
 import open.dolphin.infomodel.DocumentModel;
@@ -25,15 +24,18 @@ class KarteRevisionDocumentResponseJsonTest {
     private static final ObjectMapper JSON = new LegacyObjectMapperProducer().provideLegacyAwareMapper();
 
     @Test
-    void mapperMatchesLegacyConverterJsonShape() throws Exception {
-        DocumentModel baselineDocument = buildDocument();
-        DocumentModelConverter baselineConverter = new DocumentModelConverter();
-        baselineConverter.setModel(baselineDocument);
-
+    void mapperSerializesExpectedDocumentRevisionShape() throws Exception {
         JsonNode actualNode = JSON.readTree(JSON.writeValueAsString(KarteRevisionResponseMapper.map(buildDocument())));
-        JsonNode baselineNode = JSON.readTree(JSON.writeValueAsString(baselineConverter));
 
-        assertThat(actualNode).isEqualTo(baselineNode);
+        assertThat(actualNode.path("id").asLong()).isEqualTo(111L);
+        assertThat(actualNode.path("docInfoModel").path("docId").asText()).isEqualTo("DOC111");
+        assertThat(actualNode.path("modules")).hasSize(1);
+        assertThat(actualNode.path("modules").get(0).path("moduleInfoBean").path("entity").asText()).isEqualTo("soap");
+        assertThat(actualNode.path("modules").get(0).path("beanJson").asText()).contains("主訴");
+        assertThat(actualNode.path("schema")).hasSize(1);
+        assertThat(actualNode.path("schema").get(0).path("uri").asText()).isEqualTo("schema://401");
+        assertThat(actualNode.path("attachment")).hasSize(1);
+        assertThat(actualNode.path("attachment").get(0).path("fileName").asText()).isEqualTo("report.txt");
     }
 
     private static DocumentModel buildDocument() {

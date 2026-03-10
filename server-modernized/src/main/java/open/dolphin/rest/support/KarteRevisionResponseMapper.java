@@ -42,6 +42,10 @@ public final class KarteRevisionResponseMapper {
         return response;
     }
 
+    public static List<KarteRevisionDocumentResponse.ModuleResponse> mapModuleResponses(List<ModuleModel> modules) {
+        return mapModules(modules);
+    }
+
     private static KarteRevisionDocumentResponse.DocInfoResponse mapDocInfo(DocInfoModel info) {
         if (info == null) {
             return null;

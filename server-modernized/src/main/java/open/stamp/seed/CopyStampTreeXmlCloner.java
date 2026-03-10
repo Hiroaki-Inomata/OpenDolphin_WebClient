@@ -1,9 +1,10 @@
-package open.dolphin.shared.stamp;
+package open.stamp.seed;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import open.dolphin.security.xml.SecureXml;
@@ -11,7 +12,11 @@ import org.jdom.Document;
 import org.jdom.Element;
 import org.jdom.JDOMException;
 
-public class StampTreeDirector {
+/**
+ * アカウント作成時にシード元の StampTree XML をコピーする。
+ */
+public class CopyStampTreeXmlCloner {
+    private static final Logger LOGGER = Logger.getLogger(CopyStampTreeXmlCloner.class.getName());
 
     private static final int TT_STAMP_INFO = 0;
     private static final int TT_NODE = 1;
@@ -19,49 +24,41 @@ public class StampTreeDirector {
     private static final int TT_STAMP_TREE = 3;
     private static final int TT_STAMP_BOX = 4;
 
-    private final Logger logger = Logger.getLogger(getClass().getName());
-    private final AbstractStampTreeBuilder builder;
+    public void build(BufferedReader reader, CopyStampTreeBuilder builder) {
+        var docBuilder = SecureXml.newSaxBuilder();
 
-    public StampTreeDirector(AbstractStampTreeBuilder builder) {
-        this.builder = builder;
-    }
-
-    protected final String buildChecked(BufferedReader reader) throws IOException {
         try {
-            return buildInternal(reader);
-        } catch (JDOMException e) {
-            logger.log(Level.SEVERE, "Stamp tree XML is not well-formed", e);
-            throw new IOException("Stamp tree XML parsing failed", e);
-        }
-    }
+            Document doc = docBuilder.build(reader);
+            Element root = doc.getRootElement();
 
-    protected final String buildUnchecked(BufferedReader reader) {
-        try {
-            return buildInternal(reader);
+            CopyStampTreeBuilder workBuilder = Objects.requireNonNull(builder, "builder must not be null");
+            workBuilder.buildStart();
+            parseChildren(root, workBuilder);
+            workBuilder.buildEnd();
         } catch (JDOMException e) {
-            logger.log(Level.SEVERE, "Stamp tree XML is not well-formed", e);
+            LOGGER.log(Level.SEVERE, "Stamp tree XML is not well-formed", e);
         } catch (IOException e) {
-            logger.log(Level.SEVERE, "Failed to read stamp tree XML", e);
+            LOGGER.log(Level.SEVERE, "Failed to read stamp tree XML", e);
         }
-        return builder.getProduct();
     }
 
-    public void parseChildren(Element current) {
-        int eType = startElement(current.getName(), current);
+    public void parseChildren(Element current, CopyStampTreeBuilder builder) throws IOException {
+        int eType = startElement(current.getName(), current, builder);
 
         List children = current.getChildren();
         Iterator iterator = children.iterator();
+
         while (iterator.hasNext()) {
             Element child = (Element) iterator.next();
-            parseChildren(child);
+            parseChildren(child, builder);
         }
-
-        endElement(eType);
+        endElement(eType, builder);
     }
 
-    public int startElement(String eName, Element e) {
+    public int startElement(String eName, Element e, CopyStampTreeBuilder builder) throws IOException {
         if (eName.equals("stampInfo")) {
-            builder.buildStampInfo(e.getAttributeValue("name"),
+            builder.buildStampInfo(
+                    e.getAttributeValue("name"),
                     e.getAttributeValue("role"),
                     e.getAttributeValue("entity"),
                     e.getAttributeValue("editable"),
@@ -79,11 +76,10 @@ public class StampTreeDirector {
         } else if (eName.equals("stampBox")) {
             return TT_STAMP_BOX;
         }
-
         return -1;
     }
 
-    public void endElement(int eType) {
+    public void endElement(int eType, CopyStampTreeBuilder builder) throws IOException {
         switch (eType) {
             case TT_NODE:
                 builder.buildNodeEnd();
@@ -96,16 +92,5 @@ public class StampTreeDirector {
             default:
                 break;
         }
-    }
-
-    private String buildInternal(BufferedReader reader) throws JDOMException, IOException {
-        var docBuilder = SecureXml.newSaxBuilder();
-        Document doc = docBuilder.build(reader);
-        Element root = doc.getRootElement();
-
-        builder.buildStart();
-        parseChildren(root);
-        builder.buildEnd();
-        return builder.getProduct();
     }
 }

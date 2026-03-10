@@ -133,15 +133,13 @@ public class CopyStampTreeBuilder {
             // seedになる(保存されている)StampModel id
             seedStampList.add(seedID);
             
-            // ここで作成したStampModelがpersitされる
-            // stampBytesはseedIDで検索したものがsetされる
-            // userIdはpersit側で設定する
+            // ここで作成したStampModelが persist される
+            // payload は seedID で検索した既存 StampModel から引き継ぐ
+            // userId は persist 側で設定する
             StampModel model = new StampModel();
             String stampId = GUIDGenerator.generate(model);
             model.setId(stampId);
             model.setEntity(entity);
-            //byte[] stampBytes = getStamp(seedID);
-            //model.setStampBytes(stampBytes);
             listToPersist.add(model);
             
             writer.write(" stampId=");

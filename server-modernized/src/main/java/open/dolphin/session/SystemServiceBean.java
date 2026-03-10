@@ -29,7 +29,7 @@ import open.dolphin.infomodel.*;
 import open.dolphin.msg.OidSender;
 import open.dolphin.session.framework.SessionOperation;
 import open.stamp.seed.CopyStampTreeBuilder;
-import open.stamp.seed.CopyStampTreeDirector;
+import open.stamp.seed.CopyStampTreeXmlCloner;
 import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -211,7 +211,7 @@ public class SystemServiceBean {
             InputStream is = new ByteArrayInputStream(st.getTreeBytes());
             BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"));
             CopyStampTreeBuilder builder = new CopyStampTreeBuilder();
-            CopyStampTreeDirector director = new CopyStampTreeDirector();
+            CopyStampTreeXmlCloner director = new CopyStampTreeXmlCloner();
             director.build(br, builder);
             br.close();
             

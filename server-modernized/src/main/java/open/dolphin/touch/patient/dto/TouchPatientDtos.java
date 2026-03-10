@@ -23,9 +23,7 @@ public final class TouchPatientDtos {
         public PatientPackageResponse(PatientModelSnapshot patientSnapshot,
                                       List<HealthInsuranceDto> healthInsurances,
                                       List<AllergyDto> allergies) {
-            this.patientSnapshot = patientSnapshot == null
-                    ? null
-                    : JsonTouchSharedService.snapshot(patientSnapshot.getPatient(), patientSnapshot.getKartePk());
+            this.patientSnapshot = patientSnapshot;
             this.healthInsurances = immutableList(healthInsurances);
             this.allergies = immutableList(allergies);
         }

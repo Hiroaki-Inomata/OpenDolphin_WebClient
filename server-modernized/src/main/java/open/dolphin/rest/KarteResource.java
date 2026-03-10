@@ -26,6 +26,7 @@ import jakarta.ws.rs.core.Response;
 import open.dolphin.converter.*;
 import open.dolphin.infomodel.*;
 import open.dolphin.rest.dto.LegacyImageRangeResponse;
+import open.dolphin.rest.dto.LegacyKarteListResponse;
 import open.dolphin.rest.dto.RoutineMedicationResponse;
 import open.dolphin.rest.dto.RpHistoryEntryResponse;
 import open.dolphin.rest.dto.SafetySummaryResponse;
@@ -194,7 +195,7 @@ public class KarteResource extends AbstractResource {
     @GET
     @Path("/documents/{param}")
     @Produces(MediaType.APPLICATION_JSON)
-    public DocumentListConverter getDocuments(@PathParam("param") String param) {
+    public LegacyKarteListResponse.DocumentListResponse getDocuments(@PathParam("param") String param) {
 
         debug(param);
         String[] params = param.split(CAMMA);
@@ -205,15 +206,7 @@ public class KarteResource extends AbstractResource {
             list.add(docId);
         }
 
-        List<DocumentModel> result = karteServiceBean.getDocumentsAttachmentLight(list);
-
-        DocumentList wrapper = new DocumentList();
-        wrapper.setList(result);
-        
-        DocumentListConverter conv = new DocumentListConverter();
-        conv.setModel(wrapper);
-
-        return conv;
+        return LegacyKarteListResponse.DocumentListResponse.of(karteServiceBean.getDocumentsAttachmentLight(list));
     } 
     
     @POST
@@ -409,7 +402,7 @@ public class KarteResource extends AbstractResource {
     @GET
     @Path("/modules/{param}")
     @Produces(MediaType.APPLICATION_JSON)
-    public ModuleListListConverter getModules(@PathParam("param") String param) {
+    public LegacyKarteListResponse.ModuleListListResponse getModules(@PathParam("param") String param) {
 
         debug(param);
         String[] params = param.split(CAMMA);
@@ -427,21 +420,8 @@ public class KarteResource extends AbstractResource {
             toList.add(parseDate(params[index++]));
         }
 
-        // Wrapper
-        ModuleListList wrapper = new ModuleListList();
-        
-        List<List<ModuleModel>> result = karteServiceBean.getModules(karteId, entity, fromList, toList);
-        for (List<ModuleModel> list : result) {
-            ModuleList mlist = new ModuleList();
-            mlist.setList(list);
-            wrapper.addList(mlist);
-        }
-        
-        // Converter
-        ModuleListListConverter conv = new ModuleListListConverter();
-        conv.setModel(wrapper);
-
-        return conv;
+        return LegacyKarteListResponse.ModuleListListResponse.of(
+                karteServiceBean.getModules(karteId, entity, fromList, toList));
     }
 
     @GET
@@ -674,20 +654,12 @@ public class KarteResource extends AbstractResource {
     @GET
     @Path("/freedocument/{param}")
     @Produces(MediaType.APPLICATION_JSON)
-    public PatientFreeDocumentModelConverter getFreeDocument(@Context HttpServletRequest servletReq, @PathParam("param") String param) {
+    public LegacyKarteListResponse.PatientFreeDocumentResponse getFreeDocument(@Context HttpServletRequest servletReq, @PathParam("param") String param) {
 
         String pid = param;
         String fpid = getFidPid(servletReq.getRemoteUser(), pid);
         
-        PatientFreeDocumentModel result = karteServiceBean.getPatientFreeDocument(fpid);
-        if (result!=null) {
-            PatientFreeDocumentModelConverter conv = new PatientFreeDocumentModelConverter();
-            conv.setModel(result);
-            return conv;
-        }
-        else {
-            return null;
-        }
+        return LegacyKarteListResponse.PatientFreeDocumentResponse.of(karteServiceBean.getPatientFreeDocument(fpid));
     }
     
     @PUT
@@ -754,7 +726,7 @@ public class KarteResource extends AbstractResource {
     @GET
     @Path("/moduleSearch/{param}")
     @Produces(MediaType.APPLICATION_JSON)
-    public ModuleListConverter getModulesEntitySearch(@Context HttpServletRequest servletReq,@PathParam("param") String param) {
+    public LegacyKarteListResponse.ModuleListResponse getModulesEntitySearch(@Context HttpServletRequest servletReq,@PathParam("param") String param) {
 
         String fid = getRemoteFacility(servletReq.getRemoteUser());
         
@@ -768,14 +740,8 @@ public class KarteResource extends AbstractResource {
             entities.add(params[i]);
         }
 
-        List<ModuleModel> list = karteServiceBean.getModulesEntitySearch(fid, karteId, fromDate, toDate, entities);
-        ModuleList mList = new ModuleList();
-        mList.setList(list);
-        
-        ModuleListConverter conv = new ModuleListConverter();
-        conv.setModel(mList);
-        
-        return conv;
+        return LegacyKarteListResponse.ModuleListResponse.of(
+                karteServiceBean.getModulesEntitySearch(fid, karteId, fromDate, toDate, entities));
     }
 //masuda$
     
@@ -783,20 +749,12 @@ public class KarteResource extends AbstractResource {
     @GET
     @Path("/docinfo/all/{param}")
     @Produces(MediaType.APPLICATION_JSON)
-    public DocumentListConverter getAllDocument(@PathParam("param") String param) {
+    public LegacyKarteListResponse.DocumentListResponse getAllDocument(@PathParam("param") String param) {
 
         long pk = Long.parseLong(param);
         ensurePatientFacilityAccess(pk, null);
 
-        List<DocumentModel> result = karteServiceBean.getAllDocument(pk);
-
-        DocumentList wrapper = new DocumentList();
-        wrapper.setList(result);
-        
-        DocumentListConverter conv = new DocumentListConverter();
-        conv.setModel(wrapper);
-
-        return conv;
+        return LegacyKarteListResponse.DocumentListResponse.of(karteServiceBean.getAllDocument(pk));
     }
 //s.oh$
     
@@ -1033,7 +991,7 @@ public class KarteResource extends AbstractResource {
         }
     }
 
-    private <T> T readJson(String json, Class<T> type) throws IOException {
+    protected <T> T readJson(String json, Class<T> type) throws IOException {
         return LegacyJsonSupport.readBody(json, type, objectMapper);
     }
 

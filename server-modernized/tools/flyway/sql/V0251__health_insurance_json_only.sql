@@ -14,6 +14,3 @@ WHERE bean_json IS NULL;
 
 ALTER TABLE IF EXISTS d_health_insurance
     ALTER COLUMN bean_json SET NOT NULL;
-
-ALTER TABLE IF EXISTS d_health_insurance
-    DROP COLUMN IF EXISTS beanBytes;
