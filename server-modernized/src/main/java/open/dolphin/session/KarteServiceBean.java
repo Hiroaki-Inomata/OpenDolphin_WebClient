@@ -50,6 +50,7 @@ public class KarteServiceBean {
     private static final DateTimeFormatter ISO_INSTANT_FORMATTER = DateTimeFormatter.ISO_INSTANT;
     private static final DateTimeFormatter ISO_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC);
     private static final String FINALIZED_UPDATE_DENIED_ERROR_CODE = "karte.document.finalized_update_denied";
+    private static final int WRITE_BATCH_SIZE = 50;
     
     // parameters
     private static final String PATIENT_PK = "patientPk";
@@ -145,6 +146,10 @@ public class KarteServiceBean {
             "update SchemaModel s set s.ended=:ended, s.status=:status where s.document.id=:id";
     private static final String QUERY_MARK_ATTACHMENTS_MODIFIED =
             "update AttachmentModel a set a.ended=:ended, a.status=:status where a.document.id=:id";
+    private static final String QUERY_DELETE_DIAGNOSIS_BY_IDS =
+            "delete from RegisteredDiagnosisModel r where r.id in :ids";
+    private static final String QUERY_DELETE_OBSERVATIONS_BY_IDS =
+            "delete from ObservationModel o where o.id in :ids";
 //minagawa^ LSC Test
     //private static final String QUERY_MODULE_BY_ENTITY = "from ModuleModel m where m.karte.id=:karteId and m.moduleInfo.entity=:entity and m.started between :fromDate and :toDate and m.status='F'";
     private static final String QUERY_MODULE_BY_ENTITY = "from ModuleModel m where m.karte.id=:karteId and m.moduleInfo.entity=:entity and m.started between :fromDate and :toDate and m.status='F' order by m.started";
@@ -980,29 +985,31 @@ public class KarteServiceBean {
      * @return 新規病名のPKリスト
      */
     public List<Long> postPutSendDiagnosis(DiagnosisSendWrapper wrapper) {
+
         List<RegisteredDiagnosisModel> deletedList = wrapper.getDeletedDiagnosis();
-        if (deletedList != null) {
-            for (RegisteredDiagnosisModel bean : deletedList) {
-                if (bean.getId() != 0L) {
-                    RegisteredDiagnosisModel delete = em.find(RegisteredDiagnosisModel.class, bean.getId());
-                    em.remove(delete);
-                }
-            }
+        if (deletedList != null && !deletedList.isEmpty()) {
+            bulkDeleteByIds(QUERY_DELETE_DIAGNOSIS_BY_IDS, collectDiagnosisIds(deletedList));
         }
 
         List<RegisteredDiagnosisModel> updatedList = wrapper.getUpdatedDiagnosis();
         if (updatedList != null) {
+            int processed = 0;
             for (RegisteredDiagnosisModel bean : updatedList) {
                 em.merge(bean);
+                processed++;
+                flushAndClearIfNeeded(processed);
             }
         }
 
         List<RegisteredDiagnosisModel> addedList = wrapper.getAddedDiagnosis();
         List<Long> ret = new ArrayList<>(addedList != null ? addedList.size() : 0);
         if (addedList != null) {
+            int processed = 0;
             for (RegisteredDiagnosisModel bean : addedList) {
                 em.persist(bean);
                 ret.add(bean.getId());
+                processed++;
+                flushAndClearIfNeeded(processed);
             }
         }
         
@@ -1019,11 +1026,21 @@ public class KarteServiceBean {
      * @return idのリスト
      */
     public List<Long> addDiagnosis(List<RegisteredDiagnosisModel> addList) {
+
+        if (addList == null || addList.isEmpty()) {
+            return Collections.emptyList();
+        }
+
         List<Long> ret = new ArrayList<>(addList.size());
+
+        int processed = 0;
         for (RegisteredDiagnosisModel bean : addList) {
             em.persist(bean);
-            ret.add(new Long(bean.getId()));
+            ret.add(bean.getId());
+            processed++;
+            flushAndClearIfNeeded(processed);
         }
+
         return ret;
     }
 
@@ -1033,11 +1050,18 @@ public class KarteServiceBean {
      * @return 更新数
      */
     public int updateDiagnosis(List<RegisteredDiagnosisModel> updateList) {
+        if (updateList == null || updateList.isEmpty()) {
+            return 0;
+        }
+
         int cnt = 0;
+
         for (RegisteredDiagnosisModel bean : updateList) {
             em.merge(bean);
             cnt++;
+            flushAndClearIfNeeded(cnt);
         }
+
         return cnt;
     }
 
@@ -1047,13 +1071,7 @@ public class KarteServiceBean {
      * @return 削除数
      */
     public int removeDiagnosis(List<Long> removeList) {
-        int cnt = 0;
-        for (Long id : removeList) {
-            RegisteredDiagnosisModel bean = (RegisteredDiagnosisModel) em.find(RegisteredDiagnosisModel.class, id);
-            em.remove(bean);
-            cnt++;
-        }
-        return cnt;
+        return bulkDeleteByIds(QUERY_DELETE_DIAGNOSIS_BY_IDS, normalizeIds(removeList));
     }
 
     /**
@@ -1107,11 +1125,17 @@ public class KarteServiceBean {
     public List<Long> addObservations(List<ObservationModel> observations) {
 
         if (observations != null && observations.size() > 0) {
+
             List<Long> ret = new ArrayList<>(observations.size());
+
+            int processed = 0;
             for (ObservationModel model : observations) {
                 em.persist(model);
-                ret.add(new Long(model.getId()));
+                ret.add(model.getId());
+                processed++;
+                flushAndClearIfNeeded(processed);
             }
+
             return ret;
         }
         return null;
@@ -1129,6 +1153,7 @@ public class KarteServiceBean {
             for (ObservationModel model : observations) {
                 em.merge(model);
                 cnt++;
+                flushAndClearIfNeeded(cnt);
             }
             return cnt;
         }
@@ -1142,16 +1167,7 @@ public class KarteServiceBean {
      */
     
     public int removeObservations(List<Long> observations) {
-        if (observations != null && observations.size() > 0) {
-            int cnt = 0;
-            for (Long id : observations) {
-                ObservationModel model = (ObservationModel) em.find(ObservationModel.class, id);
-                em.remove(model);
-                cnt++;
-            }
-            return cnt;
-        }
-        return 0;
+        return bulkDeleteByIds(QUERY_DELETE_OBSERVATIONS_BY_IDS, normalizeIds(observations));
     }
 
     /**
@@ -1947,6 +1963,48 @@ public class KarteServiceBean {
                 .setParameter("ended", ended)
                 .setParameter("status", status)
                 .executeUpdate();
+    }
+
+    private List<Long> collectDiagnosisIds(List<RegisteredDiagnosisModel> deletedList) {
+        if (deletedList == null || deletedList.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Long> ids = new ArrayList<>(deletedList.size());
+        for (RegisteredDiagnosisModel bean : deletedList) {
+            if (bean != null && bean.getId() > 0L) {
+                ids.add(bean.getId());
+            }
+        }
+        return ids;
+    }
+
+    private List<Long> normalizeIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<Long> normalized = new ArrayList<>(ids.size());
+        for (Long id : ids) {
+            if (id != null && id > 0L) {
+                normalized.add(id);
+            }
+        }
+        return normalized;
+    }
+
+    private int bulkDeleteByIds(String query, List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        return em.createQuery(query)
+                .setParameter("ids", ids)
+                .executeUpdate();
+    }
+
+    private void flushAndClearIfNeeded(int processed) {
+        if (processed > 0 && processed % WRITE_BATCH_SIZE == 0) {
+            em.flush();
+            em.clear();
+        }
     }
 
     private void prepareDocumentForInsert(DocumentModel document) {
