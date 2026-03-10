@@ -24,6 +24,7 @@
 - `docs/modernization/deferred-scope.md`（一時据え置き領域と後続候補）
 - `docs/modernization/business-critical-flows.md`（最重要業務フロー定義）
 - `docs/modernization/acceptance-criteria.md`（受け入れ条件定義）
+- `docs/modernization/p1-03-baseline-fixture-setup.md`（P1-03 基準データ・fixture 初期化手順）
 - `docs/server-modernization/server-api-inventory.md`
 - `docs/server-modernization/MODERNIZED_REST_API_INVENTORY.md`
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`

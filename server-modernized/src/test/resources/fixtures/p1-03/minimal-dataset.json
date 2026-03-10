@@ -1,0 +1,54 @@
+{
+  "datasetId": "p1-03-minimal-baseline",
+  "runId": "20260310T210124Z",
+  "facility": {
+    "facilityId": "P1.03.FACILITY.0001",
+    "ehrUserId": "P1.03.FACILITY.0001:doctor1"
+  },
+  "patients": [
+    {
+      "patientId": "P1030001",
+      "fullName": "山田 花子",
+      "kartePattern": "pattern-1-single-soap",
+      "insurance": {
+        "insuranceClass": "組合",
+        "insuranceNumber": "12345678"
+      }
+    },
+    {
+      "patientId": "P1030002",
+      "fullName": "田中 太郎",
+      "kartePattern": "pattern-2-revision-pair",
+      "insurance": {
+        "insuranceClass": "協会",
+        "insuranceNumber": "87654321"
+      }
+    },
+    {
+      "patientId": "P1030003",
+      "fullName": "佐藤 次郎",
+      "kartePattern": "pattern-3-attachment-link",
+      "insurance": {
+        "insuranceClass": "国保",
+        "insuranceNumber": "55552222"
+      }
+    }
+  ],
+  "images": [
+    {
+      "title": "胸部レントゲン正面",
+      "uri": "s3://p1-03-fixtures/images/chest-pa.png"
+    },
+    {
+      "title": "腹部エコー",
+      "uri": "s3://p1-03-fixtures/images/abd-us.jpg"
+    }
+  ],
+  "orcaFixtures": [
+    {
+      "name": "patientlst1v2",
+      "format": "xml",
+      "path": "server-modernized/src/test/resources/fixtures/p1-03/orca-patientlst1v2-response.xml"
+    }
+  ]
+}
