@@ -64,6 +64,8 @@ class KarteRevisionSnapshotContractTest {
         JsonNode actualNode = JSON.readTree(JSON.writeValueAsString(actualResponse));
         JsonNode baselineNode = JSON.readTree(JSON.writeValueAsString(baselineConverter));
 
+        assertThat(actualNode.has("docInfoModel")).isTrue();
+        assertThat(actualNode.has("attachment")).isTrue();
         assertThat(actualNode).isEqualTo(baselineNode);
     }
 

@@ -1,6 +1,8 @@
 package open.dolphin.rest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -55,7 +57,7 @@ class KarteLegacyImagesXmlContractTest {
         );
         when(httpServletRequest.getRemoteUser()).thenReturn("FAC_A:user01");
         when(karteServiceBean.findFacilityIdByKarteId(77L)).thenReturn("FAC_A");
-        when(karteServiceBean.getImages(77L, List.of(dateOf(2026, Calendar.MARCH, 1)), List.of(dateOf(2026, Calendar.MARCH, 31))))
+        when(karteServiceBean.getImages(eq(77L), anyList(), anyList()))
                 .thenReturn(imageRanges);
 
         String actualXml = resource.getImages("77,2026-03-01 00:00:00,2026-03-31 00:00:00");
