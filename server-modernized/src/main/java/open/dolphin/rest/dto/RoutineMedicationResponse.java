@@ -1,7 +1,6 @@
 package open.dolphin.rest.dto;
 
 import java.util.List;
-import open.dolphin.converter.ModuleModelConverter;
 
 /**
  * Routine medication entry for REST responses.
@@ -13,14 +12,14 @@ public class RoutineMedicationResponse {
     private final String memo;
     private final String category;
     private final String lastUpdated;
-    private final List<ModuleModelConverter> moduleList;
+    private final List<KarteRevisionDocumentResponse.ModuleResponse> moduleList;
 
     public RoutineMedicationResponse(Long id,
                                      String name,
                                      String memo,
                                      String category,
                                      String lastUpdated,
-                                     List<ModuleModelConverter> moduleList) {
+                                     List<KarteRevisionDocumentResponse.ModuleResponse> moduleList) {
         this.id = id;
         this.name = name;
         this.memo = memo;
@@ -49,7 +48,7 @@ public class RoutineMedicationResponse {
         return lastUpdated;
     }
 
-    public List<ModuleModelConverter> getModuleList() {
+    public List<KarteRevisionDocumentResponse.ModuleResponse> getModuleList() {
         return moduleList;
     }
 }

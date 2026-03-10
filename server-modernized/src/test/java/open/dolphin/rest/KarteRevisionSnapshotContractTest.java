@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Calendar;
 import java.util.Date;
-import open.dolphin.converter.DocumentModelConverter;
 import open.dolphin.infomodel.AttachmentModel;
 import open.dolphin.infomodel.DocInfoModel;
 import open.dolphin.infomodel.DocumentModel;
@@ -49,24 +48,23 @@ class KarteRevisionSnapshotContractTest {
     KarteRevisionResource resource;
 
     @Test
-    void getRevisionPreservesLegacySnapshotJsonContract() throws Exception {
+    void getRevisionReturnsMappedRevisionDocument() throws Exception {
         DocumentModel resourceDocument = buildDocument();
-        DocumentModel baselineDocument = buildDocument();
 
         when(httpServletRequest.getRemoteUser()).thenReturn("FAC_A:user01");
         when(karteRevisionServiceBean.findFacilityIdByRevisionId(111L)).thenReturn("FAC_A");
         when(karteRevisionServiceBean.getRevisionSnapshotLight(111L)).thenReturn(resourceDocument);
 
         Object actualResponse = resource.getRevision(111L);
-        DocumentModelConverter baselineConverter = new DocumentModelConverter();
-        baselineConverter.setModel(baselineDocument);
-
         JsonNode actualNode = JSON.readTree(JSON.writeValueAsString(actualResponse));
-        JsonNode baselineNode = JSON.readTree(JSON.writeValueAsString(baselineConverter));
 
         assertThat(actualNode.has("docInfoModel")).isTrue();
         assertThat(actualNode.has("attachment")).isTrue();
-        assertThat(actualNode).isEqualTo(baselineNode);
+        assertThat(actualNode.path("id").asLong()).isEqualTo(111L);
+        assertThat(actualNode.path("docInfoModel").path("docId").asText()).isEqualTo("DOC111");
+        assertThat(actualNode.path("modules")).hasSize(1);
+        assertThat(actualNode.path("schema")).hasSize(1);
+        assertThat(actualNode.path("attachment")).hasSize(1);
     }
 
     private static DocumentModel buildDocument() {

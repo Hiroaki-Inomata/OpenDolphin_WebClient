@@ -17,12 +17,17 @@ import jakarta.persistence.*;
  */
 @Entity
 @Table(name="d_users")
+@SequenceGenerator(
+        name = "opendolphin_d_users_seq",
+        sequenceName = "opendolphin.d_users_seq",
+        allocationSize = 1)
 public class UserModel extends InfoModel implements java.io.Serializable {
     
     private static final ZoneId DEFAULT_ZONE = ZoneId.systemDefault();
     private static final DateTimeFormatter REGISTERED_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
     
-    @Id @GeneratedValue(strategy=GenerationType.AUTO)
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "opendolphin_d_users_seq")
     private long id;
     
     /** composite businnes key */

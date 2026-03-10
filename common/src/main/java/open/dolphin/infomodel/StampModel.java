@@ -1,6 +1,8 @@
 package open.dolphin.infomodel;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * StampModel
@@ -23,6 +25,7 @@ public class StampModel extends InfoModel implements java.io.Serializable {
     
     @Column(nullable=false)
     @Lob
+    @JdbcTypeCode(SqlTypes.BINARY)
     private byte[] stampBytes;
     
 //    @Version

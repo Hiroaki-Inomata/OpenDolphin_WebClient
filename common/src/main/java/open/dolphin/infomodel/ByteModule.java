@@ -2,6 +2,8 @@ package open.dolphin.infomodel;
 
 import java.io.Serializable;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  *
@@ -16,6 +18,7 @@ public class ByteModule implements Serializable {
     private Long id;
 
     @Lob
+    @JdbcTypeCode(SqlTypes.BINARY)
     private byte[] payloadBytes;
 
     public Long getId() {

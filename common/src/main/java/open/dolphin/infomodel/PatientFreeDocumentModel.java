@@ -10,12 +10,9 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import jakarta.persistence.Temporal;
 import jakarta.persistence.TemporalType;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 /**
  * サマリー対応
@@ -35,8 +32,7 @@ public class PatientFreeDocumentModel extends InfoModel implements java.io.Seria
     @Temporal(value = TemporalType.TIMESTAMP)
     private Date confirmed;
 
-    @Lob
-    @JdbcTypeCode(SqlTypes.CLOB)
+    @Column(columnDefinition = "text")
     private String comment;
 
     public long getId() {

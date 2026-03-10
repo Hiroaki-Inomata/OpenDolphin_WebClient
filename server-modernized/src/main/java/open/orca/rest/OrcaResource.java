@@ -31,6 +31,7 @@ import jakarta.ws.rs.core.Response;
 import open.dolphin.common.OrcaConnect;
 import open.dolphin.converter.*;
 import open.dolphin.infomodel.*;
+import open.dolphin.rest.dto.LegacyKarteListResponse;
 
 /**
  *
@@ -731,7 +732,7 @@ public class OrcaResource {
     @GET
     @Path("/stamp/{param}")
     @Produces(MediaType.APPLICATION_JSON)
-    public ModuleListConverter getStamp(@PathParam("param") String param, @QueryParam("date") String date) {
+    public LegacyKarteListResponse.ModuleListResponse getStamp(@PathParam("param") String param, @QueryParam("date") String date) {
         
         String[] params = param.split(CAMMA);
         String setCd = params[0]; // stampId=setCd; セットコード
@@ -1087,15 +1088,7 @@ public class OrcaResource {
                 mm.setModel(null);
             }
             
-            // Warpper
-            ModuleList mlist = new ModuleList();
-            mlist.setList(retSet);
-            
-            // Converter
-            ModuleListConverter conv = new ModuleListConverter();
-            conv.setModel(mlist);
-            
-            return conv;
+            return LegacyKarteListResponse.ModuleListResponse.of(retSet);
             
         } catch (Exception e) {
             processError(e);

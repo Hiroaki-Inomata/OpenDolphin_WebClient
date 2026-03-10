@@ -6,7 +6,6 @@
     <persistence-unit name="opendolphinPU" transaction-type="JTA">
         <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider>
         <jta-data-source>java:jboss/datasources/PostgresDS</jta-data-source>
-        <!-- RUN_ID=20251121TrialPHRSeqZ1-CTX: ensure PHRKey/PHRAsyncJob stay registered for Modernized export -->
         <class>open.dolphin.infomodel.UserModel</class>
         <class>open.dolphin.infomodel.FacilityModel</class>
         <class>open.dolphin.infomodel.RoleModel</class>
@@ -32,8 +31,6 @@
         <class>open.dolphin.infomodel.PatientMemoModel</class>
         <class>open.dolphin.infomodel.PatientFreeDocumentModel</class>
         <class>open.dolphin.infomodel.AttachmentModel</class>
-        <class>open.dolphin.infomodel.PHRKey</class>
-        <class>open.dolphin.infomodel.PHRAsyncJob</class>
         <class>open.dolphin.infomodel.Factor2Device</class>
         <class>open.dolphin.infomodel.Factor2Code</class>
         <class>open.dolphin.infomodel.Factor2Credential</class>
@@ -48,6 +45,7 @@
         <properties>
             <property name="jakarta.persistence.schema-generation.database.action" value="${sys.OPENDOLPHIN_SCHEMA_ACTION:none}"/>
             <property name="hibernate.dialect" value="org.hibernate.dialect.PostgreSQLDialect"/>
+            <property name="hibernate.default_schema" value="opendolphin"/>
             <property name="hibernate.jdbc.use_streams_for_lob" value="false"/>
             <property name="hibernate.jdbc.lob.non_contextual_creation" value="true"/>
             <property name="hibernate.enable_lazy_load_no_trans" value="false"/>

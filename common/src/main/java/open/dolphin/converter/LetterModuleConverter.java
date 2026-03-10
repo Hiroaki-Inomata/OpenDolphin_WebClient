@@ -232,8 +232,8 @@ public final class LetterModuleConverter implements IInfoModelConverter {
     @Override
     public void setModel(IInfoModel m) {
         this.model = (LetterModule)m;
-        KarteBean dummyKarteBean = PlistConverter.createDuumyKarteBean(model.getKarteBean().getId());
-        UserModel dummyUser = PlistConverter.createDummyUserModel(model.getUserModel().getId());
+        KarteBean dummyKarteBean = ConverterModelReferences.dummyKarte(model.getKarteBean().getId());
+        UserModel dummyUser = ConverterModelReferences.dummyUser(model.getUserModel().getId());
         model.setKarteBean(dummyKarteBean);
         model.setUserModel(dummyUser);
     }

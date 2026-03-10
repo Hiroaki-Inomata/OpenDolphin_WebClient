@@ -7,6 +7,8 @@ import java.util.List;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * PatientModel
@@ -96,6 +98,7 @@ public class PatientModel extends InfoModel implements java.io.Serializable {
     
     // JPEG形式写真データ
     @Lob
+    @JdbcTypeCode(SqlTypes.BINARY)
     private byte[] jpegPhoto;
     
     // メモ
