@@ -45,6 +45,7 @@
         <properties>
             <property name="jakarta.persistence.schema-generation.database.action" value="${sys.OPENDOLPHIN_SCHEMA_ACTION:none}"/>
             <property name="hibernate.dialect" value="org.hibernate.dialect.PostgreSQLDialect"/>
+            <property name="hibernate.default_schema" value="opendolphin"/>
             <property name="hibernate.jdbc.use_streams_for_lob" value="false"/>
             <property name="hibernate.jdbc.lob.non_contextual_creation" value="true"/>
             <property name="hibernate.enable_lazy_load_no_trans" value="false"/>

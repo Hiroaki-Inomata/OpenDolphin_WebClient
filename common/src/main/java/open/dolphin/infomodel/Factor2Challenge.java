@@ -9,7 +9,6 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 /**
@@ -33,8 +32,7 @@ public class Factor2Challenge implements Serializable {
     @Column(name = "request_id", nullable = false, length = 64, unique = true)
     private String requestId;
 
-    @Lob
-    @Column(name = "challenge_payload", nullable = false)
+    @Column(name = "challenge_payload", nullable = false, columnDefinition = "text")
     private String challengePayload;
 
     @Column(name = "created_at", nullable = false)

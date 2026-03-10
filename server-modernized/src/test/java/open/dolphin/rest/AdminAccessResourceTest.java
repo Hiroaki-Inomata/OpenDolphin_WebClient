@@ -143,11 +143,6 @@ class AdminAccessResourceTest {
         }
 
         @Override
-        protected void upsertPublicShadowUser(UserModel user) {
-            // no-op for unit tests
-        }
-
-        @Override
         protected UserAccessProfileRow upsertProfile(
                 long userPk, String sex, String staffRole, Boolean mustChangePassword, java.time.Instant now) {
             return null;

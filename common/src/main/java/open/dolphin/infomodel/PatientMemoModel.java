@@ -1,10 +1,8 @@
 package open.dolphin.infomodel;
 
 import jakarta.persistence.Entity;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
+import jakarta.persistence.Column;
 
 /**
  * MemoModel
@@ -20,8 +18,7 @@ public class PatientMemoModel extends KarteEntryBean implements java.io.Serializ
     // OpenDolphin ASP アノテーションなし
     private String memo;
 //masuda^    
-    @Lob
-    @JdbcTypeCode(SqlTypes.CLOB)
+    @Column(name = "memo2", columnDefinition = "text")
     private String memo2;
     
     public String getMemo() {

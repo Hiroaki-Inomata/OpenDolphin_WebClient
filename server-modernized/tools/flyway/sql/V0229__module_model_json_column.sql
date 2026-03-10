@@ -1,1 +1,0 @@
--- Legacy migration retired. ModuleModel is JSON-only from V0224 onward.

@@ -162,7 +162,7 @@ public class AdminAccessResource extends AbstractResource {
         }
 
         String compositeUserId = facilityId + IInfoModel.COMPOSITE_KEY_MAKER + loginId;
-        if (userExists(compositeUserId) || userExistsPublic(compositeUserId)) {
+        if (userExists(compositeUserId)) {
             throw restError(request, Response.Status.CONFLICT, "user_exists", "既に存在する loginId です。");
         }
 
@@ -179,9 +179,6 @@ public class AdminAccessResource extends AbstractResource {
         em.persist(user);
         em.flush();
 
-        // Some legacy constraints still reference public.d_users (e.g. d_roles.c_user FK),
-        // so ensure the shadow row exists before we insert roles.
-        upsertPublicShadowUser(user);
         persistRoles(user, roles);
         UserAccessProfileRow profile = upsertProfile(user.getId(), sex, staffRole, null, Instant.now());
         OrcaLinkStatus orcaLink = null;
@@ -257,8 +254,6 @@ public class AdminAccessResource extends AbstractResource {
             orcaLink = upsertOrcaLink(request, userPk, orcaUserId, actor);
         }
         if (rolesProvided) {
-            // Keep shadow row in public schema up-to-date (and satisfy FK targets) before updating roles.
-            upsertPublicShadowUser(user);
             if (!containsRole(roles, BASELINE_ROLE)) {
                 roles.add(BASELINE_ROLE);
             }
@@ -336,7 +331,6 @@ public class AdminAccessResource extends AbstractResource {
 
         target.setPassword(passwordHashService.hashForStorage(tempPassword));
         em.merge(target);
-        upsertPublicShadowUser(target);
         upsertProfile(userPk, null, null, Boolean.TRUE, Instant.now());
         boolean sessionInvalidated = invalidateCurrentSession(request);
 
@@ -376,97 +370,6 @@ public class AdminAccessResource extends AbstractResource {
     private boolean userExists(String userId) {
         List<Long> list = em.createQuery("select u.id from UserModel u where u.userId=:uid", Long.class)
                 .setParameter("uid", userId)
-                .setMaxResults(1)
-                .getResultList();
-        return !list.isEmpty();
-    }
-
-    private boolean userExistsPublic(String userId) {
-        if (!isPublicUsersTablePresent()) {
-            return false;
-        }
-        List<?> list = em.createNativeQuery("select 1 from public.d_users where userid=:uid")
-                .setParameter("uid", userId)
-                .setMaxResults(1)
-                .getResultList();
-        return !list.isEmpty();
-    }
-
-    protected void upsertPublicShadowUser(UserModel user) {
-        if (user == null) {
-            return;
-        }
-        if (!isPublicUsersTablePresent()) {
-            return;
-        }
-        if (user.getFacilityModel() == null) {
-            throw new IllegalStateException("user is missing facility model");
-        }
-        Long publicFacilityPk = resolvePublicFacilityPk(user.getFacilityModel().getFacilityId());
-        if (publicFacilityPk == null) {
-            // The modernized schema and the legacy/public schema can have different facility PKs for the same facilityId.
-            // public.d_users.facility_id must reference public.d_facility(id), so we need the public-side PK.
-            throw new IllegalStateException("public.d_facility is missing facilityId=" + user.getFacilityModel().getFacilityId());
-        }
-        java.util.Date registered = user.getRegisteredDate();
-        if (registered == null) {
-            throw new IllegalStateException("user is missing registeredDate");
-        }
-
-        // Keep the public schema in sync enough to satisfy FK targets during modernization.
-        em.createNativeQuery(
-                        "insert into public.d_users (id, userid, password, commonname, sirname, givenname, email, membertype, registereddate, facility_id, factor2auth) "
-                                + "values (:id, :userid, :password, :commonname, :sirname, :givenname, :email, :membertype, :registereddate, :facilityId, :factor2auth) "
-                                + "on conflict (id) do update set "
-                                + "userid=excluded.userid, "
-                                + "password=excluded.password, "
-                                + "commonname=excluded.commonname, "
-                                + "sirname=excluded.sirname, "
-                                + "givenname=excluded.givenname, "
-                                + "email=excluded.email, "
-                                + "membertype=excluded.membertype, "
-                                + "registereddate=excluded.registereddate, "
-                                + "facility_id=excluded.facility_id, "
-                                + "factor2auth=excluded.factor2auth")
-                .setParameter("id", user.getId())
-                .setParameter("userid", user.getUserId())
-                .setParameter("password", user.getPassword())
-                .setParameter("commonname", user.getCommonName())
-                .setParameter("sirname", user.getSirName())
-                .setParameter("givenname", user.getGivenName())
-                .setParameter("email", user.getEmail())
-                .setParameter("membertype", user.getMemberType())
-                .setParameter("registereddate", new java.sql.Date(registered.getTime()))
-                .setParameter("facilityId", publicFacilityPk)
-                .setParameter("factor2auth", user.getFactor2Auth())
-                .executeUpdate();
-    }
-
-    private Long resolvePublicFacilityPk(String facilityId) {
-        if (facilityId == null || facilityId.isBlank()) {
-            return null;
-        }
-        List<?> list = em.createNativeQuery("select id from public.d_facility where facilityid=:fid")
-                .setParameter("fid", facilityId)
-                .setMaxResults(1)
-                .getResultList();
-        if (list.isEmpty()) {
-            return null;
-        }
-        Object v = list.get(0);
-        if (v instanceof Number n) {
-            return n.longValue();
-        }
-        try {
-            return Long.parseLong(String.valueOf(v));
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
-    private boolean isPublicUsersTablePresent() {
-        List<?> list = em.createNativeQuery(
-                        "select 1 from information_schema.tables where table_schema='public' and table_name='d_users'")
                 .setMaxResults(1)
                 .getResultList();
         return !list.isEmpty();

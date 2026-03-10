@@ -9,7 +9,6 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 
 /**
@@ -43,15 +42,13 @@ public class Factor2Credential implements Serializable {
     /**
      * FIDO2 公開鍵など長文になる可能性がある値は LOB とする。
      */
-    @Lob
-    @Column(name = "public_key")
+    @Column(name = "public_key", columnDefinition = "text")
     private String publicKey;
 
     /**
      * 暗号化された TOTP シークレット等の保護対象データ。
      */
-    @Lob
-    @Column(name = "secret")
+    @Column(name = "secret", columnDefinition = "text")
     private String secret;
 
     @Column(name = "sign_count")
@@ -69,12 +66,10 @@ public class Factor2Credential implements Serializable {
     @Column(name = "verified", nullable = false)
     private boolean verified;
 
-    @Lob
-    @Column(name = "transports")
+    @Column(name = "transports", columnDefinition = "text")
     private String transports;
 
-    @Lob
-    @Column(name = "metadata")
+    @Column(name = "metadata", columnDefinition = "text")
     private String metadata;
 
     public Long getId() {

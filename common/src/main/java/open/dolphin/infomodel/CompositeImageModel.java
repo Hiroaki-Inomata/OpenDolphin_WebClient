@@ -3,6 +3,8 @@ package open.dolphin.infomodel;
 import jakarta.persistence.*;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import javax.swing.ImageIcon;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  *
@@ -36,6 +38,7 @@ public class CompositeImageModel extends KarteEntryBean implements java.io.Seria
     
     @Lob
     @Column(nullable=false)
+    @JdbcTypeCode(SqlTypes.BINARY)
     private byte[] imageBytes;
     
     @Column(nullable=false)
