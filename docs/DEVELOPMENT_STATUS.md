@@ -35,6 +35,10 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P1-02「各業務フローの受け入れ条件を書く」を完了し、合否判定を固定（RUN_ID=20260310T204637Z）。
+  - 追加: `docs/modernization/acceptance-criteria.md` を新規作成。CF-01〜CF-07 の各フローについて入力、期待結果、確認項目、失敗時の扱いを定義。
+  - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の P1-02 を ☑ 化し、RUN_ID を更新。
+  - 導線: `docs/server-modernization/README.md` の API/仕様リストに受け入れ条件定義リンクを追加。
 - 2026-03-11: P1-01「最重要業務フローを決める」を完了し、刷新時に守る業務結果を固定（RUN_ID=20260310T203518Z）。
   - 追加: `docs/modernization/business-critical-flows.md` を新規作成。最重要フロー7本（第1群4本 + 第2群3本）と優先度判定表を定義。
   - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の P1-01 を ☑ 化。

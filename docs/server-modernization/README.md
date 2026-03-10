@@ -23,6 +23,7 @@
 - `docs/modernization/architecture-principles.md`（刷新方針の固定版）
 - `docs/modernization/deferred-scope.md`（一時据え置き領域と後続候補）
 - `docs/modernization/business-critical-flows.md`（最重要業務フロー定義）
+- `docs/modernization/acceptance-criteria.md`（受け入れ条件定義）
 - `docs/server-modernization/server-api-inventory.md`
 - `docs/server-modernization/MODERNIZED_REST_API_INVENTORY.md`
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
