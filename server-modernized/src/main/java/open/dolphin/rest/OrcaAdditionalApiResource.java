@@ -1,7 +1,6 @@
 package open.dolphin.rest;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.BadRequestException;
@@ -38,7 +37,6 @@ import open.dolphin.rest.orca.AbstractOrcaRestResource;
 public class OrcaAdditionalApiResource extends AbstractResource {
 
     private static final PushEventDeduplicator PUSH_EVENT_DEDUPLICATOR = PushEventDeduplicator.createDefault();
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     @Inject
     OrcaTransport orcaTransport;
@@ -733,7 +731,7 @@ public class OrcaAdditionalApiResource extends AbstractResource {
 
     private void validatePushEventPayload(String payload) {
         try {
-            JsonNode root = JSON.readTree(payload);
+            JsonNode root = readJsonTree(payload);
             if (root == null || root.isNull() || !root.isObject()) {
                 throw new BadRequestException("ORCA pusheventgetv2 payload must be a JSON object");
             }

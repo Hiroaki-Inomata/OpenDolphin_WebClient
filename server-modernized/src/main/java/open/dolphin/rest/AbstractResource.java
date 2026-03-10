@@ -1,8 +1,11 @@
  package open.dolphin.rest;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.ws.rs.WebApplicationException;
@@ -11,7 +14,11 @@ import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.text.SimpleDateFormat;
+import java.time.DateTimeException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -23,6 +30,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Locale;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import open.dolphin.infomodel.DiagnosisSendWrapper;
@@ -38,6 +46,11 @@ public class AbstractResource {
 
     protected static final String CAMMA = ",";
     protected static final boolean DEBUG = false;
+    private static final DateTimeFormatter LEGACY_DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
+            .parseLenient()
+            .appendPattern("uuuu-MM-dd HH:mm:ss")
+            .toFormatter(Locale.ROOT);
+    private static final ObjectMapper SERIALIZE_MAPPER = createLegacyAwareMapper();
     private static final String TRACE_ID_HEADER = "X-Trace-Id";
     private static final String X_FORWARDED_FOR_HEADER = "X-Forwarded-For";
     private static final String X_REAL_IP_HEADER = "X-Real-Ip";
@@ -50,8 +63,12 @@ public class AbstractResource {
 
     protected Date parseDate(String source) {
         try {
-            return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").parse(source);
-        } catch (Exception e) {
+            if (source == null || source.isBlank()) {
+                return null;
+            }
+            LocalDateTime parsed = LocalDateTime.parse(source.trim(), LEGACY_DATE_TIME_FORMATTER);
+            return Date.from(parsed.atZone(ZoneId.systemDefault()).toInstant());
+        } catch (DateTimeException e) {
             Logger.getLogger(getClass().getName()).log(Level.WARNING, "Failed to parse date: " + source, e);
             return null;
         }
@@ -127,10 +144,26 @@ public class AbstractResource {
 
     // 2013/06/24    
     public static ObjectMapper getSerializeMapper() {
+        return SERIALIZE_MAPPER;
+    }
+
+    protected <T> T readJson(String payload, Class<T> valueType) throws IOException {
+        return getSerializeMapper().readValue(payload, valueType);
+    }
+
+    protected com.fasterxml.jackson.databind.JsonNode readJsonTree(String payload) throws JsonProcessingException {
+        return getSerializeMapper().readTree(payload);
+    }
+
+    private static ObjectMapper createLegacyAwareMapper() {
         ObjectMapper mapper = new ObjectMapper();
         mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
         mapper.configure(SerializationFeature.WRITE_NULL_MAP_VALUES, false);
         mapper.disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        mapper.configure(DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT, true);
+        mapper.registerModule(new JavaTimeModule());
+        mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
         return mapper;
     }
 

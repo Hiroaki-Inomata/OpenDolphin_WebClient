@@ -2,10 +2,12 @@ package open.dolphin.rest.jackson;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.ext.ContextResolver;
 import jakarta.ws.rs.ext.Provider;
+import open.dolphin.rest.AbstractResource;
 
 /**
  * Registers a Jackson mapper with JavaTime support for RESTEasy JSON binding.
@@ -15,12 +17,9 @@ import jakarta.ws.rs.ext.Provider;
 @Produces(MediaType.APPLICATION_JSON)
 public class ResteasyObjectMapperResolver implements ContextResolver<ObjectMapper> {
 
-    private final ObjectMapper mapper;
+    @Inject
+    ObjectMapper mapper;
     private static final String ORCA_DTO_PACKAGE = "open.dolphin.rest.dto.orca";
-
-    public ResteasyObjectMapperResolver() {
-        this.mapper = new LegacyObjectMapperProducer().provideLegacyAwareMapper();
-    }
 
     @Override
     public ObjectMapper getContext(Class<?> type) {
@@ -31,6 +30,6 @@ public class ResteasyObjectMapperResolver implements ContextResolver<ObjectMappe
         if (pkg == null || !pkg.getName().startsWith(ORCA_DTO_PACKAGE)) {
             return null;
         }
-        return mapper;
+        return mapper != null ? mapper : AbstractResource.getSerializeMapper();
     }
 }

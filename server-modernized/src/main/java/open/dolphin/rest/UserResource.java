@@ -20,8 +20,6 @@ import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.rest.dto.CurrentUserResponse;
 import open.dolphin.session.UserServiceBean;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * REST Web Service
@@ -98,11 +96,8 @@ public class UserResource extends AbstractResource {
 
         String fid = getRemoteFacility(servletReq.getRemoteUser());
         debug(fid);
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        UserModel model = mapper.readValue(json, UserModel.class);
+
+        UserModel model = readJson(json, UserModel.class);
 
         if (model.getFacilityModel() == null) {
             open.dolphin.infomodel.FacilityModel facilityModel = new open.dolphin.infomodel.FacilityModel();
@@ -128,11 +123,8 @@ public class UserResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String putUser(@Context HttpServletRequest servletReq, String json) throws IOException {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        UserModel model = mapper.readValue(json, UserModel.class);
+
+        UserModel model = readJson(json, UserModel.class);
 
         HttpServletRequest req = (HttpServletRequest)servletReq;
         String remoteUser = requireRemoteUser(req);
@@ -200,11 +192,8 @@ public class UserResource extends AbstractResource {
         HttpServletRequest req = (HttpServletRequest) servletReq;
         requireAdmin(req, userServiceBean);
         String actorFacility = requireActorFacility(req);
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        UserModel model = mapper.readValue(json, UserModel.class);
+
+        UserModel model = readJson(json, UserModel.class);
         FacilityModel requestedFacility = model != null ? model.getFacilityModel() : null;
         FacilityModel currentFacility = loadFacilityByPkQuietly(requestedFacility != null ? requestedFacility.getId() : 0L);
         if (currentFacility == null) {

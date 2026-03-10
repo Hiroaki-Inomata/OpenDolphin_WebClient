@@ -1,7 +1,6 @@
 package open.dolphin.rest;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.BadRequestException;
@@ -62,7 +61,6 @@ public class OrcaReportResource extends AbstractResource {
     private static final Duration DEFAULT_BLOB_DEADLINE = Duration.ofSeconds(20);
     private static final int BLOB_RETRY_MAX = 3;
     private static final long BLOB_RETRY_BACKOFF_MS = 300L;
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     @Inject
     OrcaTransport orcaTransport;
@@ -579,7 +577,7 @@ public class OrcaReportResource extends AbstractResource {
 
     private String extractDataId(String json) {
         try {
-            JsonNode root = JSON.readTree(json);
+            JsonNode root = readJsonTree(json);
             Optional<JsonNode> node = findJsonValue(root, "Data_Id");
             return node.map(JsonNode::asText).orElse(null);
         } catch (IOException ex) {

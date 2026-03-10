@@ -12,8 +12,6 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import open.dolphin.infomodel.AppoList;
 import open.dolphin.session.AppoServiceBean;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * REST Web Service
@@ -35,11 +33,8 @@ public class AppoResource extends AbstractResource {
     @Produces(MediaType.TEXT_PLAIN)
     public String putXml(@Context HttpServletRequest request, String json) throws IOException {
         String fid = requireActorFacility(request);
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        AppoList list = mapper.readValue(json, AppoList.class);
+
+        AppoList list = readJson(json, AppoList.class);
         
         int count = appoServiceBean.putAppointmentsForFacility(fid, list.getList());
         if (count == 0 && list.getList() != null && !list.getList().isEmpty()) {

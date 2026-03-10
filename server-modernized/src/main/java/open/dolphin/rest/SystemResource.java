@@ -1,7 +1,5 @@
 package open.dolphin.rest;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.POST;
@@ -89,11 +87,8 @@ public class SystemResource extends AbstractResource {
     @Produces(MediaType.TEXT_PLAIN)
     public String addFacilityAdmin(String json) throws IOException {
         requireSystemAdminOrThrow("SYSTEM_FACILITY_ADMIN_ADD", null);
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        UserModel user = mapper.readValue(json, UserModel.class);
+
+        UserModel user = readJson(json, UserModel.class);
 
         // 関係を構築する
         List<RoleModel> roles = user.getRoles();

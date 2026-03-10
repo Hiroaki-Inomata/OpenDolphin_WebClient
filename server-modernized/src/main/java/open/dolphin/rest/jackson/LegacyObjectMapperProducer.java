@@ -1,11 +1,7 @@
 package open.dolphin.rest.jackson;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Produces;
 import open.dolphin.rest.AbstractResource;
 
@@ -18,13 +14,8 @@ import open.dolphin.rest.AbstractResource;
 public class LegacyObjectMapperProducer {
 
     @Produces
-    @Dependent
+    @ApplicationScoped
     public ObjectMapper provideLegacyAwareMapper() {
-        ObjectMapper mapper = AbstractResource.getSerializeMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        mapper.configure(DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT, true);
-        mapper.registerModule(new JavaTimeModule());
-        mapper.configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
-        return mapper;
+        return AbstractResource.getSerializeMapper();
     }
 }

@@ -30,8 +30,6 @@ import open.dolphin.session.StampServiceBean;
 import open.dolphin.session.UserServiceBean;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * REST Web Service
@@ -58,12 +56,8 @@ public class StampResource extends AbstractResource {
     @Context
     private HttpServletRequest httpServletRequest;
 
-    private final ObjectMapper stampTreeMapper;
-
     /** Creates a new instance of StampResource */
     public StampResource() {
-        stampTreeMapper = new ObjectMapper();
-        stampTreeMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
     
     //----------------------------------------------------------------------
@@ -173,9 +167,6 @@ public class StampResource extends AbstractResource {
 //    @Produces(MediaType.TEXT_PLAIN)
 //    public String postPublishedTree(String json) throws IOException {
 //
-//        ObjectMapper mapper = new ObjectMapper();
-//        StampTreeHolder h = mapper.readValue(json, StampTreeHolder.class);
-//
 //        long pk = stampServiceBean.saveAndPublishTree(h);
 //        String pkStr = String.valueOf(pk);
 //        debug(pkStr);
@@ -188,11 +179,8 @@ public class StampResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String putPublishedTree(String json) throws IOException {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        StampTreeHolder h = mapper.readValue(json, StampTreeHolder.class);
+
+        StampTreeHolder h = readJson(json, StampTreeHolder.class);
         UserModel actorUser = resolveActorUser();
         applyActorToTreeHolder(h, actorUser);
 
@@ -206,11 +194,8 @@ public class StampResource extends AbstractResource {
     @Path("/published/cancel")
     @Consumes(MediaType.APPLICATION_JSON)
     public String cancelPublishedTree(String json) throws IOException {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        StampTreeModel model = mapper.readValue(json, StampTreeModel.class);
+
+        StampTreeModel model = readJson(json, StampTreeModel.class);
         UserModel actorUser = resolveActorUser();
         applyActorToTree(model, actorUser);
         
@@ -241,11 +226,8 @@ public class StampResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String subscribeTrees(String json) throws IOException {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        SubscribedTreeList list = mapper.readValue(json, SubscribedTreeList.class);
+
+        SubscribedTreeList list = readJson(json, SubscribedTreeList.class);
         UserModel actorUser = resolveActorUser();
         applyActorToSubscribedTrees(list != null ? list.getList() : null, actorUser);
         
@@ -321,11 +303,8 @@ public class StampResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String putStamp(String json) throws IOException {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        StampModel model = mapper.readValue(json, StampModel.class);
+
+        StampModel model = readJson(json, StampModel.class);
         long actorUserPk = resolveActorUserPk();
         applyActorToStamp(model, actorUserPk);
 
@@ -340,11 +319,8 @@ public class StampResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String putStamps(String json) throws IOException {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        StampList list = mapper.readValue(json, StampList.class);
+
+        StampList list = readJson(json, StampList.class);
         long actorUserPk = resolveActorUserPk();
         applyActorToStamps(list != null ? list.getList() : null, actorUserPk);
 
@@ -629,7 +605,7 @@ public class StampResource extends AbstractResource {
     }
 
     private StampTreeModel deserializeStampTree(String json) throws IOException {
-        StampTreeModel model = stampTreeMapper.readValue(json, StampTreeModel.class);
+        StampTreeModel model = readJson(json, StampTreeModel.class);
         ensureTreeBytes(model);
         return model;
     }

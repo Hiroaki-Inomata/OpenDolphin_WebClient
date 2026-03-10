@@ -26,8 +26,6 @@ import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
 import open.dolphin.session.framework.SessionOperation;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * REST Web Service
@@ -61,10 +59,7 @@ public class LetterResource extends AbstractResource {
     public String putLetter(String json) throws IOException {
         String fid = requireActorFacility(httpServletRequest);
 
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        LetterModule model = mapper.readValue(json, LetterModule.class);
+        LetterModule model = readJson(json, LetterModule.class);
         
         Logger.getLogger("open.dolphin").log(Level.INFO, "LinkID : {0}, PatID : {1}", new Object[]{String.valueOf(model.getLinkId()), model.getPatientId()});
 
