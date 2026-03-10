@@ -28,6 +28,7 @@
 - ORCA 接続情報は `docs/server-modernization/operations/ORCA_CERTIFICATION_ONLY.md` を正本として運用する（Phase2 版は Legacy）。
 - ORCA オーダー仕様の実装要件は `docs/server-modernization/ORCA-order-system-rule.md` を参照する。
 - `server-modernized` の当面作業を順番に進める場合は `docs/server-modernization/planning/server_modernization_wbs_detailed.md` を参照し、完了更新は WBS の ☐ / ☑ を用いて管理する。
+- server-modernized の Mockito 利用テスト実行方針は **JDK25（既定）** を第一選択とし、実行環境差異で attach が不安定な場合のみ **JDK21 + byte-buddy-agent** を fallback とする（詳細は `docs/server-modernization/README.md` のテスト実行方針を参照）。
 - module 永続化の現行方針は `beanJson` 優先ではなく、**新規書込を `beanJson` のみに寄せる** こととする。`beanBytes` は旧データ読込 fallback 専用として扱い、新規二重保存は行わない。
 - module 永続化は将来的に `beanJson` 専用化を目標とし、`beanBytes` の PostgreSQL `oid` 回帰は採らない。互換を切る場合も `oid` ではなく JSON 系へ統一する。
 
@@ -35,6 +36,10 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P1-09「管理設定と認証まわりの現行挙動を固定する」を完了し、管理系の最小挙動とテスト実行方針を確定（RUN_ID=20260310T232050Z）。
+  - 反映（WBS）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P1-09` を ☑ 化し、同ファイルのブロッカー節を「解消済み」へ更新。
+  - 方針明記: `docs/server-modernization/README.md` にテスト実行方針（JDK25既定、JDK21+byte-buddy-agent fallback）を追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=AdminAccessResourceTest,AdminOrcaConnectionResourceTest,SessionAuthResourceTest,LogoutResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（25 tests, JDK25）。
 - 2026-03-11: P1-09「管理設定と認証まわりの現行挙動を固定する」の着手中にテスト実行基盤ブロッカーを確認（RUN_ID=20260310T230817Z）。
   - 追加（テストケース）: `server-modernized/src/test/java/open/dolphin/rest/AdminOrcaConnectionResourceTest.java` に `putConfigRejectsWhenUnauthenticated` / `putConfigSavesConfigForAdmin` を追加し、管理設定保存 API の未認証拒否と管理者保存成功を固定。
   - 追加（テストケース）: `server-modernized/src/test/java/open/dolphin/rest/AdminAccessResourceTest.java` に `createUserRejectsWhenUnauthenticated` / `createUserRejectsWhenNotAdmin` を追加し、管理ユーザー作成 API の未認証/権限不足時応答を固定。

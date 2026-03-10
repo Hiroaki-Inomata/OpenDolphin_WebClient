@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260310T201058Z
+- RUN_ID: 20260310T232050Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -49,6 +49,18 @@
 - `docs/server-modernization/operations/API_PARITY_RESPONSE_CHECK.md`
 - `docs/server-modernization/api-smoke-test.md`
 - `docs/web-client/operations/security-rollout-checklist-20260304.md`（Web client 連携の CSRF/Logout/画像ヘッダ運用条件）
+
+### テスト実行方針（server-modernized / Mockito inline）
+- 既定実行は **JDK25（Homebrew OpenJDK）** を使用する。
+- 検証対象（管理設定/認証まわり）は以下を基準テストとする。
+  - `AdminAccessResourceTest`
+  - `AdminOrcaConnectionResourceTest`
+  - `SessionAuthResourceTest`
+  - `LogoutResourceTest`
+- 実行コマンド（既定）:
+  - `mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=AdminAccessResourceTest,AdminOrcaConnectionResourceTest,SessionAuthResourceTest,LogoutResourceTest -Dsurefire.failIfNoSpecifiedTests=false test`
+- 既定環境で Mockito inline の attach が不安定な場合のみ、fallback として **JDK21 + byte-buddy-agent** を用いる。
+  - `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=AdminAccessResourceTest,AdminOrcaConnectionResourceTest,SessionAuthResourceTest,LogoutResourceTest -Dsurefire.failIfNoSpecifiedTests=false test`
 
 ### Web client 連携セキュリティ契約（2026-03）
 - デプロイ順序は backend 先行 → frontend 後続（逆順禁止）。
