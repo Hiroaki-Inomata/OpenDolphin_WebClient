@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmlio2>
+  <patientlst1v2res type="record">
+    <Api_Result type="string">00</Api_Result>
+    <Api_Result_Message type="string">実行しました</Api_Result_Message>
+    <Patient_Information type="array">
+      <Patient_Information_child type="record">
+        <Patient_ID type="string">P1030001</Patient_ID>
+        <WholeName type="string">山田 花子</WholeName>
+        <WholeName_inKana type="string">ヤマダ ハナコ</WholeName_inKana>
+        <BirthDate type="string">1985-04-12</BirthDate>
+        <Sex type="string">2</Sex>
+      </Patient_Information_child>
+      <Patient_Information_child type="record">
+        <Patient_ID type="string">P1030002</Patient_ID>
+        <WholeName type="string">田中 太郎</WholeName>
+        <WholeName_inKana type="string">タナカ タロウ</WholeName_inKana>
+        <BirthDate type="string">1978-11-03</BirthDate>
+        <Sex type="string">1</Sex>
+      </Patient_Information_child>
+      <Patient_Information_child type="record">
+        <Patient_ID type="string">P1030003</Patient_ID>
+        <WholeName type="string">佐藤 次郎</WholeName>
+        <WholeName_inKana type="string">サトウ ジロウ</WholeName_inKana>
+        <BirthDate type="string">1992-08-25</BirthDate>
+        <Sex type="string">1</Sex>
+      </Patient_Information_child>
+    </Patient_Information>
+  </patientlst1v2res>
+</xmlio2>
