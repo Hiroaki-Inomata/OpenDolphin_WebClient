@@ -3,6 +3,7 @@ package open.dolphin.rest;
 import static org.junit.jupiter.api.Assertions.*;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.BadRequestException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import open.dolphin.audit.AuditEventEnvelope;
@@ -80,6 +81,21 @@ class OrcaAcceptanceListResourceTest extends RuntimeDelegateTestSupport {
 
         assertEquals(200, response.getStatus());
         assertEquals("/api/api01rv2/acceptlstv2", auditDispatcher.payload.getResource());
+    }
+
+    @Test
+    void postAcceptList_rejectsJsonPayloadAndRecordsFailureAudit() {
+        BadRequestException exception = assertThrows(BadRequestException.class,
+                () -> resource.postAcceptList(servletRequest, "01", "{\"acceptlstv2req\":{}}"));
+
+        assertTrue(exception.getMessage().contains("xml2 payload"));
+        assertNotNull(auditDispatcher.payload);
+        assertEquals("ORCA_ACCEPT_LIST", auditDispatcher.payload.getAction());
+        assertEquals("/api01rv2/acceptlstv2", auditDispatcher.payload.getResource());
+        assertEquals(AuditEventEnvelope.Outcome.FAILURE, auditDispatcher.outcome);
+        assertEquals("failed", auditDispatcher.payload.getDetails().get("status"));
+        assertEquals(400, auditDispatcher.payload.getDetails().get("httpStatus"));
+        assertEquals("orca.acceptlist.error", auditDispatcher.payload.getDetails().get("errorCode"));
     }
 
     private static void injectField(Object target, String fieldName, Object value) throws Exception {

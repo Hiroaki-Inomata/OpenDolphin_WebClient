@@ -35,6 +35,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P1-06「ORCA 連携の性格確認テストを書く」を完了し、残す ORCA 業務機能の正常系/代表失敗系を固定（RUN_ID=20260310T215509Z）。
+  - 追加（患者検索）: `server-modernized/src/test/java/open/dolphin/rest/OrcaPatientApiResourceRunIdTest.java` に `getPatient_rejectsMissingIdAndRecordsFailureAudit` を追加し、`patientgetv2` の必須 `id` 欠落時に `400` + 監査失敗記録となることを固定。
+  - 追加（患者更新）: `server-modernized/src/test/java/open/dolphin/rest/orca/OrcaPatientResourceIdempotencyTest.java` に `updateReturnsSuccessWhenPatientExists` / `updateReturnsNotFoundWhenPatientMissing` を追加し、`/orca/patient/mutation` の update 成功/404 条件を固定。
+  - 追加（受付）: `server-modernized/src/test/java/open/dolphin/rest/OrcaAcceptanceListResourceTest.java` に `postAcceptList_rejectsJsonPayloadAndRecordsFailureAudit` を追加し、`acceptlstv2` の XML2 制約違反時 `400` + 監査失敗記録を固定。
+  - 追加（判定表）: `docs/modernization/p1-06-orca-flow-test-matrix.md` を新規作成し、今回残す ORCA 機能（患者検索/患者更新/受付/オーダー/会計）と対応する正常系・失敗系テストを明示。
+  - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の P1-06 を ☑ 化し、RUN_ID を更新。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=OrcaPatientApiResourceRunIdTest,OrcaPatientResourceIdempotencyTest,OrcaAcceptanceListResourceTest,OrcaOrderBundleResourceTest,OrcaMedicalResourceTest,OrcaMedicalModV2ResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（29 tests）。
 - 2026-03-11: P1-05「カルテ保存・参照・改訂の性格確認テストを書く」を完了し、カルテ改訂ルールと保存時整合性の検証を強化（RUN_ID=20260310T214417Z）。
   - 追加（KarteServiceBean）: `server-modernized/src/test/java/open/dolphin/session/KarteServiceBeanDocPkTest.java` に `addDocument_sealsIntegrityAfterPersist` を追加し、カルテ文書保存時に `DocumentIntegrityService#sealDocument` が実行されることを固定。
   - 追加（KarteRevisionServiceBean）: `server-modernized/src/test/java/open/dolphin/session/KarteRevisionServiceBeanAttachmentCloneTest.java` に `createRevisionFromSourceSetsParentRevisionMetadataForAppendOnlyRule` を追加し、改訂時の `parentPk`/`parentIdRelation`/`linkRelation`/`docPk` 初期化ルールを固定。
