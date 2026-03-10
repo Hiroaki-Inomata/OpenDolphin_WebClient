@@ -133,11 +133,11 @@ public final class RegisteredDiagnosisModelConverter implements IInfoModelConver
     public void setModel(IInfoModel m) {
         this.model = (RegisteredDiagnosisModel)m;
         if (model.getKarteBean()!=null) {
-            KarteBean dummyKarteBean = PlistConverter.createDuumyKarteBean(model.getKarteBean().getId());
+            KarteBean dummyKarteBean = ConverterModelReferences.dummyKarte(model.getKarteBean().getId());
             model.setKarteBean(dummyKarteBean);
         }
         if (model.getUserModel()!=null) {
-            UserModel dummyUser = PlistConverter.createDummyUserModel(model.getUserModel().getId());
+            UserModel dummyUser = ConverterModelReferences.dummyUser(model.getUserModel().getId());
             model.setUserModel(dummyUser);
         }
     }
