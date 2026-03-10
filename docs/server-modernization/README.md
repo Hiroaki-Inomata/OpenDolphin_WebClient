@@ -21,6 +21,7 @@
 ## 目的別ドキュメント（現行）
 ### API / 仕様
 - `docs/modernization/architecture-principles.md`（刷新方針の固定版）
+- `docs/modernization/deferred-scope.md`（一時据え置き領域と後続候補）
 - `docs/server-modernization/server-api-inventory.md`
 - `docs/server-modernization/MODERNIZED_REST_API_INVENTORY.md`
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`

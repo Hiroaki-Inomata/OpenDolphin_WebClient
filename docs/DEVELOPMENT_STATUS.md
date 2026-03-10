@@ -35,6 +35,10 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P0-06「一時据え置き領域を明記する」を完了し、対象外スコープを固定（RUN_ID=20260310T203518Z）。
+  - 追加: `docs/modernization/deferred-scope.md` を新規作成。据え置き対象、解除トリガー、後続候補、着手禁止ルールを明文化。
+  - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の P0-06 を ☑ 化。
+  - 導線: `docs/server-modernization/README.md` に据え置き一覧リンクを追加。
 - 2026-03-11: P0-05「刷新方針を1枚に固定する」を完了し、刷新判断の正本を追加（RUN_ID=20260310T203518Z）。
   - 追加: `docs/modernization/architecture-principles.md` を新規作成。後方互換非前提、旧入口削除、ORCA境界分離、common解体、ローカルファイル保存廃止を固定化。
   - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の P0-05 を ☑ 化し、RUN_ID を更新。
