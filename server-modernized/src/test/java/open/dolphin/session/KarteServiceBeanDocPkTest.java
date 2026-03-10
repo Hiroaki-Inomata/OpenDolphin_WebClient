@@ -27,6 +27,7 @@ import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.SchemaModel;
+import open.dolphin.security.integrity.DocumentIntegrityService;
 import open.dolphin.storage.image.ImageStorageManager;
 import open.dolphin.storage.attachment.AttachmentStorageManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +46,7 @@ class KarteServiceBeanDocPkTest {
     private EntityManager em;
     private AttachmentStorageManager attachmentStorageManager;
     private ImageStorageManager imageStorageManager;
+    private DocumentIntegrityService documentIntegrityService;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -52,10 +54,12 @@ class KarteServiceBeanDocPkTest {
         em = mock(EntityManager.class);
         attachmentStorageManager = mock(AttachmentStorageManager.class);
         imageStorageManager = mock(ImageStorageManager.class);
+        documentIntegrityService = mock(DocumentIntegrityService.class);
 
         setField(service, "em", em);
         setField(service, "attachmentStorageManager", attachmentStorageManager);
         setField(service, "imageStorageManager", imageStorageManager);
+        setField(service, "documentIntegrityService", documentIntegrityService);
         doAnswer(invocation -> {
             DocumentModel document = invocation.getArgument(0);
             if (document.getId() <= 0) {
@@ -170,6 +174,17 @@ class KarteServiceBeanDocPkTest {
         assertThat(asLong(problem.details().get("documentId"))).isEqualTo(300L);
         assertThat(String.valueOf(problem.details().get("currentStatus"))).isEqualTo(IInfoModel.STATUS_FINAL);
         assertThat(String.valueOf(problem.details().get("requestedStatus"))).isEqualTo(IInfoModel.STATUS_TMP);
+    }
+
+    @Test
+    void addDocument_sealsIntegrityAfterPersist() {
+        DocumentModel document = buildDocumentWithModule();
+        document.setId(0L);
+
+        long result = service.addDocument(document);
+
+        assertThat(result).isEqualTo(100L);
+        verify(documentIntegrityService).sealDocument(document);
     }
 
     private static DocumentModel buildDocumentWithModule() {
