@@ -26,6 +26,8 @@ public final class SchemaBootstrap {
         props.put("hibernate.hbm2ddl.auto", "create");
         props.put("hibernate.transaction.coordinator_class", "jdbc");
         props.put("hibernate.transaction.jta.platform", "org.hibernate.engine.transaction.jta.platform.internal.NoJtaPlatform");
+        props.put("hibernate.archive.autodetection", "none");
+        props.put("hibernate.default_schema", "opendolphin");
 
         System.out.println("[SchemaBootstrap] Generating schema to " + url);
         Persistence.generateSchema("opendolphinPU", props);
