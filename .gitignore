@@ -77,6 +77,8 @@ fallback
 
 # Temporary payload files in root
 /payload.json
+/common.zip
+/server-modernized.zip
 
 # Legacy build files (classic only). Keep root pom.xml for modernized builds.
 /pom.server-classic.xml
