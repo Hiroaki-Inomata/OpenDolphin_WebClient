@@ -5,9 +5,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import java.lang.reflect.Method;
+import open.dolphin.rest.jackson.LegacyObjectMapperProducer;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.KarteServiceBean;
 import open.dolphin.session.PVTServiceBean;
@@ -16,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -32,6 +35,9 @@ class KarteResourceDocumentContractTest {
 
     @Mock
     SessionTraceManager sessionTraceManager;
+
+    @Spy
+    ObjectMapper objectMapper = new LegacyObjectMapperProducer().provideLegacyAwareMapper();
 
     @InjectMocks
     KarteResource resource;

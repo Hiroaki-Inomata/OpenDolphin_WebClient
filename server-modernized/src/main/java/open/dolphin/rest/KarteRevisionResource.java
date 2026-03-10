@@ -1,6 +1,5 @@
 package open.dolphin.rest;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,13 +25,15 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import open.dolphin.converter.DocumentModelConverter;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.IInfoModel;
+import open.dolphin.rest.dto.KarteRevisionDocumentResponse;
 import open.dolphin.rest.dto.KarteRevisionDiffResponse;
 import open.dolphin.rest.dto.KarteRevisionHistoryResponse;
 import open.dolphin.rest.dto.KarteRevisionWriteRequest;
 import open.dolphin.rest.dto.KarteRevisionWriteResponse;
+import open.dolphin.rest.support.KarteRevisionResponseMapper;
+import open.dolphin.rest.support.LegacyJsonSupport;
 import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
@@ -56,6 +57,9 @@ public class KarteRevisionResource extends AbstractResource {
 
     @Inject
     private SessionTraceManager sessionTraceManager;
+
+    @Inject
+    private ObjectMapper objectMapper;
 
     @Context
     private HttpServletRequest httpServletRequest;
@@ -86,7 +90,7 @@ public class KarteRevisionResource extends AbstractResource {
     @GET
     @Path("/{revisionId}")
     @Produces(MediaType.APPLICATION_JSON)
-    public DocumentModelConverter getRevision(@PathParam("revisionId") long revisionId) {
+    public KarteRevisionDocumentResponse getRevision(@PathParam("revisionId") long revisionId) {
         if (revisionId <= 0) {
             throw validationError("REVISION_VALIDATION_ERROR", "revisionId is required",
                     Map.of("revisionId", revisionId));
@@ -105,16 +109,12 @@ public class KarteRevisionResource extends AbstractResource {
                     Map.of("revisionId", revisionId),
                     null);
         }
-        // Use legacy converters to avoid infinite recursion in Hibernate entities
-        // (e.g. UserModel.roles <-> RoleModel.userModel).
-        DocumentModelConverter converter = new DocumentModelConverter();
-        converter.setModel(doc);
         recordAudit("KARTE_REVISION_GET", withPatientId(Map.of(
                 "status", "SUCCESS",
                 "revisionId", revisionId,
                 "createdRevisionId", revisionId
         ), doc));
-        return converter;
+        return KarteRevisionResponseMapper.map(doc);
     }
 
     @GET
@@ -175,9 +175,7 @@ public class KarteRevisionResource extends AbstractResource {
         if (operation == null || operation.isBlank()) {
             throw validationError("REVISION_VALIDATION_ERROR", "operation is required", Map.of("operation", operation));
         }
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        KarteRevisionWriteRequest request = mapper.readValue(json, KarteRevisionWriteRequest.class);
+        KarteRevisionWriteRequest request = LegacyJsonSupport.readBody(json, KarteRevisionWriteRequest.class, objectMapper);
 
         long sourceRevisionId = request != null && request.getSourceRevisionId() != null ? request.getSourceRevisionId() : 0L;
         long baseRevisionId = request != null && request.getBaseRevisionId() != null ? request.getBaseRevisionId() : 0L;

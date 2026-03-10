@@ -6,9 +6,12 @@ import java.util.List;
 import open.dolphin.infomodel.*;
 
 /**
+ * 未移行 legacy endpoint 専用の DocumentModel converter。
+ * 新規コードから使用してはいけない。
  *
  * @author Kazushi Minagawa, Digital Globe, Inc.
  */
+@Deprecated
 public final class DocumentModelConverter implements IInfoModelConverter {
 
     private DocumentModel model;

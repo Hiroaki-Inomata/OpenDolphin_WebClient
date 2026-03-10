@@ -17,9 +17,12 @@ import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.UserModel;
 
 /**
+ * 未移行 legacy endpoint 専用の plist/XML converter。
+ * 新規コードから使用してはいけない。
  *
  * @author Kazushi Minagawa. Digital Globe, Inc.
  */
+@Deprecated
 public final class PlistConverter {
 
     private static final String XML_START = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";

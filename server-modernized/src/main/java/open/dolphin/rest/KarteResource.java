@@ -16,6 +16,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.*;
@@ -24,10 +25,14 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import open.dolphin.converter.*;
 import open.dolphin.infomodel.*;
+import open.dolphin.rest.dto.LegacyImageRangeResponse;
 import open.dolphin.rest.dto.RoutineMedicationResponse;
 import open.dolphin.rest.dto.RpHistoryEntryResponse;
 import open.dolphin.rest.dto.SafetySummaryResponse;
 import open.dolphin.rest.dto.UserPropertyResponse;
+import open.dolphin.rest.legacy.LegacyImageXmlWriter;
+import open.dolphin.rest.support.LegacyImageResponseMapper;
+import open.dolphin.rest.support.LegacyJsonSupport;
 import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
@@ -36,8 +41,6 @@ import open.dolphin.session.PVTServiceBean;
 import open.dolphin.session.UserServiceBean;
 import open.dolphin.session.framework.SessionTraceContext;
 import open.dolphin.session.framework.SessionTraceManager;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * REST Web Service
@@ -63,6 +66,9 @@ public class KarteResource extends AbstractResource {
 
     @Inject
     private UserServiceBean userServiceBean;
+
+    @Inject
+    private ObjectMapper objectMapper;
 
     @Context
     private HttpServletRequest httpServletRequest;
@@ -215,10 +221,7 @@ public class KarteResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String postDocument(String json) throws IOException {
-
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        DocumentModel document = mapper.readValue(json, DocumentModel.class);
+        DocumentModel document = readJson(json, DocumentModel.class);
         ensureDocumentPayloadFacility(document, null);
         populateDocumentRelations(document);
 
@@ -234,10 +237,7 @@ public class KarteResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String putDocument(String json) throws IOException {
-
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        DocumentModel document = mapper.readValue(json, DocumentModel.class);
+        DocumentModel document = readJson(json, DocumentModel.class);
         ensureDocumentPayloadFacility(document, null);
         populateDocumentRelations(document);
 
@@ -255,9 +255,7 @@ public class KarteResource extends AbstractResource {
         long pvtPK = Long.parseLong(params[0]);
         int state = Integer.parseInt(params[1]);
 
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        DocumentModel document = mapper.readValue(json, DocumentModel.class);
+        DocumentModel document = readJson(json, DocumentModel.class);
         ensureDocumentPayloadFacility(document, null);
         populateDocumentRelations(document);
 
@@ -468,9 +466,7 @@ public class KarteResource extends AbstractResource {
         }
 
         List<List> result = karteServiceBean.getImages(karteId, fromList, toList);
-
-        PlistConverter con = new PlistConverter();
-        String xml = con.convert(result);
+        String xml = new LegacyImageXmlWriter().write(LegacyImageResponseMapper.mapRanges(result));
         debug(xml);
 
         return xml;
@@ -525,11 +521,7 @@ public class KarteResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String postDiagnosis(String json) throws IOException {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        RegisteredDiagnosisList list = mapper.readValue(json, RegisteredDiagnosisList.class);
+        RegisteredDiagnosisList list = readJson(json, RegisteredDiagnosisList.class);
         ensureDiagnosisFacilityAccess(list != null ? list.getList() : null, null);
 
         List<Long> result = karteServiceBean.addDiagnosis(list.getList());
@@ -550,11 +542,7 @@ public class KarteResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String putDiagnosis(String json) throws IOException {
-
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        RegisteredDiagnosisList list = mapper.readValue(json, RegisteredDiagnosisList.class);
+        RegisteredDiagnosisList list = readJson(json, RegisteredDiagnosisList.class);
         ensureDiagnosisFacilityAccess(list != null ? list.getList() : null, null);
 
         int result = karteServiceBean.updateDiagnosis(list.getList());
@@ -615,11 +603,7 @@ public class KarteResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String postObservations(String json) throws IOException {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        ObservationList list = mapper.readValue(json, ObservationList.class);
+        ObservationList list = readJson(json, ObservationList.class);
         ensureObservationFacilityAccess(list != null ? list.getList() : null, null);
 
         List<Long> result = karteServiceBean.addObservations(list.getList());
@@ -640,11 +624,7 @@ public class KarteResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String putObservations(String json) throws IOException {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        ObservationList list = mapper.readValue(json, ObservationList.class);
+        ObservationList list = readJson(json, ObservationList.class);
         ensureObservationFacilityAccess(list != null ? list.getList() : null, null);
         
         int result = karteServiceBean.updateObservations(list.getList());
@@ -680,11 +660,7 @@ public class KarteResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String putPatientMemo(String json) throws IOException {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        PatientMemoModel memo = mapper.readValue(json, PatientMemoModel.class);
+        PatientMemoModel memo = readJson(json, PatientMemoModel.class);
         ensurePatientMemoFacilityAccess(memo, null);
 
         int result = karteServiceBean.updatePatientMemo(memo);
@@ -719,10 +695,7 @@ public class KarteResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String putPatientFreeDocument(@Context HttpServletRequest servletReq, String json) throws IOException {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        PatientFreeDocumentModel model = mapper.readValue(json, PatientFreeDocumentModel.class);
+        PatientFreeDocumentModel model = readJson(json, PatientFreeDocumentModel.class);
         
         String fpid = getFidPid(servletReq.getRemoteUser(), model.getFacilityPatId());
         model.setFacilityPatId(fpid);
@@ -1058,6 +1031,10 @@ public class KarteResource extends AbstractResource {
         } catch (DateTimeParseException ex) {
             return null;
         }
+    }
+
+    private <T> T readJson(String json, Class<T> type) throws IOException {
+        return LegacyJsonSupport.readBody(json, type, objectMapper);
     }
 
     private void populateDocumentRelations(DocumentModel document) {

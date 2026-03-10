@@ -7,9 +7,12 @@ import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.UserModel;
 
 /**
+ * 未移行 legacy endpoint 専用の ModuleModel converter。
+ * 新規コードから使用してはいけない。
  *
  * @author Kazushi Minagawa, Digital Globe, Inc.
  */
+@Deprecated
 public final class ModuleModelConverter implements IInfoModelConverter {
 
     private ModuleModel model;
