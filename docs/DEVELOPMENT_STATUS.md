@@ -35,6 +35,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P1-05「カルテ保存・参照・改訂の性格確認テストを書く」を完了し、カルテ改訂ルールと保存時整合性の検証を強化（RUN_ID=20260310T214417Z）。
+  - 追加（KarteServiceBean）: `server-modernized/src/test/java/open/dolphin/session/KarteServiceBeanDocPkTest.java` に `addDocument_sealsIntegrityAfterPersist` を追加し、カルテ文書保存時に `DocumentIntegrityService#sealDocument` が実行されることを固定。
+  - 追加（KarteRevisionServiceBean）: `server-modernized/src/test/java/open/dolphin/session/KarteRevisionServiceBeanAttachmentCloneTest.java` に `createRevisionFromSourceSetsParentRevisionMetadataForAppendOnlyRule` を追加し、改訂時の `parentPk`/`parentIdRelation`/`linkRelation`/`docPk` 初期化ルールを固定。
+  - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の P1-05 を ☑ 化し、RUN_ID を更新。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=KarteServiceBeanDocPkTest,KarteServiceBeanGetKarteTest,KarteRevisionServiceBeanAttachmentCloneTest,DocumentIntegrityServiceTest,KarteRevisionSnapshotContractTest,KarteRevisionDocumentResponseJsonTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（15 tests）。
 - 2026-03-11: P1-04「患者登録・更新の性格確認テストを書く」を完了し、患者系の成功/失敗条件を自動テストで固定（RUN_ID=20260310T213545Z）。
   - 追加（PatientServiceBean）: `server-modernized/src/test/java/open/dolphin/session/PatientServiceBeanAddPatientTest.java` に `updateForFacility` の同一施設更新成功/施設不一致失敗、および `getPatientById` の保険情報付与（取得順保持）ケースを追加。
   - 追加（PatientModV2OutpatientResource）: `server-modernized/src/test/java/open/dolphin/rest/PatientModV2OutpatientResourceIdempotencyTest.java` に非数値患者IDを `400` で拒否するケースを追加し、患者ID決定規則（数値ID）を固定。

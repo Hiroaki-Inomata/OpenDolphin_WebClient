@@ -9,6 +9,7 @@ import java.lang.reflect.Field;
 import java.util.Date;
 import java.util.List;
 import open.dolphin.infomodel.AttachmentModel;
+import open.dolphin.infomodel.DocInfoModel;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.UserModel;
@@ -48,6 +49,31 @@ class KarteRevisionServiceBeanAttachmentCloneTest {
         assertThat(created.getAttachment().get(0).getFileName()).isEqualTo("report.txt");
         assertThat(created.getAttachment().get(0).getLinkId()).isEqualTo(44L);
         assertThat(created.getAttachment().get(0).getStatus()).isEqualTo("F");
+    }
+
+    @Test
+    void createRevisionFromSourceSetsParentRevisionMetadataForAppendOnlyRule() {
+        DocumentModel source = buildSourceDocumentWithAttachment();
+        when(karteServiceBean.getDocuments(List.of(55L))).thenReturn(List.of(source));
+        when(karteServiceBean.addDocument(any(DocumentModel.class))).thenReturn(91L);
+
+        long createdId = service.createRevisionFromSource(55L, 44L, "revise");
+
+        ArgumentCaptor<DocumentModel> captor = ArgumentCaptor.forClass(DocumentModel.class);
+        verify(karteServiceBean).addDocument(captor.capture());
+        DocumentModel created = captor.getValue();
+        DocInfoModel info = created.getDocInfoModel();
+
+        assertThat(createdId).isEqualTo(91L);
+        assertThat(created.getId()).isZero();
+        assertThat(created.getLinkId()).isEqualTo(44L);
+        assertThat(created.getLinkRelation()).isEqualTo("revise");
+        assertThat(created.getStatus()).isEqualTo("F");
+        assertThat(info.getParentPk()).isEqualTo(44L);
+        assertThat(info.getParentIdRelation()).isEqualTo("revise");
+        assertThat(info.getStatus()).isEqualTo("F");
+        assertThat(info.getDocPk()).isZero();
+        assertThat(info.getDocId()).isNotEqualTo("DOC-55");
     }
 
     private static DocumentModel buildSourceDocumentWithAttachment() {
