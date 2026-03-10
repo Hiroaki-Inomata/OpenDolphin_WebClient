@@ -51,8 +51,8 @@
     - [OpenAI Codex](https://github.com/openai/codex)
   - 
 *   PR [#68](https://github.com/circlemouth/OpenDolphinNext/pull/68)  により、サーバーデータ保存形式の見直しに関する具体的な修正、ご意見を頂けた H.Inomata 様(https://x.com/h_inomata?s=21)に感謝いたします。
-*   ライセンス上の検討およびサーバーデータ保存形式に関する有益な議論に対し、[@allnightnihon2b](https://x.com/allnightnihon2b?s=21) 様に感謝いたします。
-*   カルテデータ保存形式に関する有益な議論に対し、[@air_h_128k_ili](https://x.com/air_h_128k_ili?s=21) 様に感謝いたします。
+*   ライセンス上の検討およびサーバーデータ保存形式に関する有益な[議論](https://x.com/allnightnihon2b/status/2030508273812820403?s=61)に対し、[@allnightnihon2b](https://x.com/allnightnihon2b?s=21) 様に感謝いたします。
+*   カルテデータ保存形式に関する有益な[議論](https://x.com/air_h_128k_ilI/status/2030995854061142486?s=20)に対し、[@air_h_128k_ili](https://x.com/air_h_128k_ili?s=21) 様に感謝いたします。
 
 
 
