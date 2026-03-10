@@ -137,6 +137,14 @@ public class KarteServiceBean {
 //s.oh^ 2014/08/20 添付ファイルの別読
     private static final String QUERY_ATTACHMENT_BY_ID = "from AttachmentModel a where a.id=:id";
 //s.oh$
+    private static final String QUERY_MARK_DOCUMENT_MODIFIED =
+            "update DocumentModel d set d.ended=:ended, d.status=:status where d.id=:id";
+    private static final String QUERY_MARK_MODULES_MODIFIED =
+            "update ModuleModel m set m.ended=:ended, m.status=:status where m.document.id=:id";
+    private static final String QUERY_MARK_SCHEMAS_MODIFIED =
+            "update SchemaModel s set s.ended=:ended, s.status=:status where s.document.id=:id";
+    private static final String QUERY_MARK_ATTACHMENTS_MODIFIED =
+            "update AttachmentModel a set a.ended=:ended, a.status=:status where a.document.id=:id";
 //minagawa^ LSC Test
     //private static final String QUERY_MODULE_BY_ENTITY = "from ModuleModel m where m.karte.id=:karteId and m.moduleInfo.entity=:entity and m.started between :fromDate and :toDate and m.status='F'";
     private static final String QUERY_MODULE_BY_ENTITY = "from ModuleModel m where m.karte.id=:karteId and m.moduleInfo.entity=:entity and m.started between :fromDate and :toDate and m.status='F' order by m.started";
@@ -503,43 +511,8 @@ public class KarteServiceBean {
 
         // 修正版の処理を行う
         long parentPk = document.getDocInfoModel().getParentPk();
-
         if (parentPk != 0L) {
-
-            // 適合終了日を新しい版の確定日にする
-            Date ended = document.getConfirmed();
-
-            // オリジナルを取得し 終了日と status = M を設定する
-            DocumentModel old = (DocumentModel)em.find(DocumentModel.class, parentPk);
-            old.setEnded(ended);
-            old.setStatus(IInfoModel.STATUS_MODIFIED);
-
-            // 関連するモジュールとイメージに同じ処理を実行する
-            Collection oldModules = em.createQuery(QUERY_MODULE_BY_DOC_ID)
-            .setParameter(ID, parentPk).getResultList();
-            for (Iterator iter = oldModules.iterator(); iter.hasNext(); ) {
-                ModuleModel model = (ModuleModel)iter.next();
-                model.setEnded(ended);
-                model.setStatus(IInfoModel.STATUS_MODIFIED);
-            }
-
-            // Schema
-            Collection oldImages = em.createQuery(QUERY_SCHEMA_BY_DOC_ID)
-            .setParameter(ID, parentPk).getResultList();
-            for (Iterator iter = oldImages.iterator(); iter.hasNext(); ) {
-                SchemaModel model = (SchemaModel)iter.next();
-                model.setEnded(ended);
-                model.setStatus(IInfoModel.STATUS_MODIFIED);
-            }
-            
-            // Attachment
-            Collection oldAttachments = em.createQuery(QUERY_ATTACHMENT_BY_DOC_ID)
-            .setParameter(ID, parentPk).getResultList();
-            for (Iterator iter = oldAttachments.iterator(); iter.hasNext(); ) {
-                AttachmentModel model = (AttachmentModel)iter.next();
-                model.setEnded(ended);
-                model.setStatus(IInfoModel.STATUS_MODIFIED);
-            }
+            markRevisionSourceAsModified(parentPk, document.getConfirmed());
         }
         
         return id;
@@ -762,43 +735,8 @@ public class KarteServiceBean {
 
         // 修正版の処理を行う
         long parentPk = document.getDocInfoModel().getParentPk();
-
         if (parentPk != 0L) {
-
-            // 適合終了日を新しい版の確定日にする
-            Date ended = document.getConfirmed();
-
-            // オリジナルを取得し 終了日と status = M を設定する
-            DocumentModel old = (DocumentModel) em.find(DocumentModel.class, parentPk);
-            old.setEnded(ended);
-            old.setStatus(IInfoModel.STATUS_MODIFIED);
-
-            // 関連するモジュールとイメージに同じ処理を実行する
-            Collection oldModules = em.createQuery(QUERY_MODULE_BY_DOC_ID)
-            .setParameter(ID, parentPk).getResultList();
-            for (Iterator iter = oldModules.iterator(); iter.hasNext(); ) {
-                ModuleModel model = (ModuleModel)iter.next();
-                model.setEnded(ended);
-                model.setStatus(IInfoModel.STATUS_MODIFIED);
-            }
-
-            // Schema
-            Collection oldImages = em.createQuery(QUERY_SCHEMA_BY_DOC_ID)
-            .setParameter(ID, parentPk).getResultList();
-            for (Iterator iter = oldImages.iterator(); iter.hasNext(); ) {
-                SchemaModel model = (SchemaModel)iter.next();
-                model.setEnded(ended);
-                model.setStatus(IInfoModel.STATUS_MODIFIED);
-            }
-            
-            // Attachment
-            Collection oldAttachments = em.createQuery(QUERY_ATTACHMENT_BY_DOC_ID)
-            .setParameter(ID, parentPk).getResultList();
-            for (Iterator iter = oldAttachments.iterator(); iter.hasNext(); ) {
-                AttachmentModel model = (AttachmentModel)iter.next();
-                model.setEnded(ended);
-                model.setStatus(IInfoModel.STATUS_MODIFIED);
-            }
+            markRevisionSourceAsModified(parentPk, document.getConfirmed());
         }
         
         //------------------------------------------------------------
@@ -1042,7 +980,6 @@ public class KarteServiceBean {
      * @return 新規病名のPKリスト
      */
     public List<Long> postPutSendDiagnosis(DiagnosisSendWrapper wrapper) {
-
         List<RegisteredDiagnosisModel> deletedList = wrapper.getDeletedDiagnosis();
         if (deletedList != null) {
             for (RegisteredDiagnosisModel bean : deletedList) {
@@ -1082,14 +1019,11 @@ public class KarteServiceBean {
      * @return idのリスト
      */
     public List<Long> addDiagnosis(List<RegisteredDiagnosisModel> addList) {
-
         List<Long> ret = new ArrayList<>(addList.size());
-
         for (RegisteredDiagnosisModel bean : addList) {
             em.persist(bean);
             ret.add(new Long(bean.getId()));
         }
-
         return ret;
     }
 
@@ -1099,14 +1033,11 @@ public class KarteServiceBean {
      * @return 更新数
      */
     public int updateDiagnosis(List<RegisteredDiagnosisModel> updateList) {
-
         int cnt = 0;
-
         for (RegisteredDiagnosisModel bean : updateList) {
             em.merge(bean);
             cnt++;
         }
-
         return cnt;
     }
 
@@ -1116,15 +1047,12 @@ public class KarteServiceBean {
      * @return 削除数
      */
     public int removeDiagnosis(List<Long> removeList) {
-
         int cnt = 0;
-
         for (Long id : removeList) {
             RegisteredDiagnosisModel bean = (RegisteredDiagnosisModel) em.find(RegisteredDiagnosisModel.class, id);
             em.remove(bean);
             cnt++;
         }
-
         return cnt;
     }
 
@@ -1179,14 +1107,11 @@ public class KarteServiceBean {
     public List<Long> addObservations(List<ObservationModel> observations) {
 
         if (observations != null && observations.size() > 0) {
-
             List<Long> ret = new ArrayList<>(observations.size());
-
             for (ObservationModel model : observations) {
                 em.persist(model);
                 ret.add(new Long(model.getId()));
             }
-
             return ret;
         }
         return null;
@@ -2003,6 +1928,25 @@ public class KarteServiceBean {
             throw new NoResultException("Document started date not found for karteId=" + karteId);
         }
         return startedDates.get(0);
+    }
+
+    private void markRevisionSourceAsModified(long parentPk, Date ended) {
+        if (parentPk <= 0L) {
+            return;
+        }
+        String modifiedStatus = IInfoModel.STATUS_MODIFIED;
+        executeRevisionBulkUpdate(QUERY_MARK_DOCUMENT_MODIFIED, parentPk, ended, modifiedStatus);
+        executeRevisionBulkUpdate(QUERY_MARK_MODULES_MODIFIED, parentPk, ended, modifiedStatus);
+        executeRevisionBulkUpdate(QUERY_MARK_SCHEMAS_MODIFIED, parentPk, ended, modifiedStatus);
+        executeRevisionBulkUpdate(QUERY_MARK_ATTACHMENTS_MODIFIED, parentPk, ended, modifiedStatus);
+    }
+
+    private void executeRevisionBulkUpdate(String query, long documentId, Date ended, String status) {
+        em.createQuery(query)
+                .setParameter(ID, documentId)
+                .setParameter("ended", ended)
+                .setParameter("status", status)
+                .executeUpdate();
     }
 
     private void prepareDocumentForInsert(DocumentModel document) {

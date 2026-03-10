@@ -309,6 +309,14 @@ public class DocumentModel extends KarteEntryBean
             }
         }
 
+        if (attachment != null && attachment.size() > 0) {
+            for (AttachmentModel att : attachment) {
+                AttachmentModel clonedAttachment = (AttachmentModel) att.clone();
+                clonedAttachment.setDocumentModel(ret);
+                ret.addAttachment(clonedAttachment);
+            }
+        }
+
         return ret;
     }
     
