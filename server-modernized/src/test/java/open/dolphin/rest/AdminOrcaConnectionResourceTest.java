@@ -4,13 +4,22 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.Response;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import open.dolphin.orca.config.OrcaConnectionConfigRecord;
 import open.dolphin.orca.config.OrcaConnectionConfigStore;
@@ -18,6 +27,8 @@ import open.dolphin.orca.transport.OrcaConnectionPolicyException;
 import open.dolphin.orca.transport.RestOrcaTransport;
 import open.dolphin.security.audit.SessionAuditDispatcher;
 import open.dolphin.session.UserServiceBean;
+import org.jboss.resteasy.plugins.providers.multipart.InputPart;
+import org.jboss.resteasy.plugins.providers.multipart.MultipartFormDataInput;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -27,6 +38,7 @@ class AdminOrcaConnectionResourceTest {
     private HttpServletRequest request;
     private UserServiceBean userServiceBean;
     private OrcaConnectionConfigStore configStore;
+    private RestOrcaTransport restOrcaTransport;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -34,9 +46,10 @@ class AdminOrcaConnectionResourceTest {
         request = mock(HttpServletRequest.class);
         userServiceBean = mock(UserServiceBean.class);
         configStore = mock(OrcaConnectionConfigStore.class);
+        restOrcaTransport = mock(RestOrcaTransport.class);
 
         setField(resource, "orcaConnectionConfigStore", configStore);
-        setField(resource, "restOrcaTransport", mock(RestOrcaTransport.class));
+        setField(resource, "restOrcaTransport", restOrcaTransport);
         setField(resource, "userServiceBean", userServiceBean);
         setField(resource, "sessionAuditDispatcher", mock(SessionAuditDispatcher.class));
     }
@@ -112,6 +125,63 @@ class AdminOrcaConnectionResourceTest {
         Map<String, Object> body = (Map<String, Object>) response.getEntity();
         assertEquals(Boolean.FALSE, body.get("ok"));
         assertEquals("insecure_http_disallowed", body.get("errorCategory"));
+    }
+
+    @Test
+    void putConfigRejectsWhenUnauthenticated() throws Exception {
+        when(request.getRemoteUser()).thenReturn(null);
+
+        try {
+            resource.putConfig(request, multipartInputWithConfig("{}"));
+            fail("Expected WebApplicationException");
+        } catch (WebApplicationException ex) {
+            assertEquals(401, ex.getResponse().getStatus());
+        }
+    }
+
+    @Test
+    void putConfigSavesConfigForAdmin() throws Exception {
+        when(request.getHeader("X-Run-Id")).thenReturn("RUN-SAVE");
+        when(request.getRemoteUser()).thenReturn("FACILITY:admin");
+        when(request.getRequestURI()).thenReturn("/openDolphin/resources/api/admin/orca/connection");
+        when(userServiceBean.isAdmin("FACILITY:admin")).thenReturn(true);
+
+        OrcaConnectionConfigRecord updated = new OrcaConnectionConfigRecord();
+        updated.setUseWeborca(Boolean.TRUE);
+        updated.setServerUrl("https://weborca-trial.orca.med.or.jp");
+        updated.setPort(443);
+        updated.setUsername("trial");
+        updated.setPasswordEncrypted("encrypted-password");
+        when(configStore.update(eq("FACILITY"), org.mockito.ArgumentMatchers.any(), isNull(), isNull(), eq("RUN-SAVE"), eq("FACILITY:admin")))
+                .thenReturn(updated);
+
+        Response response = resource.putConfig(
+                request,
+                multipartInputWithConfig("{\"useWeborca\":true,\"serverUrl\":\"https://weborca-trial.orca.med.or.jp\",\"port\":443,\"username\":\"trial\"}")
+        );
+
+        assertEquals(200, response.getStatus());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> body = (Map<String, Object>) response.getEntity();
+        assertNotNull(body);
+        assertEquals(Boolean.TRUE, body.get("ok"));
+        assertEquals("RUN-SAVE", body.get("runId"));
+        assertEquals("FACILITY", body.get("facilityId"));
+        assertEquals(Boolean.TRUE, body.get("passwordConfigured"));
+        verify(configStore).update(eq("FACILITY"), org.mockito.ArgumentMatchers.any(), isNull(), isNull(), eq("RUN-SAVE"), eq("FACILITY:admin"));
+        verify(restOrcaTransport).reloadSettings("FACILITY");
+    }
+
+    private static MultipartFormDataInput multipartInputWithConfig(String configJson) throws Exception {
+        MultipartFormDataInput input = mock(MultipartFormDataInput.class);
+        InputPart configPart = mock(InputPart.class);
+        var headers = new MultivaluedHashMap<String, String>();
+        headers.putSingle(HttpHeaders.CONTENT_DISPOSITION, "form-data; name=\"config\"");
+        when(configPart.getHeaders()).thenReturn(headers);
+        when(configPart.getBody(eq(InputStream.class), isNull()))
+                .thenReturn(new ByteArrayInputStream(configJson.getBytes(StandardCharsets.UTF_8)));
+        when(input.getFormDataMap()).thenReturn(Map.of("config", List.of(configPart)));
+        return input;
     }
 
     private static void setField(Object target, String name, Object value) throws Exception {

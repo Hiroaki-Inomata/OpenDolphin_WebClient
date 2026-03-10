@@ -92,6 +92,30 @@ class AdminAccessResourceTest {
     }
 
     @Test
+    void createUserRejectsWhenUnauthenticated() {
+        when(request.getRemoteUser()).thenReturn(null);
+        try {
+            resource.createUser(request, Map.of("loginId", "user01"));
+            fail("Expected WebApplicationException");
+        } catch (WebApplicationException ex) {
+            assertEquals(401, ex.getResponse().getStatus());
+        }
+    }
+
+    @Test
+    void createUserRejectsWhenNotAdmin() {
+        when(request.getHeader("X-Run-Id")).thenReturn("RUN-TEST");
+        when(request.getRemoteUser()).thenReturn("FACILITY:user01");
+        when(userServiceBean.isAdmin("FACILITY:user01")).thenReturn(false);
+        try {
+            resource.createUser(request, Map.of("loginId", "user01"));
+            fail("Expected WebApplicationException");
+        } catch (WebApplicationException ex) {
+            assertEquals(403, ex.getResponse().getStatus());
+        }
+    }
+
+    @Test
     void resetPasswordReturnsNoContentAndNoSecretInResponse() {
         when(request.getHeader("X-Run-Id")).thenReturn("RUN-TEST");
         when(request.getRemoteUser()).thenReturn("F001:admin");

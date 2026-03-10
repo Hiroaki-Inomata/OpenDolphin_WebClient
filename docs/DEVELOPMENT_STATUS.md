@@ -35,6 +35,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P1-09「管理設定と認証まわりの現行挙動を固定する」の着手中にテスト実行基盤ブロッカーを確認（RUN_ID=20260310T230817Z）。
+  - 追加（テストケース）: `server-modernized/src/test/java/open/dolphin/rest/AdminOrcaConnectionResourceTest.java` に `putConfigRejectsWhenUnauthenticated` / `putConfigSavesConfigForAdmin` を追加し、管理設定保存 API の未認証拒否と管理者保存成功を固定。
+  - 追加（テストケース）: `server-modernized/src/test/java/open/dolphin/rest/AdminAccessResourceTest.java` に `createUserRejectsWhenUnauthenticated` / `createUserRejectsWhenNotAdmin` を追加し、管理ユーザー作成 API の未認証/権限不足時応答を固定。
+  - ブロッカー: ローカル JDK 25 で Mockito inline mock maker が自己 attach できず、`AttachNotSupportedException` により Mockito 利用テストが実行不能（`-Djdk.attach.allowAttachSelf=true -XX:+EnableDynamicAgentLoading` でも解消せず）。
+  - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` にブロッカー追記（P1-09 は未完了のまま）。
+  - 次アクション: 既存運用どおり `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home` と `-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar` を付与した検証コマンドで再実行する。
 - 2026-03-11: P1-08「添付画像・PDF の保存と取得の性格確認テストを書く」を完了し、添付保存/取得の不変条件を固定（RUN_ID=20260310T220429Z）。
   - 追加（添付ストレージ）: `server-modernized/src/test/java/open/dolphin/storage/attachment/AttachmentStorageManagerTest.java` に `uploadToS3OutsideTransaction_handlesPdfPayload` / `populateBinary_downloadsPdfBytesWithoutMutation` を追加し、PDF添付の外部保存（digest/uri設定）と取得時バイト不変を固定。
   - 追加（ダウンロード経路）: `server-modernized/src/test/java/open/dolphin/rest/PatientImagesResourceTest.java` に `download_returnsPdfPayloadWithNoStoreHeaders` / `download_returnsNotFoundWhenAttachmentDoesNotExist` を追加し、PDF応答ヘッダと不存在時404を固定。
