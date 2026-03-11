@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: `P2-06`（XML 専用エンドポイント削除）は依存ブロッカーを確認し、解除条件を明文化（RUN_ID=20260311T050653Z）。
+  - 試行: server 側 XML 専用口（`/api01rv2/**`, `/orca/*v2`, `@Produces(MediaType.APPLICATION_XML)`）と `web-client` 側の XML 呼び出し箇所を棚卸し。
+  - 判定: `web-client` の患者/カルテ/管理/帳票フローが XML 専用口を現行利用中のため、server 側先行削除は業務停止リスクあり。
+  - 追加（ブロッカー台帳）: `docs/modernization/p2-06-xml-endpoint-blocker.md` を新規作成。
+  - 反映（WBS）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` のブロッカー節へ `P2-06` を追記（`P2-06` 自体は未完了のまま）。
+  - 解除条件: `P2-10` で API map 確定 → web-client 側 JSON 置換 → XML 入口削除の順で再開。
 - 2026-03-11: P2-05「LegacyTouch 抽象層を削除する」を完了し、旧 Touch 土台クラスを除去（RUN_ID=20260311T050453Z）。
   - 削除: `server-modernized/src/main/java/open/dolphin/shared/legacytouch/LegacyTouchAbstractResource.java` を削除。
   - 参照確認: `LegacyTouchAbstractResource` / `open.dolphin.shared.legacytouch` の外部参照ゼロを確認。

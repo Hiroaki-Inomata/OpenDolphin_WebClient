@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260311T050453Z
+- RUN_ID: 20260311T050653Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -32,6 +32,7 @@
 - `docs/modernization/api-v1-design.md`（P2-03: /api/v1 名前空間設計）
 - `docs/modernization/p2-04-touch-asp-removal.md`（P2-04: Touch/ASP 入口削除）
 - `docs/modernization/p2-05-legacytouch-removal.md`（P2-05: LegacyTouch 抽象層削除）
+- `docs/modernization/p2-06-xml-endpoint-blocker.md`（P2-06: XML 専用入口削除の依存ブロッカー整理）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`
