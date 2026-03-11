@@ -1,28 +1,13 @@
 package open.dolphin.session;
 
-import java.io.BufferedOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -32,7 +17,6 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import open.dolphin.infomodel.*;
-import open.dolphin.mbean.KanaToAscii;
 import open.dolphin.mbean.ServletContextHolder;
 import open.dolphin.session.framework.SessionOperation;
 import org.slf4j.Logger;
@@ -78,11 +62,6 @@ public class PVTServiceBean {
     private static final int BIT_CANCEL = 6;
     public static final int DEFAULT_PVT_PAGE_SIZE = 50;
     public static final int MAX_PVT_PAGE_SIZE = 200;
-    private static final String CSV_EXPORT_ENABLED_PROP = "pvt.csv.export.enabled";
-    private static final String CSV_EXPORT_ENABLED_ENV = "PVT_CSV_EXPORT_ENABLED";
-    private static final Path CSV_EXPORT_ALLOWED_DIR = Paths.get("/opt/jboss/data/opendolphin/exports")
-            .toAbsolutePath()
-            .normalize();
 
     @PersistenceContext
     private EntityManager em;
@@ -329,128 +308,7 @@ public class PVTServiceBean {
         msg.setEventType(ChartEventModel.PVT_ADD);
         eventServiceBean.notifyEvent(msg);
         
-        // 2013/07/16
-        try {
-            Properties config = new Properties();
-            sb = new StringBuilder();
-            sb.append(System.getProperty("jboss.home.dir"));
-            sb.append(File.separator);
-            sb.append("custom.properties");
-            File f = new File(sb.toString());
-            try (FileInputStream fin = new FileInputStream(f);
-                 InputStreamReader isr = new InputStreamReader(fin, "JISAutoDetect")) {
-                config.load(isr);
-            }
-            if (config.getProperty("csv.output") != null) {
-                exportCsvIfEnabled(config, pvt);
-            }
-        } catch (IOException ex) {
-            LOGGER.error("", ex);
-        }
-        
         return 1;   // 追加１個
-    }
-
-    private void exportCsvIfEnabled(Properties config, PatientVisitModel pvt) {
-        if (!isCsvExportEnabled()) {
-            return;
-        }
-        Path exportDir = resolveCsvExportDirectory(config.getProperty("csv.dir"));
-        if (exportDir == null) {
-            LOGGER.warn("CSV export blocked: csv.dir is outside allowed directory. allowedDir={}", CSV_EXPORT_ALLOWED_DIR);
-            return;
-        }
-
-        String fileNamePattern = config.getProperty("csv.file.name");
-        String fileEncoding = config.getProperty("csv.file.encoding");
-        String fileExt = config.getProperty("csv.file.ext");
-        if (isBlank(fileNamePattern) || isBlank(fileEncoding) || isBlank(fileExt)) {
-            LOGGER.warn("CSV export blocked: csv.file.name/csv.file.encoding/csv.file.ext are required");
-            return;
-        }
-
-        String line = buildCsvLine(config, pvt);
-        SimpleDateFormat sdf = new SimpleDateFormat(fileNamePattern);
-        String baseName = sdf.format(new Date());
-        Path tempPath = exportDir.resolve(baseName + ".inp").normalize();
-        Path destPath = exportDir.resolve(baseName + "." + fileExt).normalize();
-        if (!tempPath.startsWith(exportDir) || !destPath.startsWith(exportDir)) {
-            LOGGER.warn("CSV export blocked: resolved path escapes allowed directory. dir={}", exportDir);
-            return;
-        }
-
-        try {
-            Files.createDirectories(exportDir);
-            try (BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(tempPath.toFile()))) {
-                output.write(line.getBytes(fileEncoding));
-                output.flush();
-            }
-            applyOwnerReadWriteOnly(tempPath);
-            Files.move(tempPath, destPath, StandardCopyOption.REPLACE_EXISTING);
-            applyOwnerReadWriteOnly(destPath);
-        } catch (IOException ex) {
-            LOGGER.warn("CSV export failed. dir={}", exportDir, ex);
-        }
-    }
-
-    private String buildCsvLine(Properties config, PatientVisitModel pvt) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(pvt.getPatientModel().getPatientId()).append(",");  // pid,
-        sb.append(pvt.getPatientModel().getFullName()).append(",");   // name,
-        if (config.getProperty("csv.link") == null) {
-            sb.append(",");                                             // ,
-        } else if (config.getProperty("csv.link").equals("RF")) {
-            sb.append(pvt.getPatientModel().getKanaName()).append(",");   // kana
-        }
-        KanaToAscii kanaToAscii = new KanaToAscii();
-        String rm = kanaToAscii.CHGKanatoASCII(pvt.getPatientModel().getKanaName(), "");
-        sb.append(rm).append(",");                                                // roman,
-        String g = pvt.getPatientModel().getGender();
-        sb.append(ModelUtils.getGenderMFDesc(g)).append(",");           // F | M,
-        LocalDate birth = pvt.getPatientModel().getBirthday();
-        sb.append(birth != null ? birth.format(DateTimeFormatter.BASIC_ISO_DATE) : ""); // yyyyMMdd
-        return sb.toString();
-    }
-
-    private static boolean isCsvExportEnabled() {
-        String fromProperty = System.getProperty(CSV_EXPORT_ENABLED_PROP);
-        if (!isBlank(fromProperty)) {
-            return Boolean.parseBoolean(fromProperty.trim());
-        }
-        String fromEnv = System.getenv(CSV_EXPORT_ENABLED_ENV);
-        if (!isBlank(fromEnv)) {
-            return Boolean.parseBoolean(fromEnv.trim());
-        }
-        return false;
-    }
-
-    private static Path resolveCsvExportDirectory(String csvDir) {
-        if (isBlank(csvDir)) {
-            return null;
-        }
-        Path resolved = Paths.get(csvDir).toAbsolutePath().normalize();
-        if (!resolved.startsWith(CSV_EXPORT_ALLOWED_DIR)) {
-            return null;
-        }
-        return resolved;
-    }
-
-    private static void applyOwnerReadWriteOnly(Path path) {
-        if (path == null) {
-            return;
-        }
-        try {
-            Set<PosixFilePermission> permissions = PosixFilePermissions.fromString("rw-------");
-            Files.setPosixFilePermissions(path, permissions);
-        } catch (UnsupportedOperationException ex) {
-            LOGGER.warn("CSV export permission hardening is unsupported on this platform. path={}", path);
-        } catch (IOException ex) {
-            LOGGER.warn("CSV export permission hardening failed. path={}", path, ex);
-        }
-    }
-
-    private static boolean isBlank(String value) {
-        return value == null || value.isBlank();
     }
     
     /**

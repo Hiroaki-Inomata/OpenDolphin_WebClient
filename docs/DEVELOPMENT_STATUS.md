@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P7-04「ローカルファイル出力依存をなくす」を完了し、PVT登録時の CSV ファイル出力経路を削除（RUN_ID=20260311T220125Z）。
+  - 変更（service）: `server-modernized/src/main/java/open/dolphin/session/PVTServiceBean.java` から `custom.properties` 読込 + `csv.output` 条件分岐 + CSV書込処理を削除。
+  - 内容: PVT登録の副作用をローカルファイル出力から切り離し、DB更新/通知のみを正規経路へ統一。
+  - 追加（実施記録）: `docs/modernization/p7-04-remove-local-file-output-dependency.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P7-04` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -Dtest=PVTServiceBeanClinicalTest,PVTServiceBeanPaginationTest -Dsurefire.failIfNoSpecifiedTests=false test` は Mockito inline self-attach 失敗で FAIL。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=PVTServiceBeanClinicalTest,PVTServiceBeanPaginationTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（8 tests）。
 - 2026-03-12: P7-03「PVT 入力パイプラインの再試行と重複防止を設計する」を完了し、再試行・重複防止・毒メッセージ退避を worker へ実装（RUN_ID=20260311T220125Z）。
   - 変更（worker）: `server-modernized/src/main/java/open/dolphin/worker/pvt/PvtSocketWorker.java` に retry/backoff、SHA-256 ベース idempotency、poison queue を追加。
   - 変更（service）: `server-modernized/src/main/java/open/dolphin/mbean/PvtService.java` に `pvt.listen.retry.max` / `pvt.listen.retry.backoffMillis` / `pvt.listen.idempotency.windowMillis` / `pvt.listen.poison.capacity` の設定注入を追加。
