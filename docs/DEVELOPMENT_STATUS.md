@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P5-01「ORCA 境界の責務を決める」を完了し、患者検索/更新/受付のadapter契約を固定（RUN_ID=20260311T120154Z）。
+  - 追加（interface）: `server-modernized/src/main/java/open/dolphin/orca/adapter/OrcaPatientAdapter.java` を新規作成（`searchPatients` / `upsertPatient` / `registerReception`）。
+  - 追加（設計書）: `docs/modernization/p5-01-orca-boundary-design.md` を新規作成し、業務層↔adapter↔transport の責務分担を明文化。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P5-01` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
 - 2026-03-11: P4-08「実装後の API 文書とテストを更新する」を完了し、分割済みResourceの文書/公開面テストを同期（RUN_ID=20260311T120154Z）。
   - 変更（API文書）: `docs/modernization/api-map.md` に P4 分割Resourceの確認ポイント表を追加。
   - 追加（実施記録）: `docs/modernization/p4-08-api-doc-test-sync.md` を新規作成し、レビュー定型と対象テストを固定。

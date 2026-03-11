@@ -54,6 +54,7 @@
 - `docs/modernization/p4-06-transaction-boundaries.md`（P4-06: トランザクション境界見直し・worktree手順）
 - `docs/modernization/p4-07-cdi-first-service-split.md`（P4-07: EJB前提削減とCDI優先化）
 - `docs/modernization/p4-08-api-doc-test-sync.md`（P4-08: API文書とテスト同期）
+- `docs/modernization/p5-01-orca-boundary-design.md`（P5-01: ORCA境界責務とadapter interface）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`
