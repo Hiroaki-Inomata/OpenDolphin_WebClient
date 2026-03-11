@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: `P2-06` ブロッカー（web-client の XML 直接依存）を解除し、削除作業へ進める前提を整備（RUN_ID=20260311T053558Z）。
+  - 追加（server）: `server-modernized/src/main/java/open/dolphin/rest/OrcaBridgeResource.java` を新規作成し、`POST /api/v1/orca/bridge` で ORCA XML API を JSON 契約経由で呼び出せるようにした（`endpoint`/`payload`/`classCode`/`query` を受理）。
+  - 追加（web-client）: `web-client/src/libs/http/httpClient.ts` に ORCA XML POST のブリッジ転送を実装。`/orca/*v2`・`/api01rv2/*` 系の既存呼び出しを変更せず、内部的に `/api/v1/orca/bridge` 経由へ集約。
+  - 変更（web-client）: `web-client/src/features/patients/patientOriginalApi.ts` の既定 `format` を `json` に変更し、`patientgetv2` は既定で JSON 契約を利用。
+  - 追加（テスト）: `web-client/src/libs/http/httpClient.test.ts` に ORCA XMLブリッジ経路の回帰テスト2件を追加（XML POST はブリッジ転送、非XML POST は直送）。
+  - 検証: `npm -C web-client run typecheck` PASS、`npm -C web-client run test -- src/libs/http/httpClient.test.ts` PASS（31 tests）、`mvn -f server-modernized/pom.xml -DskipTests test-compile` PASS。
+  - 反映（台帳）: `docs/modernization/p2-06-xml-endpoint-blocker.md` を「解消済み」内容へ更新。
 - 2026-03-11: `P2-06`（XML 専用エンドポイント削除）は依存ブロッカーを確認し、解除条件を明文化（RUN_ID=20260311T050653Z）。
   - 試行: server 側 XML 専用口（`/api01rv2/**`, `/orca/*v2`, `@Produces(MediaType.APPLICATION_XML)`）と `web-client` 側の XML 呼び出し箇所を棚卸し。
   - 判定: `web-client` の患者/カルテ/管理/帳票フローが XML 専用口を現行利用中のため、server 側先行削除は業務停止リスクあり。

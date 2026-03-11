@@ -416,3 +416,74 @@ describe('buildHttpHeaders CSRF policy', () => {
     expect(readCsrfHeader(headers)).toBe('csrf-token-xhr');
   });
 });
+
+describe('httpFetch ORCA XML bridge', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    sessionStorage.clear();
+    localStorage.clear();
+    clearDevVolatilePlainPassword();
+    document.head.innerHTML = '';
+    setCsrfMetaToken('csrf-bridge-token');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.head.innerHTML = '';
+  });
+
+  it('routes same-origin ORCA XML POST through /api/v1/orca/bridge', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          endpoint: 'ACCEPTANCE_LIST',
+          httpStatus: 200,
+          contentType: 'application/xml',
+          body: '<data><acceptlstv2res><Api_Result>00</Api_Result></acceptlstv2res></data>',
+          runId: 'RUN-BRIDGE-1',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      ),
+    );
+    const { httpClient } = await importSubjects();
+
+    const response = await httpClient.httpFetch('/orca/acceptlstv2?class=01', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/xml', Accept: 'application/xml' },
+      body: '<data><acceptlstv2req type="record" /></data>',
+    });
+    const xml = await response.text();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe('/api/v1/orca/bridge');
+    const requestInit = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(requestInit?.method).toBe('POST');
+    const headers = new Headers(requestInit?.headers ?? {});
+    expect(headers.get('Content-Type')).toBe('application/json');
+    expect(headers.get('Accept')).toBe('application/json');
+    expect(headers.get('X-CSRF-Token')).toBe('csrf-bridge-token');
+    const payload = JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>;
+    expect(payload.endpoint).toBe('ACCEPTANCE_LIST');
+    expect(payload.classCode).toBe('01');
+    expect(payload.payload).toContain('acceptlstv2req');
+    expect(xml).toContain('<Api_Result>00</Api_Result>');
+    expect(response.headers.get('X-Run-Id')).toBe('RUN-BRIDGE-1');
+  });
+
+  it('keeps non-XML ORCA POST on original endpoint', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }));
+    const { httpClient } = await importSubjects();
+
+    await httpClient.httpFetch('/orca/acceptlstv2', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"request":"json"}',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe('/orca/acceptlstv2');
+  });
+});

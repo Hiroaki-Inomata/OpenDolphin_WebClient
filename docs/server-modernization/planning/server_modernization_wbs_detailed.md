@@ -1,7 +1,7 @@
 # 詳細工程表（server-modernization 当面作業）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260311T050653Z
+- RUN_ID: 20260311T053558Z
 - 位置付け: `server-modernized` の当面作業を順番に進めるための現行 WBS。
 - 運用: 記載タスクは原則として上から順に消化する。`docs/DEVELOPMENT_STATUS.md`、`AGENTS.md`、最新のユーザー/マネージャー指示と矛盾する場合は、それらを優先する。
 - 参照入口: `docs/server-modernization/README.md`
@@ -99,6 +99,6 @@ A列は ☐ / ☑ で更新します。優先 S は今すぐ着手、A は続け
 | ☐ | P10-07 | 10. 移行と本番切替 | A | 全担当 | 3日 | 切替後の集中監視と是正を行う | 運用監視 / エラーログ / 問い合わせ / ORCA 連携結果 | P10-06 | 切替後数日は、エラー、性能、問い合わせ、入力詰まり、設定ミスを重点的に見る。小さな問題でも日次で記録し、是正の優先順位を付ける。 | 切替後の不具合収束状況が見え、恒常運用へ移れる。 | 集中監視記録、是正一覧、クローズ条件 | 1日目、2日目、3日目の確認項目を分けてあらかじめ書く。 |
 
 ## ブロッカー
-- 2026-03-11 (RUN_ID=20260311T050653Z): `P2-06`（XML 専用エンドポイント削除）は、`web-client` の現行業務機能が `/orca/*v2`・`/api01rv2/*` の XML 入口を広範囲で利用しているため、server 側削除を先行すると業務停止リスクが高い。依存台帳は `docs/modernization/p2-06-xml-endpoint-blocker.md` を参照。解除条件は「API map確定（P2-10）→ web-client 側 JSON 置換 → XML 入口削除」の順。
+- 2026-03-11 (RUN_ID=20260311T053558Z, 解消済み): `P2-06` の先行ブロッカーだった `web-client` の XML POST 直接依存を解除。`web-client/src/libs/http/httpClient.ts` に ORCA XML POST の `/api/v1/orca/bridge` 自動転送を追加し、`server-modernized/src/main/java/open/dolphin/rest/OrcaBridgeResource.java` で ORCA transport へ集約転送する構成へ変更。依存整理は `docs/modernization/p2-06-xml-endpoint-blocker.md` を参照。
 - 2026-03-11 (RUN_ID=20260310T230817Z, 解消済み): `P1-09` の追加テスト実行時、ローカルの JDK 25 環境で Mockito inline mock maker が自己 attach できず (`AttachNotSupportedException`)、`AdminAccessResourceTest` / `AdminOrcaConnectionResourceTest` / `SessionAuthResourceTest` / `LogoutResourceTest` が実行不能。`-Djdk.attach.allowAttachSelf=true -XX:+EnableDynamicAgentLoading` を付与しても解消せず、暫定で JDK21 + byte-buddy-agent 手順を採用。
 - 2026-03-11 (RUN_ID=20260310T232050Z): `master` 上で同一テスト群（`AdminAccessResourceTest` / `AdminOrcaConnectionResourceTest` / `SessionAuthResourceTest` / `LogoutResourceTest`）を JDK25(Homebrew) 既定設定で再実行し、25 tests PASS を確認。現行方針を **JDK25既定（fallback: JDK21 + byte-buddy-agent）** に確定。
