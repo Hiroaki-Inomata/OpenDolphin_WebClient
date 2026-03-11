@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P1-10「性格確認テストを CI で常時回す」を完了し、PR軽量/夜間拡張の自動実行を追加（RUN_ID=20260311T000151Z）。
+  - 追加（CI）: `.github/workflows/server-modernized-characterization.yml` を新規作成し、`server-modernized` 向けに `pull_request`（軽量7テスト）と `schedule/workflow_dispatch`（拡張26テスト）を実装。
+  - 実行方針: JDK25（Temurin）を一次実行とし、一次失敗時のみ `JDK21 + byte-buddy-agent` で自動再実行する fallback を導入。
+  - 反映（WBS）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P1-10` を ☑ 化し、RUN_ID を更新。
+  - 反映（手順）: `docs/server-modernization/README.md` に CI 常時実行セクション（トリガ、テストセット、失敗時対応）を追記。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=PatientServiceBeanAddPatientTest,PatientModV2OutpatientResourceIdempotencyTest,KarteServiceBeanDocPkTest,KarteRevisionServiceBeanAttachmentCloneTest,OrcaPatientApiResourceRunIdTest,OrcaPatientResourceIdempotencyTest,OrcaAcceptanceListResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（23 tests）。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=PatientServiceBeanAddPatientTest,PatientModV2OutpatientResourceIdempotencyTest,KarteServiceBeanDocPkTest,KarteServiceBeanGetKarteTest,KarteRevisionServiceBeanAttachmentCloneTest,DocumentIntegrityServiceTest,KarteRevisionSnapshotContractTest,KarteRevisionDocumentResponseJsonTest,OrcaPatientApiResourceRunIdTest,OrcaPatientResourceIdempotencyTest,OrcaAcceptanceListResourceTest,OrcaOrderBundleResourceTest,OrcaMedicalResourceTest,OrcaMedicalModV2ResourceTest,MessageSenderTest,PVTResourceLimitTest,PVTServiceBeanPaginationTest,ReceptionRealtimeStreamResourceTest,ReceptionRealtimeSseSupportTest,AttachmentStorageManagerTest,PatientImagesResourceTest,PatientImageServiceBeanTest,AdminAccessResourceTest,AdminOrcaConnectionResourceTest,SessionAuthResourceTest,LogoutResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（113 tests）。
 - 2026-03-11: P1-09「管理設定と認証まわりの現行挙動を固定する」を完了し、管理系の最小挙動とテスト実行方針を確定（RUN_ID=20260310T232050Z）。
   - 反映（WBS）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P1-09` を ☑ 化し、同ファイルのブロッカー節を「解消済み」へ更新。
   - 方針明記: `docs/server-modernization/README.md` にテスト実行方針（JDK25既定、JDK21+byte-buddy-agent fallback）を追加。

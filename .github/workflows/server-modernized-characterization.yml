@@ -1,0 +1,146 @@
+name: server-modernized-characterization
+
+on:
+  pull_request:
+    paths:
+      - "server-modernized/**"
+      - "common/**"
+      - "pom.server-modernized.xml"
+      - ".github/workflows/server-modernized-characterization.yml"
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-modernized-characterization-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PR_TESTS: >-
+    PatientServiceBeanAddPatientTest,PatientModV2OutpatientResourceIdempotencyTest,
+    KarteServiceBeanDocPkTest,KarteRevisionServiceBeanAttachmentCloneTest,
+    OrcaPatientApiResourceRunIdTest,OrcaPatientResourceIdempotencyTest,OrcaAcceptanceListResourceTest
+  NIGHTLY_TESTS: >-
+    PatientServiceBeanAddPatientTest,PatientModV2OutpatientResourceIdempotencyTest,
+    KarteServiceBeanDocPkTest,KarteServiceBeanGetKarteTest,
+    KarteRevisionServiceBeanAttachmentCloneTest,DocumentIntegrityServiceTest,
+    KarteRevisionSnapshotContractTest,KarteRevisionDocumentResponseJsonTest,
+    OrcaPatientApiResourceRunIdTest,OrcaPatientResourceIdempotencyTest,
+    OrcaAcceptanceListResourceTest,OrcaOrderBundleResourceTest,
+    OrcaMedicalResourceTest,OrcaMedicalModV2ResourceTest,
+    MessageSenderTest,PVTResourceLimitTest,PVTServiceBeanPaginationTest,
+    ReceptionRealtimeStreamResourceTest,ReceptionRealtimeSseSupportTest,
+    AttachmentStorageManagerTest,PatientImagesResourceTest,PatientImageServiceBeanTest,
+    AdminAccessResourceTest,AdminOrcaConnectionResourceTest,SessionAuthResourceTest,LogoutResourceTest
+
+jobs:
+  characterization-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Run PR characterization tests on JDK25 (primary)
+        id: pr_jdk25
+        continue-on-error: true
+        env:
+          MAVEN_OPTS: "-Djdk.attach.allowAttachSelf=true -XX:+EnableDynamicAgentLoading"
+        run: >
+          mvn -B -ntp -f pom.server-modernized.xml -pl server-modernized -am
+          -Dtest="${PR_TESTS}" -Dsurefire.failIfNoSpecifiedTests=false test
+
+      - name: Setup Java fallback (JDK21)
+        if: steps.pr_jdk25.outcome == 'failure'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Run PR characterization tests on JDK21 + byte-buddy-agent (fallback)
+        if: steps.pr_jdk25.outcome == 'failure'
+        id: pr_jdk21
+        continue-on-error: true
+        run: >
+          mvn -B -ntp -f pom.server-modernized.xml -pl server-modernized -am
+          -DargLine=-javaagent:${HOME}/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar
+          -Dtest="${PR_TESTS}" -Dsurefire.failIfNoSpecifiedTests=false test
+
+      - name: Fail if both primary and fallback failed
+        if: steps.pr_jdk25.outcome == 'failure' && steps.pr_jdk21.outcome == 'failure'
+        run: exit 1
+
+      - name: Upload surefire reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports-pr
+          path: |
+            **/target/surefire-reports/*.xml
+            **/target/surefire-reports/*.txt
+
+  characterization-nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Run nightly characterization tests on JDK25 (primary)
+        id: nightly_jdk25
+        continue-on-error: true
+        env:
+          MAVEN_OPTS: "-Djdk.attach.allowAttachSelf=true -XX:+EnableDynamicAgentLoading"
+        run: >
+          mvn -B -ntp -f pom.server-modernized.xml -pl server-modernized -am
+          -Dtest="${NIGHTLY_TESTS}" -Dsurefire.failIfNoSpecifiedTests=false test
+
+      - name: Setup Java fallback (JDK21)
+        if: steps.nightly_jdk25.outcome == 'failure'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Run nightly characterization tests on JDK21 + byte-buddy-agent (fallback)
+        if: steps.nightly_jdk25.outcome == 'failure'
+        id: nightly_jdk21
+        continue-on-error: true
+        run: >
+          mvn -B -ntp -f pom.server-modernized.xml -pl server-modernized -am
+          -DargLine=-javaagent:${HOME}/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar
+          -Dtest="${NIGHTLY_TESTS}" -Dsurefire.failIfNoSpecifiedTests=false test
+
+      - name: Fail if both primary and fallback failed
+        if: steps.nightly_jdk25.outcome == 'failure' && steps.nightly_jdk21.outcome == 'failure'
+        run: exit 1
+
+      - name: Upload surefire reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports-nightly
+          path: |
+            **/target/surefire-reports/*.xml
+            **/target/surefire-reports/*.txt
