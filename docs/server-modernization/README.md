@@ -37,6 +37,7 @@
 - `docs/modernization/p2-07-common-converter-removal.md`（P2-07: common/converter 群削除の実施記録）
 - `docs/modernization/p2-08-legacy-wildfly10-naming-bridge-removal.md`（P2-08: legacy-wildfly10 と naming ブリッジ削除）
 - `docs/modernization/p2-09-descriptor-minimization.md`（P2-09: descriptor 最小化）
+- `docs/modernization/api-map.md`（P2-10: 新旧 API 差分と移行後契約）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`
