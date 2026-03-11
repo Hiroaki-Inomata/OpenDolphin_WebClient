@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P2-03「新 API の名前空間と単位を決める」を完了し、`/api/v1` 設計を固定（RUN_ID=20260311T001459Z）。
+  - 追加（設計書）: `docs/modernization/api-v1-design.md` を新規作成し、患者/カルテ/受付/ORCA/添付/管理の単位で `/api/v1/**` 命名を定義。
+  - 先行対象確定: WBSの直近方針どおり、患者・カルテ・ORCA の3系統を先行実装境界として明記。
+  - 反映（WBS）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P2-03` を ☑ 化し、RUN_ID を更新。
+  - 反映（導線）: `docs/server-modernization/README.md` の API/仕様セクションに P2-03 設計書リンクを追加。
 - 2026-03-11: P2-02「削除マトリクスを作る」を完了し、旧入口の扱いを固定（RUN_ID=20260311T001341Z）。
   - 追加（マトリクス）: `docs/modernization/remove-matrix.md` を新規作成し、入口ファミリごとに `削除/置換/統合/保留` を判定。
   - 判定要点: Touch/ASP は削除、xml2 alias と ORCA番号付きaliasは統合、現行利用中 `/karte/**` `/api/admin/**` `/orca/**` は新API移行後に置換、`/orca/master/**` 系は利用実測まで保留。
