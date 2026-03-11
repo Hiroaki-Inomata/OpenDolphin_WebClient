@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P2-07「common/converter 群を削除する」を完了し、converter 群を server-modernized 側へ移設（RUN_ID=20260311T061511Z）。
+  - 変更: `common/src/main/java/open/dolphin/converter/**`（73ファイル）を `server-modernized/src/main/java/open/dolphin/converter/**` へ移設し、`common` モジュールから旧 converter 群を除去。
+  - 追加（影響一覧）: `docs/modernization/p2-07-common-converter-removal.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P2-07` を ☑ 化、`docs/server-modernization/README.md` に実施記録リンクを追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
 - 2026-03-11: P2-06「XML 専用エンドポイントを削除する」を完了し、公開契約を JSON に統一（RUN_ID=20260311T060146Z）。
   - 削除（server）: `OrcaAcceptanceListResource` / `OrcaSystemManagementResource` / `OrcaReportResource` / `OrcaDiseaseApiResource` / `OrcaMedicalApiResource` / `OrcaAdditionalApiResource` を削除。
   - 削除（karte）: `KarteResource` の legacy XML 返却口 `GET /karte/iamges/{param}` を削除し、関連補助 `LegacyImageXmlWriter` / `LegacyImageResponseMapper` を除去。
