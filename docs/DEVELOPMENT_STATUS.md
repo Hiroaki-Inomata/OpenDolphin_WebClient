@@ -36,6 +36,10 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P3-01「新しいモジュール境界を決める」を完了し、`common` 解体の依存方向を固定（RUN_ID=20260311T061511Z）。
+  - 追加: `docs/modernization/module-boundaries.md` を新規作成。
+  - 内容: `domain` / `persistence` / `api-contract` / `orca-adapter` / `ingestion` / `storage` / `api-server` の責務、許可依存、禁止ルール、既存パッケージ一次移管先を定義。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P3-01` を ☑ 化、`docs/server-modernization/README.md` に境界設計リンクを追加。
 - 2026-03-11: P2-10「新旧 API 差分と移行後契約を文書化する」を完了し、API 利用者向け参照を一本化（RUN_ID=20260311T061511Z）。
   - 追加: `docs/modernization/api-map.md` を新規作成（残す/廃止 API、移行先 URI、必須ヘッダ、認証前提、JSON 契約を整理）。
   - 反映: 患者・カルテ・添付・管理を先行系統として移行契約を明文化。
