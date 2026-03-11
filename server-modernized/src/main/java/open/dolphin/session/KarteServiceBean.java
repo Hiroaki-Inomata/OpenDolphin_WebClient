@@ -17,6 +17,9 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
 import open.dolphin.infomodel.*;
+import open.dolphin.persistence.query.KarteDocumentQueryService;
+import open.dolphin.persistence.query.PatientQueryService;
+import open.dolphin.persistence.query.UserQueryService;
 import open.dolphin.rest.dto.KarteRevisionDocumentResponse;
 import open.dolphin.rest.dto.RoutineMedicationResponse;
 import open.dolphin.rest.dto.RpHistoryDrugResponse;
@@ -191,6 +194,18 @@ public class KarteServiceBean {
     @Inject
     private KarteObservationService karteObservationService;
 
+    private PatientQueryService patientQueries() {
+        return new PatientQueryService(em);
+    }
+
+    private UserQueryService userQueries() {
+        return new UserQueryService(em);
+    }
+
+    private KarteDocumentQueryService karteDocumentQueries() {
+        return new KarteDocumentQueryService(em);
+    }
+
 //s.oh^ 2014/02/21 Claim送信方法の変更
     //@Resource(mappedName = "java:/JmsXA")
     //private ConnectionFactory connectionFactory;
@@ -224,28 +239,21 @@ public class KarteServiceBean {
     }
 
     private KarteBean loadKarteByFacilityAndPatientId(String fid, String pid) {
-        List<KarteBean> kartes = em.createQuery(QUERY_KARTE_BY_FID_PID, KarteBean.class)
-                .setParameter(FID, fid)
-                .setParameter(PID, pid)
-                .setMaxResults(1)
-                .getResultList();
-        if (kartes == null || kartes.isEmpty()) {
+        KarteBean karte = patientQueries().findSingleKarteByFacilityAndPatientId(fid, pid);
+        if (karte == null) {
             LOGGER.warn("getKarte: no karte found for fid={}, pid={}", fid, pid);
             return null;
         }
-        return kartes.get(0);
+        return karte;
     }
 
     private KarteBean loadKarteByPatientPk(long patientPk) {
-        List<KarteBean> kartes = em.createQuery(QUERY_KARTE, KarteBean.class)
-                .setParameter(PATIENT_PK, patientPk)
-                .setMaxResults(1)
-                .getResultList();
-        if (kartes == null || kartes.isEmpty()) {
+        KarteBean karte = patientQueries().findSingleKarteByPatientPk(patientPk);
+        if (karte == null) {
             LOGGER.warn("getKarte: no karte found for patientPk={}", patientPk);
             return null;
         }
-        return kartes.get(0);
+        return karte;
     }
 
     private KarteBean populateKarteDetails(KarteBean karte, Date fromDate) {
@@ -620,14 +628,11 @@ public class KarteServiceBean {
             return Collections.emptyList();
         }
 
-        try {
-            UserModel user = em.createQuery(QUERY_USER_BY_USER_ID, UserModel.class)
-                    .setParameter("userId", compositeUserId)
-                    .getSingleResult();
-            return buildUserPropertyResponses(user);
-        } catch (NoResultException ex) {
+        UserModel user = userQueries().findByCompositeUserId(compositeUserId);
+        if (user == null) {
             return Collections.emptyList();
         }
+        return buildUserPropertyResponses(user);
     }
 
     public SafetySummaryResponse getSafetySummary(long karteId) {
@@ -1128,9 +1133,7 @@ public class KarteServiceBean {
             return Collections.emptyList();
         }
 
-        List<DocumentModel> documents = em.createQuery(QUERY_DOCUMENT_BY_IDS, DocumentModel.class)
-                .setParameter("ids", orderedIds)
-                .getResultList();
+        List<DocumentModel> documents = karteDocumentQueries().findDocumentsByIds(orderedIds);
         Map<Long, DocumentModel> documentById = new LinkedHashMap<>();
         for (DocumentModel document : documents) {
             if (document != null) {
@@ -1179,9 +1182,7 @@ public class KarteServiceBean {
     }
 
     private void populateModules(Map<Long, DocumentModel> documentById, List<Long> orderedIds) {
-        List<ModuleModel> modules = em.createQuery(QUERY_MODULES_BY_DOC_IDS, ModuleModel.class)
-                .setParameter("ids", orderedIds)
-                .getResultList();
+        List<ModuleModel> modules = karteDocumentQueries().findModulesByDocumentIds(orderedIds);
         Map<Long, List<ModuleModel>> grouped = new LinkedHashMap<>();
         for (ModuleModel module : modules) {
             if (module == null || module.getDocumentModel() == null) {
