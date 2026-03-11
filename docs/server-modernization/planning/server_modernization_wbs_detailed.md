@@ -1,7 +1,7 @@
 # 詳細工程表（server-modernization 当面作業）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260311T100117Z
+- RUN_ID: 20260311T110043Z
 - 位置付け: `server-modernized` の当面作業を順番に進めるための現行 WBS。
 - 運用: 記載タスクは原則として上から順に消化する。`docs/DEVELOPMENT_STATUS.md`、`AGENTS.md`、最新のユーザー/マネージャー指示と矛盾する場合は、それらを優先する。
 - 参照入口: `docs/server-modernization/README.md`
@@ -46,7 +46,7 @@ A列は ☐ / ☑ で更新します。優先 S は今すぐ着手、A は続け
 | ☑ | P3-08 | 3. common を解体する | A | 基盤担当 | 1日 | モジュール再編後のビルド構成を整える | 親 pom / 各 module pom / テスト実行順 | P3-02, P3-03, P3-04 | module 追加後のビルド順、テスト順、依存の可視性を調整する。古い module を残したまま移行する期間の扱いもここで決める。 | CI とローカルのどちらでも同じ手順でビルドできる。 | pom 差分、ビルド手順書 | module 間依存を図にして、循環がないことを確認する。 |
 | ☑ | P4-01 | 4. アプリケーションコアを分割 | S | API担当 | 3日 | KarteResource を責務ごとに分ける | KarteResource.java / revision 系 resource / image 系 resource / DTO | P3-04, P1-05 | 文書取得、文書保存、改訂、画像参照などを分離し、一つの resource に多数の役割を持たせない。入口ごとに入力検証と認可も整理する。 | KarteResource が小さくなり、機能別に追える。 | 新 resource 群、移行メモ、テスト更新 | まず read 系と write 系に2分割し、その後 revision を独立させる。 |
 | ☑ | P4-02 | 4. アプリケーションコアを分割 | S | 業務担当 | 4日 | KarteServiceBean を use case 単位に分ける | KarteServiceBean.java / 関連 session bean / service 層 | P4-01, P6-05 | 保存、取得、改訂、検索、画像処理などを別 service に分ける。トランザクション境界は use case ごとに置き、1 クラスにすべて詰め込まない。 | 主要 use case ごとに service が分かれ、責務が明確になる。 | service 群、呼び出し図、テスト更新 | KarteServiceBean の public method 一覧を作り、似たものからまとめる。 |
-| ☐ | P4-03 | 4. アプリケーションコアを分割 | A | API担当 | 3日 | 患者更新・管理系の巨大 resource を分ける | PatientModV2OutpatientResource.java / AdminAccessResource.java / AdminOrcaUserResource.java | P3-04, P1-04, P1-09 | 巨大 resource を機能別に分け、入力検証、権限確認、業務処理、応答生成を分離する。患者更新と管理設定は分岐が多いため、先に責務を割る。 | 1 resource の責務が狭まり、レビューしやすくなる。 | resource 分割コミット、責務一覧 | まず入力 DTO と業務 service を分け、最後に resource を薄くする。 |
+| ☑ | P4-03 | 4. アプリケーションコアを分割 | A | API担当 | 3日 | 患者更新・管理系の巨大 resource を分ける | PatientModV2OutpatientResource.java / AdminAccessResource.java / AdminOrcaUserResource.java | P3-04, P1-04, P1-09 | 巨大 resource を機能別に分け、入力検証、権限確認、業務処理、応答生成を分離する。患者更新と管理設定は分岐が多いため、先に責務を割る。 | 1 resource の責務が狭まり、レビューしやすくなる。 | resource 分割コミット、責務一覧 | まず入力 DTO と業務 service を分け、最後に resource を薄くする。 |
 | ☐ | P4-04 | 4. アプリケーションコアを分割 | A | セキュリティ担当 | 2日 | 入力検証・認可・監査を横断部品へ出す | security/** / audit/** / filter / interceptor / resource 共通処理 | P3-04 | 各 resource の中に散っている入力検証、権限確認、監査記録を共通化する。業務本体に関係ない処理が use case を読みにくくしない状態へ整える。 | resource から横断処理が減り、監査抜けを防げる。 | 共通 interceptor / helper / 監査仕様 | まず権限確認と監査記録の2つを共通部品に切り出す。 |
 | ☐ | P4-05 | 4. アプリケーションコアを分割 | A | API担当 | 1日 | エラー応答形式と request id を統一する | resource 全体 / exception mapper / log filter | P2-03, P4-04 | 例外時の返却形式を JSON に統一し、request id や run id を全系統で付ける。運用時に追跡しやすくし、resource ごとの差をなくす。 | 全 API が同じエラー形式を返し、ログ相関が取れる。 | 共通 error response、運用手順 | まず 400、401、403、404、409、500 の型を定義する。 |
 | ☐ | P4-06 | 4. アプリケーションコアを分割 | A | 業務担当 | 2日 | トランザクション境界を見直す | session/** / service 層 / persistence 層 | P4-02, P6-05 | どこからどこまでを一つの更新単位にするかを見直す。外部 I/O をトランザクションの中へ入れない、更新単位を広げすぎない、という原則で整理する。 | 更新単位が明文化され、外部連携待ちで長く握らない。 | トランザクション設計メモ | 患者更新、カルテ保存、添付保存の3系統から確認する。 |
