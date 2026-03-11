@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P3-02「新 module のひな型を作る」を完了し、`domain` / `api-contract` の最小 reactor を追加（RUN_ID=20260311T061511Z）。
+  - 追加: `domain` module（`domain/pom.xml`, `DomainMarker`）。
+  - 追加: `api-contract` module（`api-contract/pom.xml`, `ApiContractMarker`）。
+  - 変更: `pom.server-modernized.xml` の module 定義と dependencyManagement に新 module を追加。
+  - 追加（影響一覧）: `docs/modernization/p3-02-module-skeleton.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P3-02` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl domain,api-contract,server-modernized -am -DskipTests test-compile` PASS。
 - 2026-03-11: P3-01「新しいモジュール境界を決める」を完了し、`common` 解体の依存方向を固定（RUN_ID=20260311T061511Z）。
   - 追加: `docs/modernization/module-boundaries.md` を新規作成。
   - 内容: `domain` / `persistence` / `api-contract` / `orca-adapter` / `ingestion` / `storage` / `api-server` の責務、許可依存、禁止ルール、既存パッケージ一次移管先を定義。
