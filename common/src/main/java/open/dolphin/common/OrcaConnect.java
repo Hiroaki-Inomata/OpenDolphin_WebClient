@@ -6,8 +6,10 @@ package open.dolphin.common;
 
 /**
  *
+ * @deprecated P3-06 以降は新規利用禁止。ORCA 接続は `server-modernized` の adapter 層へ統一する。
  * @author Life Sciences Computing Corporation.
  */
+@Deprecated(since = "2026-03", forRemoval = false)
 public class OrcaConnect extends OrcaApi {
     /**
      * コンストラクタ

@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P3-06「audit / util / common の最小責務を決める」を完了し、共通部品の配置ルールを固定（RUN_ID=20260311T080109Z）。
+  - 追加（方針文書）: `docs/modernization/p3-06-common-scope.md` を新規作成し、`audit` / `util` / `common` の棚卸し結果と配置ルールを明文化。
+  - 変更（コードガード）: `common/src/main/java/open/dolphin/common/OrcaApi.java` / `OrcaConnect.java` / `OrcaAnalyze.java` に `@Deprecated(since = "2026-03")` を付与し、`open.dolphin.common` への新規流入を抑止。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P3-06` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl common -am -DskipTests test-compile` PASS。
 - 2026-03-11: P3-05「REST 層から entity 直返しをなくす」を完了し、User/System の entity 直受け・直返しを DTO へ置換（RUN_ID=20260311T080109Z）。
   - 追加（DTO）: `api-contract/src/main/java/open/dolphin/rest/dto/UserMutationRequest.java` / `ActivitySummaryResponse.java` を新規作成。
   - 追加（mapper）: `server-modernized/src/main/java/open/dolphin/rest/support/UserMutationRequestMapper.java` / `ActivitySummaryResponseMapper.java` を新規作成。
