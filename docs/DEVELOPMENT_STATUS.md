@@ -36,6 +36,15 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P6-08「新 schema の Flyway migration を作る」を完了し、module payload 用テーブルを追加（RUN_ID=20260311T210122Z）。
+  - 追加（migration）: `V0302__module_payload_table.sql` を `server-modernized/tools/flyway/sql` と `server-modernized/src/main/resources/db/migration` に追加。
+  - 内容: `d_module_payload` テーブル（`module_id` PK/FK, `schema_version`, `module_type`, `payload_json`, `payload_hash`）と index を作成し、`d_module.bean_json` の versioned envelope を backfill。
+  - 変更（テスト）: `FreshSchemaBaselineTest` の期待バージョンを `0302` へ更新し、`d_module_payload` 存在/カラム検証を追加。
+  - 追加（実施記録）: `docs/modernization/p6-08-flyway-schema-migration.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P6-08` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=FlywayMigrationConsistencyTest,AdminAccessResourceTest,AdminOrcaUserResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（14 tests）。
+  - 検証（環境制約）: `FreshSchemaBaselineTest` は embedded postgres 起動時に `java.net.SocketException: Operation not permitted`（sandbox のソケット bind 制約）で FAIL。
 - 2026-03-12: P6-07「persistence.xml の手書き class list を整理する」を完了し、entity 検出を自動化へ統一（RUN_ID=20260311T210122Z）。
   - 変更（persistence設定）: `server-modernized/src/main/resources/META-INF/persistence.xml` の `<class>` 手書き列挙 33件を削除し、`exclude-unlisted-classes=false` + `hibernate.archive.autodetection=class,hbm` で自動検出へ統一。
   - 追加（実施記録）: `docs/modernization/p6-07-persistence-class-list-minimization.md` を新規作成。
