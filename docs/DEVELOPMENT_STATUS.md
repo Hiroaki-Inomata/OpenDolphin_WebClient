@@ -36,6 +36,16 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P7-06「ワーカーの監視項目とヘルスチェックを作る」を完了し、PVT worker の metrics/health 可視化を追加（RUN_ID=20260311T230123Z）。
+  - 変更（worker）: `server-modernized/src/main/java/open/dolphin/worker/pvt/PvtSocketWorker.java` に `RuntimeSnapshot` と受信・失敗・再試行・毒メッセージ・最終成功時刻の集計を追加。
+  - 変更（service）: `server-modernized/src/main/java/open/dolphin/mbean/PvtService.java` に worker health 判定と Micrometer Gauge 登録（`opendolphin_pvt_worker_*`）を追加。
+  - 追加（health endpoint）: `server-modernized/src/main/java/open/dolphin/rest/PvtWorkerHealthResource.java` を新規作成し、`GET /resources/health/worker/pvt` を公開。
+  - 変更（公開設定）: `server-modernized/src/main/webapp/WEB-INF/web.xml` に `open.dolphin.rest.PvtWorkerHealthResource` を追加。
+  - 追加（テスト）: `PvtWorkerHealthResourceTest` を新規追加し、`PvtSocketWorkerPipelineTest` に runtime metrics 検証を追記。
+  - 追加（実施記録）: `docs/modernization/p7-06-worker-observability-health.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P7-06` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` を実施。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=PvtSocketWorkerPipelineTest,PvtWorkerHealthResourceTest,WebXmlEndpointExposureTest -Dsurefire.failIfNoSpecifiedTests=false test` を実施。
 - 2026-03-12: P7-05「受信メッセージの再生ツールを作る」を完了し、PVT payload の再生検証ツールを追加（RUN_ID=20260311T220125Z）。
   - 追加（replay tool）: `server-modernized/src/test/java/open/dolphin/worker/pvt/PvtReplayTool.java` を新規作成（`--input`/`--repeat`/`--retry-max`/`--fail-first` 対応）。
   - 追加（sample）: `server-modernized/src/test/resources/replay/pvt/normal-message.xml` を新規追加。

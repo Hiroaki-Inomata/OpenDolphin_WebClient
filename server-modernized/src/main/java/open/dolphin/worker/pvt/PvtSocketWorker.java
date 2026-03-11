@@ -29,6 +29,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 /**
@@ -64,8 +65,25 @@ public final class PvtSocketWorker implements Runnable {
     private final int poisonQueueCapacity;
     private final ConcurrentHashMap<String, Long> processedPayloadHashes = new ConcurrentHashMap<>();
     private final AtomicInteger processedCount = new AtomicInteger();
+    private final AtomicLong receivedCount = new AtomicLong();
+    private final AtomicLong acknowledgedCount = new AtomicLong();
+    private final AtomicLong failedCount = new AtomicLong();
+    private final AtomicLong duplicateCount = new AtomicLong();
+    private final AtomicLong retryAttemptCount = new AtomicLong();
+    private final AtomicLong poisonTotalCount = new AtomicLong();
+    private final AtomicLong lastReceivedEpochMillis = new AtomicLong();
+    private final AtomicLong lastSuccessEpochMillis = new AtomicLong();
+    private final AtomicLong lastFailureEpochMillis = new AtomicLong();
+    private final AtomicLong maxProcessingMillis = new AtomicLong();
+    private final AtomicLong totalProcessingMillis = new AtomicLong();
+    private final AtomicInteger processingCount = new AtomicInteger();
+    private final AtomicInteger consecutiveFailureCount = new AtomicInteger();
     private final Object poisonLock = new Object();
     private final ArrayDeque<PoisonPayloadRecord> poisonPayloads = new ArrayDeque<>();
+    private volatile String lastFailureReason = "";
+    private volatile long startedAtEpochMillis;
+    private volatile long stoppedAtEpochMillis;
+    private volatile boolean running;
 
     private volatile Thread acceptThread;
     private volatile ServerSocket listenSocket;
@@ -113,6 +131,9 @@ public final class PvtSocketWorker implements Runnable {
         if (acceptThread != null) {
             return;
         }
+        running = true;
+        startedAtEpochMillis = System.currentTimeMillis();
+        stoppedAtEpochMillis = 0L;
         listenSocket = new ServerSocket();
         listenSocket.bind(bindAddress);
         listenSocket.setSoTimeout(acceptTimeoutMillis);
@@ -134,6 +155,8 @@ public final class PvtSocketWorker implements Runnable {
     }
 
     public synchronized void stop() {
+        running = false;
+        stoppedAtEpochMillis = System.currentTimeMillis();
         Thread running = acceptThread;
         acceptThread = null;
         if (running != null) {
@@ -274,9 +297,18 @@ public final class PvtSocketWorker implements Runnable {
             return PayloadProcessingResult.nak("empty_payload");
         }
         final long now = System.currentTimeMillis();
+        receivedCount.incrementAndGet();
+        lastReceivedEpochMillis.set(now);
+        long startMillis = now;
+        processingCount.incrementAndGet();
         final String hash = sha256(payload);
 
         if (isDuplicate(hash, now)) {
+            acknowledgedCount.incrementAndGet();
+            duplicateCount.incrementAndGet();
+            lastSuccessEpochMillis.set(now);
+            consecutiveFailureCount.set(0);
+            finishProcessing(startMillis);
             info("Skip duplicate PVT payload [hash=" + hash + "]");
             return PayloadProcessingResult.duplicateAck();
         }
@@ -287,6 +319,13 @@ public final class PvtSocketWorker implements Runnable {
                 payloadHandler.handle(payload);
                 processedPayloadHashes.put(hash, now);
                 cleanupProcessedHashes(now);
+                acknowledgedCount.incrementAndGet();
+                if (attempt > 1) {
+                    retryAttemptCount.addAndGet(attempt - 1L);
+                }
+                lastSuccessEpochMillis.set(System.currentTimeMillis());
+                consecutiveFailureCount.set(0);
+                finishProcessing(startMillis);
                 return PayloadProcessingResult.ack(attempt);
             } catch (Exception ex) {
                 lastError = ex;
@@ -296,13 +335,29 @@ public final class PvtSocketWorker implements Runnable {
                     break;
                 }
                 if (!sleepBackoff()) {
+                    if (attempt > 1) {
+                        retryAttemptCount.addAndGet(attempt - 1L);
+                    }
+                    failedCount.incrementAndGet();
+                    lastFailureEpochMillis.set(System.currentTimeMillis());
+                    lastFailureReason = "interrupted_during_retry";
+                    consecutiveFailureCount.incrementAndGet();
                     recordPoison(hash, payload, "interrupted_during_retry", attempt, ex);
+                    finishProcessing(startMillis);
                     return PayloadProcessingResult.nak("interrupted");
                 }
             }
         }
 
+        if (maxHandleAttempts > 1) {
+            retryAttemptCount.addAndGet(maxHandleAttempts - 1L);
+        }
+        failedCount.incrementAndGet();
+        lastFailureEpochMillis.set(System.currentTimeMillis());
+        lastFailureReason = "max_retry_exceeded";
+        consecutiveFailureCount.incrementAndGet();
         recordPoison(hash, payload, "max_retry_exceeded", maxHandleAttempts, lastError);
+        finishProcessing(startMillis);
         return PayloadProcessingResult.nak("max_retry_exceeded");
     }
 
@@ -374,7 +429,45 @@ public final class PvtSocketWorker implements Runnable {
             }
             poisonPayloads.addLast(record);
         }
+        poisonTotalCount.incrementAndGet();
         warn("PVT payload moved to poison queue [hash=" + hash + ", reason=" + reason + ", attempts=" + attempts + "]");
+    }
+
+    public RuntimeSnapshot snapshotRuntime() {
+        int poisonQueueSize;
+        synchronized (poisonLock) {
+            poisonQueueSize = poisonPayloads.size();
+        }
+        return new RuntimeSnapshot(
+                running,
+                startedAtEpochMillis,
+                stoppedAtEpochMillis,
+                receivedCount.get(),
+                acknowledgedCount.get(),
+                failedCount.get(),
+                duplicateCount.get(),
+                retryAttemptCount.get(),
+                poisonTotalCount.get(),
+                poisonQueueSize,
+                lastReceivedEpochMillis.get(),
+                lastSuccessEpochMillis.get(),
+                lastFailureEpochMillis.get(),
+                lastFailureReason,
+                maxProcessingMillis.get(),
+                totalProcessingMillis.get(),
+                processingCount.get(),
+                consecutiveFailureCount.get(),
+                maxHandleAttempts,
+                handleRetryBackoffMillis,
+                idempotencyWindowMillis,
+                poisonQueueCapacity);
+    }
+
+    private void finishProcessing(long startMillis) {
+        long elapsed = Math.max(0L, System.currentTimeMillis() - startMillis);
+        totalProcessingMillis.addAndGet(elapsed);
+        maxProcessingMillis.accumulateAndGet(elapsed, Math::max);
+        processingCount.updateAndGet(current -> current > 0 ? current - 1 : 0);
     }
 
     private void printInfo(Socket clientSocket) {
@@ -512,6 +605,57 @@ public final class PvtSocketWorker implements Runnable {
 
         String errorMessage() {
             return errorMessage;
+        }
+    }
+
+    public record RuntimeSnapshot(
+            boolean running,
+            long startedAtEpochMillis,
+            long stoppedAtEpochMillis,
+            long receivedCount,
+            long acknowledgedCount,
+            long failedCount,
+            long duplicateCount,
+            long retryAttemptCount,
+            long poisonTotalCount,
+            int poisonQueueSize,
+            long lastReceivedEpochMillis,
+            long lastSuccessEpochMillis,
+            long lastFailureEpochMillis,
+            String lastFailureReason,
+            long maxProcessingMillis,
+            long totalProcessingMillis,
+            int processingCount,
+            int consecutiveFailureCount,
+            int maxHandleAttempts,
+            int handleRetryBackoffMillis,
+            long idempotencyWindowMillis,
+            int poisonQueueCapacity) {
+
+        public static RuntimeSnapshot disabled() {
+            return new RuntimeSnapshot(
+                    false,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0L,
+                    0,
+                    0L,
+                    0L,
+                    0L,
+                    "",
+                    0L,
+                    0L,
+                    0,
+                    0,
+                    DEFAULT_MAX_HANDLE_ATTEMPTS,
+                    DEFAULT_RETRY_BACKOFF_MILLIS,
+                    DEFAULT_IDEMPOTENCY_WINDOW_MILLIS,
+                    DEFAULT_POISON_QUEUE_CAPACITY);
         }
     }
 }

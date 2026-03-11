@@ -5,11 +5,19 @@ import java.io.FileNotFoundException;
 import java.io.StringReader;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.logging.Logger;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
@@ -49,9 +57,13 @@ public class PvtService {
     @Inject
     PVTServiceBean pvtServiceBean;
 
+    @Inject
+    private MeterRegistry meterRegistry;
+
     private String encoding = UTF8;
     private String FACILITY_ID;
     private boolean DEBUG;
+    private boolean workerEnabled;
     private int acceptTimeoutMillis = DEFAULT_ACCEPT_TIMEOUT_MILLIS;
     private int readTimeoutMillis = DEFAULT_READ_TIMEOUT_MILLIS;
     private int maxConnectionThreads = DEFAULT_MAX_CONNECTION_THREADS;
@@ -61,6 +73,7 @@ public class PvtService {
     private long idempotencyWindowMillis = DEFAULT_IDEMPOTENCY_WINDOW_MILLIS;
     private int poisonQueueCapacity = DEFAULT_POISON_QUEUE_CAPACITY;
     private PvtSocketWorker socketWorker;
+    private boolean workerMetricsRegistered;
 
     @PostConstruct
     public void register() {
@@ -92,8 +105,10 @@ public class PvtService {
         }
 
         if (!useAsPVTServer) {
+            workerEnabled = false;
             return;
         }
+        workerEnabled = true;
 
         String bindIP = config.getProperty("pvt.listen.bindIP");
         int port = Integer.parseInt(config.getProperty("pvt.listen.port"));
@@ -137,6 +152,7 @@ public class PvtService {
                 this::warn,
                 this::debug);
         socketWorker.start();
+        registerWorkerMetrics();
     }
 
     @PreDestroy
@@ -146,6 +162,73 @@ public class PvtService {
             socketWorker.stop();
             socketWorker = null;
         }
+        workerEnabled = false;
+    }
+
+    public boolean isWorkerEnabled() {
+        return workerEnabled;
+    }
+
+    public PvtSocketWorker.RuntimeSnapshot workerSnapshot() {
+        if (socketWorker == null) {
+            return PvtSocketWorker.RuntimeSnapshot.disabled();
+        }
+        return socketWorker.snapshotRuntime();
+    }
+
+    public Map<String, Object> workerThresholds() {
+        Map<String, Object> thresholds = new LinkedHashMap<>();
+        thresholds.put("staleSuccessSeconds", staleSuccessThresholdSeconds());
+        thresholds.put("failureStreak", Math.max(2, handleRetryMax));
+        thresholds.put("maxProcessingMillis", maxProcessingThresholdMillis());
+        return thresholds;
+    }
+
+    public Map<String, Object> workerHealthBody() {
+        PvtSocketWorker.RuntimeSnapshot snapshot = workerSnapshot();
+        long nowMillis = System.currentTimeMillis();
+        long staleThresholdSeconds = staleSuccessThresholdSeconds();
+        long maxProcessingThresholdMillis = maxProcessingThresholdMillis();
+        long secondsSinceLastSuccess = secondsSince(snapshot.lastSuccessEpochMillis(), nowMillis);
+
+        List<String> reasons = new java.util.ArrayList<>();
+        String status = "UP";
+        if (!workerEnabled) {
+            status = "DISABLED";
+            reasons.add("pvt_worker_disabled");
+        } else if (!snapshot.running()) {
+            status = "DOWN";
+            reasons.add("worker_not_running");
+        } else {
+            if (snapshot.lastSuccessEpochMillis() == 0L) {
+                reasons.add("no_success_yet");
+            } else if (secondsSinceLastSuccess > staleThresholdSeconds) {
+                status = "DEGRADED";
+                reasons.add("last_success_stale");
+            }
+            if (snapshot.consecutiveFailureCount() >= Math.max(2, snapshot.maxHandleAttempts())) {
+                status = "DEGRADED";
+                reasons.add("consecutive_failures_high");
+            }
+            if (snapshot.processingCount() > 0 && snapshot.maxProcessingMillis() > maxProcessingThresholdMillis) {
+                status = "DEGRADED";
+                reasons.add("processing_delay_high");
+            }
+            if (snapshot.poisonQueueSize() > 0) {
+                status = "DEGRADED";
+                reasons.add("poison_queue_non_empty");
+            }
+        }
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("status", status);
+        body.put("checkedAt", formatInstant(nowMillis));
+        body.put("workerEnabled", workerEnabled);
+        body.put("running", snapshot.running());
+        body.put("reasons", reasons);
+        body.put("metrics", workerMetricsMap(snapshot, nowMillis));
+        body.put("thresholds", workerThresholds());
+        return body;
     }
 
     private void log(String msg) {
@@ -214,5 +297,78 @@ public class PvtService {
         }
 
         return pvtServiceBean.addPvt(model);
+    }
+
+    private void registerWorkerMetrics() {
+        if (meterRegistry == null || workerMetricsRegistered) {
+            return;
+        }
+        workerMetricsRegistered = true;
+        registerGauge("opendolphin_pvt_worker_running", snapshot -> snapshot.running() ? 1.0 : 0.0);
+        registerGauge("opendolphin_pvt_worker_received_total", snapshot -> snapshot.receivedCount());
+        registerGauge("opendolphin_pvt_worker_failed_total", snapshot -> snapshot.failedCount());
+        registerGauge("opendolphin_pvt_worker_ack_total", snapshot -> snapshot.acknowledgedCount());
+        registerGauge("opendolphin_pvt_worker_retry_attempt_total", snapshot -> snapshot.retryAttemptCount());
+        registerGauge("opendolphin_pvt_worker_poison_total", snapshot -> snapshot.poisonTotalCount());
+        registerGauge("opendolphin_pvt_worker_poison_queue_depth", snapshot -> snapshot.poisonQueueSize());
+        registerGauge("opendolphin_pvt_worker_last_success_epoch_seconds",
+                snapshot -> snapshot.lastSuccessEpochMillis() / 1000.0);
+        registerGauge("opendolphin_pvt_worker_last_failure_epoch_seconds",
+                snapshot -> snapshot.lastFailureEpochMillis() / 1000.0);
+        registerGauge("opendolphin_pvt_worker_max_processing_millis",
+                snapshot -> snapshot.maxProcessingMillis());
+    }
+
+    private void registerGauge(String name, java.util.function.ToDoubleFunction<PvtSocketWorker.RuntimeSnapshot> valueFunction) {
+        if (meterRegistry.find(name).gauge() != null) {
+            return;
+        }
+        Gauge.builder(name, this, service -> valueFunction.applyAsDouble(service.workerSnapshot()))
+                .description("PVT worker runtime metric")
+                .register(meterRegistry);
+    }
+
+    private Map<String, Object> workerMetricsMap(PvtSocketWorker.RuntimeSnapshot snapshot, long nowMillis) {
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        metrics.put("receivedCount", snapshot.receivedCount());
+        metrics.put("acknowledgedCount", snapshot.acknowledgedCount());
+        metrics.put("failedCount", snapshot.failedCount());
+        metrics.put("duplicateCount", snapshot.duplicateCount());
+        metrics.put("retryAttemptCount", snapshot.retryAttemptCount());
+        metrics.put("poisonTotalCount", snapshot.poisonTotalCount());
+        metrics.put("poisonQueueSize", snapshot.poisonQueueSize());
+        metrics.put("processingCount", snapshot.processingCount());
+        metrics.put("consecutiveFailureCount", snapshot.consecutiveFailureCount());
+        metrics.put("lastSuccessAt", formatInstant(snapshot.lastSuccessEpochMillis()));
+        metrics.put("lastFailureAt", formatInstant(snapshot.lastFailureEpochMillis()));
+        metrics.put("lastReceivedAt", formatInstant(snapshot.lastReceivedEpochMillis()));
+        metrics.put("secondsSinceLastSuccess", secondsSince(snapshot.lastSuccessEpochMillis(), nowMillis));
+        metrics.put("secondsSinceLastFailure", secondsSince(snapshot.lastFailureEpochMillis(), nowMillis));
+        metrics.put("maxProcessingMillis", snapshot.maxProcessingMillis());
+        metrics.put("totalProcessingMillis", snapshot.totalProcessingMillis());
+        metrics.put("lastFailureReason", snapshot.lastFailureReason());
+        return metrics;
+    }
+
+    private long staleSuccessThresholdSeconds() {
+        return parsePositiveLong(System.getProperty("pvt.worker.health.stale-success-seconds"), 180L);
+    }
+
+    private long maxProcessingThresholdMillis() {
+        return parsePositiveLong(System.getProperty("pvt.worker.health.max-processing-millis"), 30_000L);
+    }
+
+    private long secondsSince(long timestampMillis, long nowMillis) {
+        if (timestampMillis <= 0L) {
+            return -1L;
+        }
+        return Math.max(0L, (nowMillis - timestampMillis) / 1000L);
+    }
+
+    private String formatInstant(long epochMillis) {
+        if (epochMillis <= 0L) {
+            return null;
+        }
+        return DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(Instant.ofEpochMilli(epochMillis).atOffset(ZoneOffset.UTC));
     }
 }

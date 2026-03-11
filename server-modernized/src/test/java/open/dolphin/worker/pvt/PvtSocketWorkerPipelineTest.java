@@ -24,6 +24,12 @@ class PvtSocketWorkerPipelineTest {
         assertTrue(second.acknowledged());
         assertTrue(second.duplicate());
         assertEquals(1, calls.get());
+        PvtSocketWorker.RuntimeSnapshot snapshot = worker.snapshotRuntime();
+        assertEquals(2, snapshot.receivedCount());
+        assertEquals(2, snapshot.acknowledgedCount());
+        assertEquals(1, snapshot.duplicateCount());
+        assertEquals(0, snapshot.failedCount());
+        assertTrue(snapshot.lastSuccessEpochMillis() > 0L);
     }
 
     @Test
@@ -41,6 +47,11 @@ class PvtSocketWorkerPipelineTest {
         assertTrue(result.acknowledged());
         assertEquals(3, result.attempts());
         assertEquals(3, calls.get());
+        PvtSocketWorker.RuntimeSnapshot snapshot = worker.snapshotRuntime();
+        assertEquals(1, snapshot.receivedCount());
+        assertEquals(1, snapshot.acknowledgedCount());
+        assertEquals(2, snapshot.retryAttemptCount());
+        assertEquals(0, snapshot.failedCount());
     }
 
     @Test
@@ -61,6 +72,14 @@ class PvtSocketWorkerPipelineTest {
         assertEquals(3, poison.get(0).attempts());
         assertEquals("max_retry_exceeded", poison.get(0).reason());
         assertTrue(poison.get(0).payloadPreview().contains("fatal"));
+        PvtSocketWorker.RuntimeSnapshot snapshot = worker.snapshotRuntime();
+        assertEquals(1, snapshot.receivedCount());
+        assertEquals(0, snapshot.acknowledgedCount());
+        assertEquals(1, snapshot.failedCount());
+        assertEquals(2, snapshot.retryAttemptCount());
+        assertEquals(1, snapshot.poisonTotalCount());
+        assertEquals(1, snapshot.poisonQueueSize());
+        assertEquals("max_retry_exceeded", snapshot.lastFailureReason());
     }
 
     private PvtSocketWorker newWorker(PvtSocketWorker.PayloadHandler handler) {
