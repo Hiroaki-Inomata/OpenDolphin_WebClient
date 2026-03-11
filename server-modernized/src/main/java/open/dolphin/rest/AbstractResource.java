@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.time.DateTimeException;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -455,6 +456,14 @@ public class AbstractResource {
         if (traceId != null && !traceId.isBlank()) {
             body.put("traceId", traceId);
         }
+        String requestId = resolveRequestIdValue(request, traceId);
+        if (requestId != null && !requestId.isBlank()) {
+            body.put("requestId", requestId);
+        }
+        String runId = resolveRunIdValue(request);
+        if (runId != null && !runId.isBlank()) {
+            body.put("runId", runId);
+        }
         if (request != null) {
             String path = request.getRequestURI();
             if (path != null && !path.isBlank()) {
@@ -498,7 +507,37 @@ public class AbstractResource {
         if (!body.containsKey("validationError") && (status == 400 || status == 422)) {
             body.put("validationError", Boolean.TRUE);
         }
+        body.put("timestamp", Instant.now().toString());
         return body;
+    }
+
+    private static String resolveRequestIdValue(HttpServletRequest request, String traceId) {
+        if (request != null) {
+            Object attribute = request.getAttribute(LogFilter.REQUEST_ID_ATTRIBUTE);
+            if (attribute instanceof String requestId && !requestId.isBlank()) {
+                return requestId;
+            }
+            String fromHeader = request.getHeader("X-Request-Id");
+            if (fromHeader != null && !fromHeader.isBlank()) {
+                return fromHeader.trim();
+            }
+        }
+        return traceId;
+    }
+
+    private static String resolveRunIdValue(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        Object attribute = request.getAttribute(LogFilter.RUN_ID_ATTRIBUTE);
+        if (attribute instanceof String runId && !runId.isBlank()) {
+            return runId;
+        }
+        String fromHeader = request.getHeader("X-Run-Id");
+        if (fromHeader != null && !fromHeader.isBlank()) {
+            return fromHeader.trim();
+        }
+        return null;
     }
 
     private static String classifyErrorCategory(int status) {

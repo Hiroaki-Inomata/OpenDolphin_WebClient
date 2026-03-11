@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P4-05「エラー応答形式と request id を統一する」を完了し、共通エラーJSONに requestId/runId を標準付与（RUN_ID=20260311T110043Z）。
+  - 変更（共通エラー）: `server-modernized/src/main/java/open/dolphin/rest/AbstractResource.java` の `buildErrorBody` に `requestId` / `runId` / `timestamp` を標準付与。
+  - 変更（例外マッパー）: `server-modernized/src/main/java/open/dolphin/rest/OrcaGatewayExceptionMapper.java` を `AbstractResource.restError(...)` ベースへ統一。
+  - 追加（テスト）: `AbstractResourceErrorResponseTest` / `OrcaGatewayExceptionMapperTest` を新規作成。
+  - 追加（実施記録）: `docs/modernization/p4-05-error-response-request-id-unification.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P4-05` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=AbstractResourceErrorResponseTest,OrcaGatewayExceptionMapperTest,WebXmlEndpointExposureTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（4 tests）。
 - 2026-03-11: P4-04「入力検証・認可・監査を横断部品へ出す」を完了し、Admin系Resourceの認可/監査処理を共通化（RUN_ID=20260311T110043Z）。
   - 追加（横断部品）: `server-modernized/src/main/java/open/dolphin/rest/AdminResourceSupport.java` を新規作成。
   - 変更（resource）: `AdminAccessResource` / `AdminOrcaUserResource` の `requireAdminActor` と `recordAudit` を共通部品経由へ切替。

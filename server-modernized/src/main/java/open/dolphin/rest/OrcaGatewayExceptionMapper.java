@@ -2,15 +2,12 @@ package open.dolphin.rest;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.core.Context;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import open.dolphin.orca.OrcaGatewayException;
-import open.dolphin.rest.orca.AbstractOrcaRestResource;
 
 @Provider
 public class OrcaGatewayExceptionMapper implements ExceptionMapper<OrcaGatewayException> {
@@ -21,28 +18,20 @@ public class OrcaGatewayExceptionMapper implements ExceptionMapper<OrcaGatewayEx
     @Override
     public Response toResponse(OrcaGatewayException exception) {
         int status = resolveStatus(exception);
-        String runId = AbstractOrcaRestResource.resolveRunIdValue(request);
-        String traceId = request != null ? request.getHeader("X-Trace-Id") : null;
-        String path = request != null ? request.getRequestURI() : null;
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("status", status);
-        body.put("error", "orca_gateway_error");
-        body.put("message", exception != null ? exception.getMessage() : "Orca gateway error");
-        body.put("runId", runId);
-        if (traceId != null && !traceId.isBlank()) {
-            body.put("traceId", traceId);
+        Response.Status resolvedStatus = Response.Status.fromStatusCode(status);
+        if (resolvedStatus == null) {
+            resolvedStatus = Response.Status.BAD_GATEWAY;
         }
-        if (path != null && !path.isBlank()) {
-            body.put("path", path);
-        }
-        body.put("timestamp", Instant.now().toString());
-
-        return Response.status(status)
-                .type(MediaType.APPLICATION_JSON_TYPE)
-                .entity(body)
-                .header("X-Run-Id", runId)
-                .build();
+        String message = exception != null ? exception.getMessage() : "Orca gateway error";
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("source", "orca_gateway");
+        return AbstractResource.restError(
+                request,
+                resolvedStatus,
+                "orca_gateway_error",
+                message,
+                details,
+                exception).getResponse();
     }
 
     private int resolveStatus(OrcaGatewayException exception) {
