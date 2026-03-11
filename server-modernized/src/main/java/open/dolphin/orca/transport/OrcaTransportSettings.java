@@ -1,14 +1,8 @@
 package open.dolphin.orca.transport;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
 import java.util.Locale;
-import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import open.orca.rest.ORCAConnection;
 
 /**
  * Shared configuration resolver for ORCA HTTP transport.
@@ -28,11 +22,17 @@ public final class OrcaTransportSettings {
     private static final String ENV_ORCA_API_RETRY_BACKOFF_MS = "ORCA_API_RETRY_BACKOFF_MS";
     private static final String ENV_ORCA_BASE_URL = "ORCA_BASE_URL";
     private static final String ENV_ORCA_MODE = "ORCA_MODE";
-
-    private static final String PROP_ORCA_API_HOST = "orca.orcaapi.ip";
-    private static final String PROP_ORCA_API_PORT = "orca.orcaapi.port";
-    private static final String PROP_ORCA_API_USER = "orca.id";
-    private static final String PROP_ORCA_API_PASSWORD = "orca.password";
+    private static final String PROP_ORCA_BASE_URL = "orca.base-url";
+    private static final String PROP_ORCA_API_HOST = "orca.api.host";
+    private static final String PROP_ORCA_API_PORT = "orca.api.port";
+    private static final String PROP_ORCA_API_SCHEME = "orca.api.scheme";
+    private static final String PROP_ORCA_API_USER = "orca.api.user";
+    private static final String PROP_ORCA_API_PASSWORD = "orca.api.password";
+    private static final String PROP_ORCA_API_PATH_PREFIX = "orca.api.path-prefix";
+    private static final String PROP_ORCA_API_WEBORCA = "orca.api.weborca";
+    private static final String PROP_ORCA_API_RETRY_MAX = "orca.api.retry.max";
+    private static final String PROP_ORCA_API_RETRY_BACKOFF_MS = "orca.api.retry.backoff-ms";
+    private static final String PROP_ORCA_MODE = "orca.mode";
 
     private static final int DEFAULT_RETRY_MAX = 0;
     private static final long DEFAULT_RETRY_BACKOFF_MS = 200L;
@@ -70,19 +70,18 @@ public final class OrcaTransportSettings {
     }
 
     public static OrcaTransportSettings load() {
-        Properties props = loadProperties();
-        String baseUrl = firstNonBlank(trim(env(ENV_ORCA_BASE_URL)));
-        String rawMode = trim(env(ENV_ORCA_MODE));
+        String baseUrl = trim(external(ENV_ORCA_BASE_URL, PROP_ORCA_BASE_URL));
+        String rawMode = trim(external(ENV_ORCA_MODE, PROP_ORCA_MODE));
         String mode = rawMode != null && !rawMode.isBlank() ? rawMode : null;
-        String host = firstNonBlank(trim(env(ENV_ORCA_API_HOST)), property(props, PROP_ORCA_API_HOST));
-        int port = resolvePort(parsePort(env(ENV_ORCA_API_PORT)), property(props, PROP_ORCA_API_PORT));
-        String scheme = firstNonBlank(trim(env(ENV_ORCA_API_SCHEME)));
-        String user = firstNonBlank(trim(env(ENV_ORCA_API_USER)), property(props, PROP_ORCA_API_USER));
-        String password = firstNonBlank(trim(env(ENV_ORCA_API_PASSWORD)), property(props, PROP_ORCA_API_PASSWORD));
-        PrefixSpec prefixSpec = parsePathPrefix(env(ENV_ORCA_API_PATH_PREFIX));
+        String host = firstNonBlank(trim(external(ENV_ORCA_API_HOST, PROP_ORCA_API_HOST)));
+        int port = resolvePort(parsePort(external(ENV_ORCA_API_PORT, PROP_ORCA_API_PORT)), null);
+        String scheme = firstNonBlank(trim(external(ENV_ORCA_API_SCHEME, PROP_ORCA_API_SCHEME)));
+        String user = firstNonBlank(trim(external(ENV_ORCA_API_USER, PROP_ORCA_API_USER)));
+        String password = firstNonBlank(trim(external(ENV_ORCA_API_PASSWORD, PROP_ORCA_API_PASSWORD)));
+        PrefixSpec prefixSpec = parsePathPrefix(external(ENV_ORCA_API_PATH_PREFIX, PROP_ORCA_API_PATH_PREFIX));
         String pathPrefix = prefixSpec.pathPrefix;
         boolean autoApiPrefixEnabled = prefixSpec.autoApiPrefixEnabled;
-        boolean weborcaExplicit = parseBoolean(env(ENV_ORCA_API_WEBORCA));
+        boolean weborcaExplicit = parseBoolean(external(ENV_ORCA_API_WEBORCA, PROP_ORCA_API_WEBORCA));
 
         HostSpec baseSpec = parseHostSpec(baseUrl, scheme);
         if (baseSpec != null) {
@@ -130,8 +129,8 @@ public final class OrcaTransportSettings {
                 pathPrefix,
                 weborcaExplicit,
                 autoApiPrefixEnabled,
-                parseInt(env(ENV_ORCA_API_RETRY_MAX), DEFAULT_RETRY_MAX),
-                parseLong(env(ENV_ORCA_API_RETRY_BACKOFF_MS), DEFAULT_RETRY_BACKOFF_MS),
+                parseInt(external(ENV_ORCA_API_RETRY_MAX, PROP_ORCA_API_RETRY_MAX), DEFAULT_RETRY_MAX),
+                parseLong(external(ENV_ORCA_API_RETRY_BACKOFF_MS, PROP_ORCA_API_RETRY_BACKOFF_MS), DEFAULT_RETRY_BACKOFF_MS),
                 baseUrl,
                 mode
         );
@@ -168,8 +167,8 @@ public final class OrcaTransportSettings {
                 null,
                 false,
                 autoApiPrefixEnabled,
-                parseInt(env(ENV_ORCA_API_RETRY_MAX), DEFAULT_RETRY_MAX),
-                parseLong(env(ENV_ORCA_API_RETRY_BACKOFF_MS), DEFAULT_RETRY_BACKOFF_MS),
+                parseInt(external(ENV_ORCA_API_RETRY_MAX, PROP_ORCA_API_RETRY_MAX), DEFAULT_RETRY_MAX),
+                parseLong(external(ENV_ORCA_API_RETRY_BACKOFF_MS, PROP_ORCA_API_RETRY_BACKOFF_MS), DEFAULT_RETRY_BACKOFF_MS),
                 resolvedBaseUrl,
                 mode
         );
@@ -266,49 +265,16 @@ public final class OrcaTransportSettings {
         return isHttpsScheme(scheme);
     }
 
-    private static Properties loadProperties() {
-        Properties properties = loadCustomProperties();
-        if (properties.isEmpty()) {
-            try {
-                Properties orca = ORCAConnection.getInstance().getProperties();
-                if (orca != null) {
-                    properties.putAll(orca);
-                }
-            } catch (Exception ex) {
-                LOGGER.log(Level.WARNING, "Failed to load ORCA connection properties", ex);
-            }
+    private static String external(String envKey, String propertyKey) {
+        String fromEnv = envKey != null ? System.getenv(envKey) : null;
+        if (fromEnv != null && !fromEnv.isBlank()) {
+            return fromEnv;
         }
-        return properties;
-    }
-
-    private static Properties loadCustomProperties() {
-        Properties properties = new Properties();
-        String jbossHome = System.getProperty("jboss.home.dir");
-        if (jbossHome == null || jbossHome.isBlank()) {
-            return properties;
+        String fromProp = propertyKey != null ? System.getProperty(propertyKey) : null;
+        if (fromProp != null && !fromProp.isBlank()) {
+            return fromProp;
         }
-        File custom = new File(jbossHome, "custom.properties");
-        if (!custom.isFile()) {
-            return properties;
-        }
-        try (FileInputStream fis = new FileInputStream(custom);
-             InputStreamReader reader = new InputStreamReader(fis, "JISAutoDetect")) {
-            properties.load(reader);
-        } catch (IOException ex) {
-            LOGGER.log(Level.WARNING, "Failed to load custom.properties for ORCA transport", ex);
-        }
-        return properties;
-    }
-
-    private static String property(Properties props, String key) {
-        if (props == null || key == null) {
-            return null;
-        }
-        return props.getProperty(key);
-    }
-
-    private static String env(String key) {
-        return System.getenv(key);
+        return null;
     }
 
     private static String trim(String value) {

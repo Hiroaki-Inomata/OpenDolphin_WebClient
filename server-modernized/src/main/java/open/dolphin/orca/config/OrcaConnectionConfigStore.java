@@ -39,6 +39,14 @@ public class OrcaConnectionConfigStore {
     private static final String ENV_ORCA_API_PASSWORD = "ORCA_API_PASSWORD";
     private static final String ENV_ORCA_MODE = "ORCA_MODE";
     private static final String ENV_ORCA_API_WEBORCA = "ORCA_API_WEBORCA";
+    private static final String PROP_ORCA_BASE_URL = "orca.base-url";
+    private static final String PROP_ORCA_API_HOST = "orca.api.host";
+    private static final String PROP_ORCA_API_PORT = "orca.api.port";
+    private static final String PROP_ORCA_API_SCHEME = "orca.api.scheme";
+    private static final String PROP_ORCA_API_USER = "orca.api.user";
+    private static final String PROP_ORCA_API_PASSWORD = "orca.api.password";
+    private static final String PROP_ORCA_MODE = "orca.mode";
+    private static final String PROP_ORCA_API_WEBORCA = "orca.api.weborca";
 
     private static final int DEFAULT_PORT_WEBORCA = 443;
     private static final int DEFAULT_PORT_ONPREM = 8000;
@@ -374,10 +382,10 @@ public class OrcaConnectionConfigStore {
         boolean useWeborca = resolveUseWeborca();
         record.setUseWeborca(useWeborca);
 
-        String baseUrl = trimToNull(env(ENV_ORCA_BASE_URL));
-        String scheme = trimToNull(env(ENV_ORCA_API_SCHEME));
-        String host = trimToNull(env(ENV_ORCA_API_HOST));
-        Integer port = parsePort(env(ENV_ORCA_API_PORT));
+        String baseUrl = trimToNull(external(ENV_ORCA_BASE_URL, PROP_ORCA_BASE_URL));
+        String scheme = trimToNull(external(ENV_ORCA_API_SCHEME, PROP_ORCA_API_SCHEME));
+        String host = trimToNull(external(ENV_ORCA_API_HOST, PROP_ORCA_API_HOST));
+        Integer port = parsePort(external(ENV_ORCA_API_PORT, PROP_ORCA_API_PORT));
 
         if (baseUrl != null) {
             // Try to derive host/scheme/port from baseUrl, but keep baseUrl as-is for UI.
@@ -404,10 +412,10 @@ public class OrcaConnectionConfigStore {
             record.setPort(port);
         }
 
-        String username = trimToNull(env(ENV_ORCA_API_USER));
+        String username = trimToNull(external(ENV_ORCA_API_USER, PROP_ORCA_API_USER));
         if (username != null) record.setUsername(username);
 
-        String password = trimToNull(env(ENV_ORCA_API_PASSWORD));
+        String password = trimToNull(external(ENV_ORCA_API_PASSWORD, PROP_ORCA_API_PASSWORD));
         if (password != null) {
             record.setPasswordEncrypted(encryptText(password));
             record.setPasswordUpdatedAt(record.getUpdatedAt());
@@ -658,12 +666,12 @@ public class OrcaConnectionConfigStore {
     }
 
     private boolean resolveUseWeborca() {
-        String mode = env(ENV_ORCA_MODE);
+        String mode = external(ENV_ORCA_MODE, PROP_ORCA_MODE);
         if (mode != null && !mode.isBlank()) {
             String normalized = mode.trim().toLowerCase(Locale.ROOT);
             return "weborca".equals(normalized) || "cloud".equals(normalized);
         }
-        String explicit = env(ENV_ORCA_API_WEBORCA);
+        String explicit = external(ENV_ORCA_API_WEBORCA, PROP_ORCA_API_WEBORCA);
         if (explicit == null) {
             return false;
         }
@@ -673,6 +681,21 @@ public class OrcaConnectionConfigStore {
 
     private String env(String key) {
         return key != null ? System.getenv(key) : null;
+    }
+
+    private String external(String envKey, String propertyKey) {
+        String fromEnv = env(envKey);
+        if (fromEnv != null && !fromEnv.isBlank()) {
+            return fromEnv;
+        }
+        if (propertyKey == null) {
+            return null;
+        }
+        String fromProperty = System.getProperty(propertyKey);
+        if (fromProperty != null && !fromProperty.isBlank()) {
+            return fromProperty;
+        }
+        return null;
     }
 
     private static String buildBaseUrl(String serverUrl, Integer port, boolean useWeborca) {

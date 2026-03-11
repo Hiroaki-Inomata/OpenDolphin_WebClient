@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P5-02「接続設定と認証情報を外部設定へ移す」を完了し、ORCA接続のローカルファイル依存を排除（RUN_ID=20260311T130114Z）。
+  - 変更（transport）: `server-modernized/src/main/java/open/dolphin/orca/transport/OrcaTransportSettings.java` から `custom.properties` / `ORCAConnection` フォールバック読込を削除し、`環境変数 > JVMシステムプロパティ` に統一。
+  - 変更（config store）: `server-modernized/src/main/java/open/dolphin/orca/config/OrcaConnectionConfigStore.java` の初期値ロードを同じ優先順位（`env > system property`）へ統一。
+  - 追加（テスト）: `OrcaTransportSettingsExternalConfigTest` を新規作成し、外部設定ロードと `custom.properties` 無視を固定。
+  - 追加（テスト）: `OrcaConnectionConfigStoreTest#initReadsExternalSystemPropertiesWhenEnvIsMissing` を追加。
+  - 追加（実施記録）: `docs/modernization/p5-02-orca-external-config.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P5-02` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=OrcaConnectionConfigStoreTest,OrcaTransportSettingsSecurityPolicyTest,OrcaTransportSettingsExternalConfigTest,AdminOrcaConnectionResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（17 tests）。
 - 2026-03-11: P5-01「ORCA 境界の責務を決める」を完了し、患者検索/更新/受付のadapter契約を固定（RUN_ID=20260311T120154Z）。
   - 追加（interface）: `server-modernized/src/main/java/open/dolphin/orca/adapter/OrcaPatientAdapter.java` を新規作成（`searchPatients` / `upsertPatient` / `registerReception`）。
   - 追加（設計書）: `docs/modernization/p5-01-orca-boundary-design.md` を新規作成し、業務層↔adapter↔transport の責務分担を明文化。

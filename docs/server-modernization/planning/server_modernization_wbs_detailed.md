@@ -1,7 +1,7 @@
 # 詳細工程表（server-modernization 当面作業）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260311T120154Z
+- RUN_ID: 20260311T130114Z
 - 位置付け: `server-modernized` の当面作業を順番に進めるための現行 WBS。
 - 運用: 記載タスクは原則として上から順に消化する。`docs/DEVELOPMENT_STATUS.md`、`AGENTS.md`、最新のユーザー/マネージャー指示と矛盾する場合は、それらを優先する。
 - 参照入口: `docs/server-modernization/README.md`
@@ -53,7 +53,7 @@ A列は ☐ / ☑ で更新します。優先 S は今すぐ着手、A は続け
 | ☑ | P4-07 | 4. アプリケーションコアを分割 | B | 基盤担当 | 2日 | EJB 固有前提を減らし CDI 中心へ寄せる | session bean / producer / descriptor | P4-02, P2-09 | すべてを一度に変えず、業務 service の新規実装は CDI を基本にする。EJB 固有に縛られている箇所を洗い出し、必要なものだけ残して減らす。 | 新規コードが軽い依存で書ける。 | 設計方針、置換済み service 一覧 | まず新設する service から CDI 化し、既存 service は後追いで切り替える。 |
 | ☑ | P4-08 | 4. アプリケーションコアを分割 | A | API担当 + QA | 1.5日 | 実装後の API 文書とテストを更新する | API 設計書 / DTO / テスト群 | P4-01, P4-03, P4-05 | Resource の分割後に文書とテストが古いまま残らないように、同じ変更セットで更新する。仕様差し戻しを減らすため、変更点は差分で書く。 | 文書、実装、テストが一致している。 | 更新済み API 文書、テスト結果 | 変更した resource ごとにレビュー項目を定型化する。 |
 | ☑ | P5-01 | 5. ORCA を別境界へ出す | S | ORCA担当 | 1.5日 | ORCA 境界の責務を決める | open/dolphin/orca/** / open/orca/rest/** / 新 orca-adapter module | P0-05, P1-06, P3-01 | ORCA へ渡す入力と受け取る結果を、業務側の言葉で定義する。業務 service からは ORCA の URL、XML 形式、DAO 実装が見えないようにする。 | ORCA adapter の公開 interface が決まり、業務側が直接 XML や HTTP を知らなくてよい。 | 境界設計書、adapter interface | 患者検索、患者更新、受付の3つから interface を定義する。 |
-| ☐ | P5-02 | 5. ORCA を別境界へ出す | S | 基盤担当 | 1.5日 | 接続設定と認証情報を外部設定へ移す | OrcaConnectionConfigStore.java / OrcaTransportSettings.java / custom.properties 依存箇所 | P5-01, P8-03 | 施設番号、接続先、資格情報、タイムアウト、リトライ設定をコードやローカルファイルから分離する。読み込み場所と優先順位も固定する。 | 接続設定の読み込み元が一つにそろい、ローカルファイル依存がなくなる。 | 設定仕様書、設定ロード実装 | 現行項目を一覧化し、新設定名へ対応表を作る。 |
+| ☑ | P5-02 | 5. ORCA を別境界へ出す | S | 基盤担当 | 1.5日 | 接続設定と認証情報を外部設定へ移す | OrcaConnectionConfigStore.java / OrcaTransportSettings.java / custom.properties 依存箇所 | P5-01, P8-03 | 施設番号、接続先、資格情報、タイムアウト、リトライ設定をコードやローカルファイルから分離する。読み込み場所と優先順位も固定する。 | 接続設定の読み込み元が一つにそろい、ローカルファイル依存がなくなる。 | 設定仕様書、設定ロード実装 | 現行項目を一覧化し、新設定名へ対応表を作る。 |
 | ☐ | P5-03 | 5. ORCA を別境界へ出す | S | ORCA担当 | 2日 | static singleton とローカルキャッシュの前提をなくす | OrcaResource.java / RestOrcaTransport.java / OrcaTransportSettings.java | P5-01 | static 状態、施設単位キャッシュ、アプリ内再読込ロックを整理し、明示的な設定オブジェクトと短寿命の cache へ置き換える。複数ノードでも破綻しない設計にする。 | ノード依存の状態が減り、設定再読込の挙動が読みやすい。 | adapter 実装、設定キャッシュ方針 | まず static フィールド一覧を作り、保持理由を確認する。 |
 | ☐ | P5-04 | 5. ORCA を別境界へ出す | S | ORCA担当 | 3日 | HTTP 呼び出しと再試行方針を作り直す | OrcaHttpClient.java / transport 配下 / timeout・retry 設定 | P5-01, P5-02 | 同期ブロック、Thread.sleep、文字列ベースの成否判定をやめ、明示的な timeout、再試行回数、失敗分類、構造化パースへ置き換える。呼び出しログは個人情報を伏せた形へ統一する。 | ORCA 呼び出し失敗時の挙動が再現可能で、設定で調整できる。 | 新 transport 実装、失敗分類表、ログ方針 | 正常系 1 件、タイムアウト 1 件、業務エラー 1 件を先にテスト化する。 |
 | ☐ | P5-05 | 5. ORCA を別境界へ出す | A | DB担当 | 3日 | ORCA 専用 DAO を gateway の内側へ閉じ込める | OrcaMasterDao.java / EtensuDao.java / OrcaMasterResource.java | P5-01, P6-05 | ORCA 由来の SQL や検索ロジックを adapter 内部へ閉じ込め、業務 service から raw DAO を見せない。巨大 DAO は検索目的ごとに分ける。 | ORCA 用のデータ取得が業務層へ漏れない。 | gateway 実装、検索別 service | DAO の public method を一覧化し、機能単位で分割案を作る。 |
