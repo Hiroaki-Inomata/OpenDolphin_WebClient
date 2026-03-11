@@ -33,6 +33,7 @@ import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.UserModel;
+import open.dolphin.persistence.query.OrcaUserLinkQueryService;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
 import open.dolphin.security.auth.PasswordHashService;
 import open.dolphin.security.audit.AuditEventPayload;
@@ -421,21 +422,13 @@ public class AdminAccessResource extends AbstractResource {
         if (userPks == null || userPks.isEmpty() || !isOrcaLinkTablePresent()) {
             return Map.of();
         }
-        Set<Long> targets = Set.copyOf(userPks);
-        List<?> rows = em.createNativeQuery(
-                        "select ehr_user_pk, orca_user_id, updated_at from opendolphin.d_orca_user_link")
-                .getResultList();
+        Map<Long, OrcaUserLinkQueryService.OrcaLinkRow> rows = orcaUserLinks().findLinksByUserPks(userPks);
         Map<Long, OrcaLinkStatus> map = new HashMap<>();
-        for (Object rowObj : rows) {
-            if (!(rowObj instanceof Object[] row) || row.length < 3) {
+        for (OrcaUserLinkQueryService.OrcaLinkRow row : rows.values()) {
+            if (row == null) {
                 continue;
             }
-            Long userPk = asLong(row[0]);
-            String orcaUserId = trimToNull(asString(row[1]));
-            if (userPk == null || orcaUserId == null || !targets.contains(userPk)) {
-                continue;
-            }
-            map.put(userPk, new OrcaLinkStatus(orcaUserId, toIsoTimestamp(row[2])));
+            map.put(row.ehrUserPk(), new OrcaLinkStatus(row.orcaUserId(), toIsoTimestamp(row.updatedAt())));
         }
         return map;
     }
@@ -444,23 +437,11 @@ public class AdminAccessResource extends AbstractResource {
         if (!isOrcaLinkTablePresent()) {
             return null;
         }
-        List<?> rows = em.createNativeQuery(
-                        "select orca_user_id, updated_at from opendolphin.d_orca_user_link where ehr_user_pk=:userPk")
-                .setParameter("userPk", userPk)
-                .setMaxResults(1)
-                .getResultList();
-        if (rows.isEmpty()) {
+        OrcaUserLinkQueryService.OrcaLinkRow row = orcaUserLinks().findLinkByUserPk(userPk);
+        if (row == null) {
             return null;
         }
-        Object rowObj = rows.get(0);
-        if (!(rowObj instanceof Object[] row) || row.length < 2) {
-            return null;
-        }
-        String orcaUserId = trimToNull(asString(row[0]));
-        if (orcaUserId == null) {
-            return null;
-        }
-        return new OrcaLinkStatus(orcaUserId, toIsoTimestamp(row[1]));
+        return new OrcaLinkStatus(row.orcaUserId(), toIsoTimestamp(row.updatedAt()));
     }
 
     private Map<String, Object> toUserRow(UserModel user, UserAccessProfileRow profile, OrcaLinkStatus orcaLink) {
@@ -656,17 +637,7 @@ public class AdminAccessResource extends AbstractResource {
         }
 
         Instant now = Instant.now();
-        em.createNativeQuery(
-                        "insert into opendolphin.d_orca_user_link (ehr_user_pk, orca_user_id, created_at, updated_at, updated_by) "
-                                + "values (:ehrUserPk, :orcaUserId, :createdAt, :updatedAt, :updatedBy) "
-                                + "on conflict (ehr_user_pk) do update set "
-                                + "orca_user_id=excluded.orca_user_id, updated_at=excluded.updated_at, updated_by=excluded.updated_by")
-                .setParameter("ehrUserPk", userPk)
-                .setParameter("orcaUserId", orcaUserId)
-                .setParameter("createdAt", Timestamp.from(now))
-                .setParameter("updatedAt", Timestamp.from(now))
-                .setParameter("updatedBy", actor)
-                .executeUpdate();
+        orcaUserLinks().upsertLink(userPk, orcaUserId, now, actor);
         return new OrcaLinkStatus(orcaUserId, now.toString());
     }
 
@@ -680,11 +651,7 @@ public class AdminAccessResource extends AbstractResource {
     }
 
     private boolean isOrcaLinkTablePresent() {
-        List<?> rows = em.createNativeQuery(
-                        "select 1 from information_schema.tables where table_schema='opendolphin' and table_name='d_orca_user_link'")
-                .setMaxResults(1)
-                .getResultList();
-        return !rows.isEmpty();
+        return orcaUserLinks().isLinkTablePresent();
     }
 
     private boolean isUserAccessProfileTablePresent() {
@@ -699,14 +666,11 @@ public class AdminAccessResource extends AbstractResource {
         if (!isOrcaLinkTablePresent()) {
             return null;
         }
-        List<?> rows = em.createNativeQuery("select ehr_user_pk from opendolphin.d_orca_user_link where orca_user_id=:orcaUserId")
-                .setParameter("orcaUserId", orcaUserId)
-                .setMaxResults(1)
-                .getResultList();
-        if (rows.isEmpty()) {
-            return null;
-        }
-        return asLong(rows.get(0));
+        return orcaUserLinks().findOwnerByOrcaUserId(orcaUserId);
+    }
+
+    private OrcaUserLinkQueryService orcaUserLinks() {
+        return new OrcaUserLinkQueryService(em);
     }
 
     private boolean containsRole(List<String> roles, String targetRole) {

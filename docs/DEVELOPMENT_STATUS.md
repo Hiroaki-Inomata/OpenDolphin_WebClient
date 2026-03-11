@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P6-06「native query と raw JDBC を棚卸しして書き換える」を完了し、ORCAユーザー連携SQLを query service へ集約（RUN_ID=20260311T210122Z）。
+  - 追加（query service）: `OrcaUserLinkQueryService` を新設し、`d_orca_user_link` の存在確認/owner検索/upsert/delete/施設単位検索を一元化。
+  - 変更（resource）: `AdminAccessResource` / `AdminOrcaUserResource` の ORCAリンク関連 native SQL を query service 経由へ置換。
+  - 追加（実施記録）: `docs/modernization/p6-06-native-query-jdbc-inventory-and-rewrite.md` を新規作成（native query/raw JDBC の用途分類と次段優先候補を明記）。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P6-06` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=AdminAccessResourceTest,AdminOrcaUserResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（11 tests）。
 - 2026-03-12: P6-05「永続化アクセスを repository/query 層へ統一する」を完了し、患者・カルテ・ユーザーの読取入口を query service へ集約（RUN_ID=20260311T200758Z）。
   - 追加（query service）: `PatientQueryService` / `UserQueryService` / `KarteDocumentQueryService` を新設。
   - 変更（service）: `KarteServiceBean` のカルテ取得・ユーザー属性取得・文書/モジュール取得を query service 経由へ置換。

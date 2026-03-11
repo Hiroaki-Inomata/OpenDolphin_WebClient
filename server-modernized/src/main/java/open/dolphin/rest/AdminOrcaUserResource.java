@@ -17,7 +17,6 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.io.StringReader;
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -41,6 +40,7 @@ import open.dolphin.orca.transport.OrcaEndpoint;
 import open.dolphin.orca.transport.OrcaTransport;
 import open.dolphin.orca.transport.OrcaTransportRequest;
 import open.dolphin.orca.transport.OrcaTransportResult;
+import open.dolphin.persistence.query.OrcaUserLinkQueryService;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.SessionAuditDispatcher;
@@ -257,12 +257,9 @@ public class AdminOrcaUserResource extends AbstractResource {
         ensureManageUsersSuccess(request, result);
 
         if (isLinkTablePresent()) {
-            em.createNativeQuery(
-                            "delete from opendolphin.d_orca_user_link l using opendolphin.d_users u "
-                                    + "where l.ehr_user_pk=u.id and l.orca_user_id=:orcaUserId and u.userid like :facilityPrefix")
-                    .setParameter("orcaUserId", userId)
-                    .setParameter("facilityPrefix", facilityId + IInfoModel.COMPOSITE_KEY_MAKER + "%")
-                    .executeUpdate();
+            orcaUserLinks().deleteByOrcaUserIdAndFacilityPrefix(
+                    userId,
+                    facilityId + IInfoModel.COMPOSITE_KEY_MAKER + "%");
         }
 
         Map<String, Object> body = baseEnvelope(runId, request, result.apiResult(), result.apiResultMessage(), true);
@@ -309,17 +306,7 @@ public class AdminOrcaUserResource extends AbstractResource {
         }
 
         Instant now = Instant.now();
-        em.createNativeQuery(
-                        "insert into opendolphin.d_orca_user_link (ehr_user_pk, orca_user_id, created_at, updated_at, updated_by) "
-                                + "values (:ehrUserPk, :orcaUserId, :createdAt, :updatedAt, :updatedBy) "
-                                + "on conflict (ehr_user_pk) do update set "
-                                + "orca_user_id=excluded.orca_user_id, updated_at=excluded.updated_at, updated_by=excluded.updated_by")
-                .setParameter("ehrUserPk", ehrUser.getId())
-                .setParameter("orcaUserId", orcaUserId)
-                .setParameter("createdAt", Timestamp.from(now))
-                .setParameter("updatedAt", Timestamp.from(now))
-                .setParameter("updatedBy", actor)
-                .executeUpdate();
+        orcaUserLinks().upsertLink(ehrUser.getId(), orcaUserId, now, actor);
 
         Map<String, Object> body = baseEnvelope(runId, request, "0000", "linked", true);
         body.put("status", Response.Status.OK.getStatusCode());
@@ -344,9 +331,7 @@ public class AdminOrcaUserResource extends AbstractResource {
         requireLinkTableAvailable(request);
 
         UserModel ehrUser = resolveEhrUser(request, facilityId, ehrUserId);
-        em.createNativeQuery("delete from opendolphin.d_orca_user_link where ehr_user_pk=:ehrUserPk")
-                .setParameter("ehrUserPk", ehrUser.getId())
-                .executeUpdate();
+        orcaUserLinks().deleteByEhrUserPk(ehrUser.getId());
 
         Map<String, Object> body = baseEnvelope(runId, request, "0000", "unlinked", true);
         body.put("status", Response.Status.OK.getStatusCode());
@@ -503,21 +488,16 @@ public class AdminOrcaUserResource extends AbstractResource {
         if (em == null || facilityId == null || facilityId.isBlank() || !isLinkTablePresent()) {
             return Map.of();
         }
-        List<?> rows = em.createNativeQuery(
-                        "select l.orca_user_id, u.userid, u.commonname "
-                                + "from opendolphin.d_orca_user_link l "
-                                + "join opendolphin.d_users u on u.id=l.ehr_user_pk "
-                                + "where u.userid like :facilityPrefix")
-                .setParameter("facilityPrefix", facilityId + IInfoModel.COMPOSITE_KEY_MAKER + "%")
-                .getResultList();
+        Map<String, OrcaUserLinkQueryService.OrcaFacilityLinkRow> rows =
+                orcaUserLinks().findLinksByFacilityPrefix(facilityId + IInfoModel.COMPOSITE_KEY_MAKER + "%");
         Map<String, Map<String, Object>> map = new LinkedHashMap<>();
-        for (Object rowObj : rows) {
-            if (!(rowObj instanceof Object[] row) || row.length < 3) {
+        for (OrcaUserLinkQueryService.OrcaFacilityLinkRow row : rows.values()) {
+            if (row == null) {
                 continue;
             }
-            String orcaUserId = normalizeToken(asString(row[0]));
-            String ehrUserId = normalizeToken(asString(row[1]));
-            String displayName = normalizeToken(asString(row[2]));
+            String orcaUserId = normalizeToken(row.orcaUserId());
+            String ehrUserId = normalizeToken(row.ehrUserId());
+            String displayName = normalizeToken(row.ehrDisplayName());
             if (orcaUserId == null || ehrUserId == null) {
                 continue;
             }
@@ -578,33 +558,18 @@ public class AdminOrcaUserResource extends AbstractResource {
         if (em == null) {
             return false;
         }
-        List<?> rows = em.createNativeQuery(
-                        "select 1 from information_schema.tables where table_schema='opendolphin' and table_name='d_orca_user_link'")
-                .setMaxResults(1)
-                .getResultList();
-        return !rows.isEmpty();
+        return orcaUserLinks().isLinkTablePresent();
     }
 
     private Long findOwnerByOrcaUserId(String orcaUserId) {
         if (em == null || !isLinkTablePresent()) {
             return null;
         }
-        List<?> rows = em.createNativeQuery("select ehr_user_pk from opendolphin.d_orca_user_link where orca_user_id=:orcaUserId")
-                .setParameter("orcaUserId", orcaUserId)
-                .setMaxResults(1)
-                .getResultList();
-        if (rows.isEmpty()) {
-            return null;
-        }
-        Object value = rows.get(0);
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        try {
-            return Long.parseLong(String.valueOf(value));
-        } catch (NumberFormatException ex) {
-            return null;
-        }
+        return orcaUserLinks().findOwnerByOrcaUserId(orcaUserId);
+    }
+
+    private OrcaUserLinkQueryService orcaUserLinks() {
+        return new OrcaUserLinkQueryService(em);
     }
 
     private Map<String, Object> toUserPayload(OrcaUserSnapshot user, Map<String, Object> link) {
