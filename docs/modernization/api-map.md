@@ -47,3 +47,15 @@
 - 新規実装は `/api/v1/**` のみ追加し、旧命名への新規追加は禁止。
 - ORCA 連携で XML が必要な場合は直接公開せず、`/api/v1/orca/bridge` へ集約する。
 - 旧入口の削除判断は `web-client` 参照有無と `WebXmlEndpointExposureTest` の通過を条件に行う。
+
+## 6. P4 Resource 分割後の確認ポイント（P4-08）
+
+| 分割対象 | 現行 Resource | 確認観点 |
+| --- | --- | --- |
+| カルテ write 系 | `KarteDocumentWriteResource` | `POST/PUT/DELETE /karte/document*` 契約、監査、facility境界確認 |
+| 患者更新 mock 系 | `PatientModV2OutpatientMockResource` | `/orca12/patientmodv2/outpatient/mock` の互換経路維持 |
+| 管理者パスワード再設定 | `AdminAccessPasswordResetResource` | `/api/admin/access/users/{userPk}/password-reset` の認可/監査 |
+| EHR-ORCA ユーザー連携 | `AdminOrcaUserLinkResource` | `/api/admin/users/{ehrUserId}/orca-link` のPUT/DELETE契約 |
+
+- `WebXmlEndpointExposureTest` で上記分割 Resource の公開登録を常時確認する。
+- 実装変更時は本節の表を更新し、契約変更があれば `docs/modernization/p4-08-api-doc-test-sync.md` に差分を追記する。
