@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P6-03「ModuleModel の bean_json 保存をやめる設計を決める」を完了し、versioned JSON 方式へ方針固定（RUN_ID=20260311T170115Z）。
+  - 追加（設計書）: `docs/modernization/p6-03-module-storage-replacement-design.md` を新規作成。
+  - 内容: module種別棚卸し、置換案比較（型別テーブル vs versioned JSON）、採用方式、目標スキーマ、移行順序、P6-04先行実装範囲（`medOrder` / `progressCourse`）を定義。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P6-03` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: 設計タスクのためコード実行テストなし（文書整合のみ確認）。
 - 2026-03-12: P6-02「java.util.Date を java.time へ置き換える」を完了し、主要モデルと集計経路の日時型を移行（RUN_ID=20260311T170115Z）。
   - 変更（model）: `ActivityModel` / `FacilityModel` / `PatientModel` / `PostSchedule` / `LastDateCount` の内部保持型を `LocalDate` / `LocalDateTime` へ移行し、既存 `Date` API は互換変換レイヤとして維持。
   - 変更（service）: `SystemServiceBean` に `LocalDate` ベース集計経路を追加し、旧 `Date` 経路の時刻境界（23:59:59）互換を維持。
