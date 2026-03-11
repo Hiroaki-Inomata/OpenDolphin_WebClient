@@ -1,13 +1,10 @@
 package open.dolphin.session;
 
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import jakarta.jms.Message;
-import jakarta.jms.TextMessage;
 import java.lang.reflect.Field;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,68 +12,29 @@ import org.junit.jupiter.api.Test;
 class MessageSenderTest {
 
     private MessageSender sender;
-    private PVTServiceBean pvtServiceBean;
+    private SessionMessageHandler sessionMessageHandler;
 
     @BeforeEach
     void setUp() throws Exception {
         sender = new MessageSender();
-        pvtServiceBean = mock(PVTServiceBean.class);
-        setField(sender, "pvtServiceBean", pvtServiceBean);
+        sessionMessageHandler = mock(SessionMessageHandler.class);
+        setField(sender, "sessionMessageHandler", sessionMessageHandler);
     }
 
     @Test
-    void nonTextMessageIsRejectedWithoutProcessing() throws Exception {
+    void delegatesMessageToSessionHandler() throws Exception {
         Message message = mock(Message.class);
-        when(message.propertyExists(anyString())).thenReturn(false);
-
         sender.onMessage(message);
-
-        verify(pvtServiceBean, never()).addPvt(org.mockito.ArgumentMatchers.any());
+        verify(sessionMessageHandler).onMessage(message);
     }
 
     @Test
-    void malformedTextMessageIsRejectedWithoutProcessing() throws Exception {
-        TextMessage message = mock(TextMessage.class);
-        when(message.propertyExists(anyString())).thenReturn(false);
-        when(message.getText()).thenReturn("{invalid-json");
+    void nullHandlerDoesNotThrow() throws Exception {
+        setField(sender, "sessionMessageHandler", null);
+        Message message = mock(Message.class);
 
         sender.onMessage(message);
-
-        verify(pvtServiceBean, never()).addPvt(org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    void objectStylePayloadTypeIsRejectedWithoutProcessing() throws Exception {
-        TextMessage message = mock(TextMessage.class);
-        when(message.propertyExists(anyString())).thenReturn(false);
-        when(message.getText()).thenReturn("{\"type\":\"UNSUPPORTED\",\"payload\":{\"k\":\"v\"}}");
-
-        sender.onMessage(message);
-
-        verify(pvtServiceBean, never()).addPvt(org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    void auditEnvelopeIsAcceptedWithoutPvtImport() throws Exception {
-        TextMessage message = mock(TextMessage.class);
-        when(message.propertyExists(anyString())).thenReturn(false);
-        when(message.getText()).thenReturn(
-                "{\"type\":\"AUDIT_EVENT\",\"audit\":{\"action\":\"ORCA_ACCEPT_LIST\",\"outcome\":\"SUCCESS\"}}");
-
-        sender.onMessage(message);
-
-        verify(pvtServiceBean, never()).addPvt(org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    void pvtEnvelopeWithBlankXmlIsRejectedWithoutProcessing() throws Exception {
-        TextMessage message = mock(TextMessage.class);
-        when(message.propertyExists(anyString())).thenReturn(false);
-        when(message.getText()).thenReturn("{\"type\":\"PVT_XML\",\"pvtXml\":\"   \"}");
-
-        sender.onMessage(message);
-
-        verify(pvtServiceBean, never()).addPvt(org.mockito.ArgumentMatchers.any());
+        verify(sessionMessageHandler, org.mockito.Mockito.never()).onMessage(any());
     }
 
     private static void setField(Object target, String fieldName, Object value) throws Exception {

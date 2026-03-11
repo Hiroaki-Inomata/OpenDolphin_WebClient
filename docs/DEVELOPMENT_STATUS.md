@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P4-07「EJB 固有前提を減らし CDI 中心へ寄せる」を完了し、MDBを薄い入口へ縮退（RUN_ID=20260311T120154Z）。
+  - 追加（CDI）: `server-modernized/src/main/java/open/dolphin/session/SessionMessageHandler.java` を新規作成し、JMS envelope処理本体を移管。
+  - 変更（MDB）: `server-modernized/src/main/java/open/dolphin/session/MessageSender.java` を「受信入口→CDIハンドラ委譲」の薄い構成へ変更。
+  - 変更（テスト）: `MessageSenderTest` を委譲責務へ更新し、`SessionMessageHandlerTest` を新規追加して既存の拒否/受理契約を維持。
+  - 追加（実施記録）: `docs/modernization/p4-07-cdi-first-service-split.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P4-07` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=MessageSenderTest,SessionMessageHandlerTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（7 tests）。
 - 2026-03-11: P4-06「トランザクション境界を見直す」を完了し、患者更新/カルテ保存/添付保存の外部I/O境界を整理（RUN_ID=20260311T120154Z）。
   - 変更（患者更新）: `server-modernized/src/main/java/open/dolphin/session/PatientServiceBean.java` で `ChartEventServiceBean#notifyEvent` を即時送信から「コミット後送信」へ変更（`TransactionSynchronizationRegistry` を使用）。
   - 変更（カルテ書込）: `server-modernized/src/main/java/open/dolphin/session/KarteDocumentWriteService.java` の添付削除呼び出しを `scheduleDeleteExternalAssetAfterCommit` へ変更。
