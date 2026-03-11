@@ -55,6 +55,7 @@
 - `docs/modernization/p4-07-cdi-first-service-split.md`（P4-07: EJB前提削減とCDI優先化）
 - `docs/modernization/p4-08-api-doc-test-sync.md`（P4-08: API文書とテスト同期）
 - `docs/modernization/p5-01-orca-boundary-design.md`（P5-01: ORCA境界責務とadapter interface）
+- `docs/modernization/p5-02-orca-external-config.md`（P5-02: ORCA接続設定/認証情報の外部設定化）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

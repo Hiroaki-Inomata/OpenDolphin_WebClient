@@ -37,6 +37,14 @@ class OrcaConnectionConfigStoreTest {
         } else {
             System.setProperty("jboss.server.data.dir", originalDataDir);
         }
+        System.clearProperty("orca.base-url");
+        System.clearProperty("orca.api.host");
+        System.clearProperty("orca.api.port");
+        System.clearProperty("orca.api.scheme");
+        System.clearProperty("orca.api.user");
+        System.clearProperty("orca.api.password");
+        System.clearProperty("orca.mode");
+        System.clearProperty("orca.api.weborca");
         System.clearProperty(RuntimeConfigurationSupport.PROP_ENVIRONMENT);
         System.clearProperty(OrcaTransportSecurityPolicy.PROP_ALLOW_INSECURE_HTTP);
     }
@@ -198,6 +206,29 @@ class OrcaConnectionConfigStoreTest {
                 "Legacy single-record ORCA connection config is no longer supported. Migrate to the records format.",
                 ex.getMessage()
         );
+    }
+
+    @Test
+    void initReadsExternalSystemPropertiesWhenEnvIsMissing() throws Exception {
+        originalDataDir = System.getProperty("jboss.server.data.dir");
+        System.setProperty("jboss.server.data.dir", tempDir.toString());
+        System.setProperty("orca.base-url", "https://weborca.example.orca");
+        System.setProperty("orca.api.user", "external-user");
+        System.setProperty("orca.api.password", "external-password");
+        System.setProperty("orca.mode", "weborca");
+
+        OrcaConnectionConfigStore store = newStore(buildProtector());
+
+        OrcaConnectionConfigRecord snapshot = store.getSnapshot();
+        assertNotNull(snapshot);
+        assertEquals("https://weborca.example.orca", snapshot.getServerUrl());
+        assertEquals("external-user", snapshot.getUsername());
+        assertEquals(443, snapshot.getPort());
+
+        OrcaConnectionConfigStore.ResolvedOrcaConnection resolved = store.resolve();
+        assertEquals("https://weborca.example.orca", resolved.baseUrl());
+        assertEquals("external-user", resolved.username());
+        assertEquals("external-password", resolved.password());
     }
 
     private OrcaConnectionConfigStore newStore(TotpSecretProtector protector) throws Exception {
