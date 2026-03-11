@@ -79,20 +79,22 @@ public class OrcaMasterResource extends AbstractResource {
     @Inject
     SessionAuditDispatcher sessionAuditDispatcher;
 
-    private final EtensuDao etensuDao;
-    private final OrcaMasterDao masterDao;
+    private final OrcaMasterGateway masterGateway;
 
     public OrcaMasterResource() {
-        this(new EtensuDao(), new OrcaMasterDao());
+        this(new OrcaMasterDaoGateway());
     }
 
     OrcaMasterResource(EtensuDao etensuDao) {
-        this(etensuDao, new OrcaMasterDao());
+        this(new OrcaMasterDaoGateway(etensuDao));
     }
 
     OrcaMasterResource(EtensuDao etensuDao, OrcaMasterDao masterDao) {
-        this.etensuDao = etensuDao != null ? etensuDao : new EtensuDao();
-        this.masterDao = masterDao != null ? masterDao : new OrcaMasterDao();
+        this(new OrcaMasterDaoGateway(etensuDao, masterDao));
+    }
+
+    OrcaMasterResource(OrcaMasterGateway masterGateway) {
+        this.masterGateway = masterGateway != null ? masterGateway : new OrcaMasterDaoGateway();
     }
 
     private enum DataOrigin {
@@ -146,7 +148,7 @@ public class OrcaMasterResource extends AbstractResource {
         criteria.setEffective(effective);
         criteria.setPage(parsePositiveInt(params, "page", 1));
         criteria.setSize(parsePageSize(params, "size", 100));
-        OrcaMasterDao.GenericClassSearchResult dbResult = masterDao.searchGenericClass(criteria);
+        OrcaMasterDao.GenericClassSearchResult dbResult = masterGateway.searchGenericClass(criteria);
         final String masterType = "orca05-generic-class";
         if (dbResult == null) {
             LoadedFixture<FixtureGenericClassEntry> fallbackFixture = loadEntries(
@@ -299,7 +301,7 @@ public class OrcaMasterResource extends AbstractResource {
         criteria.setScope(scope);
         criteria.setPage(parsePositiveInt(params, "page", 1));
         criteria.setSize(parsePageSize(params, "size", 100));
-        OrcaMasterDao.ListSearchResult<OrcaMasterDao.DrugRecord> dbResult = masterDao.searchDrug(criteria);
+        OrcaMasterDao.ListSearchResult<OrcaMasterDao.DrugRecord> dbResult = masterGateway.searchDrug(criteria);
         final String masterType = "orca08-drug";
         final String apiRoute = "/orca/master/drug";
         if (dbResult == null) {
@@ -470,7 +472,7 @@ public class OrcaMasterResource extends AbstractResource {
         criteria.setEffective(effective);
         criteria.setPage(parsePositiveInt(params, "page", 1));
         criteria.setSize(parsePageSize(params, "size", 100));
-        OrcaMasterDao.ListSearchResult<OrcaMasterDao.CommentRecord> dbResult = masterDao.searchComment(criteria);
+        OrcaMasterDao.ListSearchResult<OrcaMasterDao.CommentRecord> dbResult = masterGateway.searchComment(criteria);
         final String masterType = "orca08-comment";
         final String apiRoute = "/orca/master/comment";
         if (dbResult == null) {
@@ -526,7 +528,7 @@ public class OrcaMasterResource extends AbstractResource {
         criteria.setEffective(effective);
         criteria.setPage(parsePositiveInt(params, "page", 1));
         criteria.setSize(parsePageSize(params, "size", 100));
-        OrcaMasterDao.ListSearchResult<OrcaMasterDao.CommentRecord> dbResult = masterDao.searchBodypart(criteria);
+        OrcaMasterDao.ListSearchResult<OrcaMasterDao.CommentRecord> dbResult = masterGateway.searchBodypart(criteria);
         final String masterType = "orca08-bodypart";
         final String apiRoute = "/orca/master/bodypart";
         if (dbResult == null) {
@@ -581,7 +583,7 @@ public class OrcaMasterResource extends AbstractResource {
         OrcaMasterDao.YouhouCriteria criteria = new OrcaMasterDao.YouhouCriteria();
         criteria.setKeyword(keyword);
         criteria.setEffective(effective);
-        OrcaMasterDao.ListSearchResult<OrcaMasterDao.YouhouRecord> dbResult = masterDao.searchYouhou(criteria);
+        OrcaMasterDao.ListSearchResult<OrcaMasterDao.YouhouRecord> dbResult = masterGateway.searchYouhou(criteria);
         final String masterType = "orca05-youhou";
         if (dbResult == null) {
             LoadedFixture<FixtureYouhouEntry> fixture = loadEntries(
@@ -647,7 +649,7 @@ public class OrcaMasterResource extends AbstractResource {
         OrcaMasterDao.MaterialCriteria criteria = new OrcaMasterDao.MaterialCriteria();
         criteria.setKeyword(keyword);
         criteria.setEffective(effective);
-        OrcaMasterDao.ListSearchResult<OrcaMasterDao.MaterialRecord> dbResult = masterDao.searchMaterial(criteria);
+        OrcaMasterDao.ListSearchResult<OrcaMasterDao.MaterialRecord> dbResult = masterGateway.searchMaterial(criteria);
         final String masterType = "orca05-material";
         if (dbResult == null) {
             LoadedFixture<FixtureMaterialEntry> fixture = loadEntries(
@@ -713,7 +715,7 @@ public class OrcaMasterResource extends AbstractResource {
         OrcaMasterDao.KensaSortCriteria criteria = new OrcaMasterDao.KensaSortCriteria();
         criteria.setKeyword(keyword);
         criteria.setEffective(effective);
-        OrcaMasterDao.ListSearchResult<OrcaMasterDao.KensaSortRecord> dbResult = masterDao.searchKensaSort(criteria);
+        OrcaMasterDao.ListSearchResult<OrcaMasterDao.KensaSortRecord> dbResult = masterGateway.searchKensaSort(criteria);
         final String masterType = "orca05-kensa-sort";
         if (dbResult == null) {
             LoadedFixture<FixtureKensaSortEntry> fixture = loadEntries(
@@ -825,7 +827,7 @@ public class OrcaMasterResource extends AbstractResource {
         criteria.setPointsMax(pointsMax);
         criteria.setPage(parsePositiveInt(params, "page", 1));
         criteria.setSize(parsePageSize(params, "size", 100));
-        EtensuDao.EtensuSearchResult dbResult = etensuDao.search(criteria);
+        EtensuDao.EtensuSearchResult dbResult = masterGateway.searchEtensu(criteria);
         if (dbResult == null || dbResult.isLoadFailed()) {
             LoadedFixture<FixtureEtensuEntry> fallbackFixture = loadEntries(
                     FixtureEtensuEntry.class,

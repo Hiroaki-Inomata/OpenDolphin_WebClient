@@ -1,0 +1,59 @@
+package open.orca.rest;
+
+public class OrcaMasterDaoGateway implements OrcaMasterGateway {
+    private final EtensuDao etensuDao;
+    private final OrcaMasterDao masterDao;
+
+    public OrcaMasterDaoGateway() {
+        this(new EtensuDao(), new OrcaMasterDao());
+    }
+
+    OrcaMasterDaoGateway(EtensuDao etensuDao) {
+        this(etensuDao, new OrcaMasterDao());
+    }
+
+    OrcaMasterDaoGateway(EtensuDao etensuDao, OrcaMasterDao masterDao) {
+        this.etensuDao = etensuDao != null ? etensuDao : new EtensuDao();
+        this.masterDao = masterDao != null ? masterDao : new OrcaMasterDao();
+    }
+
+    @Override
+    public OrcaMasterDao.GenericClassSearchResult searchGenericClass(OrcaMasterDao.GenericClassCriteria criteria) {
+        return masterDao.searchGenericClass(criteria);
+    }
+
+    @Override
+    public OrcaMasterDao.ListSearchResult<OrcaMasterDao.DrugRecord> searchDrug(OrcaMasterDao.DrugCriteria criteria) {
+        return masterDao.searchDrug(criteria);
+    }
+
+    @Override
+    public OrcaMasterDao.ListSearchResult<OrcaMasterDao.CommentRecord> searchComment(OrcaMasterDao.CommentCriteria criteria) {
+        return masterDao.searchComment(criteria);
+    }
+
+    @Override
+    public OrcaMasterDao.ListSearchResult<OrcaMasterDao.CommentRecord> searchBodypart(OrcaMasterDao.CommentCriteria criteria) {
+        return masterDao.searchBodypart(criteria);
+    }
+
+    @Override
+    public OrcaMasterDao.ListSearchResult<OrcaMasterDao.YouhouRecord> searchYouhou(OrcaMasterDao.YouhouCriteria criteria) {
+        return masterDao.searchYouhou(criteria);
+    }
+
+    @Override
+    public OrcaMasterDao.ListSearchResult<OrcaMasterDao.MaterialRecord> searchMaterial(OrcaMasterDao.MaterialCriteria criteria) {
+        return masterDao.searchMaterial(criteria);
+    }
+
+    @Override
+    public OrcaMasterDao.ListSearchResult<OrcaMasterDao.KensaSortRecord> searchKensaSort(OrcaMasterDao.KensaSortCriteria criteria) {
+        return masterDao.searchKensaSort(criteria);
+    }
+
+    @Override
+    public EtensuDao.EtensuSearchResult searchEtensu(EtensuDao.EtensuSearchCriteria criteria) {
+        return etensuDao.search(criteria);
+    }
+}
