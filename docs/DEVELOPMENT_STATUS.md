@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P3-07「ダミー参照と死んでいる補助コードを削除する」を完了し、converter 参照維持補助を整理（RUN_ID=20260311T080109Z）。
+  - 削除: `server-modernized/src/main/java/open/dolphin/converter/ConverterModelReferences.java`。
+  - 変更: `AppointmentModelConverter` / `AttachmentModelConverter` / `ObservationModelConverter` / `PatientMemoModelConverter` / `SchemaModelConverter` / `LetterModuleConverter` / `RegisteredDiagnosisModelConverter` から `ConverterModelReferences` 依存を除去し、クラス内の最小参照生成へ置換。
+  - 追加（影響一覧）: `docs/modernization/p3-07-dead-helper-removal.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P3-07` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
 - 2026-03-11: P3-06「audit / util / common の最小責務を決める」を完了し、共通部品の配置ルールを固定（RUN_ID=20260311T080109Z）。
   - 追加（方針文書）: `docs/modernization/p3-06-common-scope.md` を新規作成し、`audit` / `util` / `common` の棚卸し結果と配置ルールを明文化。
   - 変更（コードガード）: `common/src/main/java/open/dolphin/common/OrcaApi.java` / `OrcaConnect.java` / `OrcaAnalyze.java` に `@Deprecated(since = "2026-03")` を付与し、`open.dolphin.common` への新規流入を抑止。

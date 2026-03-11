@@ -44,6 +44,7 @@
 - `docs/modernization/p3-04-dto-separation.md`（P3-04: API DTO の entity 分離）
 - `docs/modernization/p3-05-resource-entity-exposure-removal.md`（P3-05: REST 層 entity 直返し/直受けの解消）
 - `docs/modernization/p3-06-common-scope.md`（P3-06: audit/util/common の最小責務定義）
+- `docs/modernization/p3-07-dead-helper-removal.md`（P3-07: ダミー参照・死蔵補助コード整理）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

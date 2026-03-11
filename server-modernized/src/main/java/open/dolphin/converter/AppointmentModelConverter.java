@@ -102,9 +102,25 @@ public final class AppointmentModelConverter implements IInfoModelConverter {
     @Override
     public void setModel(IInfoModel m) {
         this.model = (AppointmentModel)m;
-        KarteBean dummyKarteBean = ConverterModelReferences.dummyKarte(model.getKarteBean().getId());
-        UserModel dummyUser = ConverterModelReferences.dummyUser(model.getUserModel().getId());
-        model.setKarteBean(dummyKarteBean);
-        model.setUserModel(dummyUser);
+        model.setKarteBean(toKarteReference(model.getKarteBean()));
+        model.setUserModel(toUserReference(model.getUserModel()));
+    }
+
+    private KarteBean toKarteReference(KarteBean source) {
+        if (source == null) {
+            return null;
+        }
+        KarteBean reference = new KarteBean();
+        reference.setId(source.getId());
+        return reference;
+    }
+
+    private UserModel toUserReference(UserModel source) {
+        if (source == null) {
+            return null;
+        }
+        UserModel reference = new UserModel();
+        reference.setId(source.getId());
+        return reference;
     }
 }
