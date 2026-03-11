@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P5-04「HTTP 呼び出しと再試行方針を作り直す」を完了し、ORCA transport のタイムアウト/再試行制御を外部設定化（RUN_ID=20260311T130114Z）。
+  - 変更（transport）: `server-modernized/src/main/java/open/dolphin/orca/transport/OrcaHttpClient.java` に connect/read/total timeout と retry/backoff の外部設定読込（`env > system property`）を追加。
+  - 変更（再試行待機）: `Thread.sleep` を除去し、`LockSupport.parkNanos` ベースへ置換。
+  - 変更（失敗分類）: `FailureCategory` を追加し、`OrcaGatewayException` メッセージへ分類コードを付与（`invalid_url`/`network`/`http_status`/`empty_body`/`deadline`/`interrupted`）。
+  - 追加（実施記録）: `docs/modernization/p5-04-orca-http-retry-policy.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P5-04` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=AdminOrcaConnectionResourceTest,OrcaTransportSettingsSecurityPolicyTest,OrcaTransportSettingsExternalConfigTest,OrcaPatientApiResourceRunIdTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（15 tests）。
 - 2026-03-11: P5-03「static singleton とローカルキャッシュの前提をなくす」を完了し、ORCA連携の状態保持を短寿命化（RUN_ID=20260311T130114Z）。
   - 変更（resource）: `server-modernized/src/main/java/open/orca/rest/OrcaResource.java` の mutable static（`HOSP_NUM` / `DB_VERSION` / `RP_OUT`）をインスタンスフィールドへ移行。
   - 変更（transport）: `server-modernized/src/main/java/open/dolphin/orca/transport/RestOrcaTransport.java` の `reloadLock` を削除し、facility 設定キャッシュに TTL を導入（`ORCA_TRANSPORT_CACHE_TTL_MS` / `orca.transport.cache.ttl-ms`, 既定30秒）。

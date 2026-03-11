@@ -57,6 +57,7 @@
 - `docs/modernization/p5-01-orca-boundary-design.md`（P5-01: ORCA境界責務とadapter interface）
 - `docs/modernization/p5-02-orca-external-config.md`（P5-02: ORCA接続設定/認証情報の外部設定化）
 - `docs/modernization/p5-03-static-cache-removal.md`（P5-03: mutable staticと無期限キャッシュ前提の整理）
+- `docs/modernization/p5-04-orca-http-retry-policy.md`（P5-04: ORCA HTTP/再試行ポリシー再設計）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`
