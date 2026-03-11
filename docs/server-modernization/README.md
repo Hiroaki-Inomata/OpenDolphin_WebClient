@@ -74,6 +74,7 @@
 - `docs/modernization/p6-09-existing-data-migration-tooling.md`（P6-09: d_module_payload one-shot 移行ツール）
 - `docs/modernization/p6-10-index-fetch-plan-n-plus1-review.md`（P6-10: index・fetch plan・N+1 見直し）
 - `docs/modernization/p7-01-pvt-socket-worker-separation.md`（P7-01: PvtService 生ソケット受信のワーカー分離）
+- `docs/modernization/p7-02-message-sender-jms-responsibility-split.md`（P7-02: MessageSender JMS 消費責務の整理）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

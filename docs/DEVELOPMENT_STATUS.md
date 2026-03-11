@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P7-02「MessageSender の JMS 消費責務を整理する」を完了し、JMS受信後の同期/後続段階を固定（RUN_ID=20260311T210122Z）。
+  - 変更（handler）: `server-modernized/src/main/java/open/dolphin/session/SessionMessageHandler.java` に処理段階（Stage1/2/3）を明示。
+  - 追加（deferred）: `AUDIT_EVENT` を `ManagedExecutorService` へ委譲する `dispatchAuditEvent` を追加し、拒否時は inline 実行へ fallback。
+  - 整理（sync）: `PVT_XML` は従来どおり同期で parse + `PVTServiceBean#addPvt` を実行する方針を固定。
+  - 追加（実施記録）: `docs/modernization/p7-02-message-sender-jms-responsibility-split.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P7-02` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=MessageSenderTest,SessionMessageHandlerTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（7 tests）。
 - 2026-03-12: P7-01「PvtService の生ソケット受信を別ワーカーへ出す」を完了し、受信責務を worker へ分離（RUN_ID=20260311T210122Z）。
   - 追加（worker）: `server-modernized/src/main/java/open/dolphin/worker/pvt/PvtSocketWorker.java` を新規作成。
   - 変更（service）: `server-modernized/src/main/java/open/dolphin/mbean/PvtService.java` をブートストラップ専任へ整理（`ServerSocket` 受信処理を除去）。

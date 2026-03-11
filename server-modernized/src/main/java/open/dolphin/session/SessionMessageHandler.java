@@ -1,7 +1,9 @@
 package open.dolphin.session;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.concurrent.ManagedExecutorService;
 import jakarta.inject.Inject;
 import jakarta.jms.JMSException;
 import jakarta.jms.Message;
@@ -10,6 +12,8 @@ import java.io.BufferedReader;
 import java.io.StringReader;
 import java.util.Collection;
 import java.util.Properties;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import open.dolphin.infomodel.HealthInsuranceModel;
 import open.dolphin.infomodel.PatientVisitModel;
 import open.dolphin.mbean.PVTBuilder;
@@ -21,7 +25,10 @@ import org.slf4j.LoggerFactory;
 
 /**
  * JMS envelope handling logic extracted from MDB entrypoint.
- * Keep business logic CDI-managed so non-EJB integration points can reuse it.
+ *
+ * Stage 1 (sync): envelope validation and message classification.
+ * Stage 2 (sync): PVT XML domain conversion + addPvt persistence.
+ * Stage 3 (deferred): audit-envelope drain logging on managed executor.
  */
 @ApplicationScoped
 public class SessionMessageHandler {
@@ -33,23 +40,40 @@ public class SessionMessageHandler {
     @Inject
     private PVTServiceBean pvtServiceBean;
 
+    private Executor deferredExecutor = Runnable::run;
+
+    @Resource(lookup = "java:jboss/ee/concurrency/executor/default")
+    void setDeferredExecutor(ManagedExecutorService executorService) {
+        if (executorService != null) {
+            this.deferredExecutor = executorService;
+        }
+    }
+
     public void onMessage(Message message) {
         String traceId = readTraceId(message);
         try {
-            if (!(message instanceof TextMessage textMessage)) {
-                LOGGER.warn("Unsupported JMS message type received: {}", message.getClass().getName());
+            // Stage 1: normalize envelope from JMS message.
+            JmsEnvelopeMessage envelope = readEnvelope(message, traceId);
+            if (envelope == null) {
                 return;
             }
-            String body = textMessage.getText();
-            if (body == null || body.isBlank()) {
-                LOGGER.warn("Empty JMS TextMessage body was rejected [traceId={}]", traceId);
-                return;
-            }
-            JmsEnvelopeMessage envelope = JSON.readValue(body, JmsEnvelopeMessage.class);
             handleEnvelope(envelope, traceId);
         } catch (Exception ex) {
             LOGGER.warn("MessageSender rejected JMS message [traceId={}]", traceId, ex);
         }
+    }
+
+    private JmsEnvelopeMessage readEnvelope(Message message, String traceId) throws Exception {
+        if (!(message instanceof TextMessage textMessage)) {
+            LOGGER.warn("Unsupported JMS message type received: {}", message.getClass().getName());
+            return null;
+        }
+        String body = textMessage.getText();
+        if (body == null || body.isBlank()) {
+            LOGGER.warn("Empty JMS TextMessage body was rejected [traceId={}]", traceId);
+            return null;
+        }
+        return JSON.readValue(body, JmsEnvelopeMessage.class);
     }
 
     private void handleEnvelope(JmsEnvelopeMessage envelope, String traceId) throws Exception {
@@ -59,14 +83,25 @@ public class SessionMessageHandler {
         }
         String type = envelope.getType().trim();
         if (JmsEnvelopeMessage.TYPE_PVT_XML.equals(type)) {
+            // Stage 2 (sync): keep visit import in current transaction scope.
             handlePvt(envelope.getPvtXml(), traceId);
             return;
         }
         if (JmsEnvelopeMessage.TYPE_AUDIT_EVENT.equals(type)) {
-            handleAuditEvent(envelope.getAudit(), traceId);
+            // Stage 3 (deferred): do not block JMS consumer with audit drain logging.
+            dispatchAuditEvent(envelope.getAudit(), traceId);
             return;
         }
         LOGGER.warn("Unsupported JMS envelope type was rejected [traceId={}, type={}]", traceId, type);
+    }
+
+    private void dispatchAuditEvent(JmsEnvelopeMessage.AuditMessage envelope, String traceId) {
+        try {
+            deferredExecutor.execute(() -> handleAuditEvent(envelope, traceId));
+        } catch (RejectedExecutionException ex) {
+            LOGGER.warn("Deferred audit execution rejected, fallback to inline execution [traceId={}]", traceId, ex);
+            handleAuditEvent(envelope, traceId);
+        }
     }
 
     private void handleAuditEvent(JmsEnvelopeMessage.AuditMessage envelope, String traceId) {
