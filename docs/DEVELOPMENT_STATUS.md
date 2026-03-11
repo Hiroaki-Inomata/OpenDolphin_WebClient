@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P2-05「LegacyTouch 抽象層を削除する」を完了し、旧 Touch 土台クラスを除去（RUN_ID=20260311T050453Z）。
+  - 削除: `server-modernized/src/main/java/open/dolphin/shared/legacytouch/LegacyTouchAbstractResource.java` を削除。
+  - 参照確認: `LegacyTouchAbstractResource` / `open.dolphin.shared.legacytouch` の外部参照ゼロを確認。
+  - 追加（影響一覧）: `docs/modernization/p2-05-legacytouch-removal.md` を新規作成。
+  - 反映（WBS）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P2-05` を ☑ 化し、RUN_ID を更新。
+  - 反映（導線）: `docs/server-modernization/README.md` の API/仕様セクションに P2-05 影響一覧リンクを追加。
+  - 検証: `mvn -f server-modernized/pom.xml -DskipTests test-compile` / `mvn -f server-modernized/pom.xml -Dtest=WebXmlEndpointExposureTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS。
 - 2026-03-11: P2-04「Touch パッケージと ASP 入口を削除する」を完了し、旧 `/touch` 実装をコードベースから除去（RUN_ID=20260311T050147Z）。
   - 削除（本体）: `server-modernized/src/main/java/open/dolphin/touch/**`（76ファイル）を削除。
   - 削除（テスト）: `server-modernized/src/test/java/open/dolphin/touch/**`（6ファイル）を削除。

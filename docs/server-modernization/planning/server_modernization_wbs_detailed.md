@@ -1,7 +1,7 @@
 # 詳細工程表（server-modernization 当面作業）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260311T050147Z
+- RUN_ID: 20260311T050453Z
 - 位置付け: `server-modernized` の当面作業を順番に進めるための現行 WBS。
 - 運用: 記載タスクは原則として上から順に消化する。`docs/DEVELOPMENT_STATUS.md`、`AGENTS.md`、最新のユーザー/マネージャー指示と矛盾する場合は、それらを優先する。
 - 参照入口: `docs/server-modernization/README.md`
@@ -30,7 +30,7 @@ A列は ☐ / ☑ で更新します。優先 S は今すぐ着手、A は続け
 | ☑ | P2-02 | 2. 旧入口を閉じる | S | API担当 | 1日 | 削除マトリクスを作る | P2-01 の台帳 / docs/modernization/remove-matrix.md（新規） | P2-01, P1-01 | 入口ごとに、削除、置換、統合、後回しを決める。後方互換は取らないため、Touch、ASP、XML 専用口は基本的に削除扱いにする。 | 入口ごとの扱いが確定し、削除時に迷いが出ない。 | 削除マトリクス、承認記録 | Touch 系と XML 系を先に赤く塗り、残す入口だけを白にする。 |
 | ☑ | P2-03 | 2. 旧入口を閉じる | S | API担当 | 1日 | 新 API の名前空間と単位を決める | 新設 API 設計書 / /api/v1 配下の resource 設計 | P2-02 | 新しい入口を /api/v1 にそろえ、患者、カルテ、受付、ORCA 連携、添付、管理の単位に分ける。レスポンス形式は JSON に統一し、XML 専用口は残さない。 | 新 API の一覧と URI 命名規則が決まり、各担当が並行で実装できる。 | API 設計書、パス命名規則 | 患者、カルテ、ORCA の3系統だけ先に定義する。 |
 | ☑ | P2-04 | 2. 旧入口を閉じる | S | API担当 | 2日 | Touch パッケージと ASP 入口を削除する | open/dolphin/touch/** / DolphinResourceASP.java / touch 関連テスト | P2-03, P1-10 | Touch 専用 DTO、service、resource、ASP 入口をリポジトリから削除する。削除前に、必要な業務機能が新 API 側へ移る計画になっていることを確認する。 | touch 配下が消え、ビルドが通り、必要な機能が別入口へ移る準備ができている。 | 削除コミット、影響一覧、代替先一覧 | まず touch 配下の依存先検索を行い、残存参照を一覧化する。 |
-| ☐ | P2-05 | 2. 旧入口を閉じる | A | API担当 | 1日 | LegacyTouch 抽象層を削除する | open/dolphin/shared/legacytouch/LegacyTouchAbstractResource.java / 参照先全体 | P2-04 | Touch の土台になっている抽象層と補助クラスを削除する。継承関係が残っていると後で誤って再利用されるため、早い段階で消す。 | LegacyTouch 依存がコード上から消える。 | 削除コミット、参照ゼロ確認 | 継承元・利用元を IDE 検索で洗い出し、まとめて切る。 |
+| ☑ | P2-05 | 2. 旧入口を閉じる | A | API担当 | 1日 | LegacyTouch 抽象層を削除する | open/dolphin/shared/legacytouch/LegacyTouchAbstractResource.java / 参照先全体 | P2-04 | Touch の土台になっている抽象層と補助クラスを削除する。継承関係が残っていると後で誤って再利用されるため、早い段階で消す。 | LegacyTouch 依存がコード上から消える。 | 削除コミット、参照ゼロ確認 | 継承元・利用元を IDE 検索で洗い出し、まとめて切る。 |
 | ☐ | P2-06 | 2. 旧入口を閉じる | S | API担当 | 2日 | XML 専用エンドポイントを削除する | KarteResource.java ほか XML 応答を返す resource / converter / parser | P2-03, P1-10 | XML や plist 風の返却を前提にしている口を削除し、JSON へ統一する。削除対象は resource だけでなく、古いシリアライズ補助も含めて追う。 | XML 専用入口が残らず、公開契約が JSON にそろう。 | 削除コミット、API 差分一覧 | まず KarteResource で XML を返している箇所を切り出し、削除範囲を確定する。 |
 | ☐ | P2-07 | 2. 旧入口を閉じる | S | DB担当 | 2日 | common/converter 群を削除する | common/src/main/java/open/dolphin/converter/** / ConverterModelReferences.java | P2-04, P2-06, P3-04 | 旧契約に合わせるための converter 群を削除する。必要な変換は新 API DTO への明示的な mapper に置き換える。 | converter 配下が整理され、ダミー参照が消える。 | 削除コミット、新 mapper 一覧 | converter を機能単位で棚卸しし、残す変換だけ新 mapper に移す。 |
 | ☐ | P2-08 | 2. 旧入口を閉じる | A | 基盤担当 | 1日 | legacy-wildfly10 と独自 naming ブリッジを削除する | common/pom.xml / server-modernized/pom.xml / src/main/java/jakarta/naming/InitialContext.java | P0-05 | 旧コンテナ互換のために残っているビルドプロファイル、shade 設定、独自 InitialContext ブリッジを削除する。実行基盤の前提を一つに寄せる。 | ビルド設定から旧互換向けの特殊処理が消える。 | pom 差分、削除コミット、ビルド確認結果 | まず profile と shade の参照箇所を洗い出し、削除の順番を決める。 |
