@@ -77,6 +77,7 @@
 - `docs/modernization/p7-02-message-sender-jms-responsibility-split.md`（P7-02: MessageSender JMS 消費責務の整理）
 - `docs/modernization/p7-03-pvt-input-retry-idempotency.md`（P7-03: PVT入力パイプラインの再試行・重複防止・毒メッセージ退避）
 - `docs/modernization/p7-04-remove-local-file-output-dependency.md`（P7-04: PVT登録時のローカルファイル出力依存除去）
+- `docs/modernization/p7-05-pvt-replay-tool.md`（P7-05: PVT受信メッセージ再生ツール）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

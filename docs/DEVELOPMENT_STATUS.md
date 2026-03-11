@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P7-05「受信メッセージの再生ツールを作る」を完了し、PVT payload の再生検証ツールを追加（RUN_ID=20260311T220125Z）。
+  - 追加（replay tool）: `server-modernized/src/test/java/open/dolphin/worker/pvt/PvtReplayTool.java` を新規作成（`--input`/`--repeat`/`--retry-max`/`--fail-first` 対応）。
+  - 追加（sample）: `server-modernized/src/test/resources/replay/pvt/normal-message.xml` を新規追加。
+  - 追加（テスト）: `server-modernized/src/test/java/open/dolphin/worker/pvt/PvtReplayToolTest.java` を新規作成（duplicate 検出と poison 退避を固定）。
+  - 追加（実施記録）: `docs/modernization/p7-05-pvt-replay-tool.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P7-05` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -Dtest=PvtReplayToolTest,PvtSocketWorkerPipelineTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（5 tests）。
 - 2026-03-12: P7-04「ローカルファイル出力依存をなくす」を完了し、PVT登録時の CSV ファイル出力経路を削除（RUN_ID=20260311T220125Z）。
   - 変更（service）: `server-modernized/src/main/java/open/dolphin/session/PVTServiceBean.java` から `custom.properties` 読込 + `csv.output` 条件分岐 + CSV書込処理を削除。
   - 内容: PVT登録の副作用をローカルファイル出力から切り離し、DB更新/通知のみを正規経路へ統一。
