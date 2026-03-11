@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P2-01「現行の公開入口を一覧化する」を完了し、公開面と利用者の対応表を固定（RUN_ID=20260311T001049Z）。
+  - 追加（台帳）: `docs/modernization/p2-01-public-endpoint-inventory.md` を新規作成。`web.xml` の servlet mapping、`open/dolphin/rest`/`open/dolphin/touch`/`open/orca/rest` の公開面、`web-client` 利用入口を1枚に集約。
+  - 要確認明示: `/touch/**` と xml2 互換 alias 群（`/api01rv2/**`, `/api/api01rv2/**`, `/orcaXX/**`）を「呼び出し元要確認」として明示し、P2-02 の削除マトリクス入力に指定。
+  - 反映（WBS）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P2-01` を ☑ 化し、RUN_ID を更新。
+  - 反映（導線）: `docs/server-modernization/README.md` の API/仕様セクションに P2-01 台帳リンクを追加。
 - 2026-03-11: P1-10「性格確認テストを CI で常時回す」を完了し、PR軽量/夜間拡張の自動実行を追加（RUN_ID=20260311T000151Z）。
   - 追加（CI）: `.github/workflows/server-modernized-characterization.yml` を新規作成し、`server-modernized` 向けに `pull_request`（軽量7テスト）と `schedule/workflow_dispatch`（拡張26テスト）を実装。
   - 実行方針: JDK25（Temurin）を一次実行とし、一次失敗時のみ `JDK21 + byte-buddy-agent` で自動再実行する fallback を導入。

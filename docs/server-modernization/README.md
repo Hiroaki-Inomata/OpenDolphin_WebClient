@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260311T000151Z
+- RUN_ID: 20260311T001049Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -27,6 +27,7 @@
 - `docs/modernization/p1-03-baseline-fixture-setup.md`（P1-03 基準データ・fixture 初期化手順）
 - `docs/server-modernization/server-api-inventory.md`
 - `docs/server-modernization/MODERNIZED_REST_API_INVENTORY.md`
+- `docs/modernization/p2-01-public-endpoint-inventory.md`（P2-01: 現行公開入口台帳）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`
