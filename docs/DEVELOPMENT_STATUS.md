@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: `P6-04` の依存順ブロッカーを再試行したが未解消（RUN_ID=20260311T190124Z）。
+  - 内容: `P6-04`（Module保存形式実装）の成立条件を再評価し、`P6-08` 依存との順序衝突が継続していることを確認。
+  - 試行: (1) `P6-04` と `P6-08` を同一実行内で同時実装、(2) `d_module_payload` 先行 + `bean_json` 併用、(3) `medOrder`/`progressCourse` だけ先行切替、の3案を比較。
+  - 判定: `bean_json` 依存が `server-modernized`/`persistence` に少なくとも47箇所あり、`OrcaOrderBundleResource` の `d_module.bean_json` 直接参照も残るため、(1) は `P6-08` 完了条件まで同時充足不可。(2)(3) は WBS 完了条件（旧保存形式非依存）に抵触し採用不可。
+  - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` のブロッカー節へ RUN_ID=20260311T190124Z の試行結果を追記。
 - 2026-03-12: `P6-04` の依存順ブロッカーを再試行したが未解消（RUN_ID=20260311T180746Z）。
   - 内容: `P6-04` の完了条件（新形式で保存/取得/改訂/比較）に必要な `d_module_payload` 前提が `P6-08` migration 未実施のため満たせないことを再確認。
   - 試行: (1) `P6-04` 内で暫定DDLを先行し後で `P6-08` へ再分離、(2) `P6-08` を先行着手して順序逆転、(3) `bean_json` 維持のまま mapper/repository 骨格のみ先行実装、の3案を評価。
