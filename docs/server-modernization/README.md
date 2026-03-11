@@ -50,6 +50,7 @@
 - `docs/modernization/p4-02-karte-service-usecase-split.md`（P4-02: KarteServiceBean の use case 分割）
 - `docs/modernization/p4-03-resource-splitting.md`（P4-03: 患者更新・管理系 Resource 分割）
 - `docs/modernization/p4-04-cross-cutting-authorization-audit.md`（P4-04: 認可/監査の横断部品化）
+- `docs/modernization/p4-05-error-response-request-id-unification.md`（P4-05: エラー応答形式と request id 統一）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`
