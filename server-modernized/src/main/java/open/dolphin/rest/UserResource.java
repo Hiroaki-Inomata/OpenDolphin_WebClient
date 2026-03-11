@@ -19,6 +19,7 @@ import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.rest.dto.CurrentUserResponse;
+import open.dolphin.rest.support.CurrentUserResponseMapper;
 import open.dolphin.session.UserServiceBean;
 
 /**
@@ -53,7 +54,7 @@ public class UserResource extends AbstractResource {
             Logger.getLogger("open.dolphin").log(Level.WARNING, "Denied user read for actor={0}", new Object[]{remoteUser});
             throw restError(servletReq, Response.Status.NOT_FOUND, "not_found", "Requested resource was not found.");
         }
-        return CurrentUserResponse.from(result);
+        return CurrentUserResponseMapper.from(result);
     }
 
     @GET
@@ -75,7 +76,7 @@ public class UserResource extends AbstractResource {
 
         List<UserModel> result = userServiceBean.getAllUser(fid);
         return result.stream()
-                .map(CurrentUserResponse::from)
+                .map(CurrentUserResponseMapper::from)
                 .collect(Collectors.toList());
     }
 

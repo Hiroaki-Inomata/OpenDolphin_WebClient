@@ -2,10 +2,6 @@ package open.dolphin.rest.dto;
 
 import java.util.ArrayList;
 import java.util.List;
-import open.dolphin.infomodel.DocumentModel;
-import open.dolphin.infomodel.ModuleModel;
-import open.dolphin.infomodel.PatientFreeDocumentModel;
-import open.dolphin.rest.support.KarteRevisionResponseMapper;
 
 public final class LegacyKarteListResponse {
 
@@ -23,17 +19,13 @@ public final class LegacyKarteListResponse {
             this.list = list;
         }
 
-        public static DocumentListResponse of(List<DocumentModel> documents) {
+        public static DocumentListResponse ofMapped(List<KarteRevisionDocumentResponse> documents) {
             DocumentListResponse response = new DocumentListResponse();
             if (documents == null || documents.isEmpty()) {
                 response.setList(List.of());
                 return response;
             }
-            List<KarteRevisionDocumentResponse> mapped = new ArrayList<>(documents.size());
-            for (DocumentModel document : documents) {
-                mapped.add(KarteRevisionResponseMapper.map(document));
-            }
-            response.setList(List.copyOf(mapped));
+            response.setList(List.copyOf(documents));
             return response;
         }
     }
@@ -49,10 +41,9 @@ public final class LegacyKarteListResponse {
             this.list = list;
         }
 
-        public static ModuleListResponse of(List<ModuleModel> modules) {
+        public static ModuleListResponse ofMapped(List<KarteRevisionDocumentResponse.ModuleResponse> modules) {
             ModuleListResponse response = new ModuleListResponse();
-            List<KarteRevisionDocumentResponse.ModuleResponse> mapped = KarteRevisionResponseMapper.mapModuleResponses(modules);
-            response.setList(mapped != null ? mapped : List.of());
+            response.setList(modules != null ? List.copyOf(modules) : List.of());
             return response;
         }
     }
@@ -68,15 +59,15 @@ public final class LegacyKarteListResponse {
             this.list = list;
         }
 
-        public static ModuleListListResponse of(List<List<ModuleModel>> groupedModules) {
+        public static ModuleListListResponse ofMapped(List<List<KarteRevisionDocumentResponse.ModuleResponse>> groupedModules) {
             ModuleListListResponse response = new ModuleListListResponse();
             if (groupedModules == null || groupedModules.isEmpty()) {
                 response.setList(List.of());
                 return response;
             }
             List<ModuleListResponse> mapped = new ArrayList<>(groupedModules.size());
-            for (List<ModuleModel> modules : groupedModules) {
-                mapped.add(ModuleListResponse.of(modules));
+            for (List<KarteRevisionDocumentResponse.ModuleResponse> modules : groupedModules) {
+                mapped.add(ModuleListResponse.ofMapped(modules));
             }
             response.setList(List.copyOf(mapped));
             return response;
@@ -121,15 +112,15 @@ public final class LegacyKarteListResponse {
             this.comment = comment;
         }
 
-        public static PatientFreeDocumentResponse of(PatientFreeDocumentModel model) {
-            if (model == null) {
+        public static PatientFreeDocumentResponse of(long id, String facilityPatId, java.util.Date confirmed, String comment) {
+            if (facilityPatId == null && confirmed == null && comment == null && id == 0L) {
                 return null;
             }
             PatientFreeDocumentResponse response = new PatientFreeDocumentResponse();
-            response.setId(model.getId());
-            response.setFacilityPatId(model.getFacilityPatId());
-            response.setConfirmed(model.getConfirmed());
-            response.setComment(model.getComment());
+            response.setId(id);
+            response.setFacilityPatId(facilityPatId);
+            response.setConfirmed(confirmed);
+            response.setComment(comment);
             return response;
         }
     }

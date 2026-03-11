@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P3-04「API DTO を entity から分離する」を完了し、API 契約 DTO を `api-contract` へ集約（RUN_ID=20260311T070119Z）。
+  - 変更: `server-modernized/src/main/java/open/dolphin/rest/dto/**` を `api-contract/src/main/java/open/dolphin/rest/dto/**` へ移設。
+  - 変更: `CurrentUserResponse` / `SafetySummaryResponse` / `LegacyKarteListResponse` から entity 直接依存を除去。
+  - 追加: `server-modernized/src/main/java/open/dolphin/rest/support/CurrentUserResponseMapper.java` を新規作成し、entity→DTO 変換責務を server 層へ移動。
+  - 変更: `KarteResource` / `OrcaResource` / `KarteServiceBean` / `SessionAuthResource` / `UserResource` を新DTO契約へ追従。
+  - 追加（影響一覧）: `docs/modernization/p3-04-dto-separation.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P3-04` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl api-contract,server-modernized -am -DskipTests test-compile` PASS。`UserResourceTest` / `SessionAuthResourceTest` は JDK21 + byte-buddy-agent fallback で PASS（23 tests）。
 - 2026-03-11: P3-03「JPA entity を common から切り離す」を完了し、`infomodel` の実体配置を `persistence` へ移管（RUN_ID=20260311T070119Z）。
   - 追加: `persistence` module（`persistence/pom.xml`）を新規作成。
   - 変更: `common/src/main/java/open/dolphin/infomodel/**` および `common/src/test/java/open/dolphin/infomodel/**` を `persistence` へ移設。

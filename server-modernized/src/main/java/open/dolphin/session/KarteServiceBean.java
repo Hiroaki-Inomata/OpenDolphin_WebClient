@@ -691,10 +691,10 @@ public class KarteServiceBean {
                 .setParameter(KARTE_ID, karteId)
                 .getResultList();
         
-        List<AllergyModel> allergies = new ArrayList<>();
+        List<SafetySummaryResponse.AllergySummaryResponse> allergies = new ArrayList<>();
         if (observations != null) {
             for (ObservationModel observation : observations) {
-                AllergyModel allergy = new AllergyModel();
+                SafetySummaryResponse.AllergySummaryResponse allergy = new SafetySummaryResponse.AllergySummaryResponse();
                 allergy.setObservationId(observation.getId());
                 allergy.setFactor(observation.getPhenomenon());
                 allergy.setSeverity(observation.getCategoryValue());
