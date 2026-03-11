@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260311T061511Z
+- RUN_ID: 20260311T080109Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -42,6 +42,7 @@
 - `docs/modernization/p3-02-module-skeleton.md`（P3-02: 新 module 雛形）
 - `docs/modernization/p3-03-entity-separation.md`（P3-03: JPA entity の common 分離）
 - `docs/modernization/p3-04-dto-separation.md`（P3-04: API DTO の entity 分離）
+- `docs/modernization/p3-05-resource-entity-exposure-removal.md`（P3-05: REST 層 entity 直返し/直受けの解消）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

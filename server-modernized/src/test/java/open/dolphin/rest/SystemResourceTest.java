@@ -14,6 +14,7 @@ import java.util.*;
 import open.dolphin.infomodel.ActivityModel;
 import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.UserModel;
+import open.dolphin.rest.dto.ActivitySummaryResponse;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.AccountSummary;
@@ -241,10 +242,10 @@ class SystemResourceTest extends RuntimeDelegateTestSupport {
                 .thenReturn(latest, previous);
         when(systemServiceBean.countTotalActivities("F001")).thenReturn(total);
 
-        List<ActivityModel> result = resource.getActivities("2025,9,2");
+        List<ActivitySummaryResponse> result = resource.getActivities("2025,9,2");
 
         assertThat(result).hasSize(3);
-        assertThat(result.get(2)).isSameAs(total);
+        assertThat(result.get(2).getFlag()).isEqualTo(total.getFlag());
 
         verify(systemServiceBean, times(2)).countActivities(eq("F001"), any(Date.class), any(Date.class));
         verify(systemServiceBean).countTotalActivities("F001");

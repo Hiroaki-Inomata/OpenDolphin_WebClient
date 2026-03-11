@@ -19,7 +19,9 @@ import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.rest.dto.CurrentUserResponse;
+import open.dolphin.rest.dto.UserMutationRequest;
 import open.dolphin.rest.support.CurrentUserResponseMapper;
+import open.dolphin.rest.support.UserMutationRequestMapper;
 import open.dolphin.session.UserServiceBean;
 
 /**
@@ -98,7 +100,8 @@ public class UserResource extends AbstractResource {
         String fid = getRemoteFacility(servletReq.getRemoteUser());
         debug(fid);
 
-        UserModel model = readJson(json, UserModel.class);
+        UserMutationRequest requestPayload = readJson(json, UserMutationRequest.class);
+        UserModel model = UserMutationRequestMapper.toModel(requestPayload);
 
         if (model.getFacilityModel() == null) {
             open.dolphin.infomodel.FacilityModel facilityModel = new open.dolphin.infomodel.FacilityModel();
@@ -125,7 +128,8 @@ public class UserResource extends AbstractResource {
     @Produces(MediaType.TEXT_PLAIN)
     public String putUser(@Context HttpServletRequest servletReq, String json) throws IOException {
 
-        UserModel model = readJson(json, UserModel.class);
+        UserMutationRequest requestPayload = readJson(json, UserMutationRequest.class);
+        UserModel model = UserMutationRequestMapper.toModel(requestPayload);
 
         HttpServletRequest req = (HttpServletRequest)servletReq;
         String remoteUser = requireRemoteUser(req);
@@ -194,7 +198,8 @@ public class UserResource extends AbstractResource {
         requireAdmin(req, userServiceBean);
         String actorFacility = requireActorFacility(req);
 
-        UserModel model = readJson(json, UserModel.class);
+        UserMutationRequest requestPayload = readJson(json, UserMutationRequest.class);
+        UserModel model = UserMutationRequestMapper.toModel(requestPayload);
         FacilityModel requestedFacility = model != null ? model.getFacilityModel() : null;
         FacilityModel currentFacility = loadFacilityByPkQuietly(requestedFacility != null ? requestedFacility.getId() : 0L);
         if (currentFacility == null) {
