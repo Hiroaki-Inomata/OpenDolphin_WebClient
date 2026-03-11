@@ -28,8 +28,10 @@ import org.xml.sax.SAXException;
 
 /**
  *
+ * @deprecated P3-06 以降は新規利用禁止。ORCA XML 解析は `server-modernized` の adapter 実装へ移行する。
  * @author S.Oh@Life Sciences Computing Corporation.
  */
+@Deprecated(since = "2026-03", forRemoval = false)
 public class OrcaAnalyze {
     // 更新日: 2025-11-03, 担当: Codex
 

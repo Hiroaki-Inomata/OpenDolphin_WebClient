@@ -19,8 +19,10 @@ import org.apache.commons.codec.binary.Base64;
 
 /**
  * ORCA APIクラス
+ * @deprecated P3-06 以降は新規利用禁止。ORCA 連携は `server-modernized` の adapter 層へ集約する。
  * @author Life Sciences Computing Corporation.
  */
+@Deprecated(since = "2026-03", forRemoval = false)
 public class OrcaApi {
     private static final String URL_HTTP = "http://";
     public static final String REQUESTMETHOD_POST = "POST";
