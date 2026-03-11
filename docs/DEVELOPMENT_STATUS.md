@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P3-03「JPA entity を common から切り離す」を完了し、`infomodel` の実体配置を `persistence` へ移管（RUN_ID=20260311T070119Z）。
+  - 追加: `persistence` module（`persistence/pom.xml`）を新規作成。
+  - 変更: `common/src/main/java/open/dolphin/infomodel/**` および `common/src/test/java/open/dolphin/infomodel/**` を `persistence` へ移設。
+  - 変更: `pom.server-modernized.xml` / `pom.xml` の module 定義と dependencyManagement に `opendolphin-persistence` を追加。
+  - 変更: `common/pom.xml` に `opendolphin-persistence` 依存を追加し、`common` 直下から entity 実装を分離。
+  - 追加（影響一覧）: `docs/modernization/p3-03-entity-separation.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P3-03` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl persistence,common,server-modernized -am -DskipTests test-compile` PASS。
 - 2026-03-11: P3-02「新 module のひな型を作る」を完了し、`domain` / `api-contract` の最小 reactor を追加（RUN_ID=20260311T061511Z）。
   - 追加: `domain` module（`domain/pom.xml`, `DomainMarker`）。
   - 追加: `api-contract` module（`api-contract/pom.xml`, `ApiContractMarker`）。
