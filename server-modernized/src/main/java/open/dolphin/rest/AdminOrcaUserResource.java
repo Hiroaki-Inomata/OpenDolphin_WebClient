@@ -281,11 +281,6 @@ public class AdminOrcaUserResource extends AbstractResource {
         return Response.ok(body).header("x-run-id", runId).build();
     }
 
-    @PUT
-    @Path("/users/{ehrUserId}/orca-link")
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Produces(MediaType.APPLICATION_JSON)
-    @Transactional
     public Response linkEhrUserToOrca(@Context HttpServletRequest request,
                                       @PathParam("ehrUserId") String ehrUserId,
                                       Map<String, Object> payload) {
@@ -341,10 +336,6 @@ public class AdminOrcaUserResource extends AbstractResource {
         return Response.ok(body).header("x-run-id", runId).build();
     }
 
-    @DELETE
-    @Path("/users/{ehrUserId}/orca-link")
-    @Produces(MediaType.APPLICATION_JSON)
-    @Transactional
     public Response unlinkEhrUserFromOrca(@Context HttpServletRequest request,
                                           @PathParam("ehrUserId") String ehrUserId) {
         String runId = AbstractOrcaRestResource.resolveRunIdValue(request);

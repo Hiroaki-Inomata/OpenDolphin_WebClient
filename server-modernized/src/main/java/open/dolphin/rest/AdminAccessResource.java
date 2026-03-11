@@ -297,11 +297,6 @@ public class AdminAccessResource extends AbstractResource {
         return Response.ok(body).header("x-run-id", runId).build();
     }
 
-    @POST
-    @Path("/users/{userPk}/password-reset")
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Produces(MediaType.APPLICATION_JSON)
-    @Transactional
     public Response resetPassword(@jakarta.ws.rs.core.Context HttpServletRequest request,
                                   @PathParam("userPk") long userPk,
                                   Map<String, Object> payload) {

@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P4-03「患者更新・管理系の巨大 resource を分ける」を完了し、管理系/患者更新系 endpoint の責務を機能別に分割（RUN_ID=20260311T110043Z）。
+  - 追加（resource）: `server-modernized/src/main/java/open/dolphin/rest/PatientModV2OutpatientMockResource.java` / `AdminAccessPasswordResetResource.java` / `AdminOrcaUserLinkResource.java` を新規作成。
+  - 変更（resource）: `PatientModV2OutpatientResource` / `AdminAccessResource` / `AdminOrcaUserResource` の分割対象 endpoint 注釈を新規 Resource 側へ移管し、既存処理は委譲で維持。
+  - 変更（descriptor）: `server-modernized/src/main/webapp/WEB-INF/web.xml` の `resteasy.resources` に分割後 Resource を追加。
+  - 追加（実施記録）: `docs/modernization/p4-03-resource-splitting.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P4-03` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=PatientModV2OutpatientResourceIdempotencyTest,AdminAccessResourceTest,AdminOrcaUserResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（14 tests）。
 - 2026-03-11: P4-02「KarteServiceBean を use case 単位に分ける」を完了し、write 系の責務を専用 service へ分割（RUN_ID=20260311T100117Z）。
   - 追加（service）: `server-modernized/src/main/java/open/dolphin/session/KarteDocumentWriteService.java` / `KarteDiagnosisService.java` / `KarteObservationService.java` を新規作成。
   - 変更（service）: `server-modernized/src/main/java/open/dolphin/session/KarteServiceBean.java` の文書書込・傷病名・観察メソッドを委譲化し、巨大 private 実装ブロックを削減。

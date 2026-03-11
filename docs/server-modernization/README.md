@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260311T100117Z
+- RUN_ID: 20260311T110043Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -48,6 +48,7 @@
 - `docs/modernization/p3-08-build-structure.md`（P3-08: モジュール再編後ビルド構成）
 - `docs/modernization/p4-01-karte-resource-split.md`（P4-01: KarteResource の read/write 責務分割）
 - `docs/modernization/p4-02-karte-service-usecase-split.md`（P4-02: KarteServiceBean の use case 分割）
+- `docs/modernization/p4-03-resource-splitting.md`（P4-03: 患者更新・管理系 Resource 分割）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

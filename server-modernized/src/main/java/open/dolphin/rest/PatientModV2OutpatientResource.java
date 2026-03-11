@@ -93,10 +93,6 @@ public class PatientModV2OutpatientResource extends AbstractResource {
         return handleMutation(request, payload, DATA_SOURCE_SERVER, false);
     }
 
-    @POST
-    @Path("/mock")
-    @Consumes(MediaType.APPLICATION_JSON)
-    @Produces(MediaType.APPLICATION_JSON)
     public Response mutatePatientMock(@Context HttpServletRequest request, Map<String, Object> payload) {
         return handleMutation(request, payload, DATA_SOURCE_MOCK, true);
     }
