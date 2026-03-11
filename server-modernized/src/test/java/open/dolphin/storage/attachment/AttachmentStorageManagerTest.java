@@ -14,16 +14,21 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import open.dolphin.infomodel.AttachmentModel;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.PatientModel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.http.AbortableInputStream;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -136,6 +141,43 @@ class AttachmentStorageManagerTest {
         assertThatThrownBy(() -> manager.populateBinary(attachment))
                 .isInstanceOf(AttachmentStorageException.class)
                 .hasMessageContaining("neither inline bytes nor external uri");
+    }
+
+    @Test
+    void scheduleDeleteExternalAssetAfterCommit_deletesImmediatelyWhenNoTransaction() throws Exception {
+        TransactionSynchronizationRegistry registry = mock(TransactionSynchronizationRegistry.class);
+        when(registry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+        setField(manager, "registry", registry);
+
+        AttachmentModel attachment = buildAttachment("report.txt", null);
+        attachment.setUri("s3://test-bucket/attachments/doc-20/att-10-report.txt");
+
+        manager.scheduleDeleteExternalAssetAfterCommit(attachment);
+
+        verify(s3Client).deleteObject(any(DeleteObjectRequest.class));
+        verify(registry, never()).registerInterposedSynchronization(any());
+    }
+
+    @Test
+    void scheduleDeleteExternalAssetAfterCommit_deletesOnlyAfterCommit() throws Exception {
+        TransactionSynchronizationRegistry registry = mock(TransactionSynchronizationRegistry.class);
+        when(registry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+        setField(manager, "registry", registry);
+
+        AttachmentModel attachment = buildAttachment("report.txt", null);
+        attachment.setUri("s3://test-bucket/attachments/doc-20/att-10-report.txt");
+
+        manager.scheduleDeleteExternalAssetAfterCommit(attachment);
+
+        ArgumentCaptor<Synchronization> captor = ArgumentCaptor.forClass(Synchronization.class);
+        verify(registry).registerInterposedSynchronization(captor.capture());
+        verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+
+        captor.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
+        verify(s3Client, never()).deleteObject(any(DeleteObjectRequest.class));
+
+        captor.getValue().afterCompletion(Status.STATUS_COMMITTED);
+        verify(s3Client).deleteObject(any(DeleteObjectRequest.class));
     }
 
     private static AttachmentModel buildAttachment(String fileName, byte[] bytes) {

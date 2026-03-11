@@ -11,13 +11,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
 import jakarta.transaction.Transactional;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import open.dolphin.infomodel.ChartEventModel;
 import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.HealthInsuranceModel;
@@ -72,6 +76,9 @@ public class PatientServiceBean {
 //masuda^
     @Inject
     private ChartEventServiceBean eventServiceBean;
+
+    @Resource
+    private TransactionSynchronizationRegistry registry;
 //masuda$
 
     
@@ -384,6 +391,7 @@ public class PatientServiceBean {
     private void updatePvtList(PatientModel pm) {
         String fid = pm.getFacilityId();
         List<PatientVisitModel> pvtList = eventServiceBean.getPvtList(fid);
+        List<ChartEventModel> deferredEvents = new ArrayList<>();
         for (PatientVisitModel pvt : pvtList) {
             if (pvt.getPatientModel().getId() == pm.getId()) {
 //s.oh^ 2013/10/07 患者情報が正しく表示されない
@@ -399,9 +407,44 @@ public class PatientServiceBean {
                 msg.setPatientModel(pm);
                 msg.setFacilityId(fid);
                 msg.setEventType(ChartEventModel.PM_MERGE);
-                eventServiceBean.notifyEvent(msg);
+                deferredEvents.add(msg);
             }
         }
+        dispatchAfterCommit(deferredEvents);
+    }
+
+    private void dispatchAfterCommit(List<ChartEventModel> events) {
+        if (events == null || events.isEmpty()) {
+            return;
+        }
+        if (registry == null) {
+            events.forEach(eventServiceBean::notifyEvent);
+            return;
+        }
+        int txStatus = registry.getTransactionStatus();
+        if (txStatus == Status.STATUS_ACTIVE
+                || txStatus == Status.STATUS_MARKED_ROLLBACK
+                || txStatus == Status.STATUS_PREPARING
+                || txStatus == Status.STATUS_PREPARED
+                || txStatus == Status.STATUS_COMMITTING
+                || txStatus == Status.STATUS_ROLLING_BACK) {
+            List<ChartEventModel> snapshot = List.copyOf(events);
+            registry.registerInterposedSynchronization(new Synchronization() {
+                @Override
+                public void beforeCompletion() {
+                    // no-op
+                }
+
+                @Override
+                public void afterCompletion(int status) {
+                    if (status == Status.STATUS_COMMITTED) {
+                        snapshot.forEach(eventServiceBean::notifyEvent);
+                    }
+                }
+            });
+            return;
+        }
+        events.forEach(eventServiceBean::notifyEvent);
     }
     
     private void setPvtDate(String fid, List<PatientModel> list) {
