@@ -224,9 +224,6 @@ public class OrcaResource {
     }
     //masuda$
     
-    @GET
-    @Path("/facilitycode")
-    @Produces(MediaType.TEXT_PLAIN)
     public String getFacilityCodeBy1001() {
        
 //s.oh^ 2013/10/17 ローカルORCA対応
@@ -561,10 +558,7 @@ public class OrcaResource {
     }
 
 
-    @GET
-    @Path("/disease/name/{param}/")
-    @Produces(MediaType.APPLICATION_JSON)
-    public DiseaseListConverter getDiseaseByName(@PathParam("param") String param) {
+    public DiseaseListConverter getDiseaseByName(String param) {
         
         // パラメーターを取得する
         String[] params = param.split(CAMMA);
@@ -1230,15 +1224,12 @@ public class OrcaResource {
      * ORCA に登録してある病名を検索する。
      * @return RegisteredDiagnosisModelのリスト
      */
-    @GET
-    @Path("/disease/import/{param}")
-    @Produces(MediaType.APPLICATION_JSON)
     public RegisteredDiagnosisListConverter getOrcaDisease(
-            @PathParam("param") String param,
-            @QueryParam("from") String fromQuery,
-            @QueryParam("to") String toQuery,
-            @QueryParam("activeOnly") String activeOnlyQuery,
-            @QueryParam("ascend") String ascendQuery) {
+            String param,
+            String fromQuery,
+            String toQuery,
+            String activeOnlyQuery,
+            String ascendQuery) {
 
         String[] params = splitParamSafely(param);
         String patientId;
@@ -1417,10 +1408,7 @@ public class OrcaResource {
      * ORCA に登録してある直近の病名を検索する。
      * @return RegisteredDiagnosisModelのリスト
      */
-    @GET
-    @Path("/disease/active/{param}")
-    @Produces(MediaType.APPLICATION_JSON)
-    public RegisteredDiagnosisListConverter getActiveOrcaDisease(@PathParam("param") String param) {
+    public RegisteredDiagnosisListConverter getActiveOrcaDisease(String param) {
         
         String[] params = param.split(CAMMA);
         String patientId = params[0];
@@ -1566,10 +1554,7 @@ public class OrcaResource {
     }
     
 //s.oh^ 2014/03/13 傷病名削除診療科対応
-    @GET
-    @Path("/deptinfo")
-    @Produces({MediaType.TEXT_PLAIN, MediaType.APPLICATION_JSON})
-    public Response getDeptInfo(@Context HttpServletRequest request) {
+    public Response getDeptInfo(HttpServletRequest request) {
         String ret = "";
         try {
             // custom.properties から 保健医療機関コードとJMARIコードを読む
