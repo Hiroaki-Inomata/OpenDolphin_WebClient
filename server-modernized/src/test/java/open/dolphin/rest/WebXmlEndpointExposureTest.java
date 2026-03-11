@@ -13,6 +13,10 @@ class WebXmlEndpointExposureTest {
     void webXmlDoesNotExposeRemovedLegacyResources() throws IOException {
         String webXml = Files.readString(Path.of("src/main/webapp/WEB-INF/web.xml"));
         assertThat(webXml)
+                .contains("open.dolphin.rest.KarteDocumentWriteResource")
+                .contains("open.dolphin.rest.PatientModV2OutpatientMockResource")
+                .contains("open.dolphin.rest.AdminAccessPasswordResetResource")
+                .contains("open.dolphin.rest.AdminOrcaUserLinkResource")
                 .doesNotContain("open.dolphin.touch.DolphinResourceASP")
                 .doesNotContain("open.dolphin.rest.PatientResource")
                 .doesNotContain("open.dolphin.rest.NLabResource")

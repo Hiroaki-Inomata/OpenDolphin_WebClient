@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P4-08「実装後の API 文書とテストを更新する」を完了し、分割済みResourceの文書/公開面テストを同期（RUN_ID=20260311T120154Z）。
+  - 変更（API文書）: `docs/modernization/api-map.md` に P4 分割Resourceの確認ポイント表を追加。
+  - 追加（実施記録）: `docs/modernization/p4-08-api-doc-test-sync.md` を新規作成し、レビュー定型と対象テストを固定。
+  - 変更（テスト）: `WebXmlEndpointExposureTest` に split Resource の公開登録確認を追加。
+  - 修正（公開面）: `server-modernized/src/main/webapp/WEB-INF/web.xml` に `KarteDocumentWriteResource` 登録を追加（テストで検知した未登録不整合を解消）。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P4-08` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=WebXmlEndpointExposureTest,KarteResourceDocumentContractTest,AdminAccessResourceTest,AdminOrcaUserResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（14 tests）。
 - 2026-03-11: P4-07「EJB 固有前提を減らし CDI 中心へ寄せる」を完了し、MDBを薄い入口へ縮退（RUN_ID=20260311T120154Z）。
   - 追加（CDI）: `server-modernized/src/main/java/open/dolphin/session/SessionMessageHandler.java` を新規作成し、JMS envelope処理本体を移管。
   - 変更（MDB）: `server-modernized/src/main/java/open/dolphin/session/MessageSender.java` を「受信入口→CDIハンドラ委譲」の薄い構成へ変更。
