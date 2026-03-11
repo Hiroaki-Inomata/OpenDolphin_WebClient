@@ -92,3 +92,21 @@ SELECT con.conname,
 - `V0242__order_recommendation_indexes.sql`: recommendation 集計用インデックス。
 - `V0244__patient_facility_patientid_unique.sql`: 患者複合キーの一意化。
 - `V0245__validate_not_valid_foreign_keys.sql`: NOT VALID FK の VALIDATE。
+
+## P6-09 one-shot 移行（d_module_payload）
+- スクリプト:
+  - `server-modernized/tools/flyway/scripts/run-module-payload-migration.sh`
+  - `server-modernized/tools/flyway/scripts/module-payload-migrate-once.sql`
+  - `server-modernized/tools/flyway/scripts/module-payload-verify.sql`
+- 前提環境変数:
+  - `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+  - 任意: `DB_PORT`（既定 `5432`）, `DB_SSLMODE`（既定 `require`）, `RUN_ID`
+- 実行例:
+```bash
+DB_HOST=127.0.0.1 DB_NAME=opendolphin DB_USER=postgres DB_PASSWORD=secret DB_SSLMODE=disable \
+RUN_ID=20260311T210122Z \
+server-modernized/tools/flyway/scripts/run-module-payload-migration.sh
+```
+- 照合ポイント:
+  - `module-payload-verify.sql` の `missing_payload_rows` が `0` であること。
+  - `opendolphin.d_module_payload_migration_run` に `run_id` ごとの実行結果が残ること。

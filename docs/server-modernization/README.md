@@ -71,6 +71,7 @@
 - `docs/modernization/p6-06-native-query-jdbc-inventory-and-rewrite.md`（P6-06: native query/raw JDBC の棚卸しと query service 集約）
 - `docs/modernization/p6-07-persistence-class-list-minimization.md`（P6-07: persistence.xml の手書き class list 最小化）
 - `docs/modernization/p6-08-flyway-schema-migration.md`（P6-08: module payload 向け Flyway migration）
+- `docs/modernization/p6-09-existing-data-migration-tooling.md`（P6-09: d_module_payload one-shot 移行ツール）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

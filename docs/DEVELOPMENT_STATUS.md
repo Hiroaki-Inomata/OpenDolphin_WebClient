@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P6-09「既存データ移行スクリプトを作る」を完了し、`d_module_payload` への one-shot 移行ツールを追加（RUN_ID=20260311T210122Z）。
+  - 追加（one-shotツール）: `server-modernized/tools/flyway/scripts/run-module-payload-migration.sh` / `module-payload-migrate-once.sql` / `module-payload-verify.sql`。
+  - 内容: `medOrder` / `progressCourse` の versioned envelope を `d_module_payload` へ upsert し、`d_module_payload_migration_run` へ run_id 単位の進捗（開始/終了/件数/状態）を記録。
+  - 変更（運用手順）: `server-modernized/tools/flyway/README.md` に P6-09 one-shot 実行手順と照合観点を追記。
+  - 追加（実施記録）: `docs/modernization/p6-09-existing-data-migration-tooling.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P6-09` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `bash -n server-modernized/tools/flyway/scripts/run-module-payload-migration.sh` PASS。
 - 2026-03-12: P6-08「新 schema の Flyway migration を作る」を完了し、module payload 用テーブルを追加（RUN_ID=20260311T210122Z）。
   - 追加（migration）: `V0302__module_payload_table.sql` を `server-modernized/tools/flyway/sql` と `server-modernized/src/main/resources/db/migration` に追加。
   - 内容: `d_module_payload` テーブル（`module_id` PK/FK, `schema_version`, `module_type`, `payload_json`, `payload_hash`）と index を作成し、`d_module.bean_json` の versioned envelope を backfill。
