@@ -57,9 +57,7 @@ jobs:
         continue-on-error: true
         env:
           MAVEN_OPTS: "-Djdk.attach.allowAttachSelf=true -XX:+EnableDynamicAgentLoading"
-        run: >
-          mvn -B -ntp -f pom.server-modernized.xml -pl server-modernized -am
-          -Dtest="${PR_TESTS}" -Dsurefire.failIfNoSpecifiedTests=false test
+        run: ./scripts/server-modernized/reactor-build.sh tests "${PR_TESTS}"
 
       - name: Setup Java fallback (JDK21)
         if: steps.pr_jdk25.outcome == 'failure'
@@ -73,10 +71,9 @@ jobs:
         if: steps.pr_jdk25.outcome == 'failure'
         id: pr_jdk21
         continue-on-error: true
-        run: >
-          mvn -B -ntp -f pom.server-modernized.xml -pl server-modernized -am
-          -DargLine=-javaagent:${HOME}/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar
-          -Dtest="${PR_TESTS}" -Dsurefire.failIfNoSpecifiedTests=false test
+        env:
+          MAVEN_EXTRA_ARGS: "-DargLine=-javaagent:${HOME}/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar"
+        run: ./scripts/server-modernized/reactor-build.sh tests "${PR_TESTS}"
 
       - name: Fail if both primary and fallback failed
         if: steps.pr_jdk25.outcome == 'failure' && steps.pr_jdk21.outcome == 'failure'
@@ -111,9 +108,7 @@ jobs:
         continue-on-error: true
         env:
           MAVEN_OPTS: "-Djdk.attach.allowAttachSelf=true -XX:+EnableDynamicAgentLoading"
-        run: >
-          mvn -B -ntp -f pom.server-modernized.xml -pl server-modernized -am
-          -Dtest="${NIGHTLY_TESTS}" -Dsurefire.failIfNoSpecifiedTests=false test
+        run: ./scripts/server-modernized/reactor-build.sh tests "${NIGHTLY_TESTS}"
 
       - name: Setup Java fallback (JDK21)
         if: steps.nightly_jdk25.outcome == 'failure'
@@ -127,10 +122,9 @@ jobs:
         if: steps.nightly_jdk25.outcome == 'failure'
         id: nightly_jdk21
         continue-on-error: true
-        run: >
-          mvn -B -ntp -f pom.server-modernized.xml -pl server-modernized -am
-          -DargLine=-javaagent:${HOME}/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar
-          -Dtest="${NIGHTLY_TESTS}" -Dsurefire.failIfNoSpecifiedTests=false test
+        env:
+          MAVEN_EXTRA_ARGS: "-DargLine=-javaagent:${HOME}/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar"
+        run: ./scripts/server-modernized/reactor-build.sh tests "${NIGHTLY_TESTS}"
 
       - name: Fail if both primary and fallback failed
         if: steps.nightly_jdk25.outcome == 'failure' && steps.nightly_jdk21.outcome == 'failure'

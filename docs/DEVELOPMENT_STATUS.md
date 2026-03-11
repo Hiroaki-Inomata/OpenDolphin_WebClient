@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P3-08「モジュール再編後のビルド構成を整える」を完了し、ローカル/CI 実行手順を共通化（RUN_ID=20260311T080109Z）。
+  - 追加（共通スクリプト）: `scripts/server-modernized/reactor-build.sh` を新規作成し、`compile` / `tests` モードで reactor ビルドを統一。
+  - 変更（CI）: `.github/workflows/server-modernized-characterization.yml` の PR/夜間テストを直接 `mvn` 実行から `reactor-build.sh tests` 呼び出しへ変更。
+  - 追加（手順書）: `docs/modernization/p3-08-build-structure.md` を新規作成し、module 依存順と標準コマンドを固定。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P3-08` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `./scripts/server-modernized/reactor-build.sh compile` PASS。
 - 2026-03-11: P3-07「ダミー参照と死んでいる補助コードを削除する」を完了し、converter 参照維持補助を整理（RUN_ID=20260311T080109Z）。
   - 削除: `server-modernized/src/main/java/open/dolphin/converter/ConverterModelReferences.java`。
   - 変更: `AppointmentModelConverter` / `AttachmentModelConverter` / `ObservationModelConverter` / `PatientMemoModelConverter` / `SchemaModelConverter` / `LetterModuleConverter` / `RegisteredDiagnosisModelConverter` から `ConverterModelReferences` 依存を除去し、クラス内の最小参照生成へ置換。
