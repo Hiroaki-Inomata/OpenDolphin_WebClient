@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-12
-- RUN_ID: 20260311T150117Z
+- RUN_ID: 20260311T160115Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -61,6 +61,7 @@
 - `docs/modernization/p5-05-orca-master-gateway-encapsulation.md`（P5-05: ORCA専用DAOのgateway内包化）
 - `docs/modernization/p5-06-orca-resource-splitting.md`（P5-06: ORCA Resource の機能別分割）
 - `docs/modernization/p5-07-orca-sync-state-db-store.md`（P5-07: ORCA 同期状態の DB 永続化）
+- `docs/modernization/p5-08-orca-adapter-stub-integration-tests.md`（P5-08: ORCA adapter の stub 統合試験整備）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

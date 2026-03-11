@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P5-08「stub を使った adapter 統合試験を整える」を完了し、ORCA adapter 実装と stub 依存統合試験を追加（RUN_ID=20260311T160115Z）。
+  - 追加（adapter）: `server-modernized/src/main/java/open/dolphin/orca/adapter/DefaultOrcaPatientAdapter.java` を新規作成（`searchPatients` / `upsertPatient` / `registerReception` を実装）。
+  - 追加（統合試験）: `server-modernized/src/test/java/open/dolphin/orca/adapter/DefaultOrcaPatientAdapterStubIntegrationTest.java` を新規作成し、stub正常系3件 + 代表エラー系1件を固定。
+  - 追加（実施記録）: `docs/modernization/p5-08-orca-adapter-stub-integration-tests.md` を新規作成（stub対応表・未使用stub方針を明記）。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P5-08` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -Dmaven.repo.local=/tmp/m2repo-p5-08 -f pom.server-modernized.xml -pl server-modernized -am -Dtest=DefaultOrcaPatientAdapterStubIntegrationTest,OrcaEndpointStubResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` を実行（結果は本run記録を参照）。
 - 2026-03-12: P5-07「同期状態保存を DB へ移す」を完了し、ORCA患者同期カーソルをローカルJSONからDB永続化へ移行（RUN_ID=20260311T150117Z）。
   - 変更（store）: `server-modernized/src/main/java/open/dolphin/orca/sync/OrcaPatientSyncStateStore.java` をDB実装へ置換。
   - 追加（migration）: `V0301__orca_patient_sync_state_store.sql` を `tools/flyway/sql` と `src/main/resources/db/migration` に追加。
