@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P4-01「KarteResource を責務ごとに分ける」を完了し、document write/revision 系を独立 Resource へ分割（RUN_ID=20260311T090121Z）。
+  - 追加（resource）: `server-modernized/src/main/java/open/dolphin/rest/KarteDocumentWriteResource.java` を新規作成し、`/karte/document*` の write 系 endpoint を集約。
+  - 変更（resource）: `server-modernized/src/main/java/open/dolphin/rest/KarteResource.java` から document write/revision 系メソッドと関連監査ヘルパーを除去し、read 系中心へ縮小。
+  - 変更（テスト）: `server-modernized/src/test/java/open/dolphin/rest/KarteResourceDocumentContractTest.java` を `KarteDocumentWriteResource` 参照へ更新。
+  - 追加（実施記録）: `docs/modernization/p4-01-karte-resource-split.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P4-01` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=KarteResourceAuthorizationTest,KarteResourceDocumentContractTest -Dsurefire.failIfNoSpecifiedTests=false test` は JDK25 既定で Mockito attach 失敗（既知）。`JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home ... -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar ...` で PASS（17 tests）。
 - 2026-03-11: P3-08「モジュール再編後のビルド構成を整える」を完了し、ローカル/CI 実行手順を共通化（RUN_ID=20260311T080109Z）。
   - 追加（共通スクリプト）: `scripts/server-modernized/reactor-build.sh` を新規作成し、`compile` / `tests` モードで reactor ビルドを統一。
   - 変更（CI）: `.github/workflows/server-modernized-characterization.yml` の PR/夜間テストを直接 `mvn` 実行から `reactor-build.sh tests` 呼び出しへ変更。

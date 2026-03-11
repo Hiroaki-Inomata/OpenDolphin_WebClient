@@ -40,7 +40,7 @@ class KarteResourceDocumentContractTest {
     ObjectMapper objectMapper = new LegacyObjectMapperProducer().provideLegacyAwareMapper();
 
     @InjectMocks
-    KarteResource resource;
+    KarteDocumentWriteResource resource;
 
     @Test
     void postDocumentReturnsPlainTextNumericPk() throws Exception {
@@ -65,7 +65,7 @@ class KarteResourceDocumentContractTest {
     }
 
     private static void assertProducesTextPlain(String methodName, Class<?>... parameterTypes) throws Exception {
-        Method method = KarteResource.class.getMethod(methodName, parameterTypes);
+        Method method = KarteDocumentWriteResource.class.getMethod(methodName, parameterTypes);
         Produces produces = method.getAnnotation(Produces.class);
         assertThat(produces).isNotNull();
         assertThat(produces.value()).contains(MediaType.TEXT_PLAIN);
