@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P7-03「PVT 入力パイプラインの再試行と重複防止を設計する」を完了し、再試行・重複防止・毒メッセージ退避を worker へ実装（RUN_ID=20260311T220125Z）。
+  - 変更（worker）: `server-modernized/src/main/java/open/dolphin/worker/pvt/PvtSocketWorker.java` に retry/backoff、SHA-256 ベース idempotency、poison queue を追加。
+  - 変更（service）: `server-modernized/src/main/java/open/dolphin/mbean/PvtService.java` に `pvt.listen.retry.max` / `pvt.listen.retry.backoffMillis` / `pvt.listen.idempotency.windowMillis` / `pvt.listen.poison.capacity` の設定注入を追加。
+  - 追加（テスト）: `server-modernized/src/test/java/open/dolphin/worker/pvt/PvtSocketWorkerPipelineTest.java` を新規作成し、重複抑止・再試行成功・毒メッセージ退避を固定。
+  - 追加（実施記録）: `docs/modernization/p7-03-pvt-input-retry-idempotency.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P7-03` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -Dtest=PvtSocketWorkerPipelineTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（3 tests）。
 - 2026-03-12: P7-02「MessageSender の JMS 消費責務を整理する」を完了し、JMS受信後の同期/後続段階を固定（RUN_ID=20260311T210122Z）。
   - 変更（handler）: `server-modernized/src/main/java/open/dolphin/session/SessionMessageHandler.java` に処理段階（Stage1/2/3）を明示。
   - 追加（deferred）: `AUDIT_EVENT` を `ManagedExecutorService` へ委譲する `dispatchAuditEvent` を追加し、拒否時は inline 実行へ fallback。

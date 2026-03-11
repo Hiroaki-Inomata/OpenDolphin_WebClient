@@ -10,9 +10,19 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.text.DateFormat;
+import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
@@ -29,6 +39,12 @@ public final class PvtSocketWorker implements Runnable {
     private static final int EOT = 0x04;
     private static final int ACK = 0x06;
     private static final int NAK = 0x15;
+    private static final int DEFAULT_MAX_HANDLE_ATTEMPTS = 3;
+    private static final int DEFAULT_RETRY_BACKOFF_MILLIS = 200;
+    private static final long DEFAULT_IDEMPOTENCY_WINDOW_MILLIS = 5 * 60 * 1000L;
+    private static final int DEFAULT_POISON_QUEUE_CAPACITY = 200;
+    private static final int DEFAULT_PAYLOAD_PREVIEW_LENGTH = 2048;
+    private static final int CLEANUP_INTERVAL = 64;
 
     private final ThreadFactory threadFactory;
     private final InetSocketAddress bindAddress;
@@ -42,6 +58,14 @@ public final class PvtSocketWorker implements Runnable {
     private final Consumer<String> infoLogger;
     private final Consumer<String> warnLogger;
     private final Consumer<String> debugLogger;
+    private final int maxHandleAttempts;
+    private final int handleRetryBackoffMillis;
+    private final long idempotencyWindowMillis;
+    private final int poisonQueueCapacity;
+    private final ConcurrentHashMap<String, Long> processedPayloadHashes = new ConcurrentHashMap<>();
+    private final AtomicInteger processedCount = new AtomicInteger();
+    private final Object poisonLock = new Object();
+    private final ArrayDeque<PoisonPayloadRecord> poisonPayloads = new ArrayDeque<>();
 
     private volatile Thread acceptThread;
     private volatile ServerSocket listenSocket;
@@ -59,6 +83,10 @@ public final class PvtSocketWorker implements Runnable {
             int maxConnectionThreads,
             int connectionQueueCapacity,
             boolean debugEnabled,
+            int maxHandleAttempts,
+            int handleRetryBackoffMillis,
+            long idempotencyWindowMillis,
+            int poisonQueueCapacity,
             PayloadHandler payloadHandler,
             Consumer<String> infoLogger,
             Consumer<String> warnLogger,
@@ -71,6 +99,10 @@ public final class PvtSocketWorker implements Runnable {
         this.maxConnectionThreads = maxConnectionThreads;
         this.connectionQueueCapacity = connectionQueueCapacity;
         this.debugEnabled = debugEnabled;
+        this.maxHandleAttempts = maxHandleAttempts > 0 ? maxHandleAttempts : DEFAULT_MAX_HANDLE_ATTEMPTS;
+        this.handleRetryBackoffMillis = Math.max(0, handleRetryBackoffMillis);
+        this.idempotencyWindowMillis = idempotencyWindowMillis > 0L ? idempotencyWindowMillis : DEFAULT_IDEMPOTENCY_WINDOW_MILLIS;
+        this.poisonQueueCapacity = poisonQueueCapacity > 0 ? poisonQueueCapacity : DEFAULT_POISON_QUEUE_CAPACITY;
         this.payloadHandler = payloadHandler;
         this.infoLogger = infoLogger;
         this.warnLogger = warnLogger;
@@ -204,8 +236,8 @@ public final class PvtSocketWorker implements Runnable {
                         debug(received);
                         info(received);
 
-                        payloadHandler.handle(received);
-                        writeRetCode(writer, ACK);
+                        PayloadProcessingResult result = processPayload(received);
+                        writeRetCode(writer, result.acknowledged() ? ACK : NAK);
                     } else {
                         buf.write(buffer, 0, readLen);
                     }
@@ -235,6 +267,114 @@ public final class PvtSocketWorker implements Runnable {
                 warn(e.getMessage());
             }
         }
+    }
+
+    PayloadProcessingResult processPayload(String payload) {
+        if (payload == null) {
+            return PayloadProcessingResult.nak("empty_payload");
+        }
+        final long now = System.currentTimeMillis();
+        final String hash = sha256(payload);
+
+        if (isDuplicate(hash, now)) {
+            info("Skip duplicate PVT payload [hash=" + hash + "]");
+            return PayloadProcessingResult.duplicateAck();
+        }
+
+        Exception lastError = null;
+        for (int attempt = 1; attempt <= maxHandleAttempts; attempt++) {
+            try {
+                payloadHandler.handle(payload);
+                processedPayloadHashes.put(hash, now);
+                cleanupProcessedHashes(now);
+                return PayloadProcessingResult.ack(attempt);
+            } catch (Exception ex) {
+                lastError = ex;
+                warn("PVT payload handling failed [attempt=" + attempt + "/" + maxHandleAttempts + ", hash=" + hash + "]: "
+                        + ex.getMessage());
+                if (attempt >= maxHandleAttempts) {
+                    break;
+                }
+                if (!sleepBackoff()) {
+                    recordPoison(hash, payload, "interrupted_during_retry", attempt, ex);
+                    return PayloadProcessingResult.nak("interrupted");
+                }
+            }
+        }
+
+        recordPoison(hash, payload, "max_retry_exceeded", maxHandleAttempts, lastError);
+        return PayloadProcessingResult.nak("max_retry_exceeded");
+    }
+
+    List<PoisonPayloadRecord> snapshotPoisonPayloads() {
+        synchronized (poisonLock) {
+            return new ArrayList<>(poisonPayloads);
+        }
+    }
+
+    private boolean sleepBackoff() {
+        if (handleRetryBackoffMillis <= 0) {
+            return true;
+        }
+        try {
+            Thread.sleep(handleRetryBackoffMillis);
+            return true;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private boolean isDuplicate(String hash, long now) {
+        Long previous = processedPayloadHashes.get(hash);
+        if (previous == null) {
+            cleanupProcessedHashes(now);
+            return false;
+        }
+        if (now - previous <= idempotencyWindowMillis) {
+            cleanupProcessedHashes(now);
+            return true;
+        }
+        processedPayloadHashes.remove(hash, previous);
+        cleanupProcessedHashes(now);
+        return false;
+    }
+
+    private void cleanupProcessedHashes(long now) {
+        if (processedCount.incrementAndGet() % CLEANUP_INTERVAL != 0) {
+            return;
+        }
+        processedPayloadHashes.entrySet().removeIf(entry -> now - entry.getValue() > idempotencyWindowMillis);
+    }
+
+    private String sha256(String payload) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(payload.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is unavailable", ex);
+        }
+    }
+
+    private void recordPoison(String hash, String payload, String reason, int attempts, Exception error) {
+        String preview = payload.length() <= DEFAULT_PAYLOAD_PREVIEW_LENGTH
+                ? payload
+                : payload.substring(0, DEFAULT_PAYLOAD_PREVIEW_LENGTH);
+        PoisonPayloadRecord record = new PoisonPayloadRecord(
+                hash,
+                Instant.now().toEpochMilli(),
+                attempts,
+                reason,
+                preview,
+                error != null ? Objects.toString(error.getMessage(), error.getClass().getSimpleName()) : null);
+        synchronized (poisonLock) {
+            while (poisonPayloads.size() >= poisonQueueCapacity) {
+                poisonPayloads.removeFirst();
+            }
+            poisonPayloads.addLast(record);
+        }
+        warn("PVT payload moved to poison queue [hash=" + hash + ", reason=" + reason + ", attempts=" + attempts + "]");
     }
 
     private void printInfo(Socket clientSocket) {
@@ -287,6 +427,91 @@ public final class PvtSocketWorker implements Runnable {
             Thread thread = delegate.newThread(runnable);
             thread.setName(prefix + sequence.getAndIncrement());
             return thread;
+        }
+    }
+
+    static final class PayloadProcessingResult {
+        private final boolean acknowledged;
+        private final boolean duplicate;
+        private final int attempts;
+        private final String reason;
+
+        private PayloadProcessingResult(boolean acknowledged, boolean duplicate, int attempts, String reason) {
+            this.acknowledged = acknowledged;
+            this.duplicate = duplicate;
+            this.attempts = attempts;
+            this.reason = reason;
+        }
+
+        static PayloadProcessingResult ack(int attempts) {
+            return new PayloadProcessingResult(true, false, attempts, "ok");
+        }
+
+        static PayloadProcessingResult duplicateAck() {
+            return new PayloadProcessingResult(true, true, 0, "duplicate");
+        }
+
+        static PayloadProcessingResult nak(String reason) {
+            return new PayloadProcessingResult(false, false, 0, reason);
+        }
+
+        boolean acknowledged() {
+            return acknowledged;
+        }
+
+        boolean duplicate() {
+            return duplicate;
+        }
+
+        int attempts() {
+            return attempts;
+        }
+
+        String reason() {
+            return reason;
+        }
+    }
+
+    static final class PoisonPayloadRecord {
+        private final String hash;
+        private final long receivedAtEpochMillis;
+        private final int attempts;
+        private final String reason;
+        private final String payloadPreview;
+        private final String errorMessage;
+
+        private PoisonPayloadRecord(String hash, long receivedAtEpochMillis, int attempts, String reason,
+                String payloadPreview, String errorMessage) {
+            this.hash = hash;
+            this.receivedAtEpochMillis = receivedAtEpochMillis;
+            this.attempts = attempts;
+            this.reason = reason;
+            this.payloadPreview = payloadPreview;
+            this.errorMessage = errorMessage;
+        }
+
+        String hash() {
+            return hash;
+        }
+
+        long receivedAtEpochMillis() {
+            return receivedAtEpochMillis;
+        }
+
+        int attempts() {
+            return attempts;
+        }
+
+        String reason() {
+            return reason;
+        }
+
+        String payloadPreview() {
+            return payloadPreview;
+        }
+
+        String errorMessage() {
+            return errorMessage;
         }
     }
 }

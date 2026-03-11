@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-12
-- RUN_ID: 20260311T200758Z
+- RUN_ID: 20260311T220125Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -75,6 +75,7 @@
 - `docs/modernization/p6-10-index-fetch-plan-n-plus1-review.md`（P6-10: index・fetch plan・N+1 見直し）
 - `docs/modernization/p7-01-pvt-socket-worker-separation.md`（P7-01: PvtService 生ソケット受信のワーカー分離）
 - `docs/modernization/p7-02-message-sender-jms-responsibility-split.md`（P7-02: MessageSender JMS 消費責務の整理）
+- `docs/modernization/p7-03-pvt-input-retry-idempotency.md`（P7-03: PVT入力パイプラインの再試行・重複防止・毒メッセージ退避）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

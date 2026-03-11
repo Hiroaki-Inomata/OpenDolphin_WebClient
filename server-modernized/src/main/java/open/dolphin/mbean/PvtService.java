@@ -38,6 +38,10 @@ public class PvtService {
     private static final int DEFAULT_READ_TIMEOUT_MILLIS = 30000;
     private static final int DEFAULT_MAX_CONNECTION_THREADS = 32;
     private static final int DEFAULT_CONNECTION_QUEUE_CAPACITY = 256;
+    private static final int DEFAULT_HANDLE_RETRY_MAX = 3;
+    private static final int DEFAULT_HANDLE_RETRY_BACKOFF_MILLIS = 200;
+    private static final long DEFAULT_IDEMPOTENCY_WINDOW_MILLIS = 5 * 60 * 1000L;
+    private static final int DEFAULT_POISON_QUEUE_CAPACITY = 200;
 
     @Resource(lookup = "java:jboss/ee/concurrency/factory/default")
     private ManagedThreadFactory threadFactory;
@@ -52,6 +56,10 @@ public class PvtService {
     private int readTimeoutMillis = DEFAULT_READ_TIMEOUT_MILLIS;
     private int maxConnectionThreads = DEFAULT_MAX_CONNECTION_THREADS;
     private int connectionQueueCapacity = DEFAULT_CONNECTION_QUEUE_CAPACITY;
+    private int handleRetryMax = DEFAULT_HANDLE_RETRY_MAX;
+    private int handleRetryBackoffMillis = DEFAULT_HANDLE_RETRY_BACKOFF_MILLIS;
+    private long idempotencyWindowMillis = DEFAULT_IDEMPOTENCY_WINDOW_MILLIS;
+    private int poisonQueueCapacity = DEFAULT_POISON_QUEUE_CAPACITY;
     private PvtSocketWorker socketWorker;
 
     @PostConstruct
@@ -99,6 +107,14 @@ public class PvtService {
                 DEFAULT_MAX_CONNECTION_THREADS);
         connectionQueueCapacity = parsePositiveInt(config.getProperty("pvt.listen.queueCapacity"),
                 DEFAULT_CONNECTION_QUEUE_CAPACITY);
+        handleRetryMax = parsePositiveInt(config.getProperty("pvt.listen.retry.max"),
+                DEFAULT_HANDLE_RETRY_MAX);
+        handleRetryBackoffMillis = parsePositiveInt(config.getProperty("pvt.listen.retry.backoffMillis"),
+                DEFAULT_HANDLE_RETRY_BACKOFF_MILLIS);
+        idempotencyWindowMillis = parsePositiveLong(config.getProperty("pvt.listen.idempotency.windowMillis"),
+                DEFAULT_IDEMPOTENCY_WINDOW_MILLIS);
+        poisonQueueCapacity = parsePositiveInt(config.getProperty("pvt.listen.poison.capacity"),
+                DEFAULT_POISON_QUEUE_CAPACITY);
 
         InetAddress addr = InetAddress.getByName(bindIP);
         InetSocketAddress socketAddress = new InetSocketAddress(addr, port);
@@ -112,6 +128,10 @@ public class PvtService {
                 maxConnectionThreads,
                 connectionQueueCapacity,
                 DEBUG,
+                handleRetryMax,
+                handleRetryBackoffMillis,
+                idempotencyWindowMillis,
+                poisonQueueCapacity,
                 this::parseAndSend,
                 this::log,
                 this::warn,
@@ -155,6 +175,19 @@ public class PvtService {
             return parsed > 0 ? parsed : defaultValue;
         } catch (NumberFormatException ex) {
             warn("Invalid integer value '" + value + "', fallback to " + defaultValue);
+            return defaultValue;
+        }
+    }
+
+    private long parsePositiveLong(String value, long defaultValue) {
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            long parsed = Long.parseLong(value.trim());
+            return parsed > 0L ? parsed : defaultValue;
+        } catch (NumberFormatException ex) {
+            warn("Invalid long value '" + value + "', fallback to " + defaultValue);
             return defaultValue;
         }
     }
