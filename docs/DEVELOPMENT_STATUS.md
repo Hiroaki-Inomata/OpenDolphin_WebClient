@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P5-05「ORCA 専用 DAO を gateway の内側へ閉じ込める」を完了し、ORCA master 検索の DAO 直接依存を gateway 境界へ集約（RUN_ID=20260311T140116Z）。
+  - 追加（gateway契約）: `server-modernized/src/main/java/open/orca/rest/OrcaMasterGateway.java` を新規作成。
+  - 追加（gateway実装）: `server-modernized/src/main/java/open/orca/rest/OrcaMasterDaoGateway.java` を新規作成し、`OrcaMasterDao` / `EtensuDao` 呼び出しを内包。
+  - 変更（resource）: `server-modernized/src/main/java/open/orca/rest/OrcaMasterResource.java` から DAO 直接保持を除去し、`OrcaMasterGateway` 呼び出しへ置換。
+  - 追加（実施記録）: `docs/modernization/p5-05-orca-master-gateway-encapsulation.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P5-05` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=OrcaMasterResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS。
 - 2026-03-11: P5-04「HTTP 呼び出しと再試行方針を作り直す」を完了し、ORCA transport のタイムアウト/再試行制御を外部設定化（RUN_ID=20260311T130114Z）。
   - 変更（transport）: `server-modernized/src/main/java/open/dolphin/orca/transport/OrcaHttpClient.java` に connect/read/total timeout と retry/backoff の外部設定読込（`env > system property`）を追加。
   - 変更（再試行待機）: `Thread.sleep` を除去し、`LockSupport.parkNanos` ベースへ置換。

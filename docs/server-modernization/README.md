@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260311T120154Z
+- RUN_ID: 20260311T140116Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -58,6 +58,7 @@
 - `docs/modernization/p5-02-orca-external-config.md`（P5-02: ORCA接続設定/認証情報の外部設定化）
 - `docs/modernization/p5-03-static-cache-removal.md`（P5-03: mutable staticと無期限キャッシュ前提の整理）
 - `docs/modernization/p5-04-orca-http-retry-policy.md`（P5-04: ORCA HTTP/再試行ポリシー再設計）
+- `docs/modernization/p5-05-orca-master-gateway-encapsulation.md`（P5-05: ORCA専用DAOのgateway内包化）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`
