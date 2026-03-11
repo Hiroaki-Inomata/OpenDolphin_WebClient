@@ -1,7 +1,7 @@
 # 詳細工程表（server-modernization 当面作業）
 
 - 更新日: 2026-03-12
-- RUN_ID: 20260311T150117Z
+- RUN_ID: 20260311T160115Z
 - 位置付け: `server-modernized` の当面作業を順番に進めるための現行 WBS。
 - 運用: 記載タスクは原則として上から順に消化する。`docs/DEVELOPMENT_STATUS.md`、`AGENTS.md`、最新のユーザー/マネージャー指示と矛盾する場合は、それらを優先する。
 - 参照入口: `docs/server-modernization/README.md`
@@ -59,7 +59,7 @@ A列は ☐ / ☑ で更新します。優先 S は今すぐ着手、A は続け
 | ☑ | P5-05 | 5. ORCA を別境界へ出す | A | DB担当 | 3日 | ORCA 専用 DAO を gateway の内側へ閉じ込める | OrcaMasterDao.java / EtensuDao.java / OrcaMasterResource.java | P5-01, P6-05 | ORCA 由来の SQL や検索ロジックを adapter 内部へ閉じ込め、業務 service から raw DAO を見せない。巨大 DAO は検索目的ごとに分ける。 | ORCA 用のデータ取得が業務層へ漏れない。 | gateway 実装、検索別 service | DAO の public method を一覧化し、機能単位で分割案を作る。 |
 | ☑ | P5-06 | 5. ORCA を別境界へ出す | A | API担当 | 3日 | ORCA 用 resource を機能別に分割する | OrcaResource.java / OrcaMasterResource.java / open/dolphin/rest/orca/** | P5-01, P5-05 | 巨大 resource を患者、受付、オーダ、病名、レポートなどの単位へ分ける。resource は adapter を呼ぶだけに薄く保つ。 | ORCA 系 resource が用途ごとに分かれ、変更が局所化する。 | 分割済み resource 群、テスト更新 | 利用頻度が高い患者系と受付系から先に分ける。 |
 | ☑ | P5-07 | 5. ORCA を別境界へ出す | A | DB担当 | 2日 | 同期状態保存を DB へ移す | OrcaPatientSyncStateStore.java / ローカル JSON 保存箇所 | P5-02, P6-08 | 同期時刻、再開位置、差分取得の状態をローカル JSON ではなく DB へ移す。再デプロイやノード切り替えで状態が飛ばないようにする。 | 同期状態が共有可能になり、再起動で失われない。 | 新 state table、migration、読み書き実装 | 保持したい項目を現行 JSON から抜き出して表にする。 |
-| ☐ | P5-08 | 5. ORCA を別境界へ出す | S | QA + ORCA担当 | 2日 | stub を使った adapter 統合試験を整える | src/main/resources/orca/stub/** / Orca*Test.java | P5-04, P5-05, P5-06 | 既存の stub 資産を adapter 用の統合試験へ寄せる。外部本番環境に依存せず、正常系と代表エラーを再現できるようにする。 | adapter 単位で外部連携の退行が検知できる。 | 統合試験群、stub 対応表 | stub の用途と未使用ファイルを先に整理する。 |
+| ☑ | P5-08 | 5. ORCA を別境界へ出す | S | QA + ORCA担当 | 2日 | stub を使った adapter 統合試験を整える | src/main/resources/orca/stub/** / Orca*Test.java | P5-04, P5-05, P5-06 | 既存の stub 資産を adapter 用の統合試験へ寄せる。外部本番環境に依存せず、正常系と代表エラーを再現できるようにする。 | adapter 単位で外部連携の退行が検知できる。 | 統合試験群、stub 対応表 | stub の用途と未使用ファイルを先に整理する。 |
 | ☐ | P5-09 | 5. ORCA を別境界へ出す | A | 基盤担当 | 1.5日 | ORCA 連携の性能・障害試験を行う | adapter / 接続設定 / メトリクス | P5-08 | 遅延、タイムアウト、多重呼び出し、設定ミス時の挙動を試験する。外部が遅いときに本体のスレッドを不必要に塞がないことを確認する。 | 障害時挙動と復旧手順が説明できる。 | 試験記録、しきい値、運用注意点 | まず 1 件ずつの遅延試験を行い、その後に並列を増やす。 |
 | ☐ | P6-01 | 6. データモデルを刷新する | S | アーキテクト + DB担当 | 2日 | entity・domain・API の責務分担を設計する | common infomodel / 新 domain / 新 persistence / api-contract | P3-01, P1-05 | どの情報を DB 都合で持つか、どの情報を業務ルールで持つか、どの情報を公開契約に出すかを分けて定義する。層ごとに禁止事項も書く。 | 三者の役割が分かれ、変更時の波及先が予測できる。 | 責務分担表、層別ルール | Patient、User、Document、Module から先に設計する。 |
 | ☐ | P6-02 | 6. データモデルを刷新する | A | DB担当 | 3日 | java.util.Date を java.time へ置き換える | common/src/main/java/open/dolphin/infomodel/** / server 側 entity・DTO 全体 | P6-01 | 日時型を LocalDate、LocalDateTime、OffsetDateTime など用途に応じて分ける。比較、シリアライズ、DB カラム定義も合わせてそろえる。 | 新規コードに Date が残らず、既存主要モデルも移行されている。 | 日時型移行コミット、型対応表 | まず患者生年月日、作成日時、更新日時の3分類を決める。 |
