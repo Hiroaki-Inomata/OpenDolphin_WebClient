@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import open.dolphin.rest.dto.CurrentUserResponse;
+import open.dolphin.rest.support.CurrentUserResponseMapper;
 import open.dolphin.session.UserServiceBean;
 
 @Path("/api/session")
@@ -169,7 +170,7 @@ public class SessionAuthResource extends AbstractResource {
 
     private CurrentUserResponse loadSafeUser(String actorId) {
         try {
-            return CurrentUserResponse.from(userServiceBean.getUser(actorId));
+            return CurrentUserResponseMapper.from(userServiceBean.getUser(actorId));
         } catch (RuntimeException ex) {
             return null;
         }

@@ -27,10 +27,12 @@ import open.dolphin.converter.*;
 import open.dolphin.infomodel.*;
 import open.dolphin.rest.dto.LegacyImageRangeResponse;
 import open.dolphin.rest.dto.LegacyKarteListResponse;
+import open.dolphin.rest.dto.KarteRevisionDocumentResponse;
 import open.dolphin.rest.dto.RoutineMedicationResponse;
 import open.dolphin.rest.dto.RpHistoryEntryResponse;
 import open.dolphin.rest.dto.SafetySummaryResponse;
 import open.dolphin.rest.dto.UserPropertyResponse;
+import open.dolphin.rest.support.KarteRevisionResponseMapper;
 import open.dolphin.rest.support.LegacyJsonSupport;
 import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
@@ -204,7 +206,7 @@ public class KarteResource extends AbstractResource {
             list.add(docId);
         }
 
-        return LegacyKarteListResponse.DocumentListResponse.of(karteServiceBean.getDocumentsAttachmentLight(list));
+        return toLegacyDocumentListResponse(karteServiceBean.getDocumentsAttachmentLight(list));
     } 
     
     @POST
@@ -418,7 +420,7 @@ public class KarteResource extends AbstractResource {
             toList.add(parseDate(params[index++]));
         }
 
-        return LegacyKarteListResponse.ModuleListListResponse.of(
+        return toLegacyModuleListListResponse(
                 karteServiceBean.getModules(karteId, entity, fromList, toList));
     }
 
@@ -629,7 +631,7 @@ public class KarteResource extends AbstractResource {
         String pid = param;
         String fpid = getFidPid(servletReq.getRemoteUser(), pid);
         
-        return LegacyKarteListResponse.PatientFreeDocumentResponse.of(karteServiceBean.getPatientFreeDocument(fpid));
+        return toLegacyPatientFreeDocumentResponse(karteServiceBean.getPatientFreeDocument(fpid));
     }
     
     @PUT
@@ -710,7 +712,7 @@ public class KarteResource extends AbstractResource {
             entities.add(params[i]);
         }
 
-        return LegacyKarteListResponse.ModuleListResponse.of(
+        return toLegacyModuleListResponse(
                 karteServiceBean.getModulesEntitySearch(fid, karteId, fromDate, toDate, entities));
     }
 //masuda$
@@ -724,7 +726,7 @@ public class KarteResource extends AbstractResource {
         long pk = Long.parseLong(param);
         ensurePatientFacilityAccess(pk, null);
 
-        return LegacyKarteListResponse.DocumentListResponse.of(karteServiceBean.getAllDocument(pk));
+        return toLegacyDocumentListResponse(karteServiceBean.getAllDocument(pk));
     }
 //s.oh$
     
@@ -756,6 +758,44 @@ public class KarteResource extends AbstractResource {
         KarteBeanConverter conv = new KarteBeanConverter();
         conv.setModel(bean);
         return conv;
+    }
+
+    private LegacyKarteListResponse.DocumentListResponse toLegacyDocumentListResponse(List<DocumentModel> documents) {
+        if (documents == null || documents.isEmpty()) {
+            return LegacyKarteListResponse.DocumentListResponse.ofMapped(List.of());
+        }
+        List<KarteRevisionDocumentResponse> mapped = new ArrayList<>(documents.size());
+        for (DocumentModel document : documents) {
+            mapped.add(KarteRevisionResponseMapper.map(document));
+        }
+        return LegacyKarteListResponse.DocumentListResponse.ofMapped(mapped);
+    }
+
+    private LegacyKarteListResponse.ModuleListResponse toLegacyModuleListResponse(List<ModuleModel> modules) {
+        return LegacyKarteListResponse.ModuleListResponse.ofMapped(
+                KarteRevisionResponseMapper.mapModuleResponses(modules));
+    }
+
+    private LegacyKarteListResponse.ModuleListListResponse toLegacyModuleListListResponse(List<List<ModuleModel>> groupedModules) {
+        if (groupedModules == null || groupedModules.isEmpty()) {
+            return LegacyKarteListResponse.ModuleListListResponse.ofMapped(List.of());
+        }
+        List<List<KarteRevisionDocumentResponse.ModuleResponse>> mapped = new ArrayList<>(groupedModules.size());
+        for (List<ModuleModel> modules : groupedModules) {
+            mapped.add(KarteRevisionResponseMapper.mapModuleResponses(modules));
+        }
+        return LegacyKarteListResponse.ModuleListListResponse.ofMapped(mapped);
+    }
+
+    private LegacyKarteListResponse.PatientFreeDocumentResponse toLegacyPatientFreeDocumentResponse(PatientFreeDocumentModel model) {
+        if (model == null) {
+            return null;
+        }
+        return LegacyKarteListResponse.PatientFreeDocumentResponse.of(
+                model.getId(),
+                model.getFacilityPatId(),
+                model.getConfirmed(),
+                model.getComment());
     }
 
     private String resolveFacilityId(HttpServletRequest request) {

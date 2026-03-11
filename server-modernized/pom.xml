@@ -124,6 +124,10 @@
         </dependency>
         <dependency>
             <groupId>opendolphin</groupId>
+            <artifactId>opendolphin-api-contract</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>opendolphin</groupId>
             <artifactId>opendolphin-common</artifactId>
             <classifier>jakarta</classifier>
         </dependency>

@@ -32,6 +32,7 @@ import open.dolphin.common.OrcaConnect;
 import open.dolphin.converter.*;
 import open.dolphin.infomodel.*;
 import open.dolphin.rest.dto.LegacyKarteListResponse;
+import open.dolphin.rest.support.KarteRevisionResponseMapper;
 
 /**
  *
@@ -1088,7 +1089,8 @@ public class OrcaResource {
                 mm.setModel(null);
             }
             
-            return LegacyKarteListResponse.ModuleListResponse.of(retSet);
+            return LegacyKarteListResponse.ModuleListResponse.ofMapped(
+                    KarteRevisionResponseMapper.mapModuleResponses(retSet));
             
         } catch (Exception e) {
             processError(e);

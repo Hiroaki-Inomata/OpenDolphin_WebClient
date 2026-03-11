@@ -29,6 +29,12 @@
     <dependencies>
       <dependency>
         <groupId>opendolphin</groupId>
+        <artifactId>opendolphin-api-contract</artifactId>
+        <version>${project.version}</version>
+        <type>jar</type>
+      </dependency>
+      <dependency>
+        <groupId>opendolphin</groupId>
         <artifactId>opendolphin-persistence</artifactId>
         <version>${project.version}</version>
         <type>jar</type>
