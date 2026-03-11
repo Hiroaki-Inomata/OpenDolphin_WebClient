@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P6-01「entity・domain・API の責務分担を設計する」を完了し、層別責務と禁止事項を固定（RUN_ID=20260311T163550Z）。
+  - 追加（設計書）: `docs/modernization/p6-01-entity-domain-api-responsibility-split.md` を新規作成。
+  - 内容: persistence/domain/api-contract の役割、禁止事項、依存方向、Patient/User/Document/Module の責務分担を定義。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P6-01` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: 設計文書タスクのためコード実行テストなし（文書整合のみ確認）。
 - 2026-03-12: P5-09「ORCA 連携の性能・障害試験を行う」を完了し、transport層の耐障害回帰テストを追加（RUN_ID=20260311T163020Z）。
   - 追加（試験）: `server-modernized/src/test/java/open/dolphin/orca/transport/OrcaHttpClientResilienceTest.java` を新規作成。
   - 観点: 遅延時再試行、deadline超過、並列呼び出し時の非直列化、設定不備時fail-fast。

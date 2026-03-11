@@ -1,7 +1,7 @@
 # 詳細工程表（server-modernization 当面作業）
 
 - 更新日: 2026-03-12
-- RUN_ID: 20260311T163020Z
+- RUN_ID: 20260311T163550Z
 - 位置付け: `server-modernized` の当面作業を順番に進めるための現行 WBS。
 - 運用: 記載タスクは原則として上から順に消化する。`docs/DEVELOPMENT_STATUS.md`、`AGENTS.md`、最新のユーザー/マネージャー指示と矛盾する場合は、それらを優先する。
 - 参照入口: `docs/server-modernization/README.md`
@@ -61,7 +61,7 @@ A列は ☐ / ☑ で更新します。優先 S は今すぐ着手、A は続け
 | ☑ | P5-07 | 5. ORCA を別境界へ出す | A | DB担当 | 2日 | 同期状態保存を DB へ移す | OrcaPatientSyncStateStore.java / ローカル JSON 保存箇所 | P5-02, P6-08 | 同期時刻、再開位置、差分取得の状態をローカル JSON ではなく DB へ移す。再デプロイやノード切り替えで状態が飛ばないようにする。 | 同期状態が共有可能になり、再起動で失われない。 | 新 state table、migration、読み書き実装 | 保持したい項目を現行 JSON から抜き出して表にする。 |
 | ☑ | P5-08 | 5. ORCA を別境界へ出す | S | QA + ORCA担当 | 2日 | stub を使った adapter 統合試験を整える | src/main/resources/orca/stub/** / Orca*Test.java | P5-04, P5-05, P5-06 | 既存の stub 資産を adapter 用の統合試験へ寄せる。外部本番環境に依存せず、正常系と代表エラーを再現できるようにする。 | adapter 単位で外部連携の退行が検知できる。 | 統合試験群、stub 対応表 | stub の用途と未使用ファイルを先に整理する。 |
 | ☑ | P5-09 | 5. ORCA を別境界へ出す | A | 基盤担当 | 1.5日 | ORCA 連携の性能・障害試験を行う | adapter / 接続設定 / メトリクス | P5-08 | 遅延、タイムアウト、多重呼び出し、設定ミス時の挙動を試験する。外部が遅いときに本体のスレッドを不必要に塞がないことを確認する。 | 障害時挙動と復旧手順が説明できる。 | 試験記録、しきい値、運用注意点 | まず 1 件ずつの遅延試験を行い、その後に並列を増やす。 |
-| ☐ | P6-01 | 6. データモデルを刷新する | S | アーキテクト + DB担当 | 2日 | entity・domain・API の責務分担を設計する | common infomodel / 新 domain / 新 persistence / api-contract | P3-01, P1-05 | どの情報を DB 都合で持つか、どの情報を業務ルールで持つか、どの情報を公開契約に出すかを分けて定義する。層ごとに禁止事項も書く。 | 三者の役割が分かれ、変更時の波及先が予測できる。 | 責務分担表、層別ルール | Patient、User、Document、Module から先に設計する。 |
+| ☑ | P6-01 | 6. データモデルを刷新する | S | アーキテクト + DB担当 | 2日 | entity・domain・API の責務分担を設計する | common infomodel / 新 domain / 新 persistence / api-contract | P3-01, P1-05 | どの情報を DB 都合で持つか、どの情報を業務ルールで持つか、どの情報を公開契約に出すかを分けて定義する。層ごとに禁止事項も書く。 | 三者の役割が分かれ、変更時の波及先が予測できる。 | 責務分担表、層別ルール | Patient、User、Document、Module から先に設計する。 |
 | ☐ | P6-02 | 6. データモデルを刷新する | A | DB担当 | 3日 | java.util.Date を java.time へ置き換える | common/src/main/java/open/dolphin/infomodel/** / server 側 entity・DTO 全体 | P6-01 | 日時型を LocalDate、LocalDateTime、OffsetDateTime など用途に応じて分ける。比較、シリアライズ、DB カラム定義も合わせてそろえる。 | 新規コードに Date が残らず、既存主要モデルも移行されている。 | 日時型移行コミット、型対応表 | まず患者生年月日、作成日時、更新日時の3分類を決める。 |
 | ☐ | P6-03 | 6. データモデルを刷新する | S | DB担当 | 2日 | ModuleModel の bean_json 保存をやめる設計を決める | ModuleModel.java / ModuleJsonConverter.java / 関連テーブル | P6-01 | Java クラス名に強く依存する bean_json をやめ、型付きテーブルまたは version 付き構造化 JSON へ置き換える方針を決める。検索、更新、監査が可能な形を優先する。 | 置換先の構造が決まり、移行方針が説明できる。 | 置換設計書、移行案比較 | 今ある module 種別を全件棚卸しし、同型のものをまとめる。 |
 | ☐ | P6-04 | 6. データモデルを刷新する | S | DB担当 | 4日 | Module 保存形式を実装する | 新テーブル群または versioned JSON 実装 / mapper / service | P6-03, P6-08 | 決めた保存形式へ実際に移し、保存、取得、改訂、比較ができるようにする。旧形式の読取を残さない前提なので、変換処理は一度の移行で終える。 | Module の主要操作が新形式で通り、旧保存形式に依存しない。 | 新 schema、実装、移行スクリプト | 主要 module 2 種から先に実装し、残りを横展開する。 |
