@@ -95,7 +95,7 @@ export async function fetchPatientOriginal(params: {
   format?: PatientOriginalFormat;
   classCode?: string;
 }): Promise<PatientOriginalResponse> {
-  const format: PatientOriginalFormat = params.format ?? 'xml';
+  const format: PatientOriginalFormat = params.format ?? 'json';
   const runId = getObservabilityMeta().runId ?? generateRunId();
   updateObservabilityMeta({ runId });
 
