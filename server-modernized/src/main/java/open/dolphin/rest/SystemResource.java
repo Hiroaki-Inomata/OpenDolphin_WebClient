@@ -26,6 +26,10 @@ import open.dolphin.infomodel.ActivityModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.RoleModel;
 import open.dolphin.infomodel.UserModel;
+import open.dolphin.rest.dto.ActivitySummaryResponse;
+import open.dolphin.rest.dto.UserMutationRequest;
+import open.dolphin.rest.support.ActivitySummaryResponseMapper;
+import open.dolphin.rest.support.UserMutationRequestMapper;
 import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.security.audit.SessionAuditDispatcher;
@@ -88,7 +92,8 @@ public class SystemResource extends AbstractResource {
     public String addFacilityAdmin(String json) throws IOException {
         requireSystemAdminOrThrow("SYSTEM_FACILITY_ADMIN_ADD", null);
 
-        UserModel user = readJson(json, UserModel.class);
+        UserMutationRequest requestPayload = readJson(json, UserMutationRequest.class);
+        UserModel user = UserMutationRequestMapper.toModel(requestPayload);
 
         // 関係を構築する
         List<RoleModel> roles = user.getRoles();
@@ -123,7 +128,7 @@ public class SystemResource extends AbstractResource {
     @GET
     @Path("/activity/{param}")
     @Produces(MediaType.APPLICATION_JSON)
-    public List<ActivityModel> getActivities(@PathParam("param") String param) {
+    public List<ActivitySummaryResponse> getActivities(@PathParam("param") String param) {
 
         ActivityQueryRequest requestParams = parseActivityRequest(param);
 
@@ -189,7 +194,9 @@ public class SystemResource extends AbstractResource {
         details.put("monthsRequested", monthsRequested);
         recordAudit("SYSTEM_ACTIVITY_SUMMARY", details);
 
-        return Arrays.asList(array);
+        return Arrays.stream(array)
+                .map(ActivitySummaryResponseMapper::from)
+                .toList();
     }
     
 //s.oh^ 2014/07/08 クラウド0対応

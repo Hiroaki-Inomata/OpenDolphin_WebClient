@@ -1,7 +1,7 @@
 # 詳細工程表（server-modernization 当面作業）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260311T070119Z
+- RUN_ID: 20260311T080109Z
 - 位置付け: `server-modernized` の当面作業を順番に進めるための現行 WBS。
 - 運用: 記載タスクは原則として上から順に消化する。`docs/DEVELOPMENT_STATUS.md`、`AGENTS.md`、最新のユーザー/マネージャー指示と矛盾する場合は、それらを優先する。
 - 参照入口: `docs/server-modernization/README.md`
@@ -40,7 +40,7 @@ A列は ☐ / ☑ で更新します。優先 S は今すぐ着手、A は続け
 | ☑ | P3-02 | 3. common を解体する | S | 基盤担当 | 1.5日 | 新 module のひな型を作る | pom.xml 群 / 新規 module ディレクトリ / テストひな型 | P3-01 | 決めた境界に合わせて Maven module を作り、ビルドとテストの最小構成を用意する。最初から大移動せず、空の module と依存だけ先に確定する。 | ビルドが通る最小 module 群ができる。 | module ひな型、親 pom 差分 | domain と api-contract の2つだけ先に立てて確認する。 |
 | ☑ | P3-03 | 3. common を解体する | S | DB担当 | 3日 | JPA entity を common から切り離す | common/src/main/java/open/dolphin/infomodel/** の entity 類 / persistence module | P3-02, P6-01 | 永続化用の entity を shared jar から外し、persistence 専用 module へ寄せる。API や業務ロジックが entity を直接持ち回らないようにする。 | entity の置き場所が一意になり、API 層から直接見えない。 | entity 移動コミット、依存差分 | まず Patient、User、Document、Module の主要 entity から移す。 |
 | ☑ | P3-04 | 3. common を解体する | S | API担当 | 3日 | API DTO を entity から分離する | open/dolphin/rest/dto/** / 新 api-contract module / 既存 resource | P3-02, P2-03 | 公開契約として使う DTO を定義し、entity をそのまま JSON に出さないようにする。入力 DTO、出力 DTO、検索条件 DTO を用途別に分ける。 | API 入出力が DTO に統一され、entity 依存が消える。 | DTO 一式、mapper 一式、resource 差分 | 患者とカルテの DTO から先に切り出す。 |
-| ☐ | P3-05 | 3. common を解体する | A | API担当 | 2日 | REST 層から entity 直返しをなくす | resource 全体 / mapper 層 / DTO | P3-03, P3-04 | resource で entity をそのまま返している箇所、entity をそのまま受け取っている箇所を DTO 経由へ変える。今後の schema 変更を API 契約から切り離すための作業である。 | resource に entity 露出が残っていない。 | resource 差分、entity 露出ゼロ確認 | 返却型の一覧を作り、entity 型を使っているものから直す。 |
+| ☑ | P3-05 | 3. common を解体する | A | API担当 | 2日 | REST 層から entity 直返しをなくす | resource 全体 / mapper 層 / DTO | P3-03, P3-04 | resource で entity をそのまま返している箇所、entity をそのまま受け取っている箇所を DTO 経由へ変える。今後の schema 変更を API 契約から切り離すための作業である。 | resource に entity 露出が残っていない。 | resource 差分、entity 露出ゼロ確認 | 返却型の一覧を作り、entity 型を使っているものから直す。 |
 | ☐ | P3-06 | 3. common を解体する | A | アーキテクト | 1日 | audit / util / common の最小責務を決める | common/src/main/java/open/dolphin/audit/** / common/** / util/** | P3-01 | 全モジュールから見える共通部品を最小にする。監査イベント、例外、値オブジェクトなど、本当に共有するものだけを残す。 | 共通部品の範囲が狭まり、曖昧な common が増えない。 | 共通部品一覧、配置ルール | まず util を精査し、何でも入れる箱にしない方針を書く。 |
 | ☐ | P3-07 | 3. common を解体する | A | DB担当 | 1日 | ダミー参照と死んでいる補助コードを削除する | ConverterModelReferences.java など参照維持用コード全体 | P2-07, P3-04 | 参照維持のためだけに置いているクラス、未使用のラッパー、古いシリアライズ補助を削除する。残す理由が説明できないものは残さない。 | 未使用コードが減り、参照方向が読みやすくなる。 | 削除コミット、未使用コード一覧 | IDE の参照検索とコンパイラエラーを使い、順に削る。 |
 | ☐ | P3-08 | 3. common を解体する | A | 基盤担当 | 1日 | モジュール再編後のビルド構成を整える | 親 pom / 各 module pom / テスト実行順 | P3-02, P3-03, P3-04 | module 追加後のビルド順、テスト順、依存の可視性を調整する。古い module を残したまま移行する期間の扱いもここで決める。 | CI とローカルのどちらでも同じ手順でビルドできる。 | pom 差分、ビルド手順書 | module 間依存を図にして、循環がないことを確認する。 |

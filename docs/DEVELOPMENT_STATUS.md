@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P3-05「REST 層から entity 直返しをなくす」を完了し、User/System の entity 直受け・直返しを DTO へ置換（RUN_ID=20260311T080109Z）。
+  - 追加（DTO）: `api-contract/src/main/java/open/dolphin/rest/dto/UserMutationRequest.java` / `ActivitySummaryResponse.java` を新規作成。
+  - 追加（mapper）: `server-modernized/src/main/java/open/dolphin/rest/support/UserMutationRequestMapper.java` / `ActivitySummaryResponseMapper.java` を新規作成。
+  - 変更（resource）: `UserResource` の `readJson(..., UserModel.class)` を DTO 入力へ置換、`SystemResource#getActivities` は `ActivitySummaryResponse` 返却へ置換。
+  - 変更（テスト）: `SystemResourceTest` を DTO 返却契約へ追従。
+  - 追加（影響一覧）: `docs/modernization/p3-05-resource-entity-exposure-removal.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P3-05` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl api-contract,server-modernized -am -DskipTests test-compile` PASS。`UserResourceTest` / `SystemResourceTest` は JDK25 既定で Mockito attach 失敗（既知）→ JDK21 + byte-buddy-agent fallback で PASS（30 tests）。
 - 2026-03-11: P3-04「API DTO を entity から分離する」を完了し、API 契約 DTO を `api-contract` へ集約（RUN_ID=20260311T070119Z）。
   - 変更: `server-modernized/src/main/java/open/dolphin/rest/dto/**` を `api-contract/src/main/java/open/dolphin/rest/dto/**` へ移設。
   - 変更: `CurrentUserResponse` / `SafetySummaryResponse` / `LegacyKarteListResponse` から entity 直接依存を除去。
