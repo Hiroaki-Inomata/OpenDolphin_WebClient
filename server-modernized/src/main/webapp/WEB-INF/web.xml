@@ -94,6 +94,8 @@
                 open.dolphin.rest.ChartEventStreamResource,
                 open.dolphin.rest.orca.OrcaMedicalModV2Resource,
                 open.orca.rest.OrcaResource,
+                open.orca.rest.OrcaFacilityResource,
+                open.orca.rest.OrcaPatientDiseaseResource,
                 open.orca.rest.OrcaMasterResource,
                 open.orca.rest.OrcaMasterReferenceStatusResource,
                 open.dolphin.orca.rest.OrcaAppointmentResource,

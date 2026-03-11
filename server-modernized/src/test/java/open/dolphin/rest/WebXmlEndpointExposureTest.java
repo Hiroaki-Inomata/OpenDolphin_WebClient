@@ -17,6 +17,8 @@ class WebXmlEndpointExposureTest {
                 .contains("open.dolphin.rest.PatientModV2OutpatientMockResource")
                 .contains("open.dolphin.rest.AdminAccessPasswordResetResource")
                 .contains("open.dolphin.rest.AdminOrcaUserLinkResource")
+                .contains("open.orca.rest.OrcaFacilityResource")
+                .contains("open.orca.rest.OrcaPatientDiseaseResource")
                 .doesNotContain("open.dolphin.touch.DolphinResourceASP")
                 .doesNotContain("open.dolphin.rest.PatientResource")
                 .doesNotContain("open.dolphin.rest.NLabResource")

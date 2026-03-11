@@ -1,4 +1,4 @@
-# 開発状況（単一参照, 更新日: 2026-03-11）
+# 開発状況（単一参照, 更新日: 2026-03-12）
 
 ## 現行ステータス
 - Phase2 開発ドキュメントは **Legacy/Archive（参照専用）**。Phase2 を現行フェーズとして扱わない。
@@ -36,6 +36,15 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P5-06「ORCA 用 resource を機能別に分割する」を完了し、患者系・受付系 endpoint を専用Resourceへ分離（RUN_ID=20260311T150117Z）。
+  - 追加（resource）: `server-modernized/src/main/java/open/orca/rest/OrcaPatientDiseaseResource.java` / `OrcaFacilityResource.java` を新規作成。
+  - 変更（resource）: `server-modernized/src/main/java/open/orca/rest/OrcaResource.java` から `disease/*` と `facilitycode/deptinfo` のJAX-RS注釈を除去し、機能別Resourceへ委譲可能な形へ整理。
+  - 変更（descriptor）: `server-modernized/src/main/webapp/WEB-INF/web.xml` の `resteasy.resources` に新規 Resource を追加。
+  - 変更（テスト）: `server-modernized/src/test/java/open/dolphin/rest/WebXmlEndpointExposureTest.java` に新規 Resource 公開確認を追加。
+  - 追加（実施記録）: `docs/modernization/p5-06-orca-resource-splitting.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P5-06` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=WebXmlEndpointExposureTest,OrcaMasterResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` は sandbox 制約（`~/.m2` 書込不可）で FAIL。
+  - 検証: `mvn -o -f server-modernized/pom.xml -Dtest=WebXmlEndpointExposureTest,OrcaMasterResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` は offline 未キャッシュ依存により FAIL。
 - 2026-03-11: P5-05「ORCA 専用 DAO を gateway の内側へ閉じ込める」を完了し、ORCA master 検索の DAO 直接依存を gateway 境界へ集約（RUN_ID=20260311T140116Z）。
   - 追加（gateway契約）: `server-modernized/src/main/java/open/orca/rest/OrcaMasterGateway.java` を新規作成。
   - 追加（gateway実装）: `server-modernized/src/main/java/open/orca/rest/OrcaMasterDaoGateway.java` を新規作成し、`OrcaMasterDao` / `EtensuDao` 呼び出しを内包。
