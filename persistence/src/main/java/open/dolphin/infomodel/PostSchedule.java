@@ -1,5 +1,8 @@
 package open.dolphin.infomodel;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Date;
 
 /**
@@ -12,7 +15,7 @@ public class PostSchedule {
     
     private long ptPK;
     
-    private Date scheduleDate;
+    private LocalDate scheduleDate;
     
     private long phPK;
     
@@ -35,10 +38,24 @@ public class PostSchedule {
     }
 
     public Date getScheduleDate() {
-        return scheduleDate;
+        return scheduleDate == null
+                ? null
+                : Date.from(scheduleDate.atStartOfDay(ZoneId.systemDefault()).toInstant());
     }
 
     public void setScheduleDate(Date scheduleDate) {
+        this.scheduleDate = scheduleDate == null
+                ? null
+                : Instant.ofEpochMilli(scheduleDate.getTime())
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate();
+    }
+
+    public LocalDate getScheduleLocalDate() {
+        return scheduleDate;
+    }
+
+    public void setScheduleLocalDate(LocalDate scheduleDate) {
         this.scheduleDate = scheduleDate;
     }
 

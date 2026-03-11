@@ -1,5 +1,8 @@
 package open.dolphin.infomodel;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Date;
 import jakarta.persistence.*;
 
@@ -44,8 +47,7 @@ public class FacilityModel extends InfoModel implements java.io.Serializable {
     
     // システム登録日
     @Column(nullable=false)
-    @Temporal(value = TemporalType.DATE)
-    private Date registeredDate;
+    private LocalDate registeredDate;
     
     // メンバータイプ
     @Column(nullable= false)
@@ -133,10 +135,24 @@ public class FacilityModel extends InfoModel implements java.io.Serializable {
     }
 
     public Date getRegisteredDate() {
-        return registeredDate;
+        return registeredDate == null
+                ? null
+                : Date.from(registeredDate.atStartOfDay(ZoneId.systemDefault()).toInstant());
     }
 
     public void setRegisteredDate(Date registeredDate) {
+        this.registeredDate = registeredDate == null
+                ? null
+                : Instant.ofEpochMilli(registeredDate.getTime())
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate();
+    }
+
+    public LocalDate getRegisteredDateLocalDate() {
+        return registeredDate;
+    }
+
+    public void setRegisteredDateLocalDate(LocalDate registeredDate) {
         this.registeredDate = registeredDate;
     }
     

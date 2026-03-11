@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Calendar;
@@ -281,6 +282,10 @@ public class SystemServiceBean {
      * @return 
      */
     public ActivityModel countActivities(String fid, Date from, Date to) {
+        return countActivities(fid, toLocalDate(from), toLocalDate(to));
+    }
+
+    public ActivityModel countActivities(String fid, LocalDate from, LocalDate to) {
         FacilityModel facility = findFacilityModel(fid);
         return countMonthlyActivitiesBulk(List.of(facility), from, to).get(fid);
     }
@@ -295,8 +300,8 @@ public class SystemServiceBean {
         ActivityModel total = ams[1];
         
         // log
-        log("開始日時", am.getFromDate().toString());
-        log("終了日時", am.getToDate().toString());
+        log("開始日時", String.valueOf(am.getFromLocalDate()));
+        log("終了日時", String.valueOf(am.getToLocalDate()));
         log("医療機関ID", total.getFacilityId());
         log("医療機関名", total.getFacilityName());
         log("郵便番号", total.getFacilityZip());
@@ -421,14 +426,38 @@ public class SystemServiceBean {
     }
 
     Map<String, ActivityModel> countMonthlyActivitiesBulk(List<FacilityModel> facilities, Date from, Date to) {
+        return countMonthlyActivitiesBulk(
+                facilities,
+                from,
+                to,
+                toLocalDate(from),
+                toLocalDate(to));
+    }
+
+    Map<String, ActivityModel> countMonthlyActivitiesBulk(List<FacilityModel> facilities, LocalDate from, LocalDate to) {
+        return countMonthlyActivitiesBulk(
+                facilities,
+                toDateAtStartOfDay(from),
+                toDateAtEndOfDay(to),
+                from,
+                to);
+    }
+
+    private Map<String, ActivityModel> countMonthlyActivitiesBulk(
+            List<FacilityModel> facilities,
+            Date fromDate,
+            Date toDate,
+            LocalDate fromLocalDate,
+            LocalDate toLocalDate
+    ) {
         Map<String, ActivityModel> activities = initializeActivities(facilities);
         if (activities.isEmpty()) {
             return activities;
         }
 
         for (ActivityModel activity : activities.values()) {
-            activity.setFromDate(from);
-            activity.setToDate(to);
+            activity.setFromLocalDate(fromLocalDate);
+            activity.setToLocalDate(toLocalDate);
         }
 
         applyGroupedCount(
@@ -438,8 +467,8 @@ public class SystemServiceBean {
                 activities,
                 ActivityModel::setNumOfPatients,
                 query -> {
-                    query.setParameter("fromDate", from);
-                    query.setParameter("toDate", to);
+                    query.setParameter("fromDate", fromDate);
+                    query.setParameter("toDate", toDate);
                 });
         applyGroupedCount(
                 "select p.facilityId, count(p.id) from PatientVisitModel p "
@@ -448,8 +477,8 @@ public class SystemServiceBean {
                 activities,
                 ActivityModel::setNumOfPatientVisits,
                 query -> {
-                    query.setParameter("fromDate", toLocalDateTime(from));
-                    query.setParameter("toDate", toLocalDateTime(to));
+                    query.setParameter("fromDate", toLocalDateTime(fromDate));
+                    query.setParameter("toDate", toLocalDateTime(toDate));
                     query.setParameter("status", 6);
                 });
         applyGroupedCount(
@@ -459,8 +488,8 @@ public class SystemServiceBean {
                 activities,
                 ActivityModel::setNumOfKarte,
                 query -> {
-                    query.setParameter("fromDate", from);
-                    query.setParameter("toDate", to);
+                    query.setParameter("fromDate", fromDate);
+                    query.setParameter("toDate", toDate);
                 });
         applyGroupedCount(
                 "select substring(s.creator.userId, 1, locate(':', s.creator.userId) - 1), count(s.id) "
@@ -469,8 +498,8 @@ public class SystemServiceBean {
                 activities,
                 ActivityModel::setNumOfImages,
                 query -> {
-                    query.setParameter("fromDate", from);
-                    query.setParameter("toDate", to);
+                    query.setParameter("fromDate", fromDate);
+                    query.setParameter("toDate", toDate);
                 });
         applyGroupedCount(
                 "select substring(a.creator.userId, 1, locate(':', a.creator.userId) - 1), count(a.id) "
@@ -479,8 +508,8 @@ public class SystemServiceBean {
                 activities,
                 ActivityModel::setNumOfAttachments,
                 query -> {
-                    query.setParameter("fromDate", from);
-                    query.setParameter("toDate", to);
+                    query.setParameter("fromDate", fromDate);
+                    query.setParameter("toDate", toDate);
                 });
         applyGroupedCount(
                 "select substring(r.creator.userId, 1, locate(':', r.creator.userId) - 1), count(r.id) "
@@ -489,8 +518,8 @@ public class SystemServiceBean {
                 activities,
                 ActivityModel::setNumOfDiagnosis,
                 query -> {
-                    query.setParameter("fromDate", from);
-                    query.setParameter("toDate", to);
+                    query.setParameter("fromDate", fromDate);
+                    query.setParameter("toDate", toDate);
                 });
         applyGroupedCount(
                 "select substring(l.creator.userId, 1, locate(':', l.creator.userId) - 1), count(l.id) "
@@ -499,8 +528,8 @@ public class SystemServiceBean {
                 activities,
                 ActivityModel::setNumOfLetters,
                 query -> {
-                    query.setParameter("fromDate", from);
-                    query.setParameter("toDate", to);
+                    query.setParameter("fromDate", fromDate);
+                    query.setParameter("toDate", toDate);
                 });
         applyGroupedCount(
                 "select substring(l.patientId, 1, locate(':', l.patientId) - 1), count(l.id) "
@@ -509,8 +538,8 @@ public class SystemServiceBean {
                 activities,
                 ActivityModel::setNumOfLabTests,
                 query -> {
-                    query.setParameter("fromDate", sampleDateFromDate(from));
-                    query.setParameter("toDate", sampleDateFromDate(to));
+                    query.setParameter("fromDate", fromLocalDate.toString());
+                    query.setParameter("toDate", toLocalDate.toString());
                 });
 
         return activities;
@@ -520,11 +549,11 @@ public class SystemServiceBean {
         
         // 対象月の１日
         GregorianCalendar gcFrom = new GregorianCalendar(year, month, 1);
-        Date fromDate = gcFrom.getTime();
+        LocalDate fromDate = gcFrom.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
         
         // 対象月の最後
         GregorianCalendar gcTo = new GregorianCalendar(year, month, gcFrom.getActualMaximum(Calendar.DAY_OF_MONTH), 23, 59, 59);
-        Date toDate = gcTo.getTime();
+        LocalDate toDate = gcTo.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
         
         List<FacilityModel> list = loadFacilities();
         Map<String, ActivityModel> totalActivities = countTotalActivitiesBulk(list);
@@ -547,10 +576,6 @@ public class SystemServiceBean {
         }
     }
     
-    private String sampleDateFromDate(Date d) {
-        return d.toInstant().atZone(ZoneId.systemDefault()).toLocalDate().toString();
-    }
-
     private Map<String, ActivityModel> initializeActivities(List<FacilityModel> facilities) {
         Map<String, ActivityModel> activities = new LinkedHashMap<>();
         for (FacilityModel facility : facilities) {
@@ -588,6 +613,18 @@ public class SystemServiceBean {
                 setter.accept(activity, ((Number) row[1]).longValue());
             }
         }
+    }
+
+    private LocalDate toLocalDate(Date date) {
+        return date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+    }
+
+    private Date toDateAtStartOfDay(LocalDate date) {
+        return Date.from(date.atStartOfDay(ZoneId.systemDefault()).toInstant());
+    }
+
+    private Date toDateAtEndOfDay(LocalDate date) {
+        return Date.from(date.atTime(23, 59, 59).atZone(ZoneId.systemDefault()).toInstant());
     }
 
     private LocalDateTime toLocalDateTime(Date date) {

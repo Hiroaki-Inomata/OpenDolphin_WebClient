@@ -4,6 +4,9 @@
  */
 package open.dolphin.infomodel;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Date;
 
 /**
@@ -13,7 +16,7 @@ import java.util.Date;
 public class LastDateCount extends InfoModel {
     
     // システム登録日->初診日として使用
-    private Date created;
+    private LocalDate created;
     
     // 病名数
     private long diagnosisCount;
@@ -25,7 +28,7 @@ public class LastDateCount extends InfoModel {
     private long docCount;
     
     // 最終カルテ記録日
-    private Date lastDocDate;
+    private LocalDate lastDocDate;
     
     // 検査数
     private long labCount;
@@ -37,14 +40,28 @@ public class LastDateCount extends InfoModel {
     private long imageCount;
     
     // 最終画像日
-    private Date lastImageDate;
+    private LocalDate lastImageDate;
 
     public Date getCreated() {
-        return created;
+        return created == null
+                ? null
+                : Date.from(created.atStartOfDay(ZoneId.systemDefault()).toInstant());
     }
 
     public void setCreated(Date registeredDate) {
-        this.created = registeredDate;
+        this.created = registeredDate == null
+                ? null
+                : Instant.ofEpochMilli(registeredDate.getTime())
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate();
+    }
+
+    public LocalDate getCreatedLocalDate() {
+        return created;
+    }
+
+    public void setCreatedLocalDate(LocalDate created) {
+        this.created = created;
     }
 
     public long getDocCount() {
@@ -56,10 +73,24 @@ public class LastDateCount extends InfoModel {
     }
 
     public Date getLastDocDate() {
-        return lastDocDate;
+        return lastDocDate == null
+                ? null
+                : Date.from(lastDocDate.atStartOfDay(ZoneId.systemDefault()).toInstant());
     }
 
     public void setLastDocDate(Date lastDocDate) {
+        this.lastDocDate = lastDocDate == null
+                ? null
+                : Instant.ofEpochMilli(lastDocDate.getTime())
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate();
+    }
+
+    public LocalDate getLastDocLocalDate() {
+        return lastDocDate;
+    }
+
+    public void setLastDocLocalDate(LocalDate lastDocDate) {
         this.lastDocDate = lastDocDate;
     }
 
@@ -88,10 +119,24 @@ public class LastDateCount extends InfoModel {
     }
 
     public Date getLastImageDate() {
-        return lastImageDate;
+        return lastImageDate == null
+                ? null
+                : Date.from(lastImageDate.atStartOfDay(ZoneId.systemDefault()).toInstant());
     }
 
     public void setLastImageDate(Date lastImageDate) {
+        this.lastImageDate = lastImageDate == null
+                ? null
+                : Instant.ofEpochMilli(lastImageDate.getTime())
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate();
+    }
+
+    public LocalDate getLastImageLocalDate() {
+        return lastImageDate;
+    }
+
+    public void setLastImageLocalDate(LocalDate lastImageDate) {
         this.lastImageDate = lastImageDate;
     }
 
