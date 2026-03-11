@@ -21,6 +21,12 @@ class WebXmlEndpointExposureTest {
                 .doesNotContain("open.dolphin.rest.PVTResource2")
                 .doesNotContain("open.dolphin.rest.ScheduleResource")
                 .doesNotContain("open.dolphin.rest.ServerInfoResource")
-                .doesNotContain("open.orca.rest.OrcaMasterApiAliasResource");
+                .doesNotContain("open.orca.rest.OrcaMasterApiAliasResource")
+                .doesNotContain("open.dolphin.rest.OrcaAcceptanceListResource")
+                .doesNotContain("open.dolphin.rest.OrcaSystemManagementResource")
+                .doesNotContain("open.dolphin.rest.OrcaReportResource")
+                .doesNotContain("open.dolphin.rest.OrcaDiseaseApiResource")
+                .doesNotContain("open.dolphin.rest.OrcaMedicalApiResource")
+                .doesNotContain("open.dolphin.rest.OrcaAdditionalApiResource");
     }
 }

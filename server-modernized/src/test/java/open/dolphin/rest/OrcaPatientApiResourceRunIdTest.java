@@ -58,7 +58,7 @@ class OrcaPatientApiResourceRunIdTest extends RuntimeDelegateTestSupport {
 
     @Test
     void getPatient_propagatesRunIdFromHeader() {
-        var response = resource.getPatient(servletRequest, "00001", "01", "xml");
+        var response = resource.getPatient(servletRequest, "00001", "01", "json");
 
         String headerRunId = response.getHeaderString("X-Run-Id");
         assertEquals(200, response.getStatus());
@@ -74,12 +74,26 @@ class OrcaPatientApiResourceRunIdTest extends RuntimeDelegateTestSupport {
     @Test
     void getPatient_rejectsMissingIdAndRecordsFailureAudit() {
         BadRequestException exception = assertThrows(BadRequestException.class,
-                () -> resource.getPatient(servletRequest, " ", "01", "xml"));
+                () -> resource.getPatient(servletRequest, " ", "01", "json"));
 
         assertTrue(exception.getMessage().contains("id is required"));
         assertNotNull(auditDispatcher.payload);
         assertEquals("ORCA_PATIENT_GET", auditDispatcher.payload.getAction());
         assertEquals("/api01rv2/patientgetv2", auditDispatcher.payload.getResource());
+        assertEquals(AuditEventEnvelope.Outcome.FAILURE, auditDispatcher.outcome);
+        assertEquals("failed", auditDispatcher.payload.getDetails().get("status"));
+        assertEquals(400, auditDispatcher.payload.getDetails().get("httpStatus"));
+        assertEquals("orca.patientget.error", auditDispatcher.payload.getDetails().get("errorCode"));
+    }
+
+    @Test
+    void getPatient_rejectsXmlFormatAndRecordsFailureAudit() {
+        BadRequestException exception = assertThrows(BadRequestException.class,
+                () -> resource.getPatient(servletRequest, "00001", "01", "xml"));
+
+        assertTrue(exception.getMessage().contains("format must be json"));
+        assertNotNull(auditDispatcher.payload);
+        assertEquals("ORCA_PATIENT_GET", auditDispatcher.payload.getAction());
         assertEquals(AuditEventEnvelope.Outcome.FAILURE, auditDispatcher.outcome);
         assertEquals("failed", auditDispatcher.payload.getDetails().get("status"));
         assertEquals(400, auditDispatcher.payload.getDetails().get("httpStatus"));
