@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260310T232050Z
+- RUN_ID: 20260311T000151Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -61,6 +61,32 @@
   - `mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=AdminAccessResourceTest,AdminOrcaConnectionResourceTest,SessionAuthResourceTest,LogoutResourceTest -Dsurefire.failIfNoSpecifiedTests=false test`
 - 既定環境で Mockito inline の attach が不安定な場合のみ、fallback として **JDK21 + byte-buddy-agent** を用いる。
   - `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=AdminAccessResourceTest,AdminOrcaConnectionResourceTest,SessionAuthResourceTest,LogoutResourceTest -Dsurefire.failIfNoSpecifiedTests=false test`
+
+### CI 常時実行（P1-10）
+- Workflow: `.github/workflows/server-modernized-characterization.yml`
+- 目的: 性格確認テストを `PR軽量` と `夜間拡張` に分けて常時実行し、回帰を早期検知する。
+- トリガ:
+  - PR (`server-modernized/**`, `common/**`, `pom.server-modernized.xml`, workflow 自身)
+  - nightly schedule（毎日 UTC 18:00）
+  - `workflow_dispatch`
+- 実行環境:
+  - 一次実行: `JDK25 (Temurin)`
+  - fallback: 一次実行失敗時のみ `JDK21 + -DargLine=-javaagent:${HOME}/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar`
+- 実行セット:
+  - PR軽量（患者・カルテ・ORCA）:
+    - `PatientServiceBeanAddPatientTest`
+    - `PatientModV2OutpatientResourceIdempotencyTest`
+    - `KarteServiceBeanDocPkTest`
+    - `KarteRevisionServiceBeanAttachmentCloneTest`
+    - `OrcaPatientApiResourceRunIdTest`
+    - `OrcaPatientResourceIdempotencyTest`
+    - `OrcaAcceptanceListResourceTest`
+  - 夜間拡張（P1-04〜P1-09 の固定テスト群）:
+    - 患者、カルテ、ORCA、PVT、添付、管理設定/認証の代表26クラス（実行テスト数の目安: 113）
+- 失敗時対応:
+  - Actions Artifacts の surefire report（`**/target/surefire-reports/*.xml` / `*.txt`）を確認する。
+  - failing class を同じ `-Dtest=` 指定でローカル再現する。
+  - 修正後は同クラス群で再実行し、WBSと `docs/DEVELOPMENT_STATUS.md` を更新する。
 
 ### Web client 連携セキュリティ契約（2026-03）
 - デプロイ順序は backend 先行 → frontend 後続（逆順禁止）。
