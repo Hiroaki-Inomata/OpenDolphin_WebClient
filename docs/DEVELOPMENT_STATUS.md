@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P2-02「削除マトリクスを作る」を完了し、旧入口の扱いを固定（RUN_ID=20260311T001341Z）。
+  - 追加（マトリクス）: `docs/modernization/remove-matrix.md` を新規作成し、入口ファミリごとに `削除/置換/統合/保留` を判定。
+  - 判定要点: Touch/ASP は削除、xml2 alias と ORCA番号付きaliasは統合、現行利用中 `/karte/**` `/api/admin/**` `/orca/**` は新API移行後に置換、`/orca/master/**` 系は利用実測まで保留。
+  - 反映（WBS）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P2-02` を ☑ 化し、RUN_ID を更新。
+  - 反映（導線）: `docs/server-modernization/README.md` に削除マトリクスのリンクを追加。
 - 2026-03-11: P2-01「現行の公開入口を一覧化する」を完了し、公開面と利用者の対応表を固定（RUN_ID=20260311T001049Z）。
   - 追加（台帳）: `docs/modernization/p2-01-public-endpoint-inventory.md` を新規作成。`web.xml` の servlet mapping、`open/dolphin/rest`/`open/dolphin/touch`/`open/orca/rest` の公開面、`web-client` 利用入口を1枚に集約。
   - 要確認明示: `/touch/**` と xml2 互換 alias 群（`/api01rv2/**`, `/api/api01rv2/**`, `/orcaXX/**`）を「呼び出し元要確認」として明示し、P2-02 の削除マトリクス入力に指定。
