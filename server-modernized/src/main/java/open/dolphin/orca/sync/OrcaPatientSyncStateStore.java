@@ -1,151 +1,196 @@
 package open.dolphin.orca.sync;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
+import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
+import java.sql.Connection;
+import java.sql.Date;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.time.OffsetDateTime;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import open.dolphin.runtime.RuntimeConfigurationSupport;
+import javax.sql.DataSource;
 
 /**
- * Persists ORCA patient sync cursor (last successful date) on local filesystem.
+ * Persists ORCA patient sync cursor into the application database.
  */
 @ApplicationScoped
 public class OrcaPatientSyncStateStore {
 
     private static final Logger LOGGER = Logger.getLogger(OrcaPatientSyncStateStore.class.getName());
-    private static final String ENV_STATE_PATH = "ORCA_PATIENT_SYNC_STATE_PATH";
+    private static final String TABLE_NAME = "d_orca_patient_sync_state";
 
-    private static final ObjectMapper JSON = new ObjectMapper()
-            .configure(SerializationFeature.INDENT_OUTPUT, true)
-            .setSerializationInclusion(JsonInclude.Include.NON_NULL);
+    private static final String SQL_CREATE_TABLE = """
+            CREATE TABLE IF NOT EXISTS d_orca_patient_sync_state (
+                facility_id VARCHAR(128) NOT NULL,
+                last_sync_date DATE,
+                last_synced_at TIMESTAMPTZ,
+                last_run_id VARCHAR(64),
+                last_error TEXT,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT d_orca_patient_sync_state_pkey PRIMARY KEY (facility_id)
+            )
+            """;
+
+    private static final String SQL_SELECT = """
+            SELECT last_sync_date, last_synced_at, last_run_id, last_error
+              FROM d_orca_patient_sync_state
+             WHERE facility_id = ?
+            """;
+
+    private static final String SQL_UPSERT_SUCCESS = """
+            INSERT INTO d_orca_patient_sync_state (
+                facility_id, last_sync_date, last_synced_at, last_run_id, last_error, updated_at
+            ) VALUES (?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
+            ON CONFLICT (facility_id) DO UPDATE SET
+                last_sync_date = EXCLUDED.last_sync_date,
+                last_synced_at = EXCLUDED.last_synced_at,
+                last_run_id = EXCLUDED.last_run_id,
+                last_error = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            """;
+
+    private static final String SQL_UPSERT_FAILURE = """
+            INSERT INTO d_orca_patient_sync_state (
+                facility_id, last_synced_at, last_run_id, last_error, updated_at
+            ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT (facility_id) DO UPDATE SET
+                last_synced_at = EXCLUDED.last_synced_at,
+                last_run_id = EXCLUDED.last_run_id,
+                last_error = EXCLUDED.last_error,
+                updated_at = CURRENT_TIMESTAMP
+            """;
+
+    @Resource(lookup = "java:jboss/datasources/PostgresDS")
+    private DataSource dataSource;
 
     private final ReentrantLock lock = new ReentrantLock();
+    private volatile boolean schemaEnsured;
 
     public Path resolvePath() {
-        String configured = System.getenv(ENV_STATE_PATH);
-        if (configured != null && !configured.isBlank()) {
-            return Paths.get(configured.trim()).toAbsolutePath();
-        }
-        Path dataRoot = RuntimeConfigurationSupport.resolveServerDataDirectoryOrThrow("OrcaPatientSyncStateStore");
-        return dataRoot.resolve("opendolphin").resolve("orca").resolve("patient-sync-state.json");
+        return Paths.get("db", TABLE_NAME);
     }
 
     public FacilityState loadFacilityState(String facilityId) {
-        if (facilityId == null || facilityId.isBlank()) {
+        String normalizedFacilityId = normalizeFacilityId(facilityId);
+        if (normalizedFacilityId == null) {
             return null;
         }
         lock.lock();
-        try {
-            RootState root = loadRootState();
-            return root.facilities.get(facilityId.trim());
+        try (Connection connection = getConnection();
+             PreparedStatement statement = connection.prepareStatement(SQL_SELECT)) {
+            statement.setString(1, normalizedFacilityId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    return null;
+                }
+                FacilityState state = new FacilityState();
+                Date lastSyncDate = resultSet.getDate(1);
+                state.lastSyncDate = lastSyncDate != null ? lastSyncDate.toLocalDate().toString() : null;
+                state.lastSyncedAt = timestampToIso(resultSet.getTimestamp(2));
+                state.lastRunId = resultSet.getString(3);
+                state.lastError = resultSet.getString(4);
+                return state;
+            }
+        } catch (SQLException ex) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to load ORCA patient sync state. facilityId={0} err={1}",
+                    new Object[]{normalizedFacilityId, ex.getMessage()});
+            return null;
         } finally {
             lock.unlock();
         }
     }
 
     public void markSuccess(String facilityId, LocalDate endDate, String runId) {
-        if (facilityId == null || facilityId.isBlank() || endDate == null) {
+        String normalizedFacilityId = normalizeFacilityId(facilityId);
+        if (normalizedFacilityId == null || endDate == null) {
             return;
         }
         lock.lock();
-        try {
-            RootState root = loadRootState();
-            FacilityState state = root.facilities.computeIfAbsent(facilityId.trim(), (k) -> new FacilityState());
-            state.lastSyncDate = endDate.toString();
-            state.lastSyncedAt = Instant.now().toString();
-            state.lastRunId = runId;
-            state.lastError = null;
-            saveRootState(root);
+        try (Connection connection = getConnection();
+             PreparedStatement statement = connection.prepareStatement(SQL_UPSERT_SUCCESS)) {
+            statement.setString(1, normalizedFacilityId);
+            statement.setDate(2, Date.valueOf(endDate));
+            statement.setObject(3, OffsetDateTime.now());
+            statement.setString(4, runId);
+            statement.executeUpdate();
+        } catch (SQLException ex) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to persist ORCA patient sync success state. facilityId={0} err={1}",
+                    new Object[]{normalizedFacilityId, ex.getMessage()});
         } finally {
             lock.unlock();
         }
     }
 
     public void markFailure(String facilityId, String error, String runId) {
-        if (facilityId == null || facilityId.isBlank()) {
+        String normalizedFacilityId = normalizeFacilityId(facilityId);
+        if (normalizedFacilityId == null) {
             return;
         }
         lock.lock();
-        try {
-            RootState root = loadRootState();
-            FacilityState state = root.facilities.computeIfAbsent(facilityId.trim(), (k) -> new FacilityState());
-            state.lastSyncedAt = Instant.now().toString();
-            state.lastRunId = runId;
-            state.lastError = error;
-            saveRootState(root);
+        try (Connection connection = getConnection();
+             PreparedStatement statement = connection.prepareStatement(SQL_UPSERT_FAILURE)) {
+            statement.setString(1, normalizedFacilityId);
+            statement.setObject(2, OffsetDateTime.now());
+            statement.setString(3, runId);
+            statement.setString(4, error);
+            statement.executeUpdate();
+        } catch (SQLException ex) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to persist ORCA patient sync failure state. facilityId={0} err={1}",
+                    new Object[]{normalizedFacilityId, ex.getMessage()});
         } finally {
             lock.unlock();
         }
     }
 
-    private RootState loadRootState() {
-        Path path = resolvePath();
-        if (!Files.exists(path)) {
-            return new RootState();
+    private Connection getConnection() throws SQLException {
+        if (dataSource == null) {
+            throw new IllegalStateException("PostgresDS is not available for ORCA patient sync state store");
         }
-        try {
-            byte[] bytes = Files.readAllBytes(path);
-            if (bytes.length == 0) {
-                return new RootState();
+        Connection connection = dataSource.getConnection();
+        ensureSchema(connection);
+        return connection;
+    }
+
+    private void ensureSchema(Connection connection) throws SQLException {
+        if (schemaEnsured) {
+            return;
+        }
+        synchronized (this) {
+            if (schemaEnsured) {
+                return;
             }
-            RootState parsed = JSON.readValue(bytes, RootState.class);
-            if (parsed == null) {
-                return new RootState();
+            try (PreparedStatement statement = connection.prepareStatement(SQL_CREATE_TABLE)) {
+                statement.execute();
+                schemaEnsured = true;
             }
-            if (parsed.facilities == null) {
-                parsed.facilities = new LinkedHashMap<>();
-            }
-            return parsed;
-        } catch (IOException ex) {
-            LOGGER.log(Level.WARNING, "Failed to read ORCA patient sync state. path={0} err={1}",
-                    new Object[]{path, ex.getMessage()});
-            return new RootState();
         }
     }
 
-    private void saveRootState(RootState root) {
-        Path path = resolvePath();
-        try {
-            Files.createDirectories(path.getParent());
-        } catch (IOException ex) {
-            throw new IllegalStateException("Failed to create state directory: " + path.getParent(), ex);
+    private static String normalizeFacilityId(String facilityId) {
+        if (facilityId == null) {
+            return null;
         }
-        String json;
-        try {
-            json = JSON.writeValueAsString(root);
-        } catch (IOException ex) {
-            throw new IllegalStateException("Failed to serialize state", ex);
-        }
-        Path tmp = path.resolveSibling(path.getFileName().toString() + ".tmp");
-        try {
-            Files.writeString(tmp, json, StandardCharsets.UTF_8);
-            try {
-                Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException ex) {
-                Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException ex) {
-            throw new IllegalStateException("Failed to persist state: " + path, ex);
-        }
+        String normalized = facilityId.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 
-    public static class RootState {
-        public int version = 1;
-        public Map<String, FacilityState> facilities = new LinkedHashMap<>();
+    private static String timestampToIso(Timestamp timestamp) {
+        if (timestamp == null) {
+            return null;
+        }
+        Instant instant = timestamp.toInstant();
+        return instant.toString();
     }
 
     public static class FacilityState {

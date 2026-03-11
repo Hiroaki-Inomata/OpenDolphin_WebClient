@@ -60,6 +60,7 @@
 - `docs/modernization/p5-04-orca-http-retry-policy.md`（P5-04: ORCA HTTP/再試行ポリシー再設計）
 - `docs/modernization/p5-05-orca-master-gateway-encapsulation.md`（P5-05: ORCA専用DAOのgateway内包化）
 - `docs/modernization/p5-06-orca-resource-splitting.md`（P5-06: ORCA Resource の機能別分割）
+- `docs/modernization/p5-07-orca-sync-state-db-store.md`（P5-07: ORCA 同期状態の DB 永続化）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

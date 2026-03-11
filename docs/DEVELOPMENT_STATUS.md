@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P5-07「同期状態保存を DB へ移す」を完了し、ORCA患者同期カーソルをローカルJSONからDB永続化へ移行（RUN_ID=20260311T150117Z）。
+  - 変更（store）: `server-modernized/src/main/java/open/dolphin/orca/sync/OrcaPatientSyncStateStore.java` をDB実装へ置換。
+  - 追加（migration）: `V0301__orca_patient_sync_state_store.sql` を `tools/flyway/sql` と `src/main/resources/db/migration` に追加。
+  - 変更（テスト）: `FreshSchemaBaselineTest` の適用バージョン期待値を `0301` に更新し、新テーブル存在確認を追加。
+  - 追加（実施記録）: `docs/modernization/p5-07-orca-sync-state-db-store.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P5-07` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=FreshSchemaBaselineTest,FlywayMigrationConsistencyTest -Dsurefire.failIfNoSpecifiedTests=false test` は sandbox 制約（`~/.m2` 書込不可）で FAIL。
 - 2026-03-12: P5-06「ORCA 用 resource を機能別に分割する」を完了し、患者系・受付系 endpoint を専用Resourceへ分離（RUN_ID=20260311T150117Z）。
   - 追加（resource）: `server-modernized/src/main/java/open/orca/rest/OrcaPatientDiseaseResource.java` / `OrcaFacilityResource.java` を新規作成。
   - 変更（resource）: `server-modernized/src/main/java/open/orca/rest/OrcaResource.java` から `disease/*` と `facilitycode/deptinfo` のJAX-RS注釈を除去し、機能別Resourceへ委譲可能な形へ整理。
