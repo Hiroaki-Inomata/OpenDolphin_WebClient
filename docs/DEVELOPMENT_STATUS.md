@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P7-01「PvtService の生ソケット受信を別ワーカーへ出す」を完了し、受信責務を worker へ分離（RUN_ID=20260311T210122Z）。
+  - 追加（worker）: `server-modernized/src/main/java/open/dolphin/worker/pvt/PvtSocketWorker.java` を新規作成。
+  - 変更（service）: `server-modernized/src/main/java/open/dolphin/mbean/PvtService.java` をブートストラップ専任へ整理（`ServerSocket` 受信処理を除去）。
+  - 内容: worker が `bind/accept/read/ACK-NAK/接続スレッド管理` を担当し、`PvtService#parseAndSend` へ payload を委譲。
+  - 追加（実施記録）: `docs/modernization/p7-01-pvt-socket-worker-separation.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P7-01` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=MessageSenderTest,SessionMessageHandlerTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（7 tests）。
 - 2026-03-12: P6-10「index・fetch plan・N+1 を見直す」を完了し、重い3経路向けの query/index を補強（RUN_ID=20260311T210122Z）。
   - 変更（query）: `PatientServiceBean#getPatientById` の患者解決を `LIKE` から厳密一致 `=` へ変更し、前方一致検索用クエリと分離。
   - 追加（migration）: `V0303__performance_index_tuning.sql` を `tools/flyway/sql` と `src/main/resources/db/migration` に追加。
