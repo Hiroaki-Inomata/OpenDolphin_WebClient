@@ -36,6 +36,10 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: `P6-04` 着手判定で依存順ブロッカーを記録（RUN_ID=20260311T170115Z）。
+  - 内容: `P6-04` の依存 `P6-08` と「上から順実行」が衝突するため、WBSのブロッカー節へ未解消事項を追記。
+  - 試行: (1) `P6-04` 内で暫定DDL先行、(2) `P6-08` 先行着手を比較。前者は migration 履歴二重化リスク、後者は実行ルール違反のため採用見送り。
+  - 反映: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` のブロッカー節を更新。
 - 2026-03-12: P6-03「ModuleModel の bean_json 保存をやめる設計を決める」を完了し、versioned JSON 方式へ方針固定（RUN_ID=20260311T170115Z）。
   - 追加（設計書）: `docs/modernization/p6-03-module-storage-replacement-design.md` を新規作成。
   - 内容: module種別棚卸し、置換案比較（型別テーブル vs versioned JSON）、採用方式、目標スキーマ、移行順序、P6-04先行実装範囲（`medOrder` / `progressCourse`）を定義。
