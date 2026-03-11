@@ -184,7 +184,7 @@ public class KarteDocumentWriteService {
                     AttachmentModel model = (AttachmentModel) obj;
                     model.setStatus(IInfoModel.STATUS_DELETE);
                     model.setEnded(ended);
-                    attachmentStorageManager.deleteExternalAsset(model);
+                    attachmentStorageManager.scheduleDeleteExternalAssetAfterCommit(model);
                 }
 
                 id = delete.getLinkId();
@@ -407,7 +407,7 @@ public class KarteDocumentWriteService {
 
     private void removeMissingAttachments(List<AttachmentModel> existing, List<AttachmentModel> incoming) {
         removeMissingChildren(existing, incoming, attachment -> {
-            attachmentStorageManager.deleteExternalAsset(attachment);
+            attachmentStorageManager.scheduleDeleteExternalAssetAfterCommit(attachment);
             em.remove(em.contains(attachment) ? attachment : em.merge(attachment));
         });
     }

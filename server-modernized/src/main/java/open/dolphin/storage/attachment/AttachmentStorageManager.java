@@ -158,6 +158,47 @@ public class AttachmentStorageManager {
         });
     }
 
+    public void scheduleDeleteExternalAssetAfterCommit(AttachmentModel attachment) {
+        if (!settings.getMode().isS3() || attachment == null || !hasText(attachment.getUri())) {
+            return;
+        }
+        AttachmentStorageManager invoker = selfReference != null && !selfReference.isUnsatisfied()
+                ? selfReference.get()
+                : this;
+        if (registry == null) {
+            invoker.deleteExternalAssetOutsideTransaction(attachment);
+            return;
+        }
+        int txStatus = registry.getTransactionStatus();
+        if (txStatus == Status.STATUS_ACTIVE
+                || txStatus == Status.STATUS_MARKED_ROLLBACK
+                || txStatus == Status.STATUS_PREPARING
+                || txStatus == Status.STATUS_PREPARED
+                || txStatus == Status.STATUS_COMMITTING
+                || txStatus == Status.STATUS_ROLLING_BACK) {
+            registry.registerInterposedSynchronization(new Synchronization() {
+                @Override
+                public void beforeCompletion() {
+                    // no-op
+                }
+
+                @Override
+                public void afterCompletion(int status) {
+                    if (status == Status.STATUS_COMMITTED) {
+                        invoker.deleteExternalAssetOutsideTransaction(attachment);
+                    }
+                }
+            });
+            return;
+        }
+        invoker.deleteExternalAssetOutsideTransaction(attachment);
+    }
+
+    @Transactional(Transactional.TxType.NOT_SUPPORTED)
+    public void deleteExternalAssetOutsideTransaction(AttachmentModel attachment) {
+        deleteExternalAsset(attachment);
+    }
+
     private boolean uploadToS3(AttachmentModel attachment) {
         if (attachment == null) {
             return false;

@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-11
-- RUN_ID: 20260311T110043Z
+- RUN_ID: 20260311T120154Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -51,6 +51,7 @@
 - `docs/modernization/p4-03-resource-splitting.md`（P4-03: 患者更新・管理系 Resource 分割）
 - `docs/modernization/p4-04-cross-cutting-authorization-audit.md`（P4-04: 認可/監査の横断部品化）
 - `docs/modernization/p4-05-error-response-request-id-unification.md`（P4-05: エラー応答形式と request id 統一）
+- `docs/modernization/p4-06-transaction-boundaries.md`（P4-06: トランザクション境界見直し・worktree手順）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

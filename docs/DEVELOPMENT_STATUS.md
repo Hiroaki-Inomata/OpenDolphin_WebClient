@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P4-06「トランザクション境界を見直す」を完了し、患者更新/カルテ保存/添付保存の外部I/O境界を整理（RUN_ID=20260311T120154Z）。
+  - 変更（患者更新）: `server-modernized/src/main/java/open/dolphin/session/PatientServiceBean.java` で `ChartEventServiceBean#notifyEvent` を即時送信から「コミット後送信」へ変更（`TransactionSynchronizationRegistry` を使用）。
+  - 変更（カルテ書込）: `server-modernized/src/main/java/open/dolphin/session/KarteDocumentWriteService.java` の添付削除呼び出しを `scheduleDeleteExternalAssetAfterCommit` へ変更。
+  - 変更（添付保存）: `server-modernized/src/main/java/open/dolphin/storage/attachment/AttachmentStorageManager.java` に commit後削除スケジューラと `TxType.NOT_SUPPORTED` の削除実行メソッドを追加。
+  - 追加（テスト）: `server-modernized/src/test/java/open/dolphin/storage/attachment/AttachmentStorageManagerTest.java` に commit後削除の回帰テストを追加。
+  - 追加（実施記録）: `docs/modernization/p4-06-transaction-boundaries.md` を新規作成し、**ワーカー向け専用worktree作成手順**（writable root 配下での作成ルール含む）を明記。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P4-06` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=AttachmentStorageManagerTest,PatientServiceBeanAddPatientTest,KarteServiceBeanDocPkTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（17 tests）。
 - 2026-03-11: P4-05「エラー応答形式と request id を統一する」を完了し、共通エラーJSONに requestId/runId を標準付与（RUN_ID=20260311T110043Z）。
   - 変更（共通エラー）: `server-modernized/src/main/java/open/dolphin/rest/AbstractResource.java` の `buildErrorBody` に `requestId` / `runId` / `timestamp` を標準付与。
   - 変更（例外マッパー）: `server-modernized/src/main/java/open/dolphin/rest/OrcaGatewayExceptionMapper.java` を `AbstractResource.restError(...)` ベースへ統一。
