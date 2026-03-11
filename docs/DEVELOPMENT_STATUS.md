@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P4-02「KarteServiceBean を use case 単位に分ける」を完了し、write 系の責務を専用 service へ分割（RUN_ID=20260311T100117Z）。
+  - 追加（service）: `server-modernized/src/main/java/open/dolphin/session/KarteDocumentWriteService.java` / `KarteDiagnosisService.java` / `KarteObservationService.java` を新規作成。
+  - 変更（service）: `server-modernized/src/main/java/open/dolphin/session/KarteServiceBean.java` の文書書込・傷病名・観察メソッドを委譲化し、巨大 private 実装ブロックを削減。
+  - 変更（テスト）: `KarteServiceBeanDocPkTest` / `KarteServiceBeanRevisionBulkUpdateTest` / `KarteServiceBeanBatchWriteTest` を service 注入前提へ更新。
+  - 追加（実施記録）: `docs/modernization/p4-02-karte-service-usecase-split.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P4-02` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=KarteServiceBeanDocPkTest,KarteServiceBeanRevisionBulkUpdateTest,KarteServiceBeanBatchWriteTest,KarteServiceBeanGetKarteTest,DocumentIntegrityServiceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（15 tests）。
 - 2026-03-11: P4-01「KarteResource を責務ごとに分ける」を完了し、document write/revision 系を独立 Resource へ分割（RUN_ID=20260311T090121Z）。
   - 追加（resource）: `server-modernized/src/main/java/open/dolphin/rest/KarteDocumentWriteResource.java` を新規作成し、`/karte/document*` の write 系 endpoint を集約。
   - 変更（resource）: `server-modernized/src/main/java/open/dolphin/rest/KarteResource.java` から document write/revision 系メソッドと関連監査ヘルパーを除去し、read 系中心へ縮小。

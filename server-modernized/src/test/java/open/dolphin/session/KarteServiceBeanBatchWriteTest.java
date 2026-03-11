@@ -32,6 +32,8 @@ class KarteServiceBeanBatchWriteTest {
     private Query diagnosisDeleteQuery;
     private Query observationDeleteQuery;
     private DiagnosisAuditRecorder diagnosisAuditRecorder;
+    private KarteDiagnosisService karteDiagnosisService;
+    private KarteObservationService karteObservationService;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -40,9 +42,15 @@ class KarteServiceBeanBatchWriteTest {
         diagnosisDeleteQuery = deleteQuery();
         observationDeleteQuery = deleteQuery();
         diagnosisAuditRecorder = mock(DiagnosisAuditRecorder.class);
+        karteDiagnosisService = new KarteDiagnosisService();
+        karteObservationService = new KarteObservationService();
 
         setField(service, "em", em);
-        setField(service, "diagnosisAuditRecorder", diagnosisAuditRecorder);
+        setField(karteDiagnosisService, "em", em);
+        setField(karteDiagnosisService, "diagnosisAuditRecorder", diagnosisAuditRecorder);
+        setField(karteObservationService, "em", em);
+        setField(service, "karteDiagnosisService", karteDiagnosisService);
+        setField(service, "karteObservationService", karteObservationService);
 
         when(em.createQuery(QUERY_DELETE_DIAGNOSIS_BY_IDS)).thenReturn(diagnosisDeleteQuery);
         when(em.createQuery(QUERY_DELETE_OBSERVATIONS_BY_IDS)).thenReturn(observationDeleteQuery);

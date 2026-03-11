@@ -47,6 +47,7 @@ class KarteServiceBeanDocPkTest {
     private AttachmentStorageManager attachmentStorageManager;
     private ImageStorageManager imageStorageManager;
     private DocumentIntegrityService documentIntegrityService;
+    private KarteDocumentWriteService karteDocumentWriteService;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -55,11 +56,17 @@ class KarteServiceBeanDocPkTest {
         attachmentStorageManager = mock(AttachmentStorageManager.class);
         imageStorageManager = mock(ImageStorageManager.class);
         documentIntegrityService = mock(DocumentIntegrityService.class);
+        karteDocumentWriteService = new KarteDocumentWriteService();
 
         setField(service, "em", em);
         setField(service, "attachmentStorageManager", attachmentStorageManager);
         setField(service, "imageStorageManager", imageStorageManager);
         setField(service, "documentIntegrityService", documentIntegrityService);
+        setField(karteDocumentWriteService, "em", em);
+        setField(karteDocumentWriteService, "attachmentStorageManager", attachmentStorageManager);
+        setField(karteDocumentWriteService, "imageStorageManager", imageStorageManager);
+        setField(karteDocumentWriteService, "documentIntegrityService", documentIntegrityService);
+        setField(service, "karteDocumentWriteService", karteDocumentWriteService);
         doAnswer(invocation -> {
             DocumentModel document = invocation.getArgument(0);
             if (document.getId() <= 0) {

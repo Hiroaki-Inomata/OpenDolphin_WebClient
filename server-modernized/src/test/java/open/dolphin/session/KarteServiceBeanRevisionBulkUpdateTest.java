@@ -43,6 +43,7 @@ class KarteServiceBeanRevisionBulkUpdateTest {
     private Query moduleUpdateQuery;
     private Query schemaUpdateQuery;
     private Query attachmentUpdateQuery;
+    private KarteDocumentWriteService karteDocumentWriteService;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -52,10 +53,17 @@ class KarteServiceBeanRevisionBulkUpdateTest {
         moduleUpdateQuery = bulkQuery();
         schemaUpdateQuery = bulkQuery();
         attachmentUpdateQuery = bulkQuery();
+        karteDocumentWriteService = new KarteDocumentWriteService();
 
         setField(service, "em", em);
-        setField(service, "attachmentStorageManager", mock(AttachmentStorageManager.class));
-        setField(service, "imageStorageManager", mock(ImageStorageManager.class));
+        AttachmentStorageManager attachmentStorageManager = mock(AttachmentStorageManager.class);
+        ImageStorageManager imageStorageManager = mock(ImageStorageManager.class);
+        setField(service, "attachmentStorageManager", attachmentStorageManager);
+        setField(service, "imageStorageManager", imageStorageManager);
+        setField(karteDocumentWriteService, "em", em);
+        setField(karteDocumentWriteService, "attachmentStorageManager", attachmentStorageManager);
+        setField(karteDocumentWriteService, "imageStorageManager", imageStorageManager);
+        setField(service, "karteDocumentWriteService", karteDocumentWriteService);
 
         when(em.createQuery(QUERY_MARK_DOCUMENT_MODIFIED)).thenReturn(documentUpdateQuery);
         when(em.createQuery(QUERY_MARK_MODULES_MODIFIED)).thenReturn(moduleUpdateQuery);

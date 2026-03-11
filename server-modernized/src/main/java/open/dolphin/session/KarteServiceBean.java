@@ -8,7 +8,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.function.Consumer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
@@ -17,10 +16,7 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
-import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.Response;
 import open.dolphin.infomodel.*;
-import open.dolphin.rest.AbstractResource;
 import open.dolphin.rest.dto.KarteRevisionDocumentResponse;
 import open.dolphin.rest.dto.RoutineMedicationResponse;
 import open.dolphin.rest.dto.RpHistoryDrugResponse;
@@ -30,7 +26,6 @@ import open.dolphin.rest.dto.SafetySummaryResponse;
 import open.dolphin.rest.dto.UserPropertyResponse;
 import open.dolphin.rest.support.KarteRevisionResponseMapper;
 import open.dolphin.security.integrity.DocumentIntegrityService;
-import open.dolphin.session.audit.DiagnosisAuditRecorder;
 import open.dolphin.session.framework.SessionOperation;
 import open.dolphin.storage.attachment.AttachmentStorageManager;
 import open.dolphin.storage.image.ImageStorageManager;
@@ -50,9 +45,6 @@ public class KarteServiceBean {
     private static final Logger LOGGER = LoggerFactory.getLogger(KarteServiceBean.class);
     private static final DateTimeFormatter ISO_INSTANT_FORMATTER = DateTimeFormatter.ISO_INSTANT;
     private static final DateTimeFormatter ISO_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC);
-    private static final String FINALIZED_UPDATE_DENIED_ERROR_CODE = "karte.document.finalized_update_denied";
-    private static final int WRITE_BATCH_SIZE = 50;
-    
     // parameters
     private static final String PATIENT_PK = "patientPk";
     private static final String KARTE_ID = "karteId";
@@ -188,10 +180,16 @@ public class KarteServiceBean {
     private ImageStorageManager imageStorageManager;
 
     @Inject
-    private DiagnosisAuditRecorder diagnosisAuditRecorder;
+    private DocumentIntegrityService documentIntegrityService;
 
     @Inject
-    private DocumentIntegrityService documentIntegrityService;
+    private KarteDocumentWriteService karteDocumentWriteService;
+
+    @Inject
+    private KarteDiagnosisService karteDiagnosisService;
+
+    @Inject
+    private KarteObservationService karteObservationService;
 
 //s.oh^ 2014/02/21 Claim送信方法の変更
     //@Resource(mappedName = "java:/JmsXA")
@@ -501,60 +499,11 @@ public class KarteServiceBean {
      * @return 追加した数
      */
     public long addDocument(DocumentModel document) {
-
-        LOGGER.info("addDocument request id={}, docId={}",
-                document.getId(),
-                document.getDocInfoModel() != null ? document.getDocInfoModel().getDocId() : "null");
-
-        prepareDocumentForInsert(document);
-        em.persist(document);
-        em.flush();
-        finalizePersistedDocument(document);
-        sealDocument(document);
-
-        // ID
-        long id = document.getId();
-
-        // 修正版の処理を行う
-        long parentPk = document.getDocInfoModel().getParentPk();
-        if (parentPk != 0L) {
-            markRevisionSourceAsModified(parentPk, document.getConfirmed());
-        }
-        
-        return id;
+        return karteDocumentWriteService.addDocument(document);
     }
 
     public long updateDocument(DocumentModel document) {
-
-        if (document.getId() <= 0) {
-            throw new IllegalArgumentException("Document id is required for update");
-        }
-
-        DocumentModel current = em.find(DocumentModel.class, document.getId());
-        if (current == null) {
-            throw new IllegalArgumentException("Document not found: " + document.getId());
-        }
-
-        String currentStatus = normalizeStatus(current.getStatus());
-        String requestedStatus = resolveRequestedStatus(document);
-        if (!IInfoModel.STATUS_TMP.equals(currentStatus)) {
-            throw finalizedUpdateDenied(document.getId(), currentStatus, requestedStatus);
-        }
-        if (requestedStatus != null
-                && !IInfoModel.STATUS_TMP.equals(requestedStatus)
-                && !IInfoModel.STATUS_FINAL.equals(requestedStatus)) {
-            throw finalizedUpdateDenied(document.getId(), currentStatus, requestedStatus);
-        }
-
-        removeMissingModules(current.getModules(), document.getModules());
-        removeMissingSchemas(current.getSchema(), document.getSchema());
-        removeMissingAttachments(current.getAttachment(), document.getAttachment());
-
-        DocumentModel merged = em.merge(document);
-        em.flush();
-        finalizePersistedDocument(merged);
-        sealDocument(merged);
-        return merged.getId();
+        return karteDocumentWriteService.updateDocument(document);
     }
 
     public void flush() {
@@ -729,34 +678,7 @@ public class KarteServiceBean {
     }
 
     public long addDocumentAndUpdatePVTState(DocumentModel document, long pvtPK, int state) {
-
-        prepareDocumentForInsert(document);
-        em.persist(document);
-        em.flush();
-        finalizePersistedDocument(document);
-        sealDocument(document);
-
-        // ID
-        long id = document.getId();
-
-        // 修正版の処理を行う
-        long parentPk = document.getDocInfoModel().getParentPk();
-        if (parentPk != 0L) {
-            markRevisionSourceAsModified(parentPk, document.getConfirmed());
-        }
-        
-        //------------------------------------------------------------
-        // PVT 更新  state==2 || state == 4
-        //------------------------------------------------------------
-        try {
-            // PVT 更新  state==2 || state == 4
-            PatientVisitModel exist = (PatientVisitModel) em.find(PatientVisitModel.class, new Long(pvtPK));
-            exist.setState(state);
-        } catch (Throwable e) {
-            LOGGER.warn("Failed to update PVT state [pvtPK={}, state={}]", pvtPK, state, e);
-        }
-
-        return id;
+        return karteDocumentWriteService.addDocumentAndUpdatePVTState(document, pvtPK, state);
     }
 
     /**
@@ -765,86 +687,7 @@ public class KarteServiceBean {
      * @return 削除したドキュメントの文書IDリスト
      */
     public List<String> deleteDocument(long id) {
-        
-        //----------------------------------------
-        // 参照されているDocumentの場合は例外を投げる
-        //----------------------------------------
-        Collection refs = em.createQuery(QUERY_DOCUMENT_BY_LINK_ID)
-        .setParameter(ID, id).getResultList();
-        if (refs != null && refs.size() >0) {
-            CanNotDeleteException ce = new CanNotDeleteException("他のドキュメントから参照されているため削除できません。");
-            throw ce;
-        } 
-        
-        // 終了日
-        Date ended = new Date();
-        
-        // 削除件数
-        int cnt=0;
-        
-        // 削除リスト　文書ID
-        List<String> list = new ArrayList<>();
-        
-        // Loop で削除
-        while (true) {
-            
-            try {
-                //-----------------------
-                // 対象 Document を取得する
-                //-----------------------
-                DocumentModel delete = (DocumentModel)em.find(DocumentModel.class, id);
-                
-                //------------------------
-                // 削除フラグをたてる
-                //------------------------
-                delete.setStatus(IInfoModel.STATUS_DELETE);
-                delete.setEnded(ended);
-                cnt++;
-                list.add(delete.getDocInfoModel().getDocId());
-                
-                //------------------------------
-                // 関連するモジュールに同じ処理を行う
-                //------------------------------
-                Collection deleteModules = em.createQuery(QUERY_MODULE_BY_DOC_ID)
-                .setParameter(ID, id).getResultList();
-                for (Iterator iter = deleteModules.iterator(); iter.hasNext(); ) {
-                    ModuleModel model = (ModuleModel) iter.next();
-                    model.setStatus(IInfoModel.STATUS_DELETE);
-                    model.setEnded(ended);
-                }
-
-                //------------------------------
-                // 関連する画像に同じ処理を行う
-                //------------------------------
-                Collection deleteImages = em.createQuery(QUERY_SCHEMA_BY_DOC_ID)
-                .setParameter(ID, id).getResultList();
-                for (Iterator iter = deleteImages.iterator(); iter.hasNext(); ) {
-                    SchemaModel model = (SchemaModel) iter.next();
-                    model.setStatus(IInfoModel.STATUS_DELETE);
-                    model.setEnded(ended);
-                }
-
-                //------------------------------
-                // 関連するAttachmentに同じ処理を行う
-                //------------------------------
-                Collection deleteAttachments = em.createQuery(QUERY_ATTACHMENT_BY_DOC_ID)
-                .setParameter(ID, id).getResultList();
-                for (Iterator iter = deleteAttachments.iterator(); iter.hasNext(); ) {
-                    AttachmentModel model = (AttachmentModel)iter.next();
-                    model.setStatus(IInfoModel.STATUS_DELETE);
-                    model.setEnded(ended);
-                    attachmentStorageManager.deleteExternalAsset(model);
-                }
-                
-                // 削除したDocumentのlinkID を 削除するDocument id(PK) にしてLoopさせる
-                id = delete.getLinkId();
-                
-            } catch (Exception e) {
-                break;
-            }
-        }
-
-        return list;
+        return karteDocumentWriteService.deleteDocument(id);
     }
 
     /**
@@ -854,9 +697,7 @@ public class KarteServiceBean {
      * @return 
      */
     public int updateTitle(long pk, String title) {
-        DocumentModel update = (DocumentModel) em.find(DocumentModel.class, pk);
-        update.getDocInfoModel().setTitle(title);
-        return 1;
+        return karteDocumentWriteService.updateTitle(pk, title);
     }
 
     /**
@@ -959,25 +800,7 @@ public class KarteServiceBean {
      * @return 傷病名のリスト
      */
     public List<RegisteredDiagnosisModel> getDiagnosis(long karteId, Date fromDate, boolean activeOnly) {
-
-        List<RegisteredDiagnosisModel> ret;
-
-        // 疾患開始日を指定している
-        if (fromDate != null) {
-            String query = activeOnly ? QUERY_DIAGNOSIS_BY_KARTE_DATE_ACTIVEONLY : QUERY_DIAGNOSIS_BY_KARTE_DATE;
-            ret = (List<RegisteredDiagnosisModel>) em.createQuery(query)
-                    .setParameter(KARTE_ID, karteId)
-                    .setParameter(FROM_DATE, fromDate)
-                    .getResultList();
-        } else {
-            // 全期間の傷病名を得る
-            String query = activeOnly ? QUERY_DIAGNOSIS_BY_KARTE_ACTIVEONLY : QUERY_DIAGNOSIS_BY_KARTE;
-            ret = (List<RegisteredDiagnosisModel>)em.createQuery(query)
-                    .setParameter(KARTE_ID, karteId)
-                    .getResultList();
-        }
-
-        return ret;
+        return karteDiagnosisService.getDiagnosis(karteId, fromDate, activeOnly);
     }
     
     /**
@@ -986,38 +809,7 @@ public class KarteServiceBean {
      * @return 新規病名のPKリスト
      */
     public List<Long> postPutSendDiagnosis(DiagnosisSendWrapper wrapper) {
-
-        List<RegisteredDiagnosisModel> deletedList = wrapper.getDeletedDiagnosis();
-        if (deletedList != null && !deletedList.isEmpty()) {
-            bulkDeleteByIds(QUERY_DELETE_DIAGNOSIS_BY_IDS, collectDiagnosisIds(deletedList));
-        }
-
-        List<RegisteredDiagnosisModel> updatedList = wrapper.getUpdatedDiagnosis();
-        if (updatedList != null) {
-            int processed = 0;
-            for (RegisteredDiagnosisModel bean : updatedList) {
-                em.merge(bean);
-                processed++;
-                flushAndClearIfNeeded(processed);
-            }
-        }
-
-        List<RegisteredDiagnosisModel> addedList = wrapper.getAddedDiagnosis();
-        List<Long> ret = new ArrayList<>(addedList != null ? addedList.size() : 0);
-        if (addedList != null) {
-            int processed = 0;
-            for (RegisteredDiagnosisModel bean : addedList) {
-                em.persist(bean);
-                ret.add(bean.getId());
-                processed++;
-                flushAndClearIfNeeded(processed);
-            }
-        }
-        
-        diagnosisAuditRecorder.recordCreate(wrapper, addedList, ret);
-        diagnosisAuditRecorder.recordUpdate(wrapper, updatedList);
-
-        return ret;
+        return karteDiagnosisService.postPutSendDiagnosis(wrapper);
     }
     
 
@@ -1027,22 +819,7 @@ public class KarteServiceBean {
      * @return idのリスト
      */
     public List<Long> addDiagnosis(List<RegisteredDiagnosisModel> addList) {
-
-        if (addList == null || addList.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        List<Long> ret = new ArrayList<>(addList.size());
-
-        int processed = 0;
-        for (RegisteredDiagnosisModel bean : addList) {
-            em.persist(bean);
-            ret.add(bean.getId());
-            processed++;
-            flushAndClearIfNeeded(processed);
-        }
-
-        return ret;
+        return karteDiagnosisService.addDiagnosis(addList);
     }
 
     /**
@@ -1051,19 +828,7 @@ public class KarteServiceBean {
      * @return 更新数
      */
     public int updateDiagnosis(List<RegisteredDiagnosisModel> updateList) {
-        if (updateList == null || updateList.isEmpty()) {
-            return 0;
-        }
-
-        int cnt = 0;
-
-        for (RegisteredDiagnosisModel bean : updateList) {
-            em.merge(bean);
-            cnt++;
-            flushAndClearIfNeeded(cnt);
-        }
-
-        return cnt;
+        return karteDiagnosisService.updateDiagnosis(updateList);
     }
 
     /**
@@ -1072,7 +837,7 @@ public class KarteServiceBean {
      * @return 削除数
      */
     public int removeDiagnosis(List<Long> removeList) {
-        return bulkDeleteByIds(QUERY_DELETE_DIAGNOSIS_BY_IDS, normalizeIds(removeList));
+        return karteDiagnosisService.removeDiagnosis(removeList);
     }
 
     /**
@@ -1084,38 +849,7 @@ public class KarteServiceBean {
      * @return Observationのリスト
      */
     public List<ObservationModel> getObservations(long karteId, String observation, String phenomenon, Date firstConfirmed) {
-
-        List ret = null;
-
-        if (observation != null) {
-            if (firstConfirmed != null) {
-                ret = em.createQuery("from ObservationModel o where o.karte.id=:karteId and o.observation=:observation and o.started >= :firstConfirmed")
-                .setParameter(KARTE_ID, karteId)
-                .setParameter("observation", observation)
-                .setParameter("firstConfirmed", firstConfirmed)
-                .getResultList();
-
-            } else {
-                ret = em.createQuery("from ObservationModel o where o.karte.id=:karteId and o.observation=:observation")
-                .setParameter(KARTE_ID, karteId)
-                .setParameter("observation", observation)
-                .getResultList();
-            }
-        } else if (phenomenon != null) {
-            if (firstConfirmed != null) {
-                ret = em.createQuery("from ObservationModel o where o.karte.id=:karteId and o.phenomenon=:phenomenon and o.started >= :firstConfirmed")
-                .setParameter(KARTE_ID, karteId)
-                .setParameter("phenomenon", phenomenon)
-                .setParameter("firstConfirmed", firstConfirmed)
-                .getResultList();
-            } else {
-                ret = em.createQuery("from ObservationModel o where o.karte.id=:karteId and o.phenomenon=:phenomenon")
-                .setParameter(KARTE_ID, karteId)
-                .setParameter("phenomenon", phenomenon)
-                .getResultList();
-            }
-        }
-        return ret;
+        return karteObservationService.getObservations(karteId, observation, phenomenon, firstConfirmed);
     }
 
     /**
@@ -1124,22 +858,7 @@ public class KarteServiceBean {
      * @return 追加したObservationのIdリスト
      */
     public List<Long> addObservations(List<ObservationModel> observations) {
-
-        if (observations != null && observations.size() > 0) {
-
-            List<Long> ret = new ArrayList<>(observations.size());
-
-            int processed = 0;
-            for (ObservationModel model : observations) {
-                em.persist(model);
-                ret.add(model.getId());
-                processed++;
-                flushAndClearIfNeeded(processed);
-            }
-
-            return ret;
-        }
-        return null;
+        return karteObservationService.addObservations(observations);
     }
 
     /**
@@ -1148,17 +867,7 @@ public class KarteServiceBean {
      * @return 更新した数
      */
     public int updateObservations(List<ObservationModel> observations) {
-
-        if (observations != null && observations.size() > 0) {
-            int cnt = 0;
-            for (ObservationModel model : observations) {
-                em.merge(model);
-                cnt++;
-                flushAndClearIfNeeded(cnt);
-            }
-            return cnt;
-        }
-        return 0;
+        return karteObservationService.updateObservations(observations);
     }
 
     /**
@@ -1168,7 +877,7 @@ public class KarteServiceBean {
      */
     
     public int removeObservations(List<Long> observations) {
-        return bulkDeleteByIds(QUERY_DELETE_OBSERVATIONS_BY_IDS, normalizeIds(observations));
+        return karteObservationService.removeObservations(observations);
     }
 
     /**
@@ -1894,38 +1603,11 @@ public class KarteServiceBean {
         return responses;
     }
 
-    private void sealDocument(DocumentModel document) {
-        if (documentIntegrityService == null || document == null) {
-            return;
-        }
-        documentIntegrityService.sealDocument(document);
-    }
-
     private void verifyDocumentOnRead(DocumentModel document) {
         if (documentIntegrityService == null || document == null) {
             return;
         }
         documentIntegrityService.verifyDocumentOnRead(document);
-    }
-
-    private String resolveRequestedStatus(DocumentModel document) {
-        if (document == null) {
-            return null;
-        }
-        String status = normalizeStatus(document.getStatus());
-        if (status != null) {
-            return status;
-        }
-        DocInfoModel info = document.getDocInfoModel();
-        return info != null ? normalizeStatus(info.getStatus()) : null;
-    }
-
-    private String normalizeStatus(String status) {
-        if (status == null) {
-            return null;
-        }
-        String trimmed = status.trim();
-        return trimmed.isEmpty() ? null : trimmed.toUpperCase(Locale.ROOT);
     }
 
     private Date findLatestDocumentStarted(long karteId) {
@@ -1941,246 +1623,6 @@ public class KarteServiceBean {
             throw new NoResultException("Document started date not found for karteId=" + karteId);
         }
         return startedDates.get(0);
-    }
-
-    private void markRevisionSourceAsModified(long parentPk, Date ended) {
-        if (parentPk <= 0L) {
-            return;
-        }
-        String modifiedStatus = IInfoModel.STATUS_MODIFIED;
-        executeRevisionBulkUpdate(QUERY_MARK_DOCUMENT_MODIFIED, parentPk, ended, modifiedStatus);
-        executeRevisionBulkUpdate(QUERY_MARK_MODULES_MODIFIED, parentPk, ended, modifiedStatus);
-        executeRevisionBulkUpdate(QUERY_MARK_SCHEMAS_MODIFIED, parentPk, ended, modifiedStatus);
-        executeRevisionBulkUpdate(QUERY_MARK_ATTACHMENTS_MODIFIED, parentPk, ended, modifiedStatus);
-    }
-
-    private void executeRevisionBulkUpdate(String query, long documentId, Date ended, String status) {
-        em.createQuery(query)
-                .setParameter(ID, documentId)
-                .setParameter("ended", ended)
-                .setParameter("status", status)
-                .executeUpdate();
-    }
-
-    private List<Long> collectDiagnosisIds(List<RegisteredDiagnosisModel> deletedList) {
-        if (deletedList == null || deletedList.isEmpty()) {
-            return Collections.emptyList();
-        }
-        List<Long> ids = new ArrayList<>(deletedList.size());
-        for (RegisteredDiagnosisModel bean : deletedList) {
-            if (bean != null && bean.getId() > 0L) {
-                ids.add(bean.getId());
-            }
-        }
-        return ids;
-    }
-
-    private List<Long> normalizeIds(List<Long> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return Collections.emptyList();
-        }
-        List<Long> normalized = new ArrayList<>(ids.size());
-        for (Long id : ids) {
-            if (id != null && id > 0L) {
-                normalized.add(id);
-            }
-        }
-        return normalized;
-    }
-
-    private int bulkDeleteByIds(String query, List<Long> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return 0;
-        }
-        return em.createQuery(query)
-                .setParameter("ids", ids)
-                .executeUpdate();
-    }
-
-    private void flushAndClearIfNeeded(int processed) {
-        if (processed > 0 && processed % WRITE_BATCH_SIZE == 0) {
-            em.flush();
-            em.clear();
-        }
-    }
-
-    private void prepareDocumentForInsert(DocumentModel document) {
-        if (document == null) {
-            return;
-        }
-        synchronizeDocumentGraph(document);
-        encodeModulePayloads(document.getModules());
-    }
-
-    private void finalizePersistedDocument(DocumentModel document) {
-        if (document == null) {
-            return;
-        }
-        if (document.getDocInfoModel() != null) {
-            document.getDocInfoModel().setDocPk(document.getId());
-        }
-        synchronizeDocumentGraph(document);
-        imageStorageManager.persistExternalAssets(document.getSchema());
-        attachmentStorageManager.persistExternalAssets(document.getAttachment());
-        em.flush();
-    }
-
-    private void synchronizeDocumentGraph(DocumentModel document) {
-        if (document == null) {
-            return;
-        }
-        KarteBean karte = document.getKarteBean();
-        UserModel creator = document.getUserModel();
-        Date started = document.getStarted();
-        Date confirmed = document.getConfirmed();
-        Date recorded = document.getRecorded();
-        String status = document.getStatus();
-
-        if (document.getModules() != null) {
-            for (ModuleModel module : document.getModules()) {
-                if (module == null) {
-                    continue;
-                }
-                module.setDocumentModel(document);
-                if (module.getKarteBean() == null) {
-                    module.setKarteBean(karte);
-                }
-                if (module.getUserModel() == null) {
-                    module.setUserModel(creator);
-                }
-                if (module.getStarted() == null) {
-                    module.setStarted(started);
-                }
-                if (module.getConfirmed() == null) {
-                    module.setConfirmed(confirmed);
-                }
-                if (module.getRecorded() == null) {
-                    module.setRecorded(recorded);
-                }
-                if (module.getStatus() == null) {
-                    module.setStatus(status);
-                }
-            }
-        }
-        if (document.getSchema() != null) {
-            for (SchemaModel schema : document.getSchema()) {
-                if (schema == null) {
-                    continue;
-                }
-                schema.setDocumentModel(document);
-                if (schema.getKarteBean() == null) {
-                    schema.setKarteBean(karte);
-                }
-                if (schema.getUserModel() == null) {
-                    schema.setUserModel(creator);
-                }
-                if (schema.getStarted() == null) {
-                    schema.setStarted(started);
-                }
-                if (schema.getConfirmed() == null) {
-                    schema.setConfirmed(confirmed);
-                }
-                if (schema.getRecorded() == null) {
-                    schema.setRecorded(recorded);
-                }
-                if (schema.getStatus() == null) {
-                    schema.setStatus(status);
-                }
-            }
-        }
-        if (document.getAttachment() != null) {
-            for (AttachmentModel attachment : document.getAttachment()) {
-                if (attachment == null) {
-                    continue;
-                }
-                attachment.setDocumentModel(document);
-                if (attachment.getKarteBean() == null) {
-                    attachment.setKarteBean(karte);
-                }
-                if (attachment.getUserModel() == null) {
-                    attachment.setUserModel(creator);
-                }
-                if (attachment.getStarted() == null) {
-                    attachment.setStarted(started);
-                }
-                if (attachment.getConfirmed() == null) {
-                    attachment.setConfirmed(confirmed);
-                }
-                if (attachment.getRecorded() == null) {
-                    attachment.setRecorded(recorded);
-                }
-                if (attachment.getStatus() == null) {
-                    attachment.setStatus(status);
-                }
-            }
-        }
-    }
-
-    private WebApplicationException finalizedUpdateDenied(long documentId,
-                                                          String currentStatus,
-                                                          String requestedStatus) {
-        Map<String, Object> details = new LinkedHashMap<>();
-        details.put("documentId", documentId);
-        details.put("currentStatus", currentStatus);
-        details.put("requestedStatus", requestedStatus);
-
-        return AbstractResource.restError(
-                null,
-                Response.Status.CONFLICT,
-                FINALIZED_UPDATE_DENIED_ERROR_CODE,
-                "Finalized document update is denied.",
-                details,
-                null
-        );
-    }
-
-    private void removeMissingModules(List<ModuleModel> existing, List<ModuleModel> incoming) {
-        removeMissingChildren(existing, incoming, module -> em.remove(em.contains(module) ? module : em.merge(module)));
-    }
-
-    private void removeMissingSchemas(List<SchemaModel> existing, List<SchemaModel> incoming) {
-        removeMissingChildren(existing, incoming, schema -> {
-            imageStorageManager.deleteExternalAsset(schema);
-            em.remove(em.contains(schema) ? schema : em.merge(schema));
-        });
-    }
-
-    private void removeMissingAttachments(List<AttachmentModel> existing, List<AttachmentModel> incoming) {
-        removeMissingChildren(existing, incoming, attachment -> {
-            attachmentStorageManager.deleteExternalAsset(attachment);
-            em.remove(em.contains(attachment) ? attachment : em.merge(attachment));
-        });
-    }
-
-    private <T extends KarteEntryBean> void removeMissingChildren(List<T> existing,
-                                                                  List<T> incoming,
-                                                                  Consumer<T> remover) {
-        if (existing == null || existing.isEmpty()) {
-            return;
-        }
-        Set<Long> incomingIds = collectIncomingIds(incoming);
-        List<T> snapshot = new ArrayList<>(existing);
-        for (T child : snapshot) {
-            long id = child.getId();
-            boolean shouldRemove = id > 0 && (incomingIds.isEmpty() || !incomingIds.contains(id));
-            if (shouldRemove) {
-                remover.accept(child);
-                existing.remove(child);
-            }
-        }
-    }
-
-    private <T extends KarteEntryBean> Set<Long> collectIncomingIds(List<T> incoming) {
-        if (incoming == null || incoming.isEmpty()) {
-            return Collections.emptySet();
-        }
-        Set<Long> ids = new HashSet<>();
-        for (T child : incoming) {
-            if (child != null && child.getId() > 0) {
-                ids.add(child.getId());
-            }
-        }
-        return ids;
     }
 
 }
