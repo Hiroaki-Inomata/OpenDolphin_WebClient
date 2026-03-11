@@ -3,9 +3,9 @@ package open.dolphin.msg;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.text.NumberFormat;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -34,6 +34,8 @@ public class OidSender {
     private static final String TESTER_TEMPLATE = "account-mail.vm";
     private static final String TEMPLATE_ENC = "SHIFT_JIS";
     private static final String OBJECT_NAME = "account";
+    private static final DateTimeFormatter TARGET_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy'年'MM'月'dd'日'");
+    private static final DateTimeFormatter REPORT_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy'年'MM'月'");
     private static final String ASP_TESTER = "ASP_TESTER";
     private static final String ASP_MEMBER = "ASP_MEMBER";
 
@@ -125,7 +127,7 @@ public class OidSender {
             if (smtp.bccAddress() != null) {
                 mimeMessage.addRecipients(RecipientType.BCC, InternetAddress.parse(smtp.bccAddress()));
             }
-            String subject = ACTIVITY_RESULT + reportDateFromDate(am.getFromDate()) + "-" + total.getFacilityName();
+            String subject = ACTIVITY_RESULT + reportDateFromDate(am.getFromLocalDate()) + "-" + total.getFacilityName();
             mimeMessage.setSubject(subject, MAIL_ENC);
             mimeMessage.setText(body, MAIL_ENC);
             Transport.send(mimeMessage);
@@ -154,7 +156,7 @@ public class OidSender {
 
     private String buildActivityBody(ActivityModel am, ActivityModel total) {
         StringBuilder sb = new StringBuilder();
-        sb.append("集計期間=").append(targetDateFromDate(am.getFromDate())).append("~").append(targetDateFromDate(am.getToDate())).append("\n");
+        sb.append("集計期間=").append(targetDateFromDate(am.getFromLocalDate())).append("~").append(targetDateFromDate(am.getToLocalDate())).append("\n");
         sb.append("------------------------------------").append("\n");
         sb.append("医療機関ID=").append(total.getFacilityId()).append("\n");
         sb.append("医療機関名=").append(total.getFacilityName()).append("\n");
@@ -311,14 +313,12 @@ public class OidSender {
                 || "on".equals(normalized);
     }
 
-    private String targetDateFromDate(Date d) {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy'年'MM'月'dd'日'");
-        return sdf.format(d);
+    private String targetDateFromDate(LocalDate date) {
+        return date == null ? "" : TARGET_DATE_FORMATTER.format(date);
     }
 
-    private String reportDateFromDate(Date d) {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy'年'MM'月'");
-        return sdf.format(d);
+    private String reportDateFromDate(LocalDate date) {
+        return date == null ? "" : REPORT_DATE_FORMATTER.format(date);
     }
 
     private String formatNumber(long num) {

@@ -1,5 +1,9 @@
 package open.dolphin.infomodel;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Date;
 
 /**
@@ -12,8 +16,8 @@ public class ActivityModel implements java.io.Serializable {
     private String flag;
     private int year;
     private int month;
-    private Date fromDate;
-    private Date toDate;
+    private LocalDateTime fromDate;
+    private LocalDateTime toDate;
     
     private String facilityId;
     private String facilityName;
@@ -328,28 +332,56 @@ public class ActivityModel implements java.io.Serializable {
      * @return the fromDate
      */
     public Date getFromDate() {
-        return fromDate;
+        return fromDate == null
+                ? null
+                : Date.from(fromDate.atZone(ZoneId.systemDefault()).toInstant());
     }
 
     /**
      * @param fromDate the fromDate to set
      */
     public void setFromDate(Date fromDate) {
-        this.fromDate = fromDate;
+        this.fromDate = fromDate == null
+                ? null
+                : Instant.ofEpochMilli(fromDate.getTime())
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDateTime();
+    }
+
+    public LocalDate getFromLocalDate() {
+        return fromDate == null ? null : fromDate.toLocalDate();
+    }
+
+    public void setFromLocalDate(LocalDate fromDate) {
+        this.fromDate = fromDate == null ? null : fromDate.atStartOfDay();
     }
 
     /**
      * @return the toDate
      */
     public Date getToDate() {
-        return toDate;
+        return toDate == null
+                ? null
+                : Date.from(toDate.atZone(ZoneId.systemDefault()).toInstant());
     }
 
     /**
      * @param toDate the toDate to set
      */
     public void setToDate(Date toDate) {
-        this.toDate = toDate;
+        this.toDate = toDate == null
+                ? null
+                : Instant.ofEpochMilli(toDate.getTime())
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDateTime();
+    }
+
+    public LocalDate getToLocalDate() {
+        return toDate == null ? null : toDate.toLocalDate();
+    }
+
+    public void setToLocalDate(LocalDate toDate) {
+        this.toDate = toDate == null ? null : toDate.atTime(23, 59, 59);
     }
     
 }

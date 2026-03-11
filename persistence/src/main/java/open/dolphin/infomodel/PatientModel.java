@@ -3,9 +3,11 @@ package open.dolphin.infomodel;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.time.Instant;
 import java.util.List;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -160,13 +162,27 @@ public class PatientModel extends InfoModel implements java.io.Serializable {
 //minagawa^ 新患検索用に初診日=(カルテ作成日）を追加 for ios7 対応
 //PC用コンバータでは不要    
     @Transient
-    private Date firstVisited;
+    private LocalDate firstVisited;
     
     public Date getFirstVisited() {
-        return firstVisited;
+        return firstVisited == null
+                ? null
+                : Date.from(firstVisited.atStartOfDay(ZoneId.systemDefault()).toInstant());
     }
 
     public void setFirstVisited(Date firstVisited) {
+        this.firstVisited = firstVisited == null
+                ? null
+                : Instant.ofEpochMilli(firstVisited.getTime())
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate();
+    }
+
+    public LocalDate getFirstVisitedLocalDate() {
+        return firstVisited;
+    }
+
+    public void setFirstVisitedLocalDate(LocalDate firstVisited) {
         this.firstVisited = firstVisited;
     }
 //minagawa$    

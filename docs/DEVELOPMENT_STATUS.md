@@ -36,6 +36,14 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P6-02「java.util.Date を java.time へ置き換える」を完了し、主要モデルと集計経路の日時型を移行（RUN_ID=20260311T170115Z）。
+  - 変更（model）: `ActivityModel` / `FacilityModel` / `PatientModel` / `PostSchedule` / `LastDateCount` の内部保持型を `LocalDate` / `LocalDateTime` へ移行し、既存 `Date` API は互換変換レイヤとして維持。
+  - 変更（service）: `SystemServiceBean` に `LocalDate` ベース集計経路を追加し、旧 `Date` 経路の時刻境界（23:59:59）互換を維持。
+  - 変更（messaging）: `OidSender` の活動レポート日付フォーマットを `LocalDate` ベースへ移行。
+  - 追加（実施記録）: `docs/modernization/p6-02-date-to-java-time-migration.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P6-02` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=SystemServiceBeanBulkAggregationTest,SystemResourceTest,MessagingDefensiveCopyTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（23 tests）。
 - 2026-03-12: P6-01「entity・domain・API の責務分担を設計する」を完了し、層別責務と禁止事項を固定（RUN_ID=20260311T163550Z）。
   - 追加（設計書）: `docs/modernization/p6-01-entity-domain-api-responsibility-split.md` を新規作成。
   - 内容: persistence/domain/api-contract の役割、禁止事項、依存方向、Patient/User/Document/Module の責務分担を定義。
