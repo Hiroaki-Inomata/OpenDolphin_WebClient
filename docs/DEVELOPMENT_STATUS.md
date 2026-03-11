@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P6-05「永続化アクセスを repository/query 層へ統一する」を完了し、患者・カルテ・ユーザーの読取入口を query service へ集約（RUN_ID=20260311T200758Z）。
+  - 追加（query service）: `PatientQueryService` / `UserQueryService` / `KarteDocumentQueryService` を新設。
+  - 変更（service）: `KarteServiceBean` のカルテ取得・ユーザー属性取得・文書/モジュール取得を query service 経由へ置換。
+  - 追加（実施記録）: `docs/modernization/p6-05-persistence-query-layer-unification.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P6-05` を ☑ 化し、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=KarteServiceBeanGetKarteTest,KarteServiceBeanDocPkTest,OrcaOrderBundleResourceTest,OrcaSubjectiveResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（26 tests）。
 - 2026-03-12: P6-04「Module 保存形式を実装する」を完了し、`medOrder`/`progressCourse` の保存形式を versioned JSON へ切替（RUN_ID=20260311T200758Z）。
   - 変更（converter）: `ModuleJsonConverter` に `schemaVersion` / `moduleType` / `payloadJson` / `payloadHash` の envelope 形式を追加し、decode 側も新形式優先へ更新。
   - 変更（保存経路）: `KarteServiceBean` / `KarteDocumentWriteService` / `OrcaOrderBundleResource` / `OrcaSubjectiveResource` / `OrcaResource` の module 書込を `ModelUtils.encodeModule(...)` へ統一。

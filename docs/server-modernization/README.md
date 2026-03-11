@@ -67,6 +67,7 @@
 - `docs/modernization/p6-02-date-to-java-time-migration.md`（P6-02: java.util.Date から java.time への移行）
 - `docs/modernization/p6-03-module-storage-replacement-design.md`（P6-03: ModuleModel bean_json 置換設計）
 - `docs/modernization/p6-04-module-storage-versioned-json-implementation.md`（P6-04: module 保存形式の versioned JSON 先行実装）
+- `docs/modernization/p6-05-persistence-query-layer-unification.md`（P6-05: 永続化アクセスの repository/query 層統一）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`
