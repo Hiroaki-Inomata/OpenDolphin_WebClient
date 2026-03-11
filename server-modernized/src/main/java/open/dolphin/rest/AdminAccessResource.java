@@ -13,6 +13,7 @@ import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.sql.Timestamp;
@@ -346,20 +347,22 @@ public class AdminAccessResource extends AbstractResource {
     }
 
     private String requireAdminActor(HttpServletRequest request, String runId) {
-        String actor = request != null ? request.getRemoteUser() : null;
-        if (actor == null || actor.isBlank()) {
+        try {
+            return AdminResourceSupport.requireAdminActor(this, request, userServiceBean);
+        } catch (WebApplicationException ex) {
+            int status = ex.getResponse() != null ? ex.getResponse().getStatus() : 500;
+            String reason = status == 401 ? "unauthorized" : "forbidden";
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("operation", "access");
+            details.put("status", status);
+            details.put("reason", reason);
+            if (request != null && request.getRemoteUser() != null) {
+                details.put("actor", request.getRemoteUser());
+            }
             recordAudit(request, "ADMIN_ACCESS_DENIED", AuditEventEnvelope.Outcome.FAILURE, runId,
-                    Map.of("operation", "access", "reason", "unauthorized", "status", 401),
-                    "unauthorized", "Authentication required");
-            throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required");
+                    details, reason, status == 401 ? "Authentication required" : "Admin role required");
+            throw ex;
         }
-        if (!userServiceBean.isAdmin(actor)) {
-            recordAudit(request, "ADMIN_ACCESS_DENIED", AuditEventEnvelope.Outcome.FAILURE, runId,
-                    Map.of("operation", "access", "actor", actor, "reason", "forbidden", "status", 403),
-                    "forbidden", "Admin role required");
-            throw restError(request, Response.Status.FORBIDDEN, "forbidden", "管理者権限が必要です。");
-        }
-        return actor;
     }
 
     private boolean userExists(String userId) {
@@ -922,20 +925,18 @@ public class AdminAccessResource extends AbstractResource {
                              Map<String, Object> details,
                              String errorCode,
                              String errorMessage) {
-        if (sessionAuditDispatcher == null) {
-            return;
-        }
-        AuditEventPayload payload = new AuditEventPayload();
-        payload.setAction(action);
-        payload.setResource(request != null ? request.getRequestURI() : "/api/admin/access");
-        payload.setActorId(request != null ? request.getRemoteUser() : null);
-        payload.setIpAddress(request != null ? request.getRemoteAddr() : null);
-        payload.setUserAgent(request != null ? request.getHeader("User-Agent") : null);
-        payload.setTraceId(resolveTraceId(request));
-        payload.setRequestId(resolveTraceId(request));
-        payload.setRunId(runId);
-        payload.setDetails(details);
-        sessionAuditDispatcher.record(payload, outcome, errorCode, errorMessage);
+        AdminResourceSupport.recordAudit(
+                this,
+                sessionAuditDispatcher,
+                request,
+                action,
+                null,
+                runId,
+                details,
+                outcome,
+                errorCode,
+                errorMessage,
+                "/api/admin/access");
     }
 
     private record OrcaLinkStatus(
