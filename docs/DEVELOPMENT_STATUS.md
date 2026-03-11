@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P2-04「Touch パッケージと ASP 入口を削除する」を完了し、旧 `/touch` 実装をコードベースから除去（RUN_ID=20260311T050147Z）。
+  - 削除（本体）: `server-modernized/src/main/java/open/dolphin/touch/**`（76ファイル）を削除。
+  - 削除（テスト）: `server-modernized/src/test/java/open/dolphin/touch/**`（6ファイル）を削除。
+  - 追加（影響一覧）: `docs/modernization/p2-04-touch-asp-removal.md` を新規作成し、削除範囲・外部参照確認結果・代替先（`/api/v1/**`）を記録。
+  - 反映（WBS）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P2-04` を ☑ 化し、RUN_ID を更新。
+  - 反映（導線）: `docs/server-modernization/README.md` の API/仕様セクションに P2-04 影響一覧リンクを追加。
+  - 検証: `mvn -f server-modernized/pom.xml -DskipTests test-compile` / `mvn -f server-modernized/pom.xml -Dtest=WebXmlEndpointExposureTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS。
 - 2026-03-11: P2-03「新 API の名前空間と単位を決める」を完了し、`/api/v1` 設計を固定（RUN_ID=20260311T001459Z）。
   - 追加（設計書）: `docs/modernization/api-v1-design.md` を新規作成し、患者/カルテ/受付/ORCA/添付/管理の単位で `/api/v1/**` 命名を定義。
   - 先行対象確定: WBSの直近方針どおり、患者・カルテ・ORCA の3系統を先行実装境界として明記。
