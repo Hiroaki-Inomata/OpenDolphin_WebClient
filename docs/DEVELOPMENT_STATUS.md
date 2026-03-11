@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P5-09「ORCA 連携の性能・障害試験を行う」を完了し、transport層の耐障害回帰テストを追加（RUN_ID=20260311T163020Z）。
+  - 追加（試験）: `server-modernized/src/test/java/open/dolphin/orca/transport/OrcaHttpClientResilienceTest.java` を新規作成。
+  - 観点: 遅延時再試行、deadline超過、並列呼び出し時の非直列化、設定不備時fail-fast。
+  - 追加（実施記録）: `docs/modernization/p5-09-orca-resilience-performance-tests.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P5-09` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -o -Dmaven.repo.local=/tmp/m2repo-p5-09 -f pom.server-modernized.xml -pl server-modernized -am -Dtest=OrcaHttpClientResilienceTest,OrcaHttpClientRequestTest -Dsurefire.failIfNoSpecifiedTests=false test`（結果は本run記録を参照）。
 - 2026-03-12: P5-08「stub を使った adapter 統合試験を整える」を完了し、ORCA adapter 実装と stub 依存統合試験を追加（RUN_ID=20260311T160115Z）。
   - 追加（adapter）: `server-modernized/src/main/java/open/dolphin/orca/adapter/DefaultOrcaPatientAdapter.java` を新規作成（`searchPatients` / `upsertPatient` / `registerReception` を実装）。
   - 追加（統合試験）: `server-modernized/src/test/java/open/dolphin/orca/adapter/DefaultOrcaPatientAdapterStubIntegrationTest.java` を新規作成し、stub正常系3件 + 代表エラー系1件を固定。
