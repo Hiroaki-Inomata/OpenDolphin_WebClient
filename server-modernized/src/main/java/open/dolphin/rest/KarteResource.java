@@ -31,8 +31,6 @@ import open.dolphin.rest.dto.RoutineMedicationResponse;
 import open.dolphin.rest.dto.RpHistoryEntryResponse;
 import open.dolphin.rest.dto.SafetySummaryResponse;
 import open.dolphin.rest.dto.UserPropertyResponse;
-import open.dolphin.rest.legacy.LegacyImageXmlWriter;
-import open.dolphin.rest.support.LegacyImageResponseMapper;
 import open.dolphin.rest.support.LegacyJsonSupport;
 import open.dolphin.security.audit.AuditDetailSanitizer;
 import open.dolphin.security.audit.AuditEventPayload;
@@ -422,34 +420,6 @@ public class KarteResource extends AbstractResource {
 
         return LegacyKarteListResponse.ModuleListListResponse.of(
                 karteServiceBean.getModules(karteId, entity, fromList, toList));
-    }
-
-    @GET
-    @Path("/iamges/{param}")
-    @Produces(MediaType.APPLICATION_XML)
-    public String getImages(@PathParam("param") String param) {
-        // Legacy XML endpoint. The modern web client uses PatientImagesResource instead.
-
-        debug(param);
-        String[] params = param.split(CAMMA);
-        long karteId = Long.parseLong(params[0]);
-        ensureKarteFacilityAccess(karteId, null);
-
-        List<Date> fromList = new ArrayList<>();
-        List<Date> toList = new ArrayList<>();
-
-        int index = 1;
-
-        while (index < params.length) {
-            fromList.add(parseDate(params[index++]));
-            toList.add(parseDate(params[index++]));
-        }
-
-        List<List> result = karteServiceBean.getImages(karteId, fromList, toList);
-        String xml = new LegacyImageXmlWriter().write(LegacyImageResponseMapper.mapRanges(result));
-        debug(xml);
-
-        return xml;
     }
 
     @GET

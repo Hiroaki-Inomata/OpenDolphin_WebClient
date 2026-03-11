@@ -36,6 +36,15 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P2-06「XML 専用エンドポイントを削除する」を完了し、公開契約を JSON に統一（RUN_ID=20260311T060146Z）。
+  - 削除（server）: `OrcaAcceptanceListResource` / `OrcaSystemManagementResource` / `OrcaReportResource` / `OrcaDiseaseApiResource` / `OrcaMedicalApiResource` / `OrcaAdditionalApiResource` を削除。
+  - 削除（karte）: `KarteResource` の legacy XML 返却口 `GET /karte/iamges/{param}` を削除し、関連補助 `LegacyImageXmlWriter` / `LegacyImageResponseMapper` を除去。
+  - 変更（server）: `OrcaPatientApiResource` は `patientgetv2` GET 系の JSON 契約のみに縮退（`format=json` 必須）。
+  - 変更（descriptor/CI）: `WEB-INF/web.xml` の `resteasy.resources` から削除済みResourceを除外。`.github/workflows/server-modernized-characterization.yml` の性格確認セットから削除済み `OrcaAcceptanceListResourceTest` を外し、`WebXmlEndpointExposureTest` を追加。
+  - 追加（影響一覧）: `docs/modernization/p2-06-xml-endpoint-removal.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P2-06` を ☑ 化、`docs/server-modernization/README.md` に P2-06 実施記録リンクを追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=OrcaPatientApiResourceRunIdTest,WebXmlEndpointExposureTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS。
 - 2026-03-11: `P2-06` ブロッカー（web-client の XML 直接依存）を解除し、削除作業へ進める前提を整備（RUN_ID=20260311T053558Z）。
   - 追加（server）: `server-modernized/src/main/java/open/dolphin/rest/OrcaBridgeResource.java` を新規作成し、`POST /api/v1/orca/bridge` で ORCA XML API を JSON 契約経由で呼び出せるようにした（`endpoint`/`payload`/`classCode`/`query` を受理）。
   - 追加（web-client）: `web-client/src/libs/http/httpClient.ts` に ORCA XML POST のブリッジ転送を実装。`/orca/*v2`・`/api01rv2/*` 系の既存呼び出しを変更せず、内部的に `/api/v1/orca/bridge` 経由へ集約。

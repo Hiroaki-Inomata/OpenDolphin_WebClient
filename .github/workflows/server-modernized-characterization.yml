@@ -22,14 +22,14 @@ env:
   PR_TESTS: >-
     PatientServiceBeanAddPatientTest,PatientModV2OutpatientResourceIdempotencyTest,
     KarteServiceBeanDocPkTest,KarteRevisionServiceBeanAttachmentCloneTest,
-    OrcaPatientApiResourceRunIdTest,OrcaPatientResourceIdempotencyTest,OrcaAcceptanceListResourceTest
+    OrcaPatientApiResourceRunIdTest,OrcaPatientResourceIdempotencyTest,WebXmlEndpointExposureTest
   NIGHTLY_TESTS: >-
     PatientServiceBeanAddPatientTest,PatientModV2OutpatientResourceIdempotencyTest,
     KarteServiceBeanDocPkTest,KarteServiceBeanGetKarteTest,
     KarteRevisionServiceBeanAttachmentCloneTest,DocumentIntegrityServiceTest,
     KarteRevisionSnapshotContractTest,KarteRevisionDocumentResponseJsonTest,
     OrcaPatientApiResourceRunIdTest,OrcaPatientResourceIdempotencyTest,
-    OrcaAcceptanceListResourceTest,OrcaOrderBundleResourceTest,
+    WebXmlEndpointExposureTest,OrcaOrderBundleResourceTest,
     OrcaMedicalResourceTest,OrcaMedicalModV2ResourceTest,
     MessageSenderTest,PVTResourceLimitTest,PVTServiceBeanPaginationTest,
     ReceptionRealtimeStreamResourceTest,ReceptionRealtimeSseSupportTest,
