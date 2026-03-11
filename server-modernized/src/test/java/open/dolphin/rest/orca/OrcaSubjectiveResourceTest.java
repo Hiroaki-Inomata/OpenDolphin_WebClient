@@ -126,6 +126,9 @@ class OrcaSubjectiveResourceTest extends RuntimeDelegateTestSupport {
         ModuleModel module = saved.getModules().get(0);
         assertEquals(IInfoModel.MODULE_PROGRESS_COURSE, module.getModuleInfoBean().getEntity());
         assertEquals(IInfoModel.ROLE_SOA_SPEC, module.getModuleInfoBean().getStampRole());
+        assertNotNull(module.getBeanJson());
+        assertTrue(module.getBeanJson().contains("\"schemaVersion\":1"));
+        assertTrue(module.getBeanJson().contains("\"moduleType\":\"progressCourse\""));
         assertNotNull(module.getModel());
         assertTrue(module.getModel() instanceof ProgressCourse);
         ProgressCourse progress = (ProgressCourse) module.getModel();

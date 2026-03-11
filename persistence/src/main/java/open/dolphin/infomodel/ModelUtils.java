@@ -601,6 +601,14 @@ public class ModelUtils implements IInfoModel {
         return ModuleJsonConverter.getInstance().deserialize(json);
     }
 
+    public static String encodeModule(ModuleModel module) {
+        return ModuleJsonConverter.getInstance().encode(module);
+    }
+
+    public static Object decodeModuleJson(String json) {
+        return ModuleJsonConverter.getInstance().decodeRaw(json);
+    }
+
     public static Object decodeModule(ModuleModel module) {
         return ModuleJsonConverter.getInstance().decode(module);
     }

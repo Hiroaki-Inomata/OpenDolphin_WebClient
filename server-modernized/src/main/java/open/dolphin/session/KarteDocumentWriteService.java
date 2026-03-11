@@ -322,7 +322,7 @@ public class KarteDocumentWriteService {
             if (module == null || module.getModel() == null) {
                 continue;
             }
-            String json = ModelUtils.jsonEncode(module.getModel());
+            String json = ModelUtils.encodeModule(module);
             if (json == null || json.trim().isEmpty()) {
                 throw new IllegalStateException("Failed to encode module payload as JSON: moduleId=" + module.getId());
             }

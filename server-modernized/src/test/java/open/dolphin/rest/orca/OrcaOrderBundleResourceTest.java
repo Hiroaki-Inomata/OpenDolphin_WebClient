@@ -243,6 +243,8 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         DocumentModel saved = fakeKarteServiceBean.getLastAddedDocument();
         assertNotNull(saved);
         assertNotNull(saved.getModules().get(0).getBeanJson());
+        assertTrue(saved.getModules().get(0).getBeanJson().contains("\"schemaVersion\":1"));
+        assertTrue(saved.getModules().get(0).getBeanJson().contains("\"moduleType\":\"medOrder\""));
         BundleDolphin bundle = (BundleDolphin) saved.getModules().get(0).getModel();
         ClaimItem[] claimItems = bundle.getClaimItem();
         assertNotNull(claimItems);
@@ -278,6 +280,8 @@ class OrcaOrderBundleResourceTest extends RuntimeDelegateTestSupport {
         DocumentModel saved = fakeKarteServiceBean.getLastAddedDocument();
         assertNotNull(saved);
         assertNotNull(saved.getModules().get(0).getBeanJson());
+        assertTrue(saved.getModules().get(0).getBeanJson().contains("\"schemaVersion\":1"));
+        assertTrue(saved.getModules().get(0).getBeanJson().contains("\"moduleType\":\"medOrder\""));
         BundleDolphin bundle = (BundleDolphin) saved.getModules().get(0).getModel();
         ClaimItem[] claimItems = bundle.getClaimItem();
         assertNotNull(claimItems);
