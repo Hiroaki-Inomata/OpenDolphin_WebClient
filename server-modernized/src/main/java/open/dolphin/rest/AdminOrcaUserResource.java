@@ -362,14 +362,7 @@ public class AdminOrcaUserResource extends AbstractResource {
     }
 
     private String requireAdminActor(HttpServletRequest request, String runId) {
-        String actor = request != null ? request.getRemoteUser() : null;
-        if (actor == null || actor.isBlank()) {
-            throw restError(request, Response.Status.UNAUTHORIZED, "unauthorized", "Authentication required");
-        }
-        if (userServiceBean == null || !userServiceBean.isAdmin(actor)) {
-            throw restError(request, Response.Status.FORBIDDEN, "forbidden", "管理者権限が必要です。");
-        }
-        return actor;
+        return AdminResourceSupport.requireAdminActor(this, request, userServiceBean);
     }
 
     private ManageUsersResult fetchOrcaUsers(HttpServletRequest request, String runId) {
@@ -671,28 +664,18 @@ public class AdminOrcaUserResource extends AbstractResource {
                              AuditEventEnvelope.Outcome outcome,
                              String errorCode,
                              String errorMessage) {
-        if (sessionAuditDispatcher == null) {
-            return;
-        }
-        AuditEventPayload payload = new AuditEventPayload();
-        payload.setAction(action);
-        payload.setResource(request != null ? request.getRequestURI() : "/api/admin/orca/users");
-        payload.setActorId(actor);
-        payload.setIpAddress(request != null ? request.getRemoteAddr() : null);
-        payload.setUserAgent(request != null ? request.getHeader("User-Agent") : null);
-        String traceId = resolveTraceId(request);
-        if (traceId != null && !traceId.isBlank()) {
-            payload.setTraceId(traceId);
-            payload.setRequestId(traceId);
-        }
-        Map<String, Object> merged = new LinkedHashMap<>();
-        if (details != null) {
-            merged.putAll(details);
-        }
-        merged.put("runId", runId);
-        merged.put("timestamp", Instant.now().toString());
-        payload.setDetails(merged);
-        sessionAuditDispatcher.record(payload, outcome, errorCode, errorMessage);
+        AdminResourceSupport.recordAudit(
+                this,
+                sessionAuditDispatcher,
+                request,
+                action,
+                actor,
+                runId,
+                details,
+                outcome,
+                errorCode,
+                errorMessage,
+                "/api/admin/orca/users");
     }
 
     private OrcaUserSnapshot findUser(List<OrcaUserSnapshot> users, String userId) {

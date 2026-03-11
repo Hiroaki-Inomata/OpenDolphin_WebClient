@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P4-04「入力検証・認可・監査を横断部品へ出す」を完了し、Admin系Resourceの認可/監査処理を共通化（RUN_ID=20260311T110043Z）。
+  - 追加（横断部品）: `server-modernized/src/main/java/open/dolphin/rest/AdminResourceSupport.java` を新規作成。
+  - 変更（resource）: `AdminAccessResource` / `AdminOrcaUserResource` の `requireAdminActor` と `recordAudit` を共通部品経由へ切替。
+  - 互換維持: `AdminAccessResource` の認可失敗時監査（401/403）の記録仕様を維持。
+  - 追加（実施記録）: `docs/modernization/p4-04-cross-cutting-authorization-audit.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P4-04` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=AdminAccessResourceTest,AdminOrcaUserResourceTest,WebXmlEndpointExposureTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（12 tests）。
 - 2026-03-11: P4-03「患者更新・管理系の巨大 resource を分ける」を完了し、管理系/患者更新系 endpoint の責務を機能別に分割（RUN_ID=20260311T110043Z）。
   - 追加（resource）: `server-modernized/src/main/java/open/dolphin/rest/PatientModV2OutpatientMockResource.java` / `AdminAccessPasswordResetResource.java` / `AdminOrcaUserLinkResource.java` を新規作成。
   - 変更（resource）: `PatientModV2OutpatientResource` / `AdminAccessResource` / `AdminOrcaUserResource` の分割対象 endpoint 注釈を新規 Resource 側へ移管し、既存処理は委譲で維持。
