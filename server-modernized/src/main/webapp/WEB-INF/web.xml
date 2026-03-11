@@ -128,10 +128,6 @@
             <param-name>resteasy.servlet.mapping.prefix</param-name>
             <param-value>/resources</param-value>
         </init-param>
-        <init-param>
-            <param-name>resteasy.scan</param-name>
-            <param-value>false</param-value>
-        </init-param>
     </servlet>
 
     <servlet>
@@ -141,10 +137,6 @@
         <init-param>
             <param-name>resteasy.servlet.mapping.prefix</param-name>
             <param-value>/orca</param-value>
-        </init-param>
-        <init-param>
-            <param-name>resteasy.scan</param-name>
-            <param-value>false</param-value>
         </init-param>
     </servlet>
 

@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P2-09「web.xml と各種 descriptor を最小化する」を完了し、descriptor 重複設定と旧除外設定を整理（RUN_ID=20260311T061511Z）。
+  - 変更（web.xml）: `resteasy-servlet` / `resteasy-orca-servlet` の個別 `resteasy.scan=false` init-param を削除し、グローバル context-param へ一本化。
+  - 変更（jboss-deployment-structure）: `com.fasterxml.jackson.jaxrs.jackson-jaxrs-json-provider` exclusion を削除（現行 Jakarta 構成で未使用）。
+  - 確認: `jboss-web.xml` と `META-INF/ejb-jar.xml` は最小構成で運用継続（変更なし）。
+  - 追加（影響一覧）: `docs/modernization/p2-09-descriptor-minimization.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P2-09` を ☑ 化、`docs/server-modernization/README.md` に実施記録リンクを追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS、`mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=WebXmlEndpointExposureTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS。
 - 2026-03-11: P2-08「legacy-wildfly10 と独自 naming ブリッジを削除する」を完了し、実行基盤前提を一本化（RUN_ID=20260311T061511Z）。
   - 削除: `common/pom.xml` の `legacy-wildfly10` profile（`legacy-persistence` / `legacy-relocations` を含む）。
   - 変更: `MeterRegistryProducer` / `ORCAConnection` の JNDI import を `javax.naming` へ統一。
