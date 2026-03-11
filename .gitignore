@@ -87,3 +87,7 @@ fallback
 # Generated dev config
 custom.properties.dev
 docker-compose.override.dev.yml
+
+# P3-02 module build outputs
+domain/target/
+api-contract/target/
