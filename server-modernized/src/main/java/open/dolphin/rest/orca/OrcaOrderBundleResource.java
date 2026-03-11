@@ -45,7 +45,6 @@ import open.dolphin.infomodel.DocumentModel;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.ModelUtils;
-import open.dolphin.infomodel.ModuleJsonConverter;
 import open.dolphin.infomodel.ModuleInfoBean;
 import open.dolphin.infomodel.ModuleModel;
 import open.dolphin.infomodel.PatientModel;
@@ -855,7 +854,7 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         info.setStampNumber(0);
         module.setModuleInfoBean(info);
         module.setModel(bundle);
-        module.setBeanJson(ModelUtils.jsonEncode(bundle));
+        module.setBeanJson(ModelUtils.encodeModule(module));
         module.setKarteBean(karte);
         module.setUserModel(user);
         module.setStarted(performDate);
@@ -1329,7 +1328,7 @@ public class OrcaOrderBundleResource extends AbstractOrcaRestResource {
         if (beanJsonRaw == null || beanJsonRaw.isBlank()) {
             return null;
         }
-        Object decoded = ModuleJsonConverter.getInstance().deserialize(beanJsonRaw);
+        Object decoded = ModelUtils.decodeModuleJson(beanJsonRaw);
         if (decoded instanceof BundleDolphin bundle) {
             return bundle;
         }

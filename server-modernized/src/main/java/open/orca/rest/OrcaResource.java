@@ -1079,7 +1079,7 @@ public class OrcaResource {
             closeConnection(con);
             
             for (ModuleModel mm : retSet) {
-                mm.setBeanJson(ModelUtils.jsonEncode(mm.getModel()));
+                mm.setBeanJson(ModelUtils.encodeModule(mm));
                 mm.setModel(null);
             }
             

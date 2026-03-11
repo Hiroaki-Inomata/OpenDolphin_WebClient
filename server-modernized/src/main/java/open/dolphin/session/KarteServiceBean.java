@@ -1523,7 +1523,7 @@ public class KarteServiceBean {
             if (module == null || module.getModel() == null) {
                 continue;
             }
-            String json = ModelUtils.jsonEncode(module.getModel());
+            String json = ModelUtils.encodeModule(module);
             if (!hasText(json)) {
                 throw new IllegalStateException("Failed to encode module payload as JSON: moduleId=" + module.getId());
             }

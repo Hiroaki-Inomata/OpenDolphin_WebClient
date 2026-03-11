@@ -204,7 +204,6 @@ public class OrcaSubjectiveResource extends AbstractOrcaRestResource {
 
         ModuleModel module = new ModuleModel();
         module.setModel(progress);
-        module.setBeanJson(ModelUtils.jsonEncode(progress));
         module.setConfirmed(performDate);
         module.setStarted(performDate);
         module.setRecorded(now);
@@ -215,6 +214,7 @@ public class OrcaSubjectiveResource extends AbstractOrcaRestResource {
         module.getModuleInfoBean().setStampRole(resolveStampRole(soapCategory));
         module.getModuleInfoBean().setEntity(IInfoModel.MODULE_PROGRESS_COURSE);
         module.getModuleInfoBean().setStampNumber(0);
+        module.setBeanJson(ModelUtils.encodeModule(module));
         module.setDocumentModel(document);
         document.addModule(module);
 

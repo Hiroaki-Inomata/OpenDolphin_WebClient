@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P6-04「Module 保存形式を実装する」を完了し、`medOrder`/`progressCourse` の保存形式を versioned JSON へ切替（RUN_ID=20260311T200758Z）。
+  - 変更（converter）: `ModuleJsonConverter` に `schemaVersion` / `moduleType` / `payloadJson` / `payloadHash` の envelope 形式を追加し、decode 側も新形式優先へ更新。
+  - 変更（保存経路）: `KarteServiceBean` / `KarteDocumentWriteService` / `OrcaOrderBundleResource` / `OrcaSubjectiveResource` / `OrcaResource` の module 書込を `ModelUtils.encodeModule(...)` へ統一。
+  - 追加（実施記録）: `docs/modernization/p6-04-module-storage-versioned-json-implementation.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P6-04` を ☑ 化し、依存を `P6-03` に整理。`docs/server-modernization/README.md` に P6-04 リンクを追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl persistence,server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=ModuleJsonConverterTest,OrcaOrderBundleResourceTest,OrcaSubjectiveResourceTest,KarteServiceBeanDocPkTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（24 tests）。
 - 2026-03-12: `P6-04` の依存順ブロッカーを再試行したが未解消（RUN_ID=20260311T190124Z）。
   - 内容: `P6-04`（Module保存形式実装）の成立条件を再評価し、`P6-08` 依存との順序衝突が継続していることを確認。
   - 試行: (1) `P6-04` と `P6-08` を同一実行内で同時実装、(2) `d_module_payload` 先行 + `bean_json` 併用、(3) `medOrder`/`progressCourse` だけ先行切替、の3案を比較。

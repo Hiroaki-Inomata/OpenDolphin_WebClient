@@ -1,6 +1,7 @@
 package open.dolphin.infomodel;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -91,5 +92,48 @@ public class ModuleJsonConverterTest {
 
         assertNotNull(json);
         assertTrue("typed JSON should carry class metadata", json.contains("\"@class\""));
+    }
+
+    @Test
+    public void encode_medOrder_writesVersionedEnvelopeAndDecodes() {
+        ModuleJsonConverter converter = ModuleJsonConverter.getInstance();
+
+        BundleDolphin bundle = new BundleDolphin();
+        bundle.setOrderName("降圧薬");
+        bundle.setClaimItem(new ClaimItem[0]);
+
+        ModuleModel module = new ModuleModel();
+        module.getModuleInfoBean().setEntity("medOrder");
+        module.setModel(bundle);
+
+        String encoded = converter.encode(module);
+        assertNotNull(encoded);
+        assertTrue(encoded.contains("\"schemaVersion\":1"));
+        assertTrue(encoded.contains("\"moduleType\":\"medOrder\""));
+        assertTrue(encoded.contains("\"payloadJson\""));
+        assertTrue(encoded.contains("\"payloadHash\""));
+
+        module.setBeanJson(encoded);
+        Object decoded = converter.decode(module);
+        assertNotNull(decoded);
+        assertEquals(BundleDolphin.class, decoded.getClass());
+        assertEquals("降圧薬", ((BundleDolphin) decoded).getOrderName());
+    }
+
+    @Test
+    public void encode_progressCourse_writesVersionedEnvelope() {
+        ModuleJsonConverter converter = ModuleJsonConverter.getInstance();
+
+        ProgressCourse progress = new ProgressCourse();
+        progress.setFreeText("主訴");
+
+        ModuleModel module = new ModuleModel();
+        module.getModuleInfoBean().setEntity("progressCourse");
+        module.setModel(progress);
+
+        String encoded = converter.encode(module);
+        assertNotNull(encoded);
+        assertTrue(encoded.contains("\"moduleType\":\"progressCourse\""));
+        assertFalse(encoded.contains("\"moduleType\":\"medOrder\""));
     }
 }
