@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-11: P5-03「static singleton とローカルキャッシュの前提をなくす」を完了し、ORCA連携の状態保持を短寿命化（RUN_ID=20260311T130114Z）。
+  - 変更（resource）: `server-modernized/src/main/java/open/orca/rest/OrcaResource.java` の mutable static（`HOSP_NUM` / `DB_VERSION` / `RP_OUT`）をインスタンスフィールドへ移行。
+  - 変更（transport）: `server-modernized/src/main/java/open/dolphin/orca/transport/RestOrcaTransport.java` の `reloadLock` を削除し、facility 設定キャッシュに TTL を導入（`ORCA_TRANSPORT_CACHE_TTL_MS` / `orca.transport.cache.ttl-ms`, 既定30秒）。
+  - 追加（実施記録）: `docs/modernization/p5-03-static-cache-removal.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P5-03` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=OrcaTransportSettingsSecurityPolicyTest,OrcaTransportSettingsExternalConfigTest,AdminOrcaConnectionResourceTest,OrcaPatientApiResourceRunIdTest,OrcaPatientResourceIdempotencyTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（19 tests）。
 - 2026-03-11: P5-02「接続設定と認証情報を外部設定へ移す」を完了し、ORCA接続のローカルファイル依存を排除（RUN_ID=20260311T130114Z）。
   - 変更（transport）: `server-modernized/src/main/java/open/dolphin/orca/transport/OrcaTransportSettings.java` から `custom.properties` / `ORCAConnection` フォールバック読込を削除し、`環境変数 > JVMシステムプロパティ` に統一。
   - 変更（config store）: `server-modernized/src/main/java/open/dolphin/orca/config/OrcaConnectionConfigStore.java` の初期値ロードを同じ優先順位（`env > system property`）へ統一。

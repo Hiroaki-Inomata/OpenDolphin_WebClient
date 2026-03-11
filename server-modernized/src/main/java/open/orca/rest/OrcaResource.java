@@ -56,10 +56,10 @@ public class OrcaResource {
     private static final String ORCA_DB_VER46 = "040600-1";
     private static final String ORCA_DB_VER47 = "040700-1";
     
-    private static int HOSP_NUM;
-    private static String DB_VERSION;
+    private int hospNum = 1;
+    private String dbVersion;
     
-    private static boolean RP_OUT = true;
+    private boolean rpOut = true;
     
     private static final String QUERY_FACILITYID_BY_1001
             ="select kanritbl from tbl_syskanri where kanricd='1001'";
@@ -160,7 +160,7 @@ public class OrcaResource {
         java.sql.Statement st1 = null;
         Connection con2 = null;
         java.sql.Statement st2 = null;
-        HOSP_NUM = 1;
+        hospNum = 1;
         
         try {
             // custom.properties から JMARI_CODEを読む
@@ -182,7 +182,7 @@ public class OrcaResource {
             
             // デフォルトの院内院外処方
             String test = config.getProperty("rp.default.inout");
-            RP_OUT = (test!=null && test.equals("out"));
+            rpOut = (test!=null && test.equals("out"));
 
             // 病院番号検索　JMARI<->HospNum
             sb = new StringBuilder();
@@ -195,7 +195,7 @@ public class OrcaResource {
             st1 = con1.createStatement();
             ResultSet rs = st1.executeQuery(sql);
             if (rs.next()) {
-                HOSP_NUM = rs.getInt(1);
+                hospNum = rs.getInt(1);
             }
 
             // Version 検索
@@ -206,11 +206,11 @@ public class OrcaResource {
             ResultSet rs2 = st2.executeQuery(sql);
 //minagawa^ BUG            
             if (rs2.next()) {
-                DB_VERSION = rs2.getString(1);
+                dbVersion = rs2.getString(1);
             }
 //minagawa$  
-            log("ORCA 病院番号="+HOSP_NUM);
-            log("ORCA Version="+DB_VERSION);
+            log("ORCA 病院番号="+hospNum);
+            log("ORCA Version="+dbVersion);
             
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Failed to initialize ORCA setup parameters", e);
@@ -656,7 +656,7 @@ public class OrcaResource {
         try {
             con = getConnection();
             ps = con.prepareStatement(sql);
-            ps.setInt(1, HOSP_NUM);
+            ps.setInt(1, hospNum);
             ps.setString(2, patientId);
 
             ResultSet rs = ps.executeQuery();
@@ -750,7 +750,7 @@ public class OrcaResource {
         
         int hospnum = -1;
         if (true) {
-            hospnum = HOSP_NUM;
+            hospnum = hospNum;
         }
         
         Connection con = null;
@@ -1146,7 +1146,7 @@ public class OrcaResource {
                 bundle = new BundleMed();
                 stamp.setModel(bundle);
                 
-                String inOut = RP_OUT
+                String inOut = rpOut
                                ? ClaimConst.EXT_MEDICINE
                                : ClaimConst.IN_MEDICINE;
                 bundle.setMemo(inOut);
@@ -1283,7 +1283,7 @@ public class OrcaResource {
         PreparedStatement pt = null;
         String sql;
         String ptid = null;
-        int hospNum = HOSP_NUM; //-1;
+        int hospNum = this.hospNum; //-1;
         
         StringBuilder sb = new StringBuilder();
         sb.append("select ptid, ptnum from tbl_ptnum where hospnum=? and ptnum=?");
@@ -1431,7 +1431,7 @@ public class OrcaResource {
         PreparedStatement pt = null;
         String sql;
         String ptid = null;
-        int hospNum = HOSP_NUM; //-1;
+        int hospNum = this.hospNum; //-1;
 
         StringBuilder sb = new StringBuilder();
         sb.append("select ptid, ptnum from tbl_ptnum where hospnum=? and ptnum=?");

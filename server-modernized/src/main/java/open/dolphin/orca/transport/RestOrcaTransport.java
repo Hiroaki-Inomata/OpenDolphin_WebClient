@@ -41,9 +41,12 @@ public class RestOrcaTransport implements OrcaTransport {
 
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
     private static final String DEFAULT_FACILITY_KEY = "_default";
+    private static final long DEFAULT_CACHE_TTL_MS = 30_000L;
+    private static final String ENV_CACHE_TTL_MS = "ORCA_TRANSPORT_CACHE_TTL_MS";
+    private static final String PROP_CACHE_TTL_MS = "orca.transport.cache.ttl-ms";
 
     private final Map<String, CachedTransportEntry> facilityCache = new ConcurrentHashMap<>();
-    private final Object reloadLock = new Object();
+    private final long cacheTtlMs = resolveCacheTtlMs();
 
     @Inject
     SessionTraceManager traceManager;
@@ -248,37 +251,40 @@ public class RestOrcaTransport implements OrcaTransport {
     private CachedTransportEntry currentEntry(String facilityId) {
         String key = cacheKey(facilityId);
         CachedTransportEntry entry = facilityCache.get(key);
-        if (entry == null) {
+        if (entry == null || entry.isExpired(cacheTtlMs)) {
             entry = reloadCache(facilityId);
         }
         return entry;
     }
 
     private CachedTransportEntry reloadCache(String facilityId) {
-        synchronized (reloadLock) {
-            String key = cacheKey(facilityId);
-            CachedTransportEntry entry = null;
-            try {
-                entry = loadSettingsFromAdminConfig(facilityId);
-            } catch (RuntimeException ex) {
-                LOGGER.log(Level.WARNING,
-                        "Failed to load ORCA transport settings from admin config: " + ex.getMessage() + " facilityId=" + safeFacility(facilityId),
-                        ex);
-            }
-            if (entry == null) {
-                entry = loadFallbackSettings();
-            }
-            if (entry == null) {
-                LOGGER.warning("ORCA transport settings load returned null");
-                facilityCache.remove(key);
-                return null;
-            }
-            if (!entry.settings().isReady()) {
-                LOGGER.log(Level.WARNING, "ORCA transport settings not ready: {0}", entry.settings().auditSummary());
-            }
-            facilityCache.put(key, entry);
-            return entry;
+        String key = cacheKey(facilityId);
+        CachedTransportEntry entry = loadSettingsWithFallback(facilityId);
+        if (entry == null) {
+            LOGGER.warning("ORCA transport settings load returned null");
+            facilityCache.remove(key);
+            return null;
         }
+        if (!entry.settings().isReady()) {
+            LOGGER.log(Level.WARNING, "ORCA transport settings not ready: {0}", entry.settings().auditSummary());
+        }
+        facilityCache.put(key, entry);
+        return entry;
+    }
+
+    private CachedTransportEntry loadSettingsWithFallback(String facilityId) {
+        CachedTransportEntry entry = null;
+        try {
+            entry = loadSettingsFromAdminConfig(facilityId);
+        } catch (RuntimeException ex) {
+            LOGGER.log(Level.WARNING,
+                    "Failed to load ORCA transport settings from admin config: " + ex.getMessage() + " facilityId=" + safeFacility(facilityId),
+                    ex);
+        }
+        if (entry == null) {
+            entry = loadFallbackSettings();
+        }
+        return entry;
     }
 
     private CachedTransportEntry loadSettingsFromAdminConfig(String facilityId) {
@@ -309,7 +315,7 @@ public class RestOrcaTransport implements OrcaTransport {
             builder.sslContext(sslContext);
         }
         HttpClient raw = builder.build();
-        return new CachedTransportEntry(settings, raw, new OrcaHttpClient(raw));
+        return new CachedTransportEntry(settings, raw, new OrcaHttpClient(raw), System.currentTimeMillis());
     }
 
     private CachedTransportEntry loadFallbackSettings() {
@@ -321,7 +327,7 @@ public class RestOrcaTransport implements OrcaTransport {
                 .connectTimeout(DEFAULT_CONNECT_TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
-        return new CachedTransportEntry(settings, raw, new OrcaHttpClient(raw));
+        return new CachedTransportEntry(settings, raw, new OrcaHttpClient(raw), System.currentTimeMillis());
     }
 
     private static String cacheKey(String facilityId) {
@@ -380,6 +386,28 @@ public class RestOrcaTransport implements OrcaTransport {
 
     private static String safeFacility(String facilityId) {
         return facilityId != null ? facilityId : "default";
+    }
+
+    private static long resolveCacheTtlMs() {
+        String raw = external(ENV_CACHE_TTL_MS, PROP_CACHE_TTL_MS);
+        if (raw == null || raw.isBlank()) {
+            return DEFAULT_CACHE_TTL_MS;
+        }
+        try {
+            long parsed = Long.parseLong(raw.trim());
+            return Math.max(0L, parsed);
+        } catch (NumberFormatException ex) {
+            LOGGER.log(Level.WARNING, "Invalid ORCA transport cache TTL: {0}", raw);
+            return DEFAULT_CACHE_TTL_MS;
+        }
+    }
+
+    private static String external(String envKey, String propKey) {
+        String fromEnv = envKey != null ? System.getenv(envKey) : null;
+        if (fromEnv != null && !fromEnv.isBlank()) {
+            return fromEnv;
+        }
+        return propKey != null ? System.getProperty(propKey) : null;
     }
 
     private static String auditSummary(OrcaTransportSettings settings) {
@@ -553,6 +581,14 @@ public class RestOrcaTransport implements OrcaTransport {
     private record CachedTransportEntry(
             OrcaTransportSettings settings,
             HttpClient rawHttpClient,
-            OrcaHttpClient httpClient) {
+            OrcaHttpClient httpClient,
+            long loadedAtEpochMilli) {
+
+        private boolean isExpired(long ttlMs) {
+            if (ttlMs <= 0L) {
+                return true;
+            }
+            return System.currentTimeMillis() - loadedAtEpochMilli >= ttlMs;
+        }
     }
 }
