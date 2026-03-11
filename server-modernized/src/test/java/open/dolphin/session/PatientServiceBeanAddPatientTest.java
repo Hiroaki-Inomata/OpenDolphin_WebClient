@@ -138,7 +138,7 @@ class PatientServiceBeanAddPatientTest {
         secondary.setBeanJson("{\"kind\":\"SECONDARY\"}");
         secondary.setPatient(patient);
 
-        when(em.createQuery("from PatientModel p where p.facilityId=:fid and p.patientId like :pid"))
+        when(em.createQuery("from PatientModel p where p.facilityId=:fid and p.patientId=:pid"))
                 .thenReturn(patientQuery);
         when(patientQuery.setParameter("fid", "F001")).thenReturn(patientQuery);
         when(patientQuery.setParameter("pid", "P001")).thenReturn(patientQuery);

@@ -36,6 +36,16 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P6-10「index・fetch plan・N+1 を見直す」を完了し、重い3経路向けの query/index を補強（RUN_ID=20260311T210122Z）。
+  - 変更（query）: `PatientServiceBean#getPatientById` の患者解決を `LIKE` から厳密一致 `=` へ変更し、前方一致検索用クエリと分離。
+  - 追加（migration）: `V0303__performance_index_tuning.sql` を `tools/flyway/sql` と `src/main/resources/db/migration` に追加。
+  - 追加（index）: `d_document_karte_status_started_id_idx` / `d_attachment_doc_linkrelation_status_id_idx` / `d_patient_facility_telephone_prefix_idx` / `d_patient_facility_mobilephone_prefix_idx` / `d_patient_facility_zipcode_prefix_idx` / `d_patient_appmemo_trgm_idx`。
+  - 変更（テスト）: `FreshSchemaBaselineTest` の期待バージョンを `0303` に更新し、V0303 index の存在確認を追加。
+  - 追加（実施記録）: `docs/modernization/p6-10-index-fetch-plan-n-plus1-review.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P6-10` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=PatientServiceBeanAddPatientTest,FlywayMigrationConsistencyTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS。
+  - 検証（環境制約）: `FreshSchemaBaselineTest` は embedded postgres 起動時に `java.net.SocketException: Operation not permitted`（sandbox のソケット bind 制約）で FAIL。
 - 2026-03-12: P6-09「既存データ移行スクリプトを作る」を完了し、`d_module_payload` への one-shot 移行ツールを追加（RUN_ID=20260311T210122Z）。
   - 追加（one-shotツール）: `server-modernized/tools/flyway/scripts/run-module-payload-migration.sh` / `module-payload-migrate-once.sql` / `module-payload-verify.sql`。
   - 内容: `medOrder` / `progressCourse` の versioned envelope を `d_module_payload` へ upsert し、`d_module_payload_migration_run` へ run_id 単位の進捗（開始/終了/件数/状態）を記録。

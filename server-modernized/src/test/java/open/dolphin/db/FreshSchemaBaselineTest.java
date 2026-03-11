@@ -84,7 +84,7 @@ class FreshSchemaBaselineTest {
             flyway.migrate();
 
             try (Connection connection = dataSource.getConnection()) {
-                assertEquals("0302", appliedVersion(connection));
+                assertEquals("0303", appliedVersion(connection));
                 assertTrue(tableExists(connection, "opendolphin", "d_module"));
                 assertTrue(tableExists(connection, "opendolphin", "d_health_insurance"));
                 assertTrue(tableExists(connection, "opendolphin", "d_attachment"));
@@ -103,6 +103,13 @@ class FreshSchemaBaselineTest {
                 assertFalse(columnExists(connection, "opendolphin", "d_health_insurance", "beanbytes"));
                 assertFalse(columnExists(connection, "opendolphin", "d_attachment", "bytes"));
                 assertFalse(columnExists(connection, "opendolphin", "d_image", "jpegbyte"));
+
+                assertTrue(indexExists(connection, "opendolphin", "d_document_karte_status_started_id_idx"));
+                assertTrue(indexExists(connection, "opendolphin", "d_attachment_doc_linkrelation_status_id_idx"));
+                assertTrue(indexExists(connection, "opendolphin", "d_patient_facility_telephone_prefix_idx"));
+                assertTrue(indexExists(connection, "opendolphin", "d_patient_facility_mobilephone_prefix_idx"));
+                assertTrue(indexExists(connection, "opendolphin", "d_patient_facility_zipcode_prefix_idx"));
+                assertTrue(indexExists(connection, "opendolphin", "d_patient_appmemo_trgm_idx"));
 
                 long nextFacilityNumber = nextVal(connection, "opendolphin.facility_num");
                 long nextUserId = nextVal(connection, "opendolphin.d_users_seq");
@@ -305,6 +312,17 @@ class FreshSchemaBaselineTest {
             statement.setString(1, schema);
             statement.setString(2, table);
             statement.setString(3, column);
+            try (ResultSet rs = statement.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    private static boolean indexExists(Connection connection, String schema, String indexName) throws Exception {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "select 1 from pg_indexes where schemaname = ? and indexname = ?")) {
+            statement.setString(1, schema);
+            statement.setString(2, indexName);
             try (ResultSet rs = statement.executeQuery()) {
                 return rs.next();
             }

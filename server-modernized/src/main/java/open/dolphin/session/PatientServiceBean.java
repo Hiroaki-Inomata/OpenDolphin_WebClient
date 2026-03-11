@@ -48,7 +48,10 @@ public class PatientServiceBean {
             = "from PatientVisitModel p where p.facilityId = :fid and p.pvtDate >= :fromDate and p.pvtDate < :toDate and p.status!=64";
     private static final String QUERY_PATIENT_BY_NAME = "from PatientModel p where p.facilityId=:fid and p.fullName like :name";
     private static final String QUERY_PATIENT_BY_KANA = "from PatientModel p where p.facilityId=:fid and p.kanaName like :name";
-    private static final String QUERY_PATIENT_BY_FID_PID = "from PatientModel p where p.facilityId=:fid and p.patientId like :pid";
+    private static final String QUERY_PATIENT_BY_FID_PID_PREFIX =
+            "from PatientModel p where p.facilityId=:fid and p.patientId like :pid";
+    private static final String QUERY_PATIENT_BY_FID_PID_EXACT =
+            "from PatientModel p where p.facilityId=:fid and p.patientId=:pid";
     private static final String QUERY_PATIENT_BY_TELEPHONE = "from PatientModel p where p.facilityId = :fid and (p.telephone like :number or p.mobilePhone like :number)";
     private static final String QUERY_PATIENT_BY_ZIPCODE = "from PatientModel p where p.facilityId = :fid and p.address.zipCode like :zipCode";
     private static final String QUERY_INSURANCE_BY_PATIENT_PK = "from HealthInsuranceModel h where h.patient.id=:pk";
@@ -173,7 +176,7 @@ public class PatientServiceBean {
     
     public List<PatientModel> getPatientsByDigit(String fid, String digit) {
 
-        List<PatientModel> ret = em.createQuery(QUERY_PATIENT_BY_FID_PID)
+        List<PatientModel> ret = em.createQuery(QUERY_PATIENT_BY_FID_PID_PREFIX)
             .setParameter(FID, fid)
             .setParameter(PID, digit+PERCENT)
             .getResultList();
@@ -244,7 +247,7 @@ public class PatientServiceBean {
         // 患者レコードは FacilityId と patientId で複合キーになっている
         PatientModel bean;
         try {
-            bean = (PatientModel) em.createQuery(QUERY_PATIENT_BY_FID_PID)
+            bean = (PatientModel) em.createQuery(QUERY_PATIENT_BY_FID_PID_EXACT)
                     .setParameter(FID, fid)
                     .setParameter(PID, pid)
                     .getSingleResult();
