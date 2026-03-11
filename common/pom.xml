@@ -29,6 +29,11 @@
 
   <dependencies>
     <dependency>
+      <groupId>opendolphin</groupId>
+      <artifactId>opendolphin-persistence</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.hibernate.orm</groupId>
       <artifactId>hibernate-core</artifactId>
       <version>${hibernate.orm.version}</version>

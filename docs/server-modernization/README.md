@@ -40,6 +40,7 @@
 - `docs/modernization/api-map.md`（P2-10: 新旧 API 差分と移行後契約）
 - `docs/modernization/module-boundaries.md`（P3-01: モジュール境界設計）
 - `docs/modernization/p3-02-module-skeleton.md`（P3-02: 新 module 雛形）
+- `docs/modernization/p3-03-entity-separation.md`（P3-03: JPA entity の common 分離）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

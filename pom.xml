@@ -13,6 +13,7 @@
   <name>OpenDolphin</name>
 
   <modules>
+    <module>persistence</module>
     <module>common</module>
     <module>reporting</module>
     <module>server</module>
@@ -26,6 +27,12 @@
 
   <dependencyManagement>
     <dependencies>
+      <dependency>
+        <groupId>opendolphin</groupId>
+        <artifactId>opendolphin-persistence</artifactId>
+        <version>${project.version}</version>
+        <type>jar</type>
+      </dependency>
       <dependency>
         <groupId>opendolphin</groupId>
         <artifactId>opendolphin-common</artifactId>

@@ -10,6 +10,7 @@
   <modules>
     <module>domain</module>
     <module>api-contract</module>
+    <module>persistence</module>
     <module>common</module>
     <module>reporting</module>
     <module>server-modernized</module>
@@ -26,6 +27,12 @@
       <dependency>
         <groupId>opendolphin</groupId>
         <artifactId>opendolphin-api-contract</artifactId>
+        <version>${project.version}</version>
+        <type>jar</type>
+      </dependency>
+      <dependency>
+        <groupId>opendolphin</groupId>
+        <artifactId>opendolphin-persistence</artifactId>
         <version>${project.version}</version>
         <type>jar</type>
       </dependency>
