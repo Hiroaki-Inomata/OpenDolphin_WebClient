@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を再試行したが、継続して未完了（RUN_ID=20260312T120057Z）。
+  - 変更（検証起動の衝突回避）: `docker-compose.modernized.validation.yml` の `container_name` を env 上書き可能化し、`docker-compose.modernized.dev.yml` に `MODERNIZED_CUSTOM_PROPERTIES_FILE` を追加。
+  - 追加（設定サンプル）: `ops/modernized-server/config/custom.properties.validation.sample` を新規追加し、`server-modernized.validation.env.sample` に container 名/custom.properties の上書き項目を追記。
+  - 試行（起動）: RUN_ID 固有 container 名・port を与えて `docker compose ... up -d --no-build --force-recreate` を実行し、DB/MinIO/server コンテナ起動までは成功。
+  - 試行（疎通）: `/openDolphin/resources/dolphin`、`/health`、`/health/readiness` は 404。`docker logs` で `WELD-001480`/`WELD-001410`（`LegacyObjectMapperProducer` 起因）を確認し、WAR が `started (with errors)`。
+  - 判定: 本番用 env（`server-modernized.production.env`）未配置に加え、現行検証イメージで API 稼働確認不能のため `P10-06` は未完了継続。
+  - 反映: `docs/modernization/p10-06-cutover-execution-blocker.md` と WBS ブロッカー欄を更新。
 - 2026-03-12: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」に着手したが、環境制約で未完了（RUN_ID=20260312T110053Z）。
   - 試行1: 本番用 env の存在確認（`ops/modernized-server/config/server-modernized.production.env`）を実施し、未配置を確認。
   - 試行2: 代替として検証起動導線 `start-validation-env.sh` を sample env で実行したが、Docker buildx activity 更新で `operation not permitted` により FAIL。

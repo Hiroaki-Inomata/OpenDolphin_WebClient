@@ -1,0 +1,4 @@
+# Validation custom properties sample
+# Replace values as needed for target validation environment.
+orca.id=trial
+orca.password=replace_me_orca_password

@@ -99,6 +99,7 @@ A列は ☐ / ☑ で更新します。優先 S は今すぐ着手、A は続け
 | ☐ | P10-07 | 10. 移行と本番切替 | A | 全担当 | 3日 | 切替後の集中監視と是正を行う | 運用監視 / エラーログ / 問い合わせ / ORCA 連携結果 | P10-06 | モダナイズ版稼働後のエラー・性能・問い合わせを重点監視し、日次で是正する。旧サーバー比較は行わず、現行稼働の健全性で判定する。 | 切替後の不具合収束状況が見え、恒常運用へ移れる。 | 集中監視記録、是正一覧、クローズ条件 | 1日目、2日目、3日目の確認項目を分けて運用する。 |
 
 ## ブロッカー
+- 2026-03-12 (RUN_ID=20260312T120057Z, 未解消): `P10-06` を再試行。validation compose を RUN_ID 固有 container 名で起動可能化し、`up --no-build` で DB/MinIO/server 起動までは成功したが、`/openDolphin/resources/{dolphin,health,health/readiness}` が 404。`docker logs` で `WELD-001480` / `WELD-001410`（`LegacyObjectMapperProducer` の proxy 不可）により `opendolphin-server.war started (with errors)` を確認。本番用 env（`server-modernized.production.env`）も未配置のため `P10-06` は継続未完。詳細は `docs/modernization/p10-06-cutover-execution-blocker.md` を参照。
 - 2026-03-12 (RUN_ID=20260312T110053Z, 未解消): `P10-06` 本番切替実施は、本番用 env（`server-modernized.production.env`）未配置かつ実行環境の Docker buildx 権限不足（`operation not permitted`）で実行不能。`docs/modernization/p10-06-cutover-execution-blocker.md` に試行結果と次回着手条件を記録。
 - 2026-03-12 (RUN_ID=20260312T100053Z, 計画前提更新): 旧サーバーは稼働していないため、`P10-03` 以降は「モダナイズ版単体が正常稼働すること」を完了判定の前提に更新。比較検証は必須条件から除外する。
 - 2026-03-12 (RUN_ID=20260312T100053Z, 運用方針更新): `P10-03` は実運用ロール不在時でも、仮想ロール（医師/受付/事務）を明示したUAT台本を作成し、単独担当でロール切替実施する方式で前進してよい。次回ワーカーはこの方式で `P10-03` を実施し、指摘一覧を `P10-05` 入力へ接続すること。

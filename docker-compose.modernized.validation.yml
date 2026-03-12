@@ -1,6 +1,6 @@
 services:
   db-modernized:
-    container_name: opendolphin-postgres-modernized-validation
+    container_name: ${MODERNIZED_DB_CONTAINER_NAME:-opendolphin-postgres-modernized-validation}
     environment:
       POSTGRES_HOST_AUTH_METHOD: ${MODERNIZED_POSTGRES_HOST_AUTH_METHOD:-md5}
       POSTGRES_INITDB_ARGS: ${MODERNIZED_POSTGRES_INITDB_ARGS:---auth-host=md5 --auth-local=md5}
@@ -8,7 +8,7 @@ services:
       - "${MODERNIZED_POSTGRES_PORT:-55442}:5432"
 
   server-modernized-dev:
-    container_name: opendolphin-server-modernized-validation
+    container_name: ${MODERNIZED_APP_CONTAINER_NAME:-opendolphin-server-modernized-validation}
     environment:
       DB_SSLMODE: ${MODERNIZED_DB_SSLMODE:-require}
       DB_SSLROOTCERT: ${MODERNIZED_DB_SSLROOTCERT:-}
@@ -37,7 +37,7 @@ services:
       - "${MODERNIZED_APP_ADMIN_PORT:-19995}:9990"
 
   minio:
-    container_name: opendolphin-minio-validation
+    container_name: ${MODERNIZED_MINIO_CONTAINER_NAME:-opendolphin-minio-validation}
     ports:
       - "${MINIO_API_PORT:-19100}:9000"
       - "${MINIO_CONSOLE_PORT:-19101}:9001"
