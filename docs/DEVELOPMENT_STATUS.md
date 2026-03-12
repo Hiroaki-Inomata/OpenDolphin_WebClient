@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-13: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を再試行したが、継続して未完了（RUN_ID=20260312T160044Z）。
+  - 実施（daemon疎通再確認）: `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/{_ping,version}` は継続して RC=28 timeout。
+  - 実施（context別切り分け）: `docker info` / `docker --context desktop-linux info` / `docker --context default info` を 12秒 watchdog 付きで再試行し、いずれも RC=124。Client 情報のみ表示され、Server は `context canceled`。
+  - 実施（導線確認）: `DOCKER_PING_TIMEOUT_SECONDS=2 ... start-validation-env.sh ...validation.env.sample` は fail-fast で RC=1（ハング前停止）を確認。
+  - 判定: Docker daemon 応答不能と `server-modernized.production.env` 未配置が継続しているため、`P10-06` 完了条件（起動→`health/readiness` 実測→主要フロー疎通）に到達できない。
+  - 反映: `docs/modernization/p10-06-cutover-execution-blocker.md` と WBS ブロッカー欄を更新。
 - 2026-03-12: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を再試行したが、継続して未完了（RUN_ID=20260312T150045Z）。
   - 実施（daemon疎通確認）: `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/{_ping,version}` を実行し、いずれも RC=28 timeout を確認。
   - 変更（ハング防止）: `ops/modernized-server/scripts/start-validation-env.sh` に Docker socket preflight を追加し、`compose up` 前に daemon 応答不可を即時検出するよう変更。

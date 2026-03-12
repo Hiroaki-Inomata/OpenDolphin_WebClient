@@ -2,7 +2,26 @@
 
 ## 事象
 - タスク `P10-06`（本番切替を実施する）は継続して未完了。
-- 最新 RUN: `20260312T150045Z`
+- 最新 RUN: `20260312T160044Z`
+
+## 実施した試行（RUN_ID: 20260312T160044Z）
+1. Docker daemon 応答性の再確認（socket/API 直接）
+- `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping`
+- `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/version`
+- 結果: **いずれも RC=28 timeout**（0 bytes 応答）
+
+2. Docker CLI 経由の再確認（context 別）
+- `docker info`（12秒 watchdog）
+- `docker --context desktop-linux info`（12秒 watchdog）
+- `docker --context default info`（12秒 watchdog）
+- 結果: **いずれも RC=124（watchdog kill）**。Client 情報は取得できるが Server は `ERROR: ... context canceled`。
+
+3. 切替導線の fail-fast 動作確認
+- `DOCKER_PING_TIMEOUT_SECONDS=2 COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312t160044z ops/modernized-server/scripts/start-validation-env.sh ops/modernized-server/config/server-modernized.validation.env.sample`
+- 結果: `docker daemon is not responding ... aborting before compose up` で **RC=1**（期待どおりハング前停止）。
+
+4. production env 配置状況
+- `ops/modernized-server/config/server-modernized.production.env` は依然未配置（sample のみ）。
 
 ## 実施した試行（RUN_ID: 20260312T150045Z）
 1. Docker daemon 応答性の再確認
@@ -86,7 +105,7 @@
 
 ## 未解消理由
 - `server-modernized.production.env` が未配置。
-- Docker daemon が socket 経由で応答しない（`/_ping`/`/version` が timeout）ため `up/build/ps` が進行不能。
+- Docker daemon が socket 経由で応答しない（`/_ping`/`/version` が timeout、`docker info` は server 側 `context canceled`）ため `up/build/ps` が進行不能。
 - 上記により、`health/readiness` 実測と主要業務疎通まで到達できない。
 
 ## 次回着手条件
