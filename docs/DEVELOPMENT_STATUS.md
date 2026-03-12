@@ -36,6 +36,15 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P8-02「S3 認証を固定資格情報から外す」を完了し、S3 クレデンシャルを provider chain へ統一（RUN_ID=20260312T010127Z）。
+  - 変更（storage）: `server-modernized/src/main/java/open/dolphin/storage/attachment/AttachmentStorageManager.java` / `server-modernized/src/main/java/open/dolphin/storage/image/ImageStorageManager.java` の S3 client 初期化を `DefaultCredentialsProvider` へ置換。
+  - 変更（settings/loader）: `server-modernized/src/main/java/open/dolphin/storage/attachment/AttachmentStorageSettings.java` から `accessKey`/`secretKey` を削除し、`AttachmentStorageConfigLoader` の固定資格情報必須チェックを削除。
+  - 変更（sample）: `server-modernized/config/attachment-storage.sample.yaml` に固定資格情報非推奨（環境変数/ロール供給）を追記。
+  - 追加（実施記録）: `docs/modernization/p8-02-s3-credential-provider-chain.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P8-02` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DskipTests test-compile` PASS。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -Dtest=AttachmentStorageManagerTest,PatientImagesResourceTest,RuntimeConfigurationSupportTest,SmsGatewayConfigTest,OrcaTransportSettingsExternalConfigTest -Dsurefire.failIfNoSpecifiedTests=false test` は Mockito inline attach 制約で FAIL。
+  - 検証: `JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home mvn -o -f pom.server-modernized.xml -pl server-modernized -am -DargLine=-javaagent:/Users/Hayato/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.12/byte-buddy-agent-1.14.12.jar -Dtest=AttachmentStorageManagerTest,PatientImagesResourceTest,RuntimeConfigurationSupportTest,SmsGatewayConfigTest,OrcaTransportSettingsExternalConfigTest -Dsurefire.failIfNoSpecifiedTests=false test` PASS（26 tests）。
 - 2026-03-12: P8-03「YAML・properties・JSON の設定読み込みを一本化する」を完了し、設定解決優先順位を共通化（RUN_ID=20260312T010127Z）。
   - 変更（共通ローダー）: `server-modernized/src/main/java/open/dolphin/runtime/RuntimeConfigurationSupport.java` に `resolveConfigDirectory` / `resolveLegacyCustomPropertiesPath` / `loadLegacyCustomProperties` / `resolveUnifiedSetting` を追加。
   - 変更（attachment）: `server-modernized/src/main/java/open/dolphin/storage/attachment/AttachmentStorageConfigLoader.java` の設定解決を共通ローダーへ寄せ、`ATTACHMENT_*`・`modernized.storage.mode`・YAML の優先順位を統一。

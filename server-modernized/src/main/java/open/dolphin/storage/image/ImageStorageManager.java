@@ -18,8 +18,7 @@ import open.dolphin.storage.attachment.AttachmentStorageException;
 import open.dolphin.storage.attachment.AttachmentStorageSettings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -179,15 +178,12 @@ public class ImageStorageManager {
 
     private S3Client createClient(AttachmentStorageSettings.S3Settings s3Settings) {
         S3ClientBuilder builder = S3Client.builder()
+                .credentialsProvider(DefaultCredentialsProvider.create())
                 .region(Region.of(s3Settings.getRegion()))
                 .serviceConfiguration(S3Configuration.builder()
                         .pathStyleAccessEnabled(s3Settings.isForcePathStyle())
                         .build());
         s3Settings.getEndpoint().ifPresent(builder::endpointOverride);
-        if (hasText(s3Settings.getAccessKey()) && hasText(s3Settings.getSecretKey())) {
-            builder.credentialsProvider(StaticCredentialsProvider.create(
-                    AwsBasicCredentials.create(s3Settings.getAccessKey(), s3Settings.getSecretKey())));
-        }
         return builder.build();
     }
 

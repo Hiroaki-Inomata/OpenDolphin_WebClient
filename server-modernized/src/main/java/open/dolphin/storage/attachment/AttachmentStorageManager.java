@@ -26,8 +26,7 @@ import jakarta.transaction.TransactionSynchronizationRegistry;
 import open.dolphin.infomodel.AttachmentModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
@@ -402,8 +401,7 @@ public class AttachmentStorageManager {
                 .build();
 
         S3ClientBuilder builder = S3Client.builder()
-                .credentialsProvider(StaticCredentialsProvider.create(
-                        AwsBasicCredentials.create(s3Settings.getAccessKey(), s3Settings.getSecretKey())))
+                .credentialsProvider(DefaultCredentialsProvider.create())
                 .region(Region.of(s3Settings.getRegion()))
                 .serviceConfiguration(serviceConfiguration);
 

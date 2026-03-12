@@ -14,6 +14,7 @@ storage:
     serverSideEncryption: AES256
     kmsKeyId: null
     multipartUploadThresholdMb: 64
+    # 認証情報は固定値を置かず、環境変数または実行ロール（IAM/IRSA 等）で供給する。
     lifecycle:
       transitionToStandardIaAfterDays: 30
       expireAfterDays: 3650

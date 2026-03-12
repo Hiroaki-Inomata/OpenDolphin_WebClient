@@ -80,6 +80,7 @@
 - `docs/modernization/p7-05-pvt-replay-tool.md`（P7-05: PVT受信メッセージ再生ツール）
 - `docs/modernization/p7-06-worker-observability-health.md`（P7-06: ワーカー監視項目とヘルスチェック）
 - `docs/modernization/p8-01-attachment-storage-streaming.md`（P8-01: AttachmentStorageManager の upload/download ストリーミング化）
+- `docs/modernization/p8-02-s3-credential-provider-chain.md`（P8-02: S3 認証を固定資格情報から外し provider chain へ統一）
 - `docs/modernization/p8-03-config-loading-unification.md`（P8-03: YAML/properties/JSON 設定読込ルールの統一）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）

@@ -155,25 +155,6 @@ public class AttachmentStorageConfigLoader {
                 .map(Integer::parseInt)
                 .orElse(Optional.ofNullable(yamlS3.getMultipartUploadThresholdMb()).orElse(64));
 
-        String accessKey = configValue(config, "ATTACHMENT_S3_ACCESS_KEY")
-                .or(() -> RuntimeConfigurationSupport.resolveUnifiedSetting(
-                        "ATTACHMENT_S3_ACCESS_KEY",
-                        "attachment.s3.access-key",
-                        null,
-                        yamlS3::getAccessKey,
-                        null,
-                        null))
-                .orElseGet(() -> requireNonBlank(yamlS3.getAccessKey(), "ATTACHMENT_S3_ACCESS_KEY"));
-        String secretKey = configValue(config, "ATTACHMENT_S3_SECRET_KEY")
-                .or(() -> RuntimeConfigurationSupport.resolveUnifiedSetting(
-                        "ATTACHMENT_S3_SECRET_KEY",
-                        "attachment.s3.secret-key",
-                        null,
-                        yamlS3::getSecretKey,
-                        null,
-                        null))
-                .orElseGet(() -> requireNonBlank(yamlS3.getSecretKey(), "ATTACHMENT_S3_SECRET_KEY"));
-
         return new AttachmentStorageSettings.S3Settings(
                 bucket,
                 region,
@@ -182,9 +163,7 @@ public class AttachmentStorageConfigLoader {
                 forcePathStyle,
                 sse,
                 kmsKeyId,
-                multipartThreshold,
-                accessKey,
-                secretKey
+                multipartThreshold
         );
     }
 
