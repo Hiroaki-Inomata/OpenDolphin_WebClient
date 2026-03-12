@@ -1,7 +1,7 @@
 # 詳細工程表（server-modernization 当面作業）
 
 - 更新日: 2026-03-12
-- RUN_ID: 20260312T110053Z
+- RUN_ID: 20260312T150045Z
 - 位置付け: `server-modernized` の当面作業を順番に進めるための現行 WBS。
 - 運用: 記載タスクは原則として上から順に消化する。`docs/DEVELOPMENT_STATUS.md`、`AGENTS.md`、最新のユーザー/マネージャー指示と矛盾する場合は、それらを優先する。
 - 参照入口: `docs/server-modernization/README.md`
@@ -99,6 +99,7 @@ A列は ☐ / ☑ で更新します。優先 S は今すぐ着手、A は続け
 | ☐ | P10-07 | 10. 移行と本番切替 | A | 全担当 | 3日 | 切替後の集中監視と是正を行う | 運用監視 / エラーログ / 問い合わせ / ORCA 連携結果 | P10-06 | モダナイズ版稼働後のエラー・性能・問い合わせを重点監視し、日次で是正する。旧サーバー比較は行わず、現行稼働の健全性で判定する。 | 切替後の不具合収束状況が見え、恒常運用へ移れる。 | 集中監視記録、是正一覧、クローズ条件 | 1日目、2日目、3日目の確認項目を分けて運用する。 |
 
 ## ブロッカー
+- 2026-03-12 (RUN_ID=20260312T150045Z, 未解消): `P10-06` を再試行。`curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/{_ping,version}` はいずれも RC=28 timeout で Docker daemon 応答が得られず、`up/build/ps` 実行が継続不能。`ops/modernized-server/scripts/start-validation-env.sh` に daemon preflight（socket存在確認 + `/_ping` 応答確認）を追加し、ハング前に即時失敗させる導線へ改善したが、`server-modernized.production.env` も未配置のため `P10-06` 完了条件（起動→`health/readiness`→主要業務疎通）には未到達。詳細は `docs/modernization/p10-06-cutover-execution-blocker.md` を参照。
 - 2026-03-12 (RUN_ID=20260312T140055Z, 未解消): `P10-06` を再試行。`server-modernized.production.env` を sample から作成し、`docker compose ... config` は PASS。`COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312t140055z ops/modernized-server/scripts/start-validation-env.sh ...production.env` 実行時に `starting containers...` 以降がハングしたため、watchdog 付きで再計測したところ `docker info` は `Server: context canceled`、`docker compose ... ps` は RC=130 timeout、`curl --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping` は RC=28 timeout。Docker daemon 応答不安定により本番切替実行（`up/build` → `health/readiness` 実測）へ進めず。詳細は `docs/modernization/p10-06-cutover-execution-blocker.md` を参照。
 - 2026-03-12 (RUN_ID=20260312T130107Z, 未解消): `P10-06` を再試行。`LegacyObjectMapperProducer` を `@Dependent` 化し、`docker` build 導線も `ops/modernized-server/docker/Dockerfile` で `domain/api-contract/persistence` コピー + `pom.server-modernized.xml` 固定利用へ補正。`/workspace/persistence` 欠落および `opendolphin-api-contract` 欠落エラーは解消したが、`docker compose ... build server-modernized-dev` が依存解決フェーズで長時間化し実行時間内に image build 完了まで到達できず。`server-modernized.production.env` も未配置のため `P10-06` は継続未完。詳細は `docs/modernization/p10-06-cutover-execution-blocker.md` を参照。
 - 2026-03-12 (RUN_ID=20260312T120057Z, 未解消): `P10-06` を再試行。validation compose を RUN_ID 固有 container 名で起動可能化し、`up --no-build` で DB/MinIO/server 起動までは成功したが、`/openDolphin/resources/{dolphin,health,health/readiness}` が 404。`docker logs` で `WELD-001480` / `WELD-001410`（`LegacyObjectMapperProducer` の proxy 不可）により `opendolphin-server.war started (with errors)` を確認。本番用 env（`server-modernized.production.env`）も未配置のため `P10-06` は継続未完。詳細は `docs/modernization/p10-06-cutover-execution-blocker.md` を参照。

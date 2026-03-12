@@ -2,7 +2,24 @@
 
 ## 事象
 - タスク `P10-06`（本番切替を実施する）は継続して未完了。
-- 最新 RUN: `20260312T140055Z`
+- 最新 RUN: `20260312T150045Z`
+
+## 実施した試行（RUN_ID: 20260312T150045Z）
+1. Docker daemon 応答性の再確認
+- `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping`
+- `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/version`
+- 結果: **いずれも RC=28 timeout**（0 bytes 応答）
+
+2. `P10-06` 実行導線のハング防止
+- `ops/modernized-server/scripts/start-validation-env.sh` に Docker socket preflight を追加。
+- 追加内容:
+  - `DOCKER_SOCKET_PATH`（default: `$HOME/.docker/run/docker.sock`）が socket であることを確認。
+  - `curl --max-time "${DOCKER_PING_TIMEOUT_SECONDS:-8}" --unix-socket ... /_ping` で daemon 応答を確認。
+  - 応答不可時は `compose up` 実行前に明示エラーで停止。
+- 目的: `starting containers...` 以降の無応答ハングを回避し、切替可否を即時判定できるようにする。
+
+3. 本番 env 再確認
+- `ops/modernized-server/config/server-modernized.production.env` は依然未配置（sample のみ）。
 
 ## 実施した試行（RUN_ID: 20260312T140055Z）
 1. 本番 env を sample から作成
@@ -68,8 +85,9 @@
 - `start-validation-env.sh` 実行時に Docker buildx activity 更新で `operation not permitted` が発生。
 
 ## 未解消理由
-- `server-modernized.production.env` の雛形作成までは実施したが、Docker daemon が socket 経由で安定応答せず `up/build/ps` が進行不能。
-- そのため、最新 image build 完了および再起動後の `health/readiness` 実測に到達できない。
+- `server-modernized.production.env` が未配置。
+- Docker daemon が socket 経由で応答しない（`/_ping`/`/version` が timeout）ため `up/build/ps` が進行不能。
+- 上記により、`health/readiness` 実測と主要業務疎通まで到達できない。
 
 ## 次回着手条件
 1. Docker daemon の応答性を回復する（`curl --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping` が `OK` を返す状態）。
