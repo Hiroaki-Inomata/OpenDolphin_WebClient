@@ -79,6 +79,7 @@
 - `docs/modernization/p7-04-remove-local-file-output-dependency.md`（P7-04: PVT登録時のローカルファイル出力依存除去）
 - `docs/modernization/p7-05-pvt-replay-tool.md`（P7-05: PVT受信メッセージ再生ツール）
 - `docs/modernization/p7-06-worker-observability-health.md`（P7-06: ワーカー監視項目とヘルスチェック）
+- `docs/modernization/p8-01-attachment-storage-streaming.md`（P8-01: AttachmentStorageManager の upload/download ストリーミング化）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

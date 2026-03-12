@@ -21,7 +21,6 @@ import open.dolphin.infomodel.KarteBean;
 import open.dolphin.infomodel.PatientModel;
 import open.dolphin.infomodel.UserModel;
 import open.dolphin.rest.dto.PatientImageEntryResponse;
-import open.dolphin.storage.attachment.AttachmentStorageManager;
 import open.dolphin.session.framework.SessionOperation;
 
 @Named
@@ -48,9 +47,6 @@ public class PatientImageServiceBean {
 
     @Inject
     private KarteServiceBean karteServiceBean;
-
-    @Inject
-    private AttachmentStorageManager attachmentStorageManager;
 
     public UploadResult uploadImage(String facilityId,
                                     String patientId,
@@ -185,8 +181,6 @@ public class PatientImageServiceBean {
             return null;
         }
 
-        // If storage is external, populateBinary will download; in database mode it's a no-op.
-        attachmentStorageManager.populateBinary(attachment);
         return attachment;
     }
 

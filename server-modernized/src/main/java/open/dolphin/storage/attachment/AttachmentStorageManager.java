@@ -1,7 +1,12 @@
 package open.dolphin.storage.attachment;
 
+import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Collection;
@@ -32,7 +37,6 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.ServerSideEncryption;
-import software.amazon.awssdk.utils.IoUtils;
 import software.amazon.awssdk.core.sync.RequestBody;
 
 /**
@@ -42,6 +46,7 @@ import software.amazon.awssdk.core.sync.RequestBody;
 public class AttachmentStorageManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AttachmentStorageManager.class);
+    private static final int STREAM_BUFFER_SIZE = 8192;
 
     @Inject
     AttachmentStorageConfigLoader configLoader;
@@ -104,11 +109,39 @@ public class AttachmentStorageManager {
         return uploadToS3(attachment);
     }
 
+    @Transactional(Transactional.TxType.NOT_SUPPORTED)
+    public boolean uploadToS3OutsideTransaction(AttachmentModel attachment, InputStream contentStream, long contentLength) {
+        return uploadToS3(attachment, contentStream, contentLength);
+    }
+
     public void populateBinary(AttachmentModel attachment) {
         if (attachment == null) {
             return;
         }
         if (attachment.getContentBytes() != null) {
+            return;
+        }
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            writeBinaryTo(attachment, out);
+            byte[] data = out.toByteArray();
+            attachment.setContentBytes(data);
+        } catch (AttachmentStorageException ex) {
+            throw ex;
+        } catch (IOException ex) {
+            throw new AttachmentStorageException("Failed to materialize attachment binary in memory", ex);
+        } catch (Exception ex) {
+            throw new AttachmentStorageException("Failed to materialize attachment binary in memory", ex);
+        }
+    }
+
+    public void writeBinaryTo(AttachmentModel attachment, OutputStream output) throws IOException {
+        if (attachment == null) {
+            return;
+        }
+        Objects.requireNonNull(output, "output");
+
+        if (attachment.getContentBytes() != null) {
+            output.write(attachment.getContentBytes());
             return;
         }
         if (!hasText(attachment.getUri())) {
@@ -119,8 +152,7 @@ public class AttachmentStorageManager {
             throw new AttachmentStorageException("Attachment " + attachment.getId()
                     + " requires external storage, but S3 mode is disabled");
         }
-        S3ObjectLocation location = resolveLocation(attachment)
-                .orElse(null);
+        S3ObjectLocation location = resolveLocation(attachment).orElse(null);
         if (location == null) {
             throw new AttachmentStorageException("Attachment " + attachment.getId()
                     + " cannot resolve S3 object location from uri=" + attachment.getUri());
@@ -130,15 +162,24 @@ public class AttachmentStorageManager {
                 .bucket(location.bucket)
                 .key(location.key)
                 .build();
-
         try (software.amazon.awssdk.core.ResponseInputStream<GetObjectResponse> response = s3Client.getObject(request)) {
-            byte[] data = IoUtils.toByteArray((InputStream) response);
-            attachment.setContentBytes(data);
-        } catch (IOException ex) {
-            throw new AttachmentStorageException("Failed to download attachment " + location.key, ex);
+            copy(response, output);
+        } catch (AttachmentStorageException ex) {
+            throw ex;
         } catch (Exception ex) {
-            throw new AttachmentStorageException("Failed to download attachment " + location.key, ex);
+            throw new AttachmentStorageException("Failed to stream attachment " + location.key, ex);
         }
+    }
+
+    public long resolveContentLength(AttachmentModel attachment) {
+        if (attachment == null) {
+            return -1L;
+        }
+        byte[] inline = attachment.getContentBytes();
+        if (inline != null) {
+            return inline.length;
+        }
+        return attachment.getContentSize() > 0 ? attachment.getContentSize() : -1L;
     }
 
     public void deleteExternalAsset(AttachmentModel attachment) {
@@ -214,13 +255,40 @@ public class AttachmentStorageManager {
             return false;
         }
         ensureDigest(attachment, bytes);
+        return uploadStreamToS3(attachment, new ByteArrayInputStream(bytes), bytes.length, true);
+    }
+
+    private boolean uploadToS3(AttachmentModel attachment, InputStream contentStream, long contentLength) {
+        if (attachment == null) {
+            return false;
+        }
+        if (isAlreadyExternalized(attachment, attachment.getContentBytes())) {
+            LOGGER.debug("Attachment {} is already externalized (uri={}, digest={}); skipping upload.",
+                    attachment.getId(), attachment.getUri(), attachment.getDigest());
+            return false;
+        }
+        if (contentStream == null || contentLength < 0L) {
+            LOGGER.debug("Attachment {} has no stream payload or invalid contentLength={}; skip upload",
+                    attachment.getId(), contentLength);
+            return false;
+        }
+        return uploadStreamToS3(attachment, contentStream, contentLength, true);
+    }
+
+    private boolean uploadStreamToS3(AttachmentModel attachment,
+                                     InputStream stream,
+                                     long contentLength,
+                                     boolean clearInlineBytesOnSuccess) {
+        if (attachment == null || stream == null) {
+            return false;
+        }
         AttachmentStorageSettings.S3Settings s3Settings = settings.getS3()
                 .orElseThrow(() -> new AttachmentStorageException("S3 settings missing"));
         String key = keyResolver.resolve(attachment);
         PutObjectRequest.Builder builder = PutObjectRequest.builder()
                 .bucket(s3Settings.getBucket())
                 .key(key)
-                .contentLength((long) bytes.length);
+                .contentLength(contentLength);
         if (attachment.getContentType() != null && !attachment.getContentType().isBlank()) {
             builder.contentType(attachment.getContentType());
         }
@@ -228,11 +296,14 @@ public class AttachmentStorageManager {
                 .map(String::toUpperCase)
                 .ifPresent(mode -> applyServerSideEncryption(builder, mode, s3Settings));
 
-        try {
-            s3Client.putObject(builder.build(), RequestBody.fromBytes(bytes));
+        try (DigestInputStream digestInput = new DigestInputStream(new BufferedInputStream(stream), newSha256Digest())) {
+            s3Client.putObject(builder.build(), RequestBody.fromInputStream(digestInput, contentLength));
             String s3Uri = String.format("s3://%s/%s", s3Settings.getBucket(), key);
             attachment.setUri(s3Uri);
-            attachment.setContentBytes(null);
+            ensureDigest(attachment, digestInput.getMessageDigest());
+            if (clearInlineBytesOnSuccess) {
+                attachment.setContentBytes(null);
+            }
             return true;
 
         } catch (Exception ex) {
@@ -256,6 +327,13 @@ public class AttachmentStorageManager {
             return;
         }
         attachment.setDigest(sha256Hex(bytes));
+    }
+
+    private void ensureDigest(AttachmentModel attachment, MessageDigest digest) {
+        if (attachment == null || hasText(attachment.getDigest()) || digest == null) {
+            return;
+        }
+        attachment.setDigest(HexFormat.of().formatHex(digest.digest()));
     }
 
     private void registerRollbackHook(AttachmentModel attachment) {
@@ -343,6 +421,25 @@ public class AttachmentStorageManager {
             return HexFormat.of().formatHex(digest.digest(bytes));
         } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 not available", ex);
+        }
+    }
+
+    private MessageDigest newSha256Digest() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 digest is unavailable", ex);
+        }
+    }
+
+    private static void copy(InputStream input, OutputStream output) throws IOException {
+        byte[] buffer = new byte[STREAM_BUFFER_SIZE];
+        int read;
+        while ((read = input.read(buffer)) >= 0) {
+            if (read == 0) {
+                continue;
+            }
+            output.write(buffer, 0, read);
         }
     }
 
