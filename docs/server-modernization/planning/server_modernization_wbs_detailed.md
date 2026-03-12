@@ -99,6 +99,7 @@ A列は ☐ / ☑ で更新します。優先 S は今すぐ着手、A は続け
 | ☐ | P10-07 | 10. 移行と本番切替 | A | 全担当 | 3日 | 切替後の集中監視と是正を行う | 運用監視 / エラーログ / 問い合わせ / ORCA 連携結果 | P10-06 | 切替後数日は、エラー、性能、問い合わせ、入力詰まり、設定ミスを重点的に見る。小さな問題でも日次で記録し、是正の優先順位を付ける。 | 切替後の不具合収束状況が見え、恒常運用へ移れる。 | 集中監視記録、是正一覧、クローズ条件 | 1日目、2日目、3日目の確認項目を分けてあらかじめ書く。 |
 
 ## ブロッカー
+- 2026-03-12 (RUN_ID=20260312T100053Z, 未解消): `P10-03` 業務受け入れ試験の完了条件（医師/受付/事務の現場観点 UAT）を再試行観点で再評価したが、実運用ロールによる受け入れ実査をこのRUN単独では実施できず未解消。技術回帰テスト PASS のみでは完了判定不可のため、`P10-03` は継続して未完了。
 - 2026-03-12 (RUN_ID=20260312T090057Z, 未解消): `P10-03` 業務受け入れ試験について、技術事前確認として主要フロー回帰テスト（患者/カルテ/PVT/ORCA/添付/管理認証）を実行し 42 tests PASS を確認したが、完了条件である「医師・受付・事務の現場観点UAT」は本RUN単独では実施不可。API/ユニットテスト合格のみでは UAT 完了判定とならないため `P10-03` は未完了のまま保持。
 - 2026-03-12 (RUN_ID=20260312T090057Z, 解消済み): `P10-02` データ移行通し試験を専用DBコンテナ（`opendolphin-postgres-modernized-e730-20260312t090057z`）で再実施し、初期化→移行→件数照合→再実行確認を完了。`run-module-payload-migration.sh` の `d_module_payload_migration_run.after_*` 集計が同一 statement スナップショット起因で不整合になる差異を検知し、`module-payload-migrate-once.sql` を upsert 後の別 `UPDATE` 再計算へ修正して解消。修正後の `r1/r2` は `after_payload_rows=2` / `after_missing_rows=0` で整合。
 - 2026-03-12 (RUN_ID=20260311T200758Z, 解消済み): `P6-04` を `medOrder`/`progressCourse` の versioned envelope（`schemaVersion`/`moduleType`/`payloadJson`/`payloadHash`）導入で完了。`ModuleJsonConverter` に新形式の encode/decode を実装し、`KarteServiceBean`・`KarteDocumentWriteService`・`OrcaOrderBundleResource`・`OrcaSubjectiveResource`・`OrcaResource` の module 書込経路を `ModelUtils.encodeModule(...)` に統一した。`P6-08` は新 schema / migration の適用タスクとして後続実施に整理。

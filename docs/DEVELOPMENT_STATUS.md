@@ -36,6 +36,10 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: `P10-03` のブロッカー再試行を実施したが未解消（RUN_ID=20260312T100053Z）。
+  - 実施: UAT 完了条件（医師/受付/事務の現場観点での実査）が本RUNで満たせるかを再評価。
+  - 判定: 技術回帰テストの PASS 維持は確認できるが、実運用ロールによる受け入れ実査を実施できないため `P10-03` は未完了継続。
+  - 反映: `docs/modernization/p10-03-uat-blocker.md` と WBS ブロッカー欄を更新。
 - 2026-03-12: P10-03「業務受け入れ試験を行う」に着手し、技術事前確認（主要フロー回帰）を実施したが UAT 完了条件は未充足（RUN_ID=20260312T090057Z）。
   - 実施（回帰テスト）: `PatientModV2OutpatientResourceTest` / `KarteResourceCaseListV3Test` / `PVTServiceBeanClinicalTest` / `OrcaOrderBundleResourceTest` / `PatientImagesResourceTest` / `AdminAccessResourceTest` / `SessionAuthResourceTest` を実行し PASS（42 tests）。
   - 判定: API/ユニットテスト合格は確認できたが、医師・受付・事務の現場観点での実業務UAT（完了条件）を本RUN単独で実施できないため、`P10-03` は未完了のまま保持。
