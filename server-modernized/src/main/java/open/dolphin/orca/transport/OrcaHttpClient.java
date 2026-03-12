@@ -2,6 +2,8 @@ package open.dolphin.orca.transport;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.Tags;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -16,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -37,6 +40,9 @@ public class OrcaHttpClient {
     private static final String ORCA_CONTENT_TYPE = "application/xml; charset=UTF-8";
     private static final String ORCA_JSON_CONTENT_TYPE = "application/json; charset=UTF-8";
     private static final String ORCA_ACCEPT_XML = "application/xml";
+    private static final String ORCA_EXTERNAL_REQUEST_COUNTER = "opendolphin_orca_external_request_total";
+    private static final String ORCA_EXTERNAL_ERROR_COUNTER = "opendolphin_orca_external_error_total";
+    private static final String ORCA_EXTERNAL_LATENCY_TIMER = "opendolphin_orca_external_latency";
     private static final String ENV_NETWORK_RETRY_MAX = "ORCA_API_RETRY_NETWORK_MAX";
     private static final String ENV_TRANSIENT_RETRY_MAX = "ORCA_API_RETRY_TRANSIENT_MAX";
     private static final String ENV_NETWORK_RETRY_BACKOFF_MS = "ORCA_API_RETRY_NETWORK_BACKOFF_MS";
@@ -139,6 +145,7 @@ public class OrcaHttpClient {
                 String responseBody = response.body() != null ? response.body() : "";
                 String responseContentType = response.headers().firstValue("Content-Type").orElse(null);
                 OrcaApiResult apiResult = extractApiResult(responseBody, responseContentType);
+                recordExternalMetrics(resolvedMethod, path, status, elapsedMs, null);
                 logOrcaSummary(requestId, resolvedMethod, path, status, apiResult, elapsedMs);
                 if (status < 200 || status >= 300) {
                     if (shouldRetryHttp(status, networkAttempts, networkRetryMax)) {
@@ -170,6 +177,8 @@ public class OrcaHttpClient {
                 return new OrcaHttpResponse(url, resolvedMethod, status, responseBody, responseContentType,
                         response.headers().map(), elapsedMs, apiResult);
             } catch (IOException ex) {
+                long elapsedMs = Duration.between(started, Instant.now()).toMillis();
+                recordExternalMetrics(resolvedMethod, path, -1, elapsedMs, FailureCategory.NETWORK.code);
                 if (networkAttempts < networkRetryMax) {
                     networkAttempts++;
                     if (!sleepUntilDeadline(deadline, networkBackoff * (1L << Math.min(networkAttempts, 6)))) {
@@ -180,8 +189,25 @@ public class OrcaHttpClient {
                 throw failure(FailureCategory.NETWORK, "Failed to call ORCA API", ex);
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
+                long elapsedMs = Duration.between(started, Instant.now()).toMillis();
+                recordExternalMetrics(resolvedMethod, path, -1, elapsedMs, FailureCategory.INTERRUPTED.code);
                 throw failure(FailureCategory.INTERRUPTED, "ORCA API request interrupted", ex);
             }
+        }
+    }
+
+    private static void recordExternalMetrics(String method, String path, int status, long elapsedMs, String failureCategory) {
+        String resolvedMethod = (method == null || method.isBlank()) ? "POST" : method;
+        String resolvedPath = (path == null || path.isBlank()) ? "-" : path;
+        String statusValue = status >= 0 ? Integer.toString(status) : "io_error";
+        Tags tags = Tags.of("method", resolvedMethod, "path", resolvedPath, "status", statusValue);
+        Metrics.counter(ORCA_EXTERNAL_REQUEST_COUNTER, tags).increment();
+        Metrics.timer(ORCA_EXTERNAL_LATENCY_TIMER, tags).record(Math.max(0L, elapsedMs), TimeUnit.MILLISECONDS);
+        if (status >= 400 || failureCategory != null) {
+            Tags errorTags = failureCategory == null
+                    ? tags
+                    : tags.and("category", failureCategory);
+            Metrics.counter(ORCA_EXTERNAL_ERROR_COUNTER, errorTags).increment();
         }
     }
 

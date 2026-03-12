@@ -1,9 +1,14 @@
 package open.dolphin.orca.transport;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.IOException;
 import java.net.Authenticator;
 import java.net.CookieHandler;
@@ -25,12 +30,20 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSession;
 import open.dolphin.orca.OrcaGatewayException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 class OrcaHttpClientRequestTest {
 
     private static final OrcaTransportSettings SETTINGS =
             OrcaTransportSettings.fromAdminConfig("http://localhost:18080", false, "orca", "orca");
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+
+    @AfterEach
+    void tearDown() {
+        Metrics.removeRegistry(meterRegistry);
+        meterRegistry.close();
+    }
 
     @Test
     void postJsonPayload_usesJsonContentType() {
@@ -73,6 +86,7 @@ class OrcaHttpClientRequestTest {
 
     @Test
     void postIOException_isNotRetriedByDefault() {
+        Metrics.addRegistry(meterRegistry);
         StubHttpClient stubClient = new StubHttpClient(List.of(ResponseSpec.failure(new IOException("boom"))));
         OrcaHttpClient client = new OrcaHttpClient(stubClient);
 
@@ -89,6 +103,40 @@ class OrcaHttpClientRequestTest {
 
         assertTrue(error.getMessage().contains("Failed to call ORCA API"));
         assertEquals(1, stubClient.sendCount());
+        Counter errorCounter = meterRegistry.find("opendolphin_orca_external_error_total")
+                .tags("method", "POST", "path", "/api21/medicalmodv2", "status", "io_error", "category", "network")
+                .counter();
+        assertNotNull(errorCounter);
+        assertEquals(1.0, errorCounter.count(), 1e-6);
+    }
+
+    @Test
+    void recordsExternalLatencyAndRequestMetricsForSuccess() {
+        Metrics.addRegistry(meterRegistry);
+        StubHttpClient stubClient = new StubHttpClient(List.of(
+                ResponseSpec.response(200, "<data><Api_Result>00</Api_Result></data>", "application/xml")));
+        OrcaHttpClient client = new OrcaHttpClient(stubClient);
+
+        OrcaHttpClient.OrcaHttpResponse response = client.get(
+                SETTINGS,
+                "/api01rv2/systeminfv2",
+                null,
+                "application/xml",
+                "req-metrics-1",
+                "trace-metrics-1");
+
+        assertEquals(200, response.status());
+        Counter requestCounter = meterRegistry.find("opendolphin_orca_external_request_total")
+                .tags("method", "GET", "path", "/api01rv2/systeminfv2", "status", "200")
+                .counter();
+        assertNotNull(requestCounter);
+        assertEquals(1.0, requestCounter.count(), 1e-6);
+
+        Timer latency = meterRegistry.find("opendolphin_orca_external_latency")
+                .tags("method", "GET", "path", "/api01rv2/systeminfv2", "status", "200")
+                .timer();
+        assertNotNull(latency);
+        assertEquals(1L, latency.count());
     }
 
     private record ResponseSpec(int status, String body, String contentType, IOException failure) {

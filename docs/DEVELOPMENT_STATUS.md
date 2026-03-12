@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P9-02「メトリクス生成を単純化する」を完了し、registry 解決経路と ORCA 外部連携指標を整理（RUN_ID=20260312T050136Z）。
+  - 変更（producer）: `MeterRegistryProducer` から OTLP 無効化 sweeper / registry close-remove 回避処理を削除し、`JNDI lookup -> global fallback` の単純経路に統一。
+  - 変更（orca metrics）: `OrcaHttpClient` に `opendolphin_orca_external_request_total` / `opendolphin_orca_external_error_total` / `opendolphin_orca_external_latency` を追加し、`method/path/status(+category)` タグで記録。
+  - 追加（テスト）: `MeterRegistryProducerTest` を新規追加、`OrcaHttpClientRequestTest` に外部メトリクス記録検証を追加。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P9-02` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 追加（実施記録）: `docs/modernization/p9-02-metrics-simplification.md` を追加。
 - 2026-03-12: P9-01「ログ形式を統一する」を完了し、access log の共通項目と MDC を統一（RUN_ID=20260312T040136Z）。
   - 変更（filter）: `LogFilter` のアクセスログを `method/uri/status/elapsedMs/traceId/requestId/runId/userId/facilityId/remoteAddr` の key-value 形式へ統一。
   - 変更（MDC）: `userId` / `facilityId` キーを追加し、composite principal（`facility:user`）から抽出して request 処理中に設定。
