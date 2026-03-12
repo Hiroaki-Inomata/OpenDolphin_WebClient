@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を再試行したが、継続して未完了（RUN_ID=20260312T130107Z）。
+  - 変更（Weld起動失敗対策）: `server-modernized/src/main/java/open/dolphin/rest/jackson/LegacyObjectMapperProducer.java` の producer method scope を `@Dependent` へ変更。
+  - 変更（build導線補正）: `ops/modernized-server/docker/Dockerfile` に `domain` / `api-contract` / `persistence` のコピーを追加し、`pom.server-modernized.xml` をリポジトリ同梱版の利用へ変更。
+  - 試行（build）: `docker compose --env-file /tmp/server-modernized.validation.20260312T130107Z.env -f docker-compose.modernized.dev.yml -f docker-compose.modernized.validation.yml build server-modernized-dev` を複数回再試行。
+  - 結果: 先行失敗だった `/workspace/persistence` 欠落と `opendolphin-api-contract` 欠落は解消。ただし依存解決フェーズが長時間化し、実行時間内に image build 完了まで到達できず。
+  - 判定: `server-modernized.production.env` 未配置も継続しているため `P10-06` は未完了継続。
+  - 反映: `docs/modernization/p10-06-cutover-execution-blocker.md` と WBS ブロッカー欄を更新。
 - 2026-03-12: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を再試行したが、継続して未完了（RUN_ID=20260312T120057Z）。
   - 変更（検証起動の衝突回避）: `docker-compose.modernized.validation.yml` の `container_name` を env 上書き可能化し、`docker-compose.modernized.dev.yml` に `MODERNIZED_CUSTOM_PROPERTIES_FILE` を追加。
   - 追加（設定サンプル）: `ops/modernized-server/config/custom.properties.validation.sample` を新規追加し、`server-modernized.validation.env.sample` に container 名/custom.properties の上書き項目を追記。

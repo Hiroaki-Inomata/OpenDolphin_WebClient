@@ -7,7 +7,10 @@ ARG MVN_PROFILES
 WORKDIR /workspace
 
 COPY pom.xml ./
-RUN grep -v '<module>server</module>' pom.xml | grep -v '<module>client</module>' > pom.server-modernized.xml
+COPY pom.server-modernized.xml ./pom.server-modernized.xml
+COPY domain ./domain
+COPY api-contract ./api-contract
+COPY persistence ./persistence
 COPY common ./common
 COPY reporting ./reporting
 COPY server-modernized ./server-modernized
