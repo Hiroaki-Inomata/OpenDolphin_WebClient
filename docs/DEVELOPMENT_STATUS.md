@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P10-05「本番切替チェックリストを作る（モダナイズ版基準）」を完了し、時系列手順とGO/NOGO基準を確定（RUN_ID=20260312T110053Z）。
+  - 追加（チェックリスト）: `docs/modernization/p10-05-cutover-checklist-modernized.md` を新規作成。
+  - 内容: 役割分担、T-60〜T+180の時系列確認、主要業務6フローの疎通確認、health/readiness中心の判定観点を定義。
+  - 反映: `P10-03`（仮想ロールUAT）と `P10-04`（負荷/障害試験）の結果を切替判定へ接続。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P10-05` を ☑ 化し、`docs/server-modernization/README.md` にリンク追加。
 - 2026-03-12: P10-03「業務受け入れ試験を行う（モダナイズ版単体）」を完了し、仮想ロールUAT方式で受け入れ判定を確定（RUN_ID=20260312T110053Z）。
   - 実施（仮想ロール台本）: 医師/受付/事務の役割別シナリオを作成し、期待結果/実結果/差分を `docs/modernization/p10-03-virtual-role-uat.md` に記録。
   - 実施（回帰証跡）: `PatientModV2OutpatientResourceTest` / `KarteResourceCaseListV3Test` / `PVTServiceBeanClinicalTest` / `OrcaOrderBundleResourceTest` / `PatientImagesResourceTest` / `AdminAccessResourceTest` / `SessionAuthResourceTest` を実行し PASS（42 tests）。
