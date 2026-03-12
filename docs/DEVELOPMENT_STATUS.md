@@ -36,6 +36,10 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: `P10-03` 実施方針を更新し、次回ワーカー向けに「仮想ロールUAT」方式を許容（RUN_ID=20260312T100053Z）。
+  - 方針: 実運用ロール参加が揃わない場合でも、医師/受付/事務の仮想ロール台本を作成し、単独担当でロール切替実施して `P10-03` を前進させる。
+  - 完了条件（運用上の最小）: 役割別シナリオ、期待結果/実結果/差分、`P10-05` 入力用の指摘一覧を残す。
+  - 反映: `docs/modernization/p10-03-uat-blocker.md` と WBS ブロッカー欄へ次回ワーカー向け指示を追記。
 - 2026-03-12: P10-04「負荷試験と障害試験を行う」を完了し、主要5経路の負荷/障害回帰を実施（RUN_ID=20260312T100053Z）。
   - 追加（テスト）: `server-modernized/src/test/java/open/dolphin/session/PatientServiceBeanSearchLoadFaultTest.java` を新規追加（患者検索600回連続実行 + NoResult fail-safe）。
   - 実施（負荷/障害）: `KarteServiceBeanBatchWriteTest` / `PatientServiceBeanSearchLoadFaultTest` / `OrcaHttpClientResilienceTest` / `AttachmentStorageManagerTest` / `PvtSocketWorkerPipelineTest` を一括実行し PASS（22 tests）。
