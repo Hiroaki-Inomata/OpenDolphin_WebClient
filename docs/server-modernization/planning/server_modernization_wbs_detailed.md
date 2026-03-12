@@ -1,7 +1,7 @@
 # 詳細工程表（server-modernization 当面作業）
 
 - 更新日: 2026-03-13
-- RUN_ID: 20260312T200042Z
+- RUN_ID: 20260312T233406Z
 - 位置付け: `server-modernized` の当面作業を順番に進めるための現行 WBS。
 - 運用: 記載タスクは原則として上から順に消化する。`docs/DEVELOPMENT_STATUS.md`、`AGENTS.md`、最新のユーザー/マネージャー指示と矛盾する場合は、それらを優先する。
 - 参照入口: `docs/server-modernization/README.md`
@@ -99,6 +99,7 @@ A列は ☐ / ☑ で更新します。優先 S は今すぐ着手、A は続け
 | ☐ | P10-07 | 10. 移行と本番切替 | A | 全担当 | 3日 | 切替後の集中監視と是正を行う | 運用監視 / エラーログ / 問い合わせ / ORCA 連携結果 | P10-06 | モダナイズ版稼働後のエラー・性能・問い合わせを重点監視し、日次で是正する。旧サーバー比較は行わず、現行稼働の健全性で判定する。 | 切替後の不具合収束状況が見え、恒常運用へ移れる。 | 集中監視記録、是正一覧、クローズ条件 | 1日目、2日目、3日目の確認項目を分けて運用する。 |
 
 ## ブロッカー
+- 2026-03-13 (RUN_ID=20260312T233406Z, 未解消): `P10-06` を再試行。`start-validation-env.sh` 用に `server-modernized.production.env.sample` から `/tmp/server-modernized.production.20260312T233406Z.env` を生成し、`COMPOSE_PROJECT_NAME`/`SERVER_CONTAINER_NAME`/`MODERNIZED_APP_HTTP_PORT` を上書き。`curl --max-time 2 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping` は **RC=28**（`2.004s`）でタイムアウト。`docker daemon is not responding ... aborting before compose up` で **RC=1**（fail-fast）となり `compose up` 到達前に停止。`docker context ls` は表示成功だが、`default` と `desktop-linux` は同一 socket 前提で進めたため本質的に改善なし。`P10-06` は完了条件（起動→`health/readiness`→主要業務疎通）に到達せず。
 - 2026-03-13 (RUN_ID=20260312T210043Z, 未解消): `P10-06` を再試行。`curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/{_ping,version}` は今回も RC=28 timeout。`/var/run/docker.sock`（`/Users/Hayato/.docker/run/docker.sock` への symlink）経由の `/_ping` も RC=28 timeout。`docker context ls` は RC=0 で context 一覧取得自体は可能だが daemon 応答改善はなし。`server-modernized.production.env.sample` から `/tmp/server-modernized.production.20260312T210043Z.env` を生成し、`DOCKER_PING_TIMEOUT_SECONDS=2 COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312t210043z ... start-validation-env.sh ...` を `/Users/Hayato/.docker/run/docker.sock` と `/var/run/docker.sock` の両経路で実行したが、いずれも fail-fast（RC=1）で `compose up` 前停止。daemon 応答不可のため `P10-06` 完了条件（起動→`health/readiness`→主要業務疎通）には未到達。詳細は `docs/modernization/p10-06-cutover-execution-blocker.md` を参照。
 - 2026-03-13 (RUN_ID=20260312T200042Z, 未解消): `P10-06` を再試行。`curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/{_ping,version}` は今回も RC=28 timeout。`/var/run/docker.sock`（`/Users/Hayato/.docker/run/docker.sock` への symlink）経由の `/_ping` も RC=28 timeout。`server-modernized.production.env.sample` から `/tmp/server-modernized.production.20260312T200042Z.env` を生成し、`DOCKER_PING_TIMEOUT_SECONDS=2 COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312t200042z ... start-validation-env.sh ...` を実行したが fail-fast（RC=1）で `compose up` 前停止。daemon 応答不可のため `P10-06` 完了条件（起動→`health/readiness`→主要業務疎通）には未到達。詳細は `docs/modernization/p10-06-cutover-execution-blocker.md` を参照。
 - 2026-03-13 (RUN_ID=20260312T190035Z, 未解消): `P10-06` を再試行。`curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/{_ping,version}` は今回も RC=28 timeout。`server-modernized.production.env.sample` から `/tmp/server-modernized.production.20260312T190035Z.env` を生成し、`DOCKER_PING_TIMEOUT_SECONDS=2 ... start-validation-env.sh ...` を実行したが fail-fast（RC=1）で `compose up` 前停止。daemon 応答不可のため `P10-06` 完了条件（起動→`health/readiness`→主要業務疎通）には未到達。詳細は `docs/modernization/p10-06-cutover-execution-blocker.md` を参照。

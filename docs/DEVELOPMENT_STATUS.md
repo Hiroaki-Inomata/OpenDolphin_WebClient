@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-13: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を再試行したが、継続して未完了（RUN_ID=20260312T233406Z）。
+  - 実施（daemon疎通）: `curl --max-time 2 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping` は **RC=28**（約2.0秒）で timeout。
+  - 実施（導線再試行）: `server-modernized.production.env.sample` から `/tmp/server-modernized.production.20260312T233406Z.env` を作成し、`COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312T233406Z` と `SERVER_CONTAINER_NAME=opendolphin-server-modernized-20260312T233406Z` を上書きして `DOCKER_PING_TIMEOUT_SECONDS=2` で `start-validation-env.sh` を実行。
+  - 判定: `start-validation-env.sh` は `docker daemon is not responding ... aborting before compose up` で RC=1。`/openDolphin/resources/{health,health/readiness}` の実測以前で停止し、`P10-06` 完了条件未達成。
+  - 反映: `docs/modernization/p10-06-cutover-execution-blocker.md` / `docs/server-modernization/planning/server_modernization_wbs_detailed.md` を追記更新。
 - 2026-03-13: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を再試行したが、継続して未完了（RUN_ID=20260312T210043Z）。
   - 実施（daemon疎通再確認）: `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/{_ping,version}` は今回も RC=28 timeout。
   - 実施（socket/context再確認）: `/var/run/docker.sock` は `/Users/Hayato/.docker/run/docker.sock` への symlink であり、`curl --max-time 5 --unix-socket /var/run/docker.sock http://localhost/_ping` も RC=28 timeout。`docker context ls` は RC=0 だが daemon 応答改善なし。

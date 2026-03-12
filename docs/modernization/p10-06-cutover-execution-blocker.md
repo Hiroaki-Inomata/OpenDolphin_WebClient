@@ -2,7 +2,21 @@
 
 ## 事象
 - タスク `P10-06`（本番切替を実施する）は継続して未完了。
-- 最新 RUN: `20260312T210043Z`
+- 最新 RUN: `20260312T233406Z`
+
+## 実施した試行（RUN_ID: 20260312T233406Z）
+1. Docker daemon 応答性の再確認（socket/API 直接）
+- `curl --max-time 2 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping`
+- 結果: **RC=28 timeout**（約2.0秒で `Operation timed out`）。
+
+2. 切替導線の fail-fast 動作確認（production env）
+- `server-modernized.production.env.sample` から `/tmp/server-modernized.production.20260312T233406Z.env` を生成し、RUN 専用値を付与（`COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312T233406Z`、`SERVER_CONTAINER_NAME=opendolphin-server-modernized-20260312T233406Z`、`MODERNIZED_APP_HTTP_PORT=29080`）。
+- `DOCKER_SOCKET_PATH=/Users/Hayato/.docker/run/docker.sock DOCKER_PING_TIMEOUT_SECONDS=2 COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312T233406Z ops/modernized-server/scripts/start-validation-env.sh /tmp/server-modernized.production.20260312T233406Z.env`
+- 結果: `curl` でタイムアウト後、`[validation-env] docker daemon is not responding ... aborting before compose up`（RC=1）。
+
+3. 切替前提の切り分け
+- `docker context ls` では `default` と `desktop-linux` が表示されるが、`/var/run/docker.sock` は `/Users/Hayato/.docker/run/docker.sock` への symlink。
+- 本 RUN では daemon 接続復旧が確認できず、起動・`health/readiness`・主要業務疎通に到達せず。
 
 ## 実施した試行（RUN_ID: 20260312T210043Z）
 1. Docker daemon 応答性の再確認（socket/API 直接）
