@@ -2,9 +2,6 @@ package open.orca.rest;
 
 import io.micrometer.core.instrument.Metrics;
 import io.micrometer.core.instrument.Tags;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStreamReader;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Locale;
@@ -15,6 +12,7 @@ import java.util.logging.Logger;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import javax.sql.DataSource;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 
 /**
  * 2013/08/29
@@ -62,22 +60,11 @@ public class ORCAConnection {
     }
     
     private ORCAConnection() {
-        
-        StringBuilder sb = new StringBuilder();
-        sb.append(System.getProperty("jboss.home.dir"));
-        sb.append(File.separator);
-        sb.append("custom.properties");
-        File f = new File(sb.toString());
-        
         this.config = new Properties();
 
         boolean hasJdbcConfig = false;
         try {
-            // 読み込む
-            FileInputStream fin = new FileInputStream(f);
-            try (InputStreamReader r = new InputStreamReader(fin, "JISAutoDetect")) {
-                config.load(r);
-            }
+            config.putAll(RuntimeConfigurationSupport.loadLegacyCustomProperties());
             hasJdbcConfig = hasJdbcConfig(config);
             stripSensitiveProperties(config);
 

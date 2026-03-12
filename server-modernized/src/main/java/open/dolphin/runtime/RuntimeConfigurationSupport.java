@@ -1,12 +1,18 @@
 package open.dolphin.runtime;
 
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.ZoneId;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Shared runtime configuration helpers for environment/safety-sensitive settings.
@@ -18,6 +24,11 @@ public final class RuntimeConfigurationSupport {
     public static final String PROP_SERVER_DATA_DIR = "jboss.server.data.dir";
     public static final String PROP_TIMEZONE = "opendolphin.timezone";
     public static final String ENV_TIMEZONE = "OPENDOLPHIN_TIMEZONE";
+    public static final String PROP_CONFIG_DIR = "opendolphin.config.dir";
+    public static final String ENV_CONFIG_DIR = "OPENDOLPHIN_CONFIG_DIR";
+    public static final String PROP_CUSTOM_PROPERTIES_PATH = "opendolphin.custom.properties.path";
+    public static final String PROP_JBOSS_HOME_DIR = "jboss.home.dir";
+    public static final String DEFAULT_CONFIG_DIR = "/opt/jboss/config";
     public static final String DEFAULT_TIMEZONE = "Asia/Tokyo";
 
     private static final Set<String> PRODUCTION_LIKE_PREFIXES = Set.of(
@@ -91,6 +102,74 @@ public final class RuntimeConfigurationSupport {
 
     public static ZoneId resolveTimezone() {
         return ZoneId.of(resolveTimezoneId());
+    }
+
+    public static Path resolveConfigDirectory() {
+        String raw = firstNonBlank(System.getProperty(PROP_CONFIG_DIR), System.getenv(ENV_CONFIG_DIR));
+        if (raw == null) {
+            raw = DEFAULT_CONFIG_DIR;
+        }
+        return Paths.get(raw).toAbsolutePath().normalize();
+    }
+
+    public static Path resolveConfigPath(String fileName) {
+        return resolveConfigDirectory().resolve(fileName).toAbsolutePath().normalize();
+    }
+
+    public static Path resolveLegacyCustomPropertiesPath() {
+        String explicit = firstNonBlank(System.getProperty(PROP_CUSTOM_PROPERTIES_PATH));
+        if (explicit != null) {
+            return Paths.get(explicit).toAbsolutePath().normalize();
+        }
+        String jbossHome = firstNonBlank(System.getProperty(PROP_JBOSS_HOME_DIR));
+        if (jbossHome != null) {
+            return Paths.get(jbossHome).resolve("custom.properties").toAbsolutePath().normalize();
+        }
+        return resolveConfigPath("custom.properties");
+    }
+
+    public static Properties loadLegacyCustomProperties() {
+        return loadProperties(resolveLegacyCustomPropertiesPath());
+    }
+
+    public static Properties loadProperties(Path path) {
+        Properties properties = new Properties();
+        if (path == null || !Files.isRegularFile(path)) {
+            return properties;
+        }
+        Charset charset = resolveLegacyPropertiesCharset();
+        try (FileInputStream fis = new FileInputStream(path.toFile());
+             InputStreamReader reader = new InputStreamReader(fis, charset)) {
+            properties.load(reader);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to load properties: " + path, ex);
+        }
+        return properties;
+    }
+
+    public static Optional<String> resolveUnifiedSetting(String envKey,
+                                                         String propertyKey,
+                                                         Supplier<String> jsonSupplier,
+                                                         Supplier<String> yamlSupplier,
+                                                         Properties legacyProperties,
+                                                         String legacyPropertyKey) {
+        String fromEnv = envKey != null ? System.getenv(envKey) : null;
+        String fromProperty = propertyKey != null ? System.getProperty(propertyKey) : null;
+        String fromJson = jsonSupplier != null ? jsonSupplier.get() : null;
+        String fromYaml = yamlSupplier != null ? yamlSupplier.get() : null;
+        String fromLegacy = null;
+        if (legacyProperties != null && legacyPropertyKey != null) {
+            fromLegacy = legacyProperties.getProperty(legacyPropertyKey);
+        }
+        return Optional.ofNullable(firstNonBlank(fromEnv, fromProperty, fromJson, fromYaml, fromLegacy));
+    }
+
+    private static Charset resolveLegacyPropertiesCharset() {
+        try {
+            return Charset.forName("JISAutoDetect");
+        } catch (Exception ex) {
+            return Charset.forName("UTF-8");
+        }
     }
 
     public static Boolean parseBooleanFlag(String value) {

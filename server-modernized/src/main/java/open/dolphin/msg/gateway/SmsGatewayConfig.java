@@ -2,19 +2,15 @@ package open.dolphin.msg.gateway;
 
 import com.plivo.api.models.base.LogLevel;
 import jakarta.enterprise.context.ApplicationScoped;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.charset.Charset;
 import java.time.Duration;
 import java.time.format.DateTimeParseException;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 
 /**
  * Plivo SMS ゲートウェイ設定を読み込む。環境変数が最優先で、
@@ -73,20 +69,20 @@ public class SmsGatewayConfig {
     }
 
     public synchronized PlivoSettings reload() {
-        Properties properties = loadProperties();
-        String authId = firstNonBlank(env(ENV_AUTH_ID), properties.getProperty(PROP_AUTH_ID));
-        String authToken = firstNonBlank(env(ENV_AUTH_TOKEN), properties.getProperty(PROP_AUTH_TOKEN));
-        String sourceNumber = firstNonBlank(env(ENV_SOURCE_NUMBER), properties.getProperty(PROP_SOURCE_NUMBER));
-        String environment = firstNonBlank(env(ENV_ENVIRONMENT), properties.getProperty(PROP_ENVIRONMENT));
-        String baseUrl = determineBaseUrl(environment, firstNonBlank(env(ENV_BASE_URL), properties.getProperty(PROP_BASE_URL)));
-        LogLevel logLevel = parseLogLevel(firstNonBlank(env(ENV_LOG_LEVEL), properties.getProperty(PROP_LOG_LEVEL)));
-        boolean logContent = parseBoolean(firstNonBlank(env(ENV_LOG_CONTENT), properties.getProperty(PROP_LOG_CONTENT)), false);
-        String defaultCountry = firstNonBlank(env(ENV_DEFAULT_COUNTRY), properties.getProperty(PROP_DEFAULT_COUNTRY));
-        Duration connectTimeout = parseDuration(firstNonBlank(env(ENV_HTTP_CONNECT_TIMEOUT), properties.getProperty(PROP_HTTP_CONNECT_TIMEOUT)), DEFAULT_CONNECT_TIMEOUT);
-        Duration readTimeout = parseDuration(firstNonBlank(env(ENV_HTTP_READ_TIMEOUT), properties.getProperty(PROP_HTTP_READ_TIMEOUT)), DEFAULT_READ_TIMEOUT);
-        Duration writeTimeout = parseDuration(firstNonBlank(env(ENV_HTTP_WRITE_TIMEOUT), properties.getProperty(PROP_HTTP_WRITE_TIMEOUT)), DEFAULT_WRITE_TIMEOUT);
-        Duration callTimeout = parseDuration(firstNonBlank(env(ENV_HTTP_CALL_TIMEOUT), properties.getProperty(PROP_HTTP_CALL_TIMEOUT)), DEFAULT_CALL_TIMEOUT);
-        boolean retryOnConnectionFailure = parseBoolean(firstNonBlank(env(ENV_HTTP_RETRY_ON_FAILURE), properties.getProperty(PROP_HTTP_RETRY_ON_FAILURE)), true);
+        Properties legacy = RuntimeConfigurationSupport.loadLegacyCustomProperties();
+        String authId = resolve(ENV_AUTH_ID, PROP_AUTH_ID, legacy, PROP_AUTH_ID);
+        String authToken = resolve(ENV_AUTH_TOKEN, PROP_AUTH_TOKEN, legacy, PROP_AUTH_TOKEN);
+        String sourceNumber = resolve(ENV_SOURCE_NUMBER, PROP_SOURCE_NUMBER, legacy, PROP_SOURCE_NUMBER);
+        String environment = resolve(ENV_ENVIRONMENT, PROP_ENVIRONMENT, legacy, PROP_ENVIRONMENT);
+        String baseUrl = determineBaseUrl(environment, resolve(ENV_BASE_URL, PROP_BASE_URL, legacy, PROP_BASE_URL));
+        LogLevel logLevel = parseLogLevel(resolve(ENV_LOG_LEVEL, PROP_LOG_LEVEL, legacy, PROP_LOG_LEVEL));
+        boolean logContent = parseBoolean(resolve(ENV_LOG_CONTENT, PROP_LOG_CONTENT, legacy, PROP_LOG_CONTENT), false);
+        String defaultCountry = resolve(ENV_DEFAULT_COUNTRY, PROP_DEFAULT_COUNTRY, legacy, PROP_DEFAULT_COUNTRY);
+        Duration connectTimeout = parseDuration(resolve(ENV_HTTP_CONNECT_TIMEOUT, PROP_HTTP_CONNECT_TIMEOUT, legacy, PROP_HTTP_CONNECT_TIMEOUT), DEFAULT_CONNECT_TIMEOUT);
+        Duration readTimeout = parseDuration(resolve(ENV_HTTP_READ_TIMEOUT, PROP_HTTP_READ_TIMEOUT, legacy, PROP_HTTP_READ_TIMEOUT), DEFAULT_READ_TIMEOUT);
+        Duration writeTimeout = parseDuration(resolve(ENV_HTTP_WRITE_TIMEOUT, PROP_HTTP_WRITE_TIMEOUT, legacy, PROP_HTTP_WRITE_TIMEOUT), DEFAULT_WRITE_TIMEOUT);
+        Duration callTimeout = parseDuration(resolve(ENV_HTTP_CALL_TIMEOUT, PROP_HTTP_CALL_TIMEOUT, legacy, PROP_HTTP_CALL_TIMEOUT), DEFAULT_CALL_TIMEOUT);
+        boolean retryOnConnectionFailure = parseBoolean(resolve(ENV_HTTP_RETRY_ON_FAILURE, PROP_HTTP_RETRY_ON_FAILURE, legacy, PROP_HTTP_RETRY_ON_FAILURE), true);
 
         PlivoSettings settings = new PlivoSettings(
                 trim(authId),
@@ -107,35 +103,15 @@ public class SmsGatewayConfig {
         return settings;
     }
 
-    private Properties loadProperties() {
-        Properties properties = new Properties();
-        File custom = resolveCustomProperties();
-        if (custom != null && custom.isFile()) {
-            try (FileInputStream fis = new FileInputStream(custom);
-                 InputStreamReader reader = new InputStreamReader(fis, resolveEncoding())) {
-                properties.load(reader);
-            } catch (IOException ex) {
-                LOGGER.log(Level.WARNING, "Failed to load custom.properties for SMS configuration", ex);
-            }
-        }
-        return properties;
-    }
-
-    private File resolveCustomProperties() {
-        String jbossHome = System.getProperty("jboss.home.dir");
-        if (jbossHome == null) {
-            return null;
-        }
-        return new File(jbossHome, "custom.properties");
-    }
-
-    private Charset resolveEncoding() {
-        try {
-            return Charset.forName("JISAutoDetect");
-        } catch (Exception ex) {
-            LOGGER.log(Level.FINE, "JISAutoDetect unavailable for SMS config, fallback to UTF-8", ex);
-            return Charset.forName("UTF-8");
-        }
+    private String resolve(String envKey, String propertyKey, Properties legacy, String legacyKey) {
+        return RuntimeConfigurationSupport.resolveUnifiedSetting(
+                        envKey,
+                        propertyKey,
+                        null,
+                        null,
+                        legacy,
+                        legacyKey)
+                .orElse(null);
     }
 
     private String determineBaseUrl(String environment, String candidate) {
@@ -227,20 +203,6 @@ public class SmsGatewayConfig {
             return "production";
         }
         return trimmed.toLowerCase(Locale.ROOT);
-    }
-
-    private String env(String key) {
-        return System.getenv(key);
-    }
-
-    private String firstNonBlank(String primary, String secondary) {
-        if (primary != null && !primary.isBlank()) {
-            return primary;
-        }
-        if (secondary != null && !secondary.isBlank()) {
-            return secondary;
-        }
-        return null;
     }
 
     private String trim(String value) {

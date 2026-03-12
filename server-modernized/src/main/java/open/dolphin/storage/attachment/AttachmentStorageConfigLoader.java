@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
 import jakarta.enterprise.context.ApplicationScoped;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.slf4j.Logger;
@@ -23,7 +24,7 @@ import org.yaml.snakeyaml.constructor.Constructor;
 public class AttachmentStorageConfigLoader {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AttachmentStorageConfigLoader.class);
-    private static final String DEFAULT_CONFIG_PATH = "/opt/jboss/config/attachment-storage.yaml";
+    private static final String DEFAULT_CONFIG_FILE = "attachment-storage.yaml";
 
     public AttachmentStorageSettings load() {
         Config config = ConfigProvider.getConfig();
@@ -47,16 +48,26 @@ public class AttachmentStorageConfigLoader {
     }
 
     private Path resolveConfigPath(Config config) {
-        String override = configValue(config, "ATTACHMENT_STORAGE_CONFIG_PATH").orElse(DEFAULT_CONFIG_PATH);
+        String override = RuntimeConfigurationSupport.resolveUnifiedSetting(
+                        "ATTACHMENT_STORAGE_CONFIG_PATH",
+                        "attachment.storage.config.path",
+                        null,
+                        null,
+                        null,
+                        null)
+                .orElse(RuntimeConfigurationSupport.resolveConfigPath(DEFAULT_CONFIG_FILE).toString());
         return Paths.get(override);
     }
 
     private AttachmentStorageMode resolveMode(Config config, AttachmentStorageYaml yaml) {
-        return configValue(config, "MODERNIZED_STORAGE_MODE")
+        return RuntimeConfigurationSupport.resolveUnifiedSetting(
+                        "MODERNIZED_STORAGE_MODE",
+                        "modernized.storage.mode",
+                        null,
+                        () -> Optional.ofNullable(yaml.getStorage()).map(AttachmentStorageYaml.Storage::getType).orElse(null),
+                        null,
+                        null)
                 .map(AttachmentStorageMode::from)
-                .or(() -> Optional.ofNullable(yaml.getStorage())
-                        .map(AttachmentStorageYaml.Storage::getType)
-                        .map(AttachmentStorageMode::from))
                 .orElse(AttachmentStorageMode.DATABASE);
     }
 
@@ -80,14 +91,42 @@ public class AttachmentStorageConfigLoader {
                 .orElse(new AttachmentStorageYaml.S3());
 
         String bucket = configValue(config, "ATTACHMENT_S3_BUCKET")
+                .or(() -> RuntimeConfigurationSupport.resolveUnifiedSetting(
+                        "ATTACHMENT_S3_BUCKET",
+                        "attachment.s3.bucket",
+                        null,
+                        yamlS3::getBucket,
+                        null,
+                        null))
                 .orElseGet(() -> requireNonBlank(yamlS3.getBucket(), "ATTACHMENT_S3_BUCKET"));
         String region = configValue(config, "ATTACHMENT_S3_REGION")
+                .or(() -> RuntimeConfigurationSupport.resolveUnifiedSetting(
+                        "ATTACHMENT_S3_REGION",
+                        "attachment.s3.region",
+                        null,
+                        yamlS3::getRegion,
+                        null,
+                        null))
                 .orElseGet(() -> requireNonBlank(yamlS3.getRegion(), "ATTACHMENT_S3_REGION"));
         String endpointRaw = configValue(config, "ATTACHMENT_S3_ENDPOINT")
+                .or(() -> RuntimeConfigurationSupport.resolveUnifiedSetting(
+                        "ATTACHMENT_S3_ENDPOINT",
+                        "attachment.s3.endpoint",
+                        null,
+                        yamlS3::getEndpoint,
+                        null,
+                        null))
                 .orElse(yamlS3.getEndpoint());
         URI endpoint = endpointRaw == null || endpointRaw.isBlank() ? null : URI.create(endpointRaw);
 
         String basePath = configValue(config, "ATTACHMENT_S3_BASE_PATH")
+                .or(() -> RuntimeConfigurationSupport.resolveUnifiedSetting(
+                        "ATTACHMENT_S3_BASE_PATH",
+                        "attachment.s3.base-path",
+                        null,
+                        yamlS3::getBasePath,
+                        null,
+                        null))
                 .orElse(Optional.ofNullable(yamlS3.getBasePath()).filter(s -> !s.isBlank()).orElse("attachments"));
 
         boolean forcePathStyle = configValue(config, "ATTACHMENT_S3_FORCE_PATH_STYLE")
@@ -95,16 +134,44 @@ public class AttachmentStorageConfigLoader {
                 .orElse(Optional.ofNullable(yamlS3.getForcePathStyle()).orElse(Boolean.TRUE));
 
         String sse = configValue(config, "ATTACHMENT_S3_SERVER_SIDE_ENCRYPTION")
+                .or(() -> RuntimeConfigurationSupport.resolveUnifiedSetting(
+                        "ATTACHMENT_S3_SERVER_SIDE_ENCRYPTION",
+                        "attachment.s3.server-side-encryption",
+                        null,
+                        yamlS3::getServerSideEncryption,
+                        null,
+                        null))
                 .orElse(yamlS3.getServerSideEncryption());
         String kmsKeyId = configValue(config, "ATTACHMENT_S3_KMS_KEY_ID")
+                .or(() -> RuntimeConfigurationSupport.resolveUnifiedSetting(
+                        "ATTACHMENT_S3_KMS_KEY_ID",
+                        "attachment.s3.kms-key-id",
+                        null,
+                        yamlS3::getKmsKeyId,
+                        null,
+                        null))
                 .orElse(yamlS3.getKmsKeyId());
         int multipartThreshold = configValue(config, "ATTACHMENT_S3_MULTIPART_THRESHOLD_MB")
                 .map(Integer::parseInt)
                 .orElse(Optional.ofNullable(yamlS3.getMultipartUploadThresholdMb()).orElse(64));
 
         String accessKey = configValue(config, "ATTACHMENT_S3_ACCESS_KEY")
+                .or(() -> RuntimeConfigurationSupport.resolveUnifiedSetting(
+                        "ATTACHMENT_S3_ACCESS_KEY",
+                        "attachment.s3.access-key",
+                        null,
+                        yamlS3::getAccessKey,
+                        null,
+                        null))
                 .orElseGet(() -> requireNonBlank(yamlS3.getAccessKey(), "ATTACHMENT_S3_ACCESS_KEY"));
         String secretKey = configValue(config, "ATTACHMENT_S3_SECRET_KEY")
+                .or(() -> RuntimeConfigurationSupport.resolveUnifiedSetting(
+                        "ATTACHMENT_S3_SECRET_KEY",
+                        "attachment.s3.secret-key",
+                        null,
+                        yamlS3::getSecretKey,
+                        null,
+                        null))
                 .orElseGet(() -> requireNonBlank(yamlS3.getSecretKey(), "ATTACHMENT_S3_SECRET_KEY"));
 
         return new AttachmentStorageSettings.S3Settings(

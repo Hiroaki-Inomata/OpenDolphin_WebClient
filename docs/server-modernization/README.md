@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-12
-- RUN_ID: 20260311T230123Z
+- RUN_ID: 20260312T010127Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -80,6 +80,7 @@
 - `docs/modernization/p7-05-pvt-replay-tool.md`（P7-05: PVT受信メッセージ再生ツール）
 - `docs/modernization/p7-06-worker-observability-health.md`（P7-06: ワーカー監視項目とヘルスチェック）
 - `docs/modernization/p8-01-attachment-storage-streaming.md`（P8-01: AttachmentStorageManager の upload/download ストリーミング化）
+- `docs/modernization/p8-03-config-loading-unification.md`（P8-03: YAML/properties/JSON 設定読込ルールの統一）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`
