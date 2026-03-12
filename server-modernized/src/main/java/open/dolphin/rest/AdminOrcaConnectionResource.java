@@ -93,16 +93,43 @@ public class AdminOrcaConnectionResource extends AbstractResource {
         String runId = AbstractOrcaRestResource.resolveRunIdValue(request);
         String actor = requireAdminActor(request, runId);
         String facilityId = resolveActorFacilityId(actor);
-        OrcaConnectionConfigStore.UpdateRequest update = parseUpdateRequest(request, input);
-        OrcaConnectionConfigStore.UploadedBinary p12 = extractBinary(request, input, "clientCertificate", MAX_P12_BYTES);
-        OrcaConnectionConfigStore.UploadedBinary ca = extractBinary(request, input, "caCertificate", MAX_CA_BYTES);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("operation", "save");
+        details.put("resource", "/api/admin/orca/connection");
+        details.put("runId", runId);
+        details.put("actor", actor);
+        details.put("facilityId", facilityId);
+
+        OrcaConnectionConfigStore.UpdateRequest update;
+        OrcaConnectionConfigStore.UploadedBinary p12;
+        OrcaConnectionConfigStore.UploadedBinary ca;
+        try {
+            update = parseUpdateRequest(request, input);
+            p12 = extractBinary(request, input, "clientCertificate", MAX_P12_BYTES);
+            ca = extractBinary(request, input, "caCertificate", MAX_CA_BYTES);
+        } catch (jakarta.ws.rs.WebApplicationException ex) {
+            details.put("status", "failed");
+            details.put("error", "invalid_request");
+            details.put("httpStatus", ex.getResponse() != null ? ex.getResponse().getStatus() : null);
+            recordAudit(request, "ADMIN_ORCA_CONNECTION_SAVE", details,
+                    AuditEventEnvelope.Outcome.FAILURE, "orca.connection.invalid_request", "接続設定の入力が不正です。");
+            throw ex;
+        }
 
         OrcaConnectionConfigRecord updated;
         try {
             updated = orcaConnectionConfigStore.update(facilityId, update, p12, ca, runId, actor);
         } catch (IllegalArgumentException ex) {
+            details.put("status", "failed");
+            details.put("error", ex.getMessage());
+            recordAudit(request, "ADMIN_ORCA_CONNECTION_SAVE", details,
+                    AuditEventEnvelope.Outcome.FAILURE, "orca.connection.invalid_request", ex.getMessage());
             throw restError(request, Response.Status.BAD_REQUEST, "invalid_request", ex.getMessage());
         } catch (IllegalStateException ex) {
+            details.put("status", "failed");
+            details.put("error", ex.getMessage());
+            recordAudit(request, "ADMIN_ORCA_CONNECTION_SAVE", details,
+                    AuditEventEnvelope.Outcome.FAILURE, "orca.connection.persist_failed", ex.getMessage());
             throw restError(request, Response.Status.INTERNAL_SERVER_ERROR,
                     "persist_failed", "接続設定の永続化に失敗しました。サーバー設定を確認してください。");
         }
@@ -119,12 +146,6 @@ public class AdminOrcaConnectionResource extends AbstractResource {
             auditSummary = "reload_failed";
         }
 
-        Map<String, Object> details = new LinkedHashMap<>();
-        details.put("operation", "save");
-        details.put("resource", "/api/admin/orca/connection");
-        details.put("runId", runId);
-        details.put("actor", actor);
-        details.put("facilityId", facilityId);
         details.put("useWeborca", Boolean.TRUE.equals(updated.getUseWeborca()));
         details.put("clientAuthEnabled", Boolean.TRUE.equals(updated.getClientAuthEnabled()));
         details.put("clientCertificateUpdated", p12 != null);

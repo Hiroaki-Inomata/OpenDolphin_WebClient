@@ -154,7 +154,7 @@ public class OrcaPatientSyncResource extends AbstractOrcaWrapperResource {
 
         PatientSyncStatusResponse response = new PatientSyncStatusResponse();
         response.setFacilityId(facilityId);
-        response.setStatePath(stateStore != null ? String.valueOf(stateStore.resolvePath()) : null);
+        response.setStatePath(stateStore != null ? stateStore.resolveStorageDescriptor() : null);
         if (stateStore != null) {
             OrcaPatientSyncStateStore.FacilityState state = stateStore.loadFacilityState(facilityId);
             if (state != null) {
@@ -172,4 +172,3 @@ public class OrcaPatientSyncResource extends AbstractOrcaWrapperResource {
         return response;
     }
 }
-

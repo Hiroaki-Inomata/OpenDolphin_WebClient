@@ -1,10 +1,10 @@
 package open.dolphin.rest.masterupdate;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -14,7 +14,7 @@ import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import open.dolphin.rest.AbstractResource;
-import open.dolphin.runtime.RuntimeConfigurationSupport;
+import open.dolphin.runtime.RuntimeStateRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,16 +25,22 @@ import org.slf4j.LoggerFactory;
 public class MasterUpdateStore {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MasterUpdateStore.class);
-    private static final String STORAGE_DIR = "opendolphin";
-    private static final String STORAGE_FILE = "master-updates.json";
+    private static final String STATE_CATEGORY = "master_update";
+    private static final String STATE_KEY = "default";
 
     private final ObjectMapper mapper = AbstractResource.getSerializeMapper();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    private final Path storagePath;
+
+    @Inject
+    private RuntimeStateRepository stateRepository;
+
     private Snapshot current;
 
     public MasterUpdateStore() {
-        this.storagePath = resolveStoragePath();
+    }
+
+    @PostConstruct
+    public void init() {
         this.current = load();
         if (this.current == null) {
             this.current = defaultSnapshot();
@@ -81,36 +87,32 @@ public class MasterUpdateStore {
     }
 
     private Snapshot load() {
-        if (storagePath == null || !Files.exists(storagePath)) {
+        if (stateRepository == null) {
+            LOGGER.warn("RuntimeStateRepository is unavailable. returning default master update snapshot");
             return null;
         }
-        try {
-            return mapper.readValue(storagePath.toFile(), Snapshot.class);
-        } catch (IOException ex) {
-            LOGGER.warn("Failed to load master update state from {}: {}", storagePath, ex.getMessage());
-            return null;
-        }
+        return stateRepository.findPayload(STATE_CATEGORY, STATE_KEY)
+                .map(payload -> {
+                    try {
+                        return mapper.readValue(payload, Snapshot.class);
+                    } catch (IOException ex) {
+                        LOGGER.warn("Failed to parse master update payload from DB: {}", ex.getMessage());
+                        return null;
+                    }
+                })
+                .orElse(null);
     }
 
     private void persist(Snapshot snapshot) {
-        if (snapshot == null || storagePath == null) {
+        if (snapshot == null || stateRepository == null) {
             return;
         }
         try {
-            mapper.writeValue(storagePath.toFile(), snapshot);
+            stateRepository.upsertPayload(STATE_CATEGORY, STATE_KEY, mapper.writeValueAsString(snapshot), Instant.now());
         } catch (IOException ex) {
-            LOGGER.warn("Failed to persist master update state to {}: {}", storagePath, ex.getMessage());
-        }
-    }
-
-    private Path resolveStoragePath() {
-        Path base = RuntimeConfigurationSupport.resolveServerDataDirectoryOrThrow("MasterUpdateStore");
-        try {
-            Path dir = base.resolve(STORAGE_DIR);
-            Files.createDirectories(dir);
-            return dir.resolve(STORAGE_FILE);
-        } catch (IOException ex) {
-            throw new IllegalStateException("Failed to create master update storage directory: " + base, ex);
+            LOGGER.warn("Failed to serialize master update state for DB persistence: {}", ex.getMessage());
+        } catch (RuntimeException ex) {
+            LOGGER.warn("Failed to persist master update state in DB: {}", ex.getMessage());
         }
     }
 

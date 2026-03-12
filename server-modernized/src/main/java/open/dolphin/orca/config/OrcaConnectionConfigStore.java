@@ -6,8 +6,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.IOException;
 import java.net.URI;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -16,7 +14,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import open.dolphin.rest.AbstractResource;
-import open.dolphin.runtime.RuntimeConfigurationSupport;
+import open.dolphin.runtime.RuntimeStateRepository;
 import open.dolphin.security.SecondFactorSecurityConfig;
 import open.dolphin.orca.transport.OrcaTransportSecurityPolicy;
 import open.dolphin.security.totp.TotpSecretProtector;
@@ -28,8 +26,8 @@ public class OrcaConnectionConfigStore {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OrcaConnectionConfigStore.class);
 
-    private static final String STORAGE_DIR = "opendolphin";
-    private static final String STORAGE_FILE = "orca-connection-config.json";
+    private static final String STATE_CATEGORY = "orca_connection_config";
+    private static final String STATE_KEY = "default";
 
     private static final String ENV_ORCA_BASE_URL = "ORCA_BASE_URL";
     private static final String ENV_ORCA_API_HOST = "ORCA_API_HOST";
@@ -59,18 +57,18 @@ public class OrcaConnectionConfigStore {
 
     private final ObjectMapper mapper = AbstractResource.getSerializeMapper();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    private final Path storagePath;
 
     @Inject
     private SecondFactorSecurityConfig secondFactorSecurityConfig;
+
+    @Inject
+    private RuntimeStateRepository stateRepository;
 
     private TotpSecretProtector protector;
     private OrcaConnectionConfigRecord current;
     private Map<String, OrcaConnectionConfigRecord> records = new LinkedHashMap<>();
 
-    public OrcaConnectionConfigStore() {
-        this.storagePath = resolveStoragePath();
-    }
+    public OrcaConnectionConfigStore() {}
 
     @PostConstruct
     public void init() {
@@ -306,15 +304,20 @@ public class OrcaConnectionConfigStore {
     }
 
     private OrcaConnectionConfigRecord loadRaw() {
-        if (storagePath == null || !Files.exists(storagePath)) {
+        if (stateRepository == null) {
+            LOGGER.warn("RuntimeStateRepository is unavailable. using default ORCA connection config");
             return null;
         }
-        try {
-            return mapper.readValue(storagePath.toFile(), OrcaConnectionConfigRecord.class);
-        } catch (IOException ex) {
-            LOGGER.warn("Failed to load ORCA connection config from {}: {}", storagePath, ex.getMessage());
-            return null;
-        }
+        return stateRepository.findPayload(STATE_CATEGORY, STATE_KEY)
+                .map(payload -> {
+                    try {
+                        return mapper.readValue(payload, OrcaConnectionConfigRecord.class);
+                    } catch (IOException ex) {
+                        LOGGER.warn("Failed to parse ORCA connection config payload from DB: {}", ex.getMessage());
+                        return null;
+                    }
+                })
+                .orElse(null);
     }
 
     private void persistBestEffort(OrcaConnectionConfigRecord record) {
@@ -329,13 +332,13 @@ public class OrcaConnectionConfigStore {
         if (record == null) {
             throw new IllegalStateException("ORCA connection config record is null");
         }
-        if (storagePath == null) {
-            throw new IllegalStateException("ORCA connection config storage path is not available");
+        if (stateRepository == null) {
+            throw new IllegalStateException("RuntimeStateRepository is unavailable");
         }
         try {
-            mapper.writeValue(storagePath.toFile(), record);
+            stateRepository.upsertPayload(STATE_CATEGORY, STATE_KEY, mapper.writeValueAsString(record), Instant.now());
         } catch (IOException ex) {
-            throw new IllegalStateException("Failed to persist ORCA connection config", ex);
+            throw new IllegalStateException("Failed to serialize ORCA connection config", ex);
         }
     }
 
@@ -492,17 +495,6 @@ public class OrcaConnectionConfigStore {
     private void validateReady(OrcaConnectionConfigRecord record) {
         // Same as validateReadyForUpdate, but keep this method name for call-sites.
         validateReadyForUpdate(record);
-    }
-
-    private static Path resolveStoragePath() {
-        Path base = RuntimeConfigurationSupport.resolveServerDataDirectoryOrThrow("OrcaConnectionConfigStore");
-        try {
-            Path dir = base.resolve(STORAGE_DIR);
-            Files.createDirectories(dir);
-            return dir.resolve(STORAGE_FILE);
-        } catch (IOException ex) {
-            throw new IllegalStateException("Failed to create ORCA config directory: " + base, ex);
-        }
     }
 
     private static OrcaConnectionConfigRecord copy(OrcaConnectionConfigRecord record) {

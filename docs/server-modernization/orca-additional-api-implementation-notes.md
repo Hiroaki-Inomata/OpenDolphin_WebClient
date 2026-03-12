@@ -30,7 +30,7 @@ Phase2 ドキュメントは Legacy/Archive のため、本メモを現行参照
 
 ## PUSH通知 (pusheventgetv2) の冪等化
 - Event_Id 単位で取得済みイベントを除外する。
-- 既定のキャッシュ保存先は `~/.opendolphin/orca/pushevent-cache.json`。
+- 既定のキャッシュ保存先は `-Djboss.server.data.dir` がある場合 `${jboss.server.data.dir}/orca/pushevent-cache.json`、未指定時は `${cwd}/runtime-state/orca/pushevent-cache.json`。
 - 保存先を変更する場合は `ORCA_PUSH_EVENT_CACHE_PATH` を指定する。
 - 件数上限/保持期間は `ORCA_PUSH_EVENT_CACHE_MAX`（既定: 10000）、`ORCA_PUSH_EVENT_CACHE_TTL_DAYS`（既定: 30日）。
 

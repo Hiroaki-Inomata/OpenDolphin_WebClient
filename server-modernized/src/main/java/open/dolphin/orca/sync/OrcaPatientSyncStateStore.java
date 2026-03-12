@@ -2,8 +2,6 @@ package open.dolphin.orca.sync;
 
 import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.PreparedStatement;
@@ -74,8 +72,8 @@ public class OrcaPatientSyncStateStore {
     private final ReentrantLock lock = new ReentrantLock();
     private volatile boolean schemaEnsured;
 
-    public Path resolvePath() {
-        return Paths.get("db", TABLE_NAME);
+    public String resolveStorageDescriptor() {
+        return "db:opendolphin." + TABLE_NAME;
     }
 
     public FacilityState loadFacilityState(String facilityId) {

@@ -11,7 +11,10 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.net.URI;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import open.dolphin.rest.orca.AbstractOrcaRestResource;
 import open.dolphin.rest.admin.AdminConfigSnapshot;
@@ -53,9 +56,38 @@ public class AdminConfigResource extends AbstractResource {
     public Response putConfig(@Context HttpServletRequest request, Map<String, Object> payload) {
         requireAdmin(request, userServiceBean);
         String runId = AbstractOrcaRestResource.resolveRunIdValue(request);
-        AdminConfigSnapshot incoming = toSnapshot(payload);
-        AdminConfigSnapshot updated = adminConfigStore.updateFromPayload(incoming, runId);
-        return buildResponse(updated, runId);
+        String actor = request != null ? request.getRemoteUser() : null;
+        String facilityId = resolveActorFacilityId(actor);
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("operation", "adminConfigUpdate");
+        details.put("resource", "/api/admin/config");
+        details.put("runId", runId);
+        details.put("actor", actor);
+        details.put("facilityId", facilityId);
+        details.put("changedKeys", payload != null ? payload.keySet() : List.of());
+
+        try {
+            validatePayload(payload);
+            AdminConfigSnapshot incoming = toSnapshot(payload);
+            AdminConfigSnapshot updated = adminConfigStore.updateFromPayload(incoming, runId);
+            details.put("status", "success");
+            details.put("deliveryMode", updated.getDeliveryMode());
+            details.put("chartsMasterSource", updated.getChartsMasterSource());
+            recordAudit(request, "ADMIN_CONFIG_UPDATE", "/api/admin/config", details, AuditEventEnvelope.Outcome.SUCCESS, null, null);
+            return buildResponse(updated, runId);
+        } catch (IllegalArgumentException ex) {
+            details.put("status", "failed");
+            details.put("error", ex.getMessage());
+            recordAudit(request, "ADMIN_CONFIG_UPDATE", "/api/admin/config", details,
+                    AuditEventEnvelope.Outcome.FAILURE, "admin.config.invalid", ex.getMessage());
+            throw restError(request, Response.Status.BAD_REQUEST, "invalid_request", ex.getMessage());
+        } catch (RuntimeException ex) {
+            details.put("status", "failed");
+            details.put("error", ex.getMessage());
+            recordAudit(request, "ADMIN_CONFIG_UPDATE", "/api/admin/config", details,
+                    AuditEventEnvelope.Outcome.FAILURE, "admin.config.persist_failed", ex.getMessage());
+            throw ex;
+        }
     }
 
     @POST
@@ -79,7 +111,8 @@ public class AdminConfigResource extends AbstractResource {
             String summary = settings != null ? settings.auditSummary() : "unknown";
             details.put("auditSummary", summary);
             details.put("status", "success");
-            recordAudit(request, "ORCA_TRANSPORT_RELOAD", details, AuditEventEnvelope.Outcome.SUCCESS, null, null);
+            recordAudit(request, "ORCA_TRANSPORT_RELOAD", "/api/admin/orca/transport/reload",
+                    details, AuditEventEnvelope.Outcome.SUCCESS, null, null);
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("runId", runId);
             body.put("auditSummary", summary);
@@ -91,19 +124,20 @@ public class AdminConfigResource extends AbstractResource {
         } catch (RuntimeException ex) {
             details.put("status", "failed");
             details.put("error", ex.getMessage());
-            recordAudit(request, "ORCA_TRANSPORT_RELOAD", details, AuditEventEnvelope.Outcome.FAILURE, "orca.transport.reload.error", ex.getMessage());
+            recordAudit(request, "ORCA_TRANSPORT_RELOAD", "/api/admin/orca/transport/reload",
+                    details, AuditEventEnvelope.Outcome.FAILURE, "orca.transport.reload.error", ex.getMessage());
             throw ex;
         }
     }
 
-    private void recordAudit(HttpServletRequest request, String action, Map<String, Object> details,
+    private void recordAudit(HttpServletRequest request, String action, String resource, Map<String, Object> details,
             AuditEventEnvelope.Outcome outcome, String errorCode, String errorMessage) {
         if (sessionAuditDispatcher == null) {
             return;
         }
         AuditEventPayload payload = new AuditEventPayload();
         payload.setAction(action);
-        payload.setResource("/api/admin/orca/transport/reload");
+        payload.setResource(resource);
         payload.setActorId(request != null ? request.getRemoteUser() : null);
         payload.setIpAddress(request != null ? request.getRemoteAddr() : null);
         payload.setUserAgent(request != null ? request.getHeader("User-Agent") : null);
@@ -119,6 +153,67 @@ public class AdminConfigResource extends AbstractResource {
         }
         payload.setDetails(details);
         sessionAuditDispatcher.record(payload, outcome, errorCode, errorMessage);
+    }
+
+    private void validatePayload(Map<String, Object> payload) {
+        if (payload == null || payload.isEmpty()) {
+            throw new IllegalArgumentException("設定内容が空です。");
+        }
+        String endpoint = getString(payload, "orcaEndpoint", "endpoint");
+        if (endpoint != null) {
+            validateEndpoint(endpoint);
+        }
+        String chartsMasterSource = getString(payload, "chartsMasterSource");
+        if (chartsMasterSource != null) {
+            String normalized = chartsMasterSource.trim().toLowerCase(Locale.ROOT);
+            if (!List.of("auto", "orca", "local").contains(normalized)) {
+                throw new IllegalArgumentException("chartsMasterSource は auto/orca/local のいずれかを指定してください。");
+            }
+        }
+        String deliveryMode = getString(payload, "deliveryMode", "deliveryState", "deliveryStatus");
+        if (deliveryMode != null) {
+            String normalized = deliveryMode.trim().toLowerCase(Locale.ROOT);
+            if (!List.of("manual", "auto").contains(normalized)) {
+                throw new IllegalArgumentException("deliveryMode は manual/auto のいずれかを指定してください。");
+            }
+        }
+        String environment = getString(payload, "environment", "env", "stage");
+        if (environment != null && environment.trim().length() > 32) {
+            throw new IllegalArgumentException("environment は32文字以内で指定してください。");
+        }
+        String note = getString(payload, "note");
+        if (note != null && note.length() > 2000) {
+            throw new IllegalArgumentException("note が長すぎます。2000文字以内で指定してください。");
+        }
+    }
+
+    private void validateEndpoint(String endpoint) {
+        try {
+            URI uri = URI.create(endpoint.trim());
+            String scheme = uri.getScheme();
+            if (scheme == null || (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))) {
+                throw new IllegalArgumentException("orcaEndpoint は http/https URL を指定してください。");
+            }
+            if (uri.getHost() == null || uri.getHost().isBlank()) {
+                throw new IllegalArgumentException("orcaEndpoint のホスト名が不正です。");
+            }
+        } catch (IllegalArgumentException ex) {
+            if (ex.getMessage() != null && ex.getMessage().contains("orcaEndpoint")) {
+                throw ex;
+            }
+            throw new IllegalArgumentException("orcaEndpoint が不正です。", ex);
+        }
+    }
+
+    private String resolveActorFacilityId(String actor) {
+        if (actor == null || actor.isBlank()) {
+            return null;
+        }
+        int idx = actor.indexOf(':');
+        if (idx > 0) {
+            return actor.substring(0, idx);
+        }
+        return actor;
     }
 
     @GET
