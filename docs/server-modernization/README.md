@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-12
-- RUN_ID: 20260312T050136Z
+- RUN_ID: 20260312T060136Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -90,6 +90,7 @@
 - `docs/modernization/p9-04-junit5-unification.md`（P9-04: common/server-modernized の JUnit5 基盤統一）
 - `docs/modernization/p9-05-static-analysis-gate.md`（P9-05: SpotBugs/Checkstyle/PMD のCI必須ゲート化）
 - `docs/modernization/p9-06-deployment-simplification.md`（P9-06: WAR+WildFly 配備方式の一本化）
+- `docs/modernization/p9-07-health-readiness-runbook.md`（P9-07: 運用用 health/readiness と手順書）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

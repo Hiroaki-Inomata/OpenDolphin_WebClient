@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P9-07「運用用の health/readiness と手順書を作る」を完了し、運用一次切り分け入口を追加（RUN_ID=20260312T060136Z）。
+  - 追加（health/readiness）: `server-modernized/src/main/java/open/dolphin/rest/OperationsHealthResource.java` を新規追加し、`GET /resources/health`（liveness）と `GET /resources/health/readiness`（DB/ORCA/添付ストレージ/PVTキューの集約確認）を実装。
+  - 変更（公開設定）: `server-modernized/src/main/webapp/WEB-INF/web.xml` に `open.dolphin.rest.OperationsHealthResource` を追加。
+  - 追加（テスト）: `server-modernized/src/test/java/open/dolphin/rest/OperationsHealthResourceTest.java` を新規追加し、`WebXmlEndpointExposureTest` を更新。
+  - 追加（運用手順）: `docs/modernization/p9-07-health-readiness-runbook.md` を追加し、始業前確認/障害一次切り分け手順を明文化。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P9-07` を ☑ 化し、`docs/server-modernization/README.md` にリンク追加。
 - 2026-03-12: P9-06「配備方式を簡素化する」を完了し、WAR+WildFly 方式を標準導線へ固定（RUN_ID=20260312T050136Z）。
   - 変更（起動既定）: `setup-modernized-env.sh` の `WEB_CLIENT_MODE` 既定値を `docker` から `npm` へ変更し、標準起動を `server-modernized + web-client(npm)` に統一。
   - 追加（方針書）: `docs/modernization/p9-06-deployment-simplification.md` を新規作成し、採用方式と標準/非標準導線を明文化。

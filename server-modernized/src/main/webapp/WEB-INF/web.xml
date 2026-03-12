@@ -79,6 +79,7 @@
                 open.dolphin.rest.AdminOrcaUserLinkResource,
                 open.dolphin.rest.OrcaQueueResource,
                 open.dolphin.rest.ReceptionRealtimeStreamResource,
+                open.dolphin.rest.OperationsHealthResource,
                 open.dolphin.rest.PvtWorkerHealthResource,
                 open.dolphin.rest.orca.OrcaMedicalResource,
                 open.dolphin.rest.orca.OrcaDiseaseResource,
