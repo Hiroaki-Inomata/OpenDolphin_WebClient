@@ -38,3 +38,16 @@
    - 実運用値（DB/S3/FIDO2/秘密情報）を反映してから実行する。
 2. `LegacyObjectMapperProducer` の CDI スコープ/注入設定を修正した最新イメージで再起動し、`/openDolphin/resources/health` と `.../readiness` を通す。
 3. `P10-05` チェックリストに沿って本番切替を実施し、切替記録（当日ログ、疎通結果、引継ぎメモ）を本書へ追記する。
+
+## 後続ワーカー向けメモ（Weld最小修正案）
+- 症状: `ObjectMapper` を `@ApplicationScoped` producer で提供しており、Weld が client proxy を作れず `WELD-001480` / `WELD-001410` を発生。
+- 対象: `server-modernized/src/main/java/open/dolphin/rest/jackson/LegacyObjectMapperProducer.java`
+- 最小変更案:
+  - producer method のスコープを `@ApplicationScoped` から `@Dependent`（または未指定のデフォルト `@Dependent`）へ変更する。
+  - producer class 側の `@ApplicationScoped` は維持可。
+- 期待効果:
+  - proxy 不要の依存注入となり、`KarteResource` / `KarteRevisionResource` / `ResteasyObjectMapperResolver` の起動時注入エラーを解消できる見込み。
+- 最低検証:
+  - `docker compose --env-file ops/modernized-server/config/server-modernized.production.env -f docker-compose.modernized.dev.yml -f docker-compose.modernized.validation.yml up -d --build`
+  - `curl http://localhost:<MODERNIZED_APP_HTTP_PORT>/openDolphin/resources/health`
+  - `curl http://localhost:<MODERNIZED_APP_HTTP_PORT>/openDolphin/resources/health/readiness`
