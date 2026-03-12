@@ -2,7 +2,18 @@
 
 ## 事象
 - タスク `P10-06`（本番切替を実施する）は継続して未完了。
-- 最新 RUN: `20260312T180123Z`
+- 最新 RUN: `20260312T190035Z`
+
+## 実施した試行（RUN_ID: 20260312T190035Z）
+1. Docker daemon 応答性の再確認（socket/API 直接）
+- `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping`
+- `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/version`
+- 結果: **いずれも RC=28 timeout**（0 bytes 応答）
+
+2. 切替導線の fail-fast 動作確認（production env）
+- `server-modernized.production.env.sample` から `/tmp/server-modernized.production.20260312T190035Z.env` を生成し、RUN専用の `COMPOSE_PROJECT_NAME` と port を付与して実行。
+- `DOCKER_PING_TIMEOUT_SECONDS=2 ops/modernized-server/scripts/start-validation-env.sh /tmp/server-modernized.production.20260312T190035Z.env`
+- 結果: `docker daemon is not responding ... aborting before compose up` で **RC=1**（期待どおりハング前停止）。
 
 ## 実施した試行（RUN_ID: 20260312T180123Z）
 1. Docker daemon 応答性の再確認（socket/API 直接）
