@@ -1,7 +1,7 @@
 # Server-Modernization ドキュメントハブ（現行）
 
 - 更新日: 2026-03-12
-- RUN_ID: 20260312T010127Z
+- RUN_ID: 20260312T030130Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
@@ -82,6 +82,7 @@
 - `docs/modernization/p8-01-attachment-storage-streaming.md`（P8-01: AttachmentStorageManager の upload/download ストリーミング化）
 - `docs/modernization/p8-02-s3-credential-provider-chain.md`（P8-02: S3 認証を固定資格情報から外し provider chain へ統一）
 - `docs/modernization/p8-03-config-loading-unification.md`（P8-03: YAML/properties/JSON 設定読込ルールの統一）
+- `docs/modernization/p8-05-remove-userhome-target-dependency.md`（P8-05: user.home と build 生成物依存の除去）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

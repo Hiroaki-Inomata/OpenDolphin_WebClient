@@ -28,7 +28,7 @@ public final class RuntimeConfigurationSupport {
     public static final String ENV_CONFIG_DIR = "OPENDOLPHIN_CONFIG_DIR";
     public static final String PROP_CUSTOM_PROPERTIES_PATH = "opendolphin.custom.properties.path";
     public static final String PROP_JBOSS_HOME_DIR = "jboss.home.dir";
-    public static final String DEFAULT_CONFIG_DIR = "/opt/jboss/config";
+    public static final String PROP_JBOSS_SERVER_CONFIG_DIR = "jboss.server.config.dir";
     public static final String DEFAULT_TIMEZONE = "Asia/Tokyo";
 
     private static final Set<String> PRODUCTION_LIKE_PREFIXES = Set.of(
@@ -106,10 +106,26 @@ public final class RuntimeConfigurationSupport {
 
     public static Path resolveConfigDirectory() {
         String raw = firstNonBlank(System.getProperty(PROP_CONFIG_DIR), System.getenv(ENV_CONFIG_DIR));
-        if (raw == null) {
-            raw = DEFAULT_CONFIG_DIR;
+        if (raw != null) {
+            return Paths.get(raw).toAbsolutePath().normalize();
         }
-        return Paths.get(raw).toAbsolutePath().normalize();
+        String jbossServerConfigDir = firstNonBlank(System.getProperty(PROP_JBOSS_SERVER_CONFIG_DIR));
+        if (jbossServerConfigDir != null) {
+            return Paths.get(jbossServerConfigDir).toAbsolutePath().normalize();
+        }
+        String jbossHome = firstNonBlank(System.getProperty(PROP_JBOSS_HOME_DIR));
+        if (jbossHome != null) {
+            return Paths.get(jbossHome)
+                    .resolve("standalone")
+                    .resolve("configuration")
+                    .toAbsolutePath()
+                    .normalize();
+        }
+        String serverDataDir = firstNonBlank(System.getProperty(PROP_SERVER_DATA_DIR));
+        if (serverDataDir != null) {
+            return Paths.get(serverDataDir).resolve("config").toAbsolutePath().normalize();
+        }
+        return Paths.get("config").toAbsolutePath().normalize();
     }
 
     public static Path resolveConfigPath(String fileName) {

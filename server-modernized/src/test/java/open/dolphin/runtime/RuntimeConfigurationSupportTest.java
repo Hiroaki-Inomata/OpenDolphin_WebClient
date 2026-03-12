@@ -15,6 +15,10 @@ class RuntimeConfigurationSupportTest {
     void tearDown() {
         System.clearProperty("test.unified.setting");
         System.clearProperty(RuntimeConfigurationSupport.PROP_CUSTOM_PROPERTIES_PATH);
+        System.clearProperty(RuntimeConfigurationSupport.PROP_CONFIG_DIR);
+        System.clearProperty(RuntimeConfigurationSupport.PROP_JBOSS_SERVER_CONFIG_DIR);
+        System.clearProperty(RuntimeConfigurationSupport.PROP_JBOSS_HOME_DIR);
+        System.clearProperty(RuntimeConfigurationSupport.PROP_SERVER_DATA_DIR);
     }
 
     @Test
@@ -45,5 +49,25 @@ class RuntimeConfigurationSupportTest {
 
         assertEquals("one", loaded.getProperty("alpha"));
         assertTrue(loaded.containsKey("alpha"));
+    }
+
+    @Test
+    void resolveConfigDirectoryUsesJbossServerConfigDirWhenAvailable() throws Exception {
+        Path tempDir = Files.createTempDirectory("runtime-config-dir");
+        System.setProperty(RuntimeConfigurationSupport.PROP_JBOSS_SERVER_CONFIG_DIR, tempDir.toString());
+
+        Path resolved = RuntimeConfigurationSupport.resolveConfigDirectory();
+
+        assertEquals(tempDir.toAbsolutePath().normalize(), resolved);
+    }
+
+    @Test
+    void resolveConfigDirectoryFallsBackToServerDataDirConfig() throws Exception {
+        Path tempDataDir = Files.createTempDirectory("runtime-data-dir");
+        System.setProperty(RuntimeConfigurationSupport.PROP_SERVER_DATA_DIR, tempDataDir.toString());
+
+        Path resolved = RuntimeConfigurationSupport.resolveConfigDirectory();
+
+        assertEquals(tempDataDir.resolve("config").toAbsolutePath().normalize(), resolved);
     }
 }

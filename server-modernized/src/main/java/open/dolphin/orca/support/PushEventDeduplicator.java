@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import open.dolphin.runtime.RuntimeConfigurationSupport;
 
 /**
  * Deduplicates ORCA push events by event id with optional persistence.
@@ -46,8 +47,15 @@ public final class PushEventDeduplicator {
         if (configured != null && !configured.isBlank()) {
             path = Path.of(configured.trim());
         } else {
-            String home = System.getProperty("user.home", ".");
-            path = Path.of(home, ".opendolphin", "orca", "pushevent-cache.json");
+            String serverDataDir = System.getProperty(RuntimeConfigurationSupport.PROP_SERVER_DATA_DIR);
+            if (serverDataDir != null && !serverDataDir.isBlank()) {
+                path = RuntimeConfigurationSupport
+                        .resolveServerDataDirectoryOrThrow("PushEventDeduplicator")
+                        .resolve("orca")
+                        .resolve("pushevent-cache.json");
+            } else {
+                path = Path.of("runtime-state", "orca", "pushevent-cache.json").toAbsolutePath().normalize();
+            }
         }
         int max = parseIntEnv(ENV_CACHE_MAX, DEFAULT_CACHE_MAX);
         long ttlDays = parseLongEnv(ENV_CACHE_TTL_DAYS, DEFAULT_TTL_DAYS);

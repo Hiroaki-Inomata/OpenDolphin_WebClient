@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P8-05「user.home と build 生成物依存を取り除く」を完了し、固定パス依存を実行時解決へ変更（RUN_ID=20260312T040136Z）。
+  - 変更（deduplicator）: `PushEventDeduplicator` の既定保存先を `user.home` 依存から `jboss.server.data.dir` 優先 / `runtime-state` fallback へ変更。
+  - 変更（runtime config）: `RuntimeConfigurationSupport.resolveConfigDirectory` の既定解決を `/opt/jboss/config` 固定から、`opendolphin.config.dir` / `OPENDOLPHIN_CONFIG_DIR` / `jboss.server.config.dir` / `jboss.home.dir` / `jboss.server.data.dir/config` / `${cwd}/config` の順へ変更。
+  - 追加（テスト）: `PushEventDeduplicatorTest` を新規作成し、`RuntimeConfigurationSupportTest` に設定ディレクトリ解決ケースを追加。
+  - 追加（実施記録）: `docs/modernization/p8-05-remove-userhome-target-dependency.md` を追加。
 - 2026-03-12: P8-04「各種 Store のローカル JSON 永続化を DB 化する」を完了し、runtime state 保存先を DB に統一（RUN_ID=20260312T040136Z）。
   - 変更（repository）: `server-modernized/src/main/java/open/dolphin/runtime/RuntimeStateRepository.java` を追加し、`runtime_state_store` テーブルへの JSON payload upsert/query を共通化。
   - 変更（store）: `AdminConfigStore` / `MasterUpdateStore` / `OrcaConnectionConfigStore` をローカルJSONファイル保存から `RuntimeStateRepository` 利用へ置換。
