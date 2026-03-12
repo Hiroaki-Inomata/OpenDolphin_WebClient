@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を再試行したが、継続して未完了（RUN_ID=20260312T140055Z）。
+  - 実施（env準備）: `server-modernized.production.env.sample` から `server-modernized.production.env` を作成し、`MODERNIZED_CUSTOM_PROPERTIES_FILE` を `custom.properties.production.local` に切替。
+  - 実施（config検証）: `docker compose --env-file ops/modernized-server/config/server-modernized.production.env -f docker-compose.modernized.dev.yml -f docker-compose.modernized.validation.yml config` は PASS。
+  - 実施（起動試行）: `COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312t140055z ops/modernized-server/scripts/start-validation-env.sh ...production.env` を実行し、`starting containers...` 以降が無応答化。
+  - 切り分け（watchdog）: `docker info` は `Server: ... context canceled`、`docker compose ... ps` は RC=130 timeout、`curl --max-time 10 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping` は RC=28 timeout。
+  - 判定: Docker daemon 応答不安定により `up/build` 完了と `health/readiness` 実測まで進めないため `P10-06` は未完了継続。
+  - 反映: `docs/modernization/p10-06-cutover-execution-blocker.md` と WBS ブロッカー欄を更新。
 - 2026-03-12: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を再試行したが、継続して未完了（RUN_ID=20260312T130107Z）。
   - 変更（Weld起動失敗対策）: `server-modernized/src/main/java/open/dolphin/rest/jackson/LegacyObjectMapperProducer.java` の producer method scope を `@Dependent` へ変更。
   - 変更（build導線補正）: `ops/modernized-server/docker/Dockerfile` に `domain` / `api-contract` / `persistence` のコピーを追加し、`pom.server-modernized.xml` をリポジトリ同梱版の利用へ変更。

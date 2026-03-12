@@ -2,7 +2,26 @@
 
 ## 事象
 - タスク `P10-06`（本番切替を実施する）は継続して未完了。
-- 最新 RUN: `20260312T130107Z`
+- 最新 RUN: `20260312T140055Z`
+
+## 実施した試行（RUN_ID: 20260312T140055Z）
+1. 本番 env を sample から作成
+- `cp ops/modernized-server/config/server-modernized.production.env.sample ops/modernized-server/config/server-modernized.production.env`
+- `cp ops/modernized-server/config/custom.properties.production.sample ops/modernized-server/config/custom.properties.production.local`
+- `MODERNIZED_CUSTOM_PROPERTIES_FILE` を `custom.properties.production.local` に切替。
+
+2. compose 定義検証
+- `docker compose --env-file ops/modernized-server/config/server-modernized.production.env -f docker-compose.modernized.dev.yml -f docker-compose.modernized.validation.yml config`
+- 結果: **PASS**
+
+3. 本番切替導線の実行
+- `COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312t140055z ops/modernized-server/scripts/start-validation-env.sh ops/modernized-server/config/server-modernized.production.env`
+- 結果: `compose config check...` / `starting containers...` までは進むが、以後コマンド応答が返らずハング。
+
+4. Docker daemon 応答性の切り分け（watchdog付き）
+- `docker info`（20秒 watchdog）: **RC=1**、`Server: ERROR ... context canceled`
+- `docker compose ... ps`（20秒 watchdog）: **RC=130**、応答なし（timeout kill）
+- `curl --max-time 10 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping`: **RC=28**（timeout）
 
 ## 実施した試行（RUN_ID: 20260312T130107Z）
 1. Weld 起動失敗のコード修正
@@ -49,15 +68,14 @@
 - `start-validation-env.sh` 実行時に Docker buildx activity 更新で `operation not permitted` が発生。
 
 ## 未解消理由
-- 本番用 env（`server-modernized.production.env`）と本番接続情報が未提供のため、`P10-06` の本番切替実行条件を満たせない。
-- Weld 起動失敗の直接要因と Dockerfile のモジュール欠落は修正済みだが、最新 image build 完了および再起動後の `health/readiness` 実測まで未到達。
+- `server-modernized.production.env` の雛形作成までは実施したが、Docker daemon が socket 経由で安定応答せず `up/build/ps` が進行不能。
+- そのため、最新 image build 完了および再起動後の `health/readiness` 実測に到達できない。
 
 ## 次回着手条件
-1. サンプルから本番用 env を作成する。
-   - `cp ops/modernized-server/config/server-modernized.production.env.sample ops/modernized-server/config/server-modernized.production.env`
-   - 実運用値（DB/S3/FIDO2/秘密情報）を反映してから実行する。
-2. 今回の修正を含む image を最後まで build し、validation compose を `--build` で再起動して `health/readiness` を実測する。
-3. `P10-05` チェックリストに沿って本番切替を実施し、切替記録（当日ログ、疎通結果、引継ぎメモ）を本書へ追記する。
+1. Docker daemon の応答性を回復する（`curl --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping` が `OK` を返す状態）。
+2. `server-modernized.production.env` に実運用値（DB/S3/FIDO2/秘密情報）を反映する。
+3. `docker compose ... up -d --build --force-recreate` を完了させ、`/openDolphin/resources/health` と `/health/readiness` を実測する。
+4. `P10-05` チェックリストに沿って本番切替を実施し、切替記録（当日ログ、疎通結果、引継ぎメモ）を本書へ追記する。
 
 ## 後続ワーカー向けメモ（Weld修正は適用済み）
 - 症状: `ObjectMapper` を `@ApplicationScoped` producer で提供しており、Weld が client proxy を作れず `WELD-001480` / `WELD-001410` を発生。
