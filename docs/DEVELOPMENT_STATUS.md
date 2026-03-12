@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P10-03「業務受け入れ試験を行う」に着手し、技術事前確認（主要フロー回帰）を実施したが UAT 完了条件は未充足（RUN_ID=20260312T090057Z）。
+  - 実施（回帰テスト）: `PatientModV2OutpatientResourceTest` / `KarteResourceCaseListV3Test` / `PVTServiceBeanClinicalTest` / `OrcaOrderBundleResourceTest` / `PatientImagesResourceTest` / `AdminAccessResourceTest` / `SessionAuthResourceTest` を実行し PASS（42 tests）。
+  - 判定: API/ユニットテスト合格は確認できたが、医師・受付・事務の現場観点での実業務UAT（完了条件）を本RUN単独で実施できないため、`P10-03` は未完了のまま保持。
+  - 追加（ブロッカー記録）: `docs/modernization/p10-03-uat-blocker.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` のブロッカー欄へ追記し、`docs/server-modernization/README.md` にリンク追加。
 - 2026-03-12: P10-02「データ移行の通し試験を行う」を完了し、初期化→移行→件数照合→再実行を通しで検証（RUN_ID=20260312T090057Z）。
   - 実施（専用検証DB）: `opendolphin-postgres-modernized-e730-20260312t090057z`（port `55452`）を起動し、`V0300`〜`V0304` と `P1_03__minimal_baseline_seed.sql` を適用後、`medOrder/progressCourse` envelope fixture 2件を投入。
   - 実施（移行）: `server-modernized/tools/flyway/scripts/run-module-payload-migration.sh` を `RUN_ID-r1` / `RUN_ID-r2` で連続実行し、`missing_payload_rows=0`・`status=completed` を確認。
