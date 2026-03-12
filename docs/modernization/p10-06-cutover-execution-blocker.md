@@ -33,6 +33,8 @@
 - 代替の検証起動は可能になったが、現行 `server-modernized-dev` イメージは Weld 起動エラーで業務/API ヘルス確認を完了できない。
 
 ## 次回着手条件
-1. 本番切替用の環境設定（production env、秘密情報、接続先）を安全経路で提供する。
+1. サンプルから本番用 env を作成する。
+   - `cp ops/modernized-server/config/server-modernized.production.env.sample ops/modernized-server/config/server-modernized.production.env`
+   - 実運用値（DB/S3/FIDO2/秘密情報）を反映してから実行する。
 2. `LegacyObjectMapperProducer` の CDI スコープ/注入設定を修正した最新イメージで再起動し、`/openDolphin/resources/health` と `.../readiness` を通す。
 3. `P10-05` チェックリストに沿って本番切替を実施し、切替記録（当日ログ、疎通結果、引継ぎメモ）を本書へ追記する。

@@ -123,6 +123,16 @@
 - `docs/server-modernization/api-smoke-test.md`
 - `docs/web-client/operations/security-rollout-checklist-20260304.md`（Web client 連携の CSRF/Logout/画像ヘッダ運用条件）
 
+### P10-06 env 運用（サンプルから作成）
+- `server-modernized.production.env` はリポジトリへ直接コミットせず、毎回サンプルから作成する。
+- 作成手順:
+  - `cp ops/modernized-server/config/server-modernized.production.env.sample ops/modernized-server/config/server-modernized.production.env`
+  - 必要に応じて `MODERNIZED_CUSTOM_PROPERTIES_FILE` で `custom.properties` の参照先を切り替える。
+- ORCA Trial の公開情報は sample に既定値として反映済み:
+  - `ORCA_BASE_URL=https://weborca-trial.orca.med.or.jp/`
+  - `ORCA_API_USER=trial`
+  - `ORCA_API_PASSWORD=weborcatrial`
+
 ### テスト実行方針（server-modernized / Mockito inline）
 - 既定実行は **JDK25（Homebrew OpenJDK）** を使用する。
 - 検証対象（管理設定/認証まわり）は以下を基準テストとする。
