@@ -1,0 +1,43 @@
+services:
+  db-modernized:
+    container_name: opendolphin-postgres-modernized-validation
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: ${MODERNIZED_POSTGRES_HOST_AUTH_METHOD:-md5}
+      POSTGRES_INITDB_ARGS: ${MODERNIZED_POSTGRES_INITDB_ARGS:---auth-host=md5 --auth-local=md5}
+    ports:
+      - "${MODERNIZED_POSTGRES_PORT:-55442}:5432"
+
+  server-modernized-dev:
+    container_name: opendolphin-server-modernized-validation
+    environment:
+      DB_SSLMODE: ${MODERNIZED_DB_SSLMODE:-require}
+      DB_SSLROOTCERT: ${MODERNIZED_DB_SSLROOTCERT:-}
+      ORCA_TARGET_ENV: ${ORCA_TARGET_ENV:-preprod}
+      ORCA_MODE: ${ORCA_MODE:-weborca}
+      ORCA_BASE_URL: ${ORCA_BASE_URL:?ORCA_BASE_URL is required for validation}
+      ORCA_API_USER: ${ORCA_API_USER:?ORCA_API_USER is required for validation}
+      ORCA_API_PASSWORD: ${ORCA_API_PASSWORD:?ORCA_API_PASSWORD is required for validation}
+      ATTACHMENT_S3_ACCESS_KEY: ${ATTACHMENT_S3_ACCESS_KEY:?ATTACHMENT_S3_ACCESS_KEY is required}
+      ATTACHMENT_S3_SECRET_KEY: ${ATTACHMENT_S3_SECRET_KEY:?ATTACHMENT_S3_SECRET_KEY is required}
+      ATTACHMENT_S3_BUCKET: ${ATTACHMENT_S3_BUCKET:?ATTACHMENT_S3_BUCKET is required}
+      PHR_EXPORT_SIGNING_SECRET: ${PHR_EXPORT_SIGNING_SECRET:?PHR_EXPORT_SIGNING_SECRET is required}
+      PHR_EXPORT_STORAGE_TYPE: ${PHR_EXPORT_STORAGE_TYPE:-s3}
+      PHR_EXPORT_S3_BUCKET: ${PHR_EXPORT_S3_BUCKET:?PHR_EXPORT_S3_BUCKET is required}
+      PHR_EXPORT_S3_ACCESS_KEY: ${PHR_EXPORT_S3_ACCESS_KEY:?PHR_EXPORT_S3_ACCESS_KEY is required}
+      PHR_EXPORT_S3_SECRET_KEY: ${PHR_EXPORT_S3_SECRET_KEY:?PHR_EXPORT_S3_SECRET_KEY is required}
+      FACTOR2_AES_KEY_B64: ${FACTOR2_AES_KEY_B64:?FACTOR2_AES_KEY_B64 is required}
+      FIDO2_RP_ID: ${FIDO2_RP_ID:?FIDO2_RP_ID is required}
+      FIDO2_RP_NAME: ${FIDO2_RP_NAME:?FIDO2_RP_NAME is required}
+      FIDO2_ALLOWED_ORIGINS: ${FIDO2_ALLOWED_ORIGINS:?FIDO2_ALLOWED_ORIGINS is required}
+      OTLP_ENABLED: ${OTLP_ENABLED:-true}
+      OPENDOLPHIN_DISABLE_OTLP_METRICS: ${OPENDOLPHIN_DISABLE_OTLP_METRICS:-false}
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+    ports:
+      - "${MODERNIZED_APP_HTTP_PORT:-19080}:8080"
+      - "${MODERNIZED_APP_ADMIN_PORT:-19995}:9990"
+
+  minio:
+    container_name: opendolphin-minio-validation
+    ports:
+      - "${MINIO_API_PORT:-19100}:9000"
+      - "${MINIO_CONSOLE_PORT:-19101}:9001"

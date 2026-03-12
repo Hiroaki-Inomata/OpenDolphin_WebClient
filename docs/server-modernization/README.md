@@ -91,6 +91,7 @@
 - `docs/modernization/p9-05-static-analysis-gate.md`（P9-05: SpotBugs/Checkstyle/PMD のCI必須ゲート化）
 - `docs/modernization/p9-06-deployment-simplification.md`（P9-06: WAR+WildFly 配備方式の一本化）
 - `docs/modernization/p9-07-health-readiness-runbook.md`（P9-07: 運用用 health/readiness と手順書）
+- `docs/modernization/p10-01-production-like-validation-environment.md`（P10-01: 本番近似の検証環境構築手順）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

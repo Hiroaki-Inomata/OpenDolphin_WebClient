@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P10-01「検証環境を本番に近い形で立てる」を完了し、本番近似の検証起動手順を追加（RUN_ID=20260312T070152Z）。
+  - 追加（compose overlay）: `docker-compose.modernized.validation.yml` を新規追加し、検証環境専用のコンテナ名/ポート分離、DB `sslmode=require` 既定、ORCA/添付/PHR/認証秘密情報の必須化を実装。
+  - 追加（env template）: `ops/modernized-server/config/server-modernized.validation.env.sample` を追加し、外部設定/接続情報の入力項目を固定。
+  - 追加（起動導線）: `ops/modernized-server/scripts/start-validation-env.sh` を追加し、`compose config` 検証付きの検証環境起動導線を整備。
+  - 追加（手順書）: `docs/modernization/p10-01-production-like-validation-environment.md` を追加し、秘密情報を除いた構築手順と接続情報管理方針を明文化。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P10-01` を ☑ 化し、`docs/server-modernization/README.md` にリンク追加。
 - 2026-03-12: P9-07「運用用の health/readiness と手順書を作る」を完了し、運用一次切り分け入口を追加（RUN_ID=20260312T060136Z）。
   - 追加（health/readiness）: `server-modernized/src/main/java/open/dolphin/rest/OperationsHealthResource.java` を新規追加し、`GET /resources/health`（liveness）と `GET /resources/health/readiness`（DB/ORCA/添付ストレージ/PVTキューの集約確認）を実装。
   - 変更（公開設定）: `server-modernized/src/main/webapp/WEB-INF/web.xml` に `open.dolphin.rest.OperationsHealthResource` を追加。
