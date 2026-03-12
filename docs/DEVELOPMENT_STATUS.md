@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P8-06「設定変更の監査と入力検証を加える」を完了し、管理API更新系の監査/検証を強化（RUN_ID=20260312T040136Z）。
+  - 変更（admin config）: `AdminConfigResource` に `PUT /api/admin/config` の入力検証（endpoint URL形式・列挙値・長さ制限）を追加し、成功/失敗とも `SessionAuditDispatcher` に記録。
+  - 変更（orca connection）: `AdminOrcaConnectionResource` の multipart解析失敗・入力不備・永続化失敗時に `ADMIN_ORCA_CONNECTION_SAVE` 監査イベントを失敗記録するよう拡張。
+  - 追加（テスト）: `AdminConfigResourceTest` を新規追加し、不正入力拒否と正常更新経路を固定。
+  - 追加（実施記録）: `docs/modernization/p8-06-config-audit-validation.md` を追加。
 - 2026-03-12: P8-05「user.home と build 生成物依存を取り除く」を完了し、固定パス依存を実行時解決へ変更（RUN_ID=20260312T040136Z）。
   - 変更（deduplicator）: `PushEventDeduplicator` の既定保存先を `user.home` 依存から `jboss.server.data.dir` 優先 / `runtime-state` fallback へ変更。
   - 変更（runtime config）: `RuntimeConfigurationSupport.resolveConfigDirectory` の既定解決を `/opt/jboss/config` 固定から、`opendolphin.config.dir` / `OPENDOLPHIN_CONFIG_DIR` / `jboss.server.config.dir` / `jboss.home.dir` / `jboss.server.data.dir/config` / `${cwd}/config` の順へ変更。
