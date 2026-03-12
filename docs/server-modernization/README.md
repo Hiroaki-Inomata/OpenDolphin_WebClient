@@ -89,6 +89,7 @@
 - `docs/server-modernization/orca-master-reference-update-platform-design-20260212.md`
 - `docs/server-modernization/api-architecture-consolidation-plan.md`
 - `docs/server-modernization/rest-api-modernization.md`
+- `docs/server-modernization/p8-04-runtime-state-store-db-migration.md`
 
 ### module 永続化方針
 - 新規 module 書込は `beanJson` のみを正規経路とする。

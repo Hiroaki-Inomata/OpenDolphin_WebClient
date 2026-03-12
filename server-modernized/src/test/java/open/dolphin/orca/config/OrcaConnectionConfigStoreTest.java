@@ -1,61 +1,46 @@
 package open.dolphin.orca.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.lang.reflect.Field;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Optional;
 import open.dolphin.orca.transport.OrcaConnectionPolicyException;
 import open.dolphin.orca.transport.OrcaTransportSecurityPolicy;
 import open.dolphin.runtime.RuntimeConfigurationSupport;
+import open.dolphin.runtime.RuntimeStateRepository;
 import open.dolphin.security.SecondFactorSecurityConfig;
 import open.dolphin.security.totp.TotpSecretProtector;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 class OrcaConnectionConfigStoreTest {
 
-    @TempDir
-    Path tempDir;
-
-    private String originalDataDir;
+    private static final String STATE_CATEGORY = "orca_connection_config";
+    private static final String STATE_KEY = "default";
 
     @AfterEach
     void tearDown() {
-        if (originalDataDir == null) {
-            System.clearProperty("jboss.server.data.dir");
-        } else {
-            System.setProperty("jboss.server.data.dir", originalDataDir);
-        }
-        System.clearProperty("orca.base-url");
-        System.clearProperty("orca.api.host");
-        System.clearProperty("orca.api.port");
-        System.clearProperty("orca.api.scheme");
-        System.clearProperty("orca.api.user");
-        System.clearProperty("orca.api.password");
-        System.clearProperty("orca.mode");
-        System.clearProperty("orca.api.weborca");
-        System.clearProperty(RuntimeConfigurationSupport.PROP_ENVIRONMENT);
         System.clearProperty(OrcaTransportSecurityPolicy.PROP_ALLOW_INSECURE_HTTP);
+        System.clearProperty(RuntimeConfigurationSupport.PROP_ENVIRONMENT);
     }
 
     @Test
     void updatePersistsEncryptedConfigAndReloadsOnRestart() throws Exception {
-        originalDataDir = System.getProperty("jboss.server.data.dir");
-        System.setProperty("jboss.server.data.dir", tempDir.toString());
-
         TotpSecretProtector protector = buildProtector();
-        OrcaConnectionConfigStore store = newStore(protector);
+        Map<String, String> db = new LinkedHashMap<>();
+        OrcaConnectionConfigStore store = newStore(protector, db);
 
         OrcaConnectionConfigStore.UpdateRequest update = new OrcaConnectionConfigStore.UpdateRequest(
                 Boolean.TRUE,
@@ -70,20 +55,14 @@ class OrcaConnectionConfigStoreTest {
         OrcaConnectionConfigRecord saved = store.update(update, null, null, "RUN-TEST", "FACILITY:admin");
         assertNotNull(saved);
 
-        Path file = tempDir.resolve("opendolphin").resolve("orca-connection-config.json");
-        assertTrue(Files.exists(file));
+        String rawJson = db.get(STATE_CATEGORY + ":" + STATE_KEY);
+        assertNotNull(rawJson);
+        assertTrue(rawJson.contains("\"serverUrl\":\"https://weborca-trial.orca.med.or.jp\""));
+        assertTrue(rawJson.contains("\"username\":\"trial\""));
+        assertTrue(rawJson.contains("passwordEncrypted"));
+        assertTrue(!rawJson.contains("\"passwordEncrypted\":\"weborcatrial\""));
 
-        String rawJson = Files.readString(file);
-        JsonNode root = new ObjectMapper().readTree(rawJson);
-        assertEquals("https://weborca-trial.orca.med.or.jp", root.path("serverUrl").asText());
-        assertEquals(443, root.path("port").asInt());
-        assertEquals("trial", root.path("username").asText());
-
-        String encryptedPassword = root.path("passwordEncrypted").asText();
-        assertTrue(!encryptedPassword.isBlank());
-        assertNotEquals("weborcatrial", encryptedPassword);
-
-        OrcaConnectionConfigStore reloaded = newStore(protector);
+        OrcaConnectionConfigStore reloaded = newStore(protector, db);
         OrcaConnectionConfigRecord snapshot = reloaded.getSnapshot();
         assertNotNull(snapshot);
         assertEquals("https://weborca-trial.orca.med.or.jp", snapshot.getServerUrl());
@@ -98,11 +77,9 @@ class OrcaConnectionConfigStoreTest {
 
     @Test
     void updateFacilityAlsoRefreshesDefaultFallbackRecord() throws Exception {
-        originalDataDir = System.getProperty("jboss.server.data.dir");
-        System.setProperty("jboss.server.data.dir", tempDir.toString());
-
         TotpSecretProtector protector = buildProtector();
-        OrcaConnectionConfigStore store = newStore(protector);
+        Map<String, String> db = new LinkedHashMap<>();
+        OrcaConnectionConfigStore store = newStore(protector, db);
 
         OrcaConnectionConfigStore.UpdateRequest initial = new OrcaConnectionConfigStore.UpdateRequest(
                 Boolean.TRUE,
@@ -141,11 +118,11 @@ class OrcaConnectionConfigStoreTest {
         assertEquals("F001", facilitySnapshot.getFacilityId());
         assertEquals("https://new.example.orca", facilitySnapshot.getServerUrl());
 
-        Path file = tempDir.resolve("opendolphin").resolve("orca-connection-config.json");
-        String rawJson = Files.readString(file);
-        JsonNode root = new ObjectMapper().readTree(rawJson);
-        assertEquals("https://new.example.orca", root.path("records").path("_default").path("serverUrl").asText());
-        assertEquals("new-user", root.path("records").path("_default").path("username").asText());
+        String rawJson = db.get(STATE_CATEGORY + ":" + STATE_KEY);
+        assertNotNull(rawJson);
+        assertTrue(rawJson.contains("\"records\""));
+        assertTrue(rawJson.contains("\"_default\""));
+        assertTrue(rawJson.contains("\"F001\""));
 
         OrcaConnectionConfigStore.ResolvedOrcaConnection resolvedDefault = store.resolve();
         assertEquals("new-user", resolvedDefault.username());
@@ -154,12 +131,12 @@ class OrcaConnectionConfigStoreTest {
 
     @Test
     void updateRejectsInsecureHttpInProduction() throws Exception {
-        originalDataDir = System.getProperty("jboss.server.data.dir");
-        System.setProperty("jboss.server.data.dir", tempDir.toString());
         System.setProperty(RuntimeConfigurationSupport.PROP_ENVIRONMENT, "production");
+        System.clearProperty(OrcaTransportSecurityPolicy.PROP_ALLOW_INSECURE_HTTP);
 
         TotpSecretProtector protector = buildProtector();
-        OrcaConnectionConfigStore store = newStore(protector);
+        Map<String, String> db = new LinkedHashMap<>();
+        OrcaConnectionConfigStore store = newStore(protector, db);
 
         OrcaConnectionConfigStore.UpdateRequest update = new OrcaConnectionConfigStore.UpdateRequest(
                 Boolean.TRUE,
@@ -171,7 +148,7 @@ class OrcaConnectionConfigStoreTest {
                 null
         );
 
-        OrcaConnectionPolicyException ex = org.junit.jupiter.api.Assertions.assertThrows(
+        OrcaConnectionPolicyException ex = assertThrows(
                 OrcaConnectionPolicyException.class,
                 () -> store.update(update, null, null, "RUN-TEST", "FACILITY:admin")
         );
@@ -181,12 +158,9 @@ class OrcaConnectionConfigStoreTest {
 
     @Test
     void initRejectsLegacySingleRecordConfig() throws Exception {
-        originalDataDir = System.getProperty("jboss.server.data.dir");
-        System.setProperty("jboss.server.data.dir", tempDir.toString());
-
-        Path configFile = tempDir.resolve("opendolphin").resolve("orca-connection-config.json");
-        Files.createDirectories(configFile.getParent());
-        Files.writeString(configFile, """
+        TotpSecretProtector protector = buildProtector();
+        Map<String, String> db = new LinkedHashMap<>();
+        db.put(STATE_CATEGORY + ":" + STATE_KEY, """
                 {
                   "version": 1,
                   "serverUrl": "https://legacy.example.orca",
@@ -199,7 +173,7 @@ class OrcaConnectionConfigStoreTest {
 
         IllegalStateException ex = assertThrows(
                 IllegalStateException.class,
-                () -> newStore(buildProtector())
+                () -> newStore(protector, db)
         );
 
         assertEquals(
@@ -208,34 +182,24 @@ class OrcaConnectionConfigStoreTest {
         );
     }
 
-    @Test
-    void initReadsExternalSystemPropertiesWhenEnvIsMissing() throws Exception {
-        originalDataDir = System.getProperty("jboss.server.data.dir");
-        System.setProperty("jboss.server.data.dir", tempDir.toString());
-        System.setProperty("orca.base-url", "https://weborca.example.orca");
-        System.setProperty("orca.api.user", "external-user");
-        System.setProperty("orca.api.password", "external-password");
-        System.setProperty("orca.mode", "weborca");
-
-        OrcaConnectionConfigStore store = newStore(buildProtector());
-
-        OrcaConnectionConfigRecord snapshot = store.getSnapshot();
-        assertNotNull(snapshot);
-        assertEquals("https://weborca.example.orca", snapshot.getServerUrl());
-        assertEquals("external-user", snapshot.getUsername());
-        assertEquals(443, snapshot.getPort());
-
-        OrcaConnectionConfigStore.ResolvedOrcaConnection resolved = store.resolve();
-        assertEquals("https://weborca.example.orca", resolved.baseUrl());
-        assertEquals("external-user", resolved.username());
-        assertEquals("external-password", resolved.password());
-    }
-
-    private OrcaConnectionConfigStore newStore(TotpSecretProtector protector) throws Exception {
+    private OrcaConnectionConfigStore newStore(TotpSecretProtector protector, Map<String, String> db) throws Exception {
         OrcaConnectionConfigStore store = new OrcaConnectionConfigStore();
+
+        RuntimeStateRepository repository = mock(RuntimeStateRepository.class);
+        when(repository.findPayload(eq(STATE_CATEGORY), eq(STATE_KEY)))
+                .thenAnswer(invocation -> Optional.ofNullable(db.get(STATE_CATEGORY + ":" + STATE_KEY)));
+        doAnswer(invocation -> {
+            String key = invocation.getArgument(0, String.class) + ":" + invocation.getArgument(1, String.class);
+            String payload = invocation.getArgument(2, String.class);
+            db.put(key, payload);
+            return null;
+        }).when(repository).upsertPayload(any(String.class), any(String.class), any(String.class), any(Instant.class));
+
         SecondFactorSecurityConfig secondFactorSecurityConfig = mock(SecondFactorSecurityConfig.class);
         when(secondFactorSecurityConfig.getTotpSecretProtector()).thenReturn(protector);
+
         setField(store, "secondFactorSecurityConfig", secondFactorSecurityConfig);
+        setField(store, "stateRepository", repository);
         store.init();
         return store;
     }

@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P8-04「各種 Store のローカル JSON 永続化を DB 化する」を完了し、runtime state 保存先を DB に統一（RUN_ID=20260312T040136Z）。
+  - 変更（repository）: `server-modernized/src/main/java/open/dolphin/runtime/RuntimeStateRepository.java` を追加し、`runtime_state_store` テーブルへの JSON payload upsert/query を共通化。
+  - 変更（store）: `AdminConfigStore` / `MasterUpdateStore` / `OrcaConnectionConfigStore` をローカルJSONファイル保存から `RuntimeStateRepository` 利用へ置換。
+  - 変更（sync status）: `OrcaPatientSyncResource` の状態表示をファイルパスから DB 識別子表示へ変更し、`OrcaPatientSyncStateStore` に `resolveStorageDescriptor()` を追加。
+  - 追加（migration）: `V0304__runtime_state_store.sql` を `src/main/resources/db/migration` と `tools/flyway/sql` に追加。
+  - 変更（テスト）: `FreshSchemaBaselineTest` の適用バージョン期待値を `0304` へ更新し、`runtime_state_store` の存在確認を追加。
+  - 追加（実施記録）: `docs/server-modernization/p8-04-runtime-state-store-db-migration.md` を追加。
 - 2026-03-12: P8-02「S3 認証を固定資格情報から外す」を完了し、S3 クレデンシャルを provider chain へ統一（RUN_ID=20260312T010127Z）。
   - 変更（storage）: `server-modernized/src/main/java/open/dolphin/storage/attachment/AttachmentStorageManager.java` / `server-modernized/src/main/java/open/dolphin/storage/image/ImageStorageManager.java` の S3 client 初期化を `DefaultCredentialsProvider` へ置換。
   - 変更（settings/loader）: `server-modernized/src/main/java/open/dolphin/storage/attachment/AttachmentStorageSettings.java` から `accessKey`/`secretKey` を削除し、`AttachmentStorageConfigLoader` の固定資格情報必須チェックを削除。

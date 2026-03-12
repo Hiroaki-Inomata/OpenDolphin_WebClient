@@ -1,15 +1,16 @@
 package open.dolphin.rest.admin;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import open.dolphin.rest.AbstractResource;
 import open.dolphin.runtime.RuntimeConfigurationSupport;
+import open.dolphin.runtime.RuntimeStateRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,24 +18,29 @@ import org.slf4j.LoggerFactory;
 public class AdminConfigStore {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AdminConfigStore.class);
-    private static final String STORAGE_DIR = "opendolphin";
-    private static final String STORAGE_FILE = "admin-config.json";
+    private static final String STATE_CATEGORY = "admin_config";
+    private static final String STATE_KEY = "default";
 
     private final ObjectMapper mapper = AbstractResource.getSerializeMapper();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    private final Path storagePath;
+
+    @Inject
+    private RuntimeStateRepository stateRepository;
+
     private AdminConfigSnapshot current;
 
     public AdminConfigStore() {
-        this.storagePath = resolveStoragePath();
+    }
+
+    @PostConstruct
+    public void init() {
         this.current = load();
         if (this.current == null) {
             this.current = defaultSnapshot();
-            persist(this.current);
         } else {
             this.current = applyDefaults(this.current);
-            persist(this.current);
         }
+        persist(this.current);
     }
 
     public AdminConfigSnapshot getSnapshot() {
@@ -86,36 +92,32 @@ public class AdminConfigStore {
     }
 
     private AdminConfigSnapshot load() {
-        if (storagePath == null || !Files.exists(storagePath)) {
+        if (stateRepository == null) {
+            LOGGER.warn("RuntimeStateRepository is unavailable. returning default admin config");
             return null;
         }
-        try {
-            return mapper.readValue(storagePath.toFile(), AdminConfigSnapshot.class);
-        } catch (IOException ex) {
-            LOGGER.warn("Failed to load admin config from {}: {}", storagePath, ex.getMessage());
-            return null;
-        }
+        return stateRepository.findPayload(STATE_CATEGORY, STATE_KEY)
+                .map(json -> {
+                    try {
+                        return mapper.readValue(json, AdminConfigSnapshot.class);
+                    } catch (IOException ex) {
+                        LOGGER.warn("Failed to parse admin config payload from DB: {}", ex.getMessage());
+                        return null;
+                    }
+                })
+                .orElse(null);
     }
 
     private void persist(AdminConfigSnapshot snapshot) {
-        if (snapshot == null || storagePath == null) {
+        if (snapshot == null || stateRepository == null) {
             return;
         }
         try {
-            mapper.writeValue(storagePath.toFile(), snapshot);
+            stateRepository.upsertPayload(STATE_CATEGORY, STATE_KEY, mapper.writeValueAsString(snapshot), Instant.now());
         } catch (IOException ex) {
-            LOGGER.warn("Failed to persist admin config to {}: {}", storagePath, ex.getMessage());
-        }
-    }
-
-    private Path resolveStoragePath() {
-        Path base = RuntimeConfigurationSupport.resolveServerDataDirectoryOrThrow("AdminConfigStore");
-        try {
-            Path dir = base.resolve(STORAGE_DIR);
-            Files.createDirectories(dir);
-            return dir.resolve(STORAGE_FILE);
-        } catch (IOException ex) {
-            throw new IllegalStateException("Failed to create admin config directory: " + base, ex);
+            LOGGER.warn("Failed to serialize admin config for DB persistence: {}", ex.getMessage());
+        } catch (RuntimeException ex) {
+            LOGGER.warn("Failed to persist admin config in DB: {}", ex.getMessage());
         }
     }
 
