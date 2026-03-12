@@ -10,6 +10,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.StreamingOutput;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -37,6 +38,7 @@ import open.dolphin.security.audit.AuditEventPayload;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.PatientImageServiceBean;
 import open.dolphin.session.PatientServiceBean;
+import open.dolphin.storage.attachment.AttachmentStorageManager;
 import org.jboss.resteasy.plugins.providers.multipart.InputPart;
 import org.jboss.resteasy.plugins.providers.multipart.MultipartFormDataInput;
 
@@ -75,6 +77,9 @@ public class PatientImagesResource extends AbstractResource {
 
     @Inject
     private AuditTrailService auditTrailService;
+
+    @Inject
+    private AttachmentStorageManager attachmentStorageManager;
 
     @Context
     private HttpServletRequest httpServletRequest;
@@ -156,8 +161,8 @@ public class PatientImagesResource extends AbstractResource {
                     Map.of("patientId", patientId, "imageId", imageId), null);
         }
 
-        byte[] bytes = attachment.getContentBytes();
-        if (bytes == null) {
+        if (attachment.getContentBytes() == null
+                && (attachment.getUri() == null || attachment.getUri().isBlank())) {
             throw restError(httpServletRequest, Response.Status.INTERNAL_SERVER_ERROR,
                     "image_bytes_missing", "Image bytes are not available",
                     Map.of("patientId", patientId, "imageId", imageId), null);
@@ -168,6 +173,8 @@ public class PatientImagesResource extends AbstractResource {
             contentType = "application/octet-stream";
         }
         String fileName = safeFileName(attachment.getFileName(), "image-" + imageId);
+        long contentLength = attachmentStorageManager.resolveContentLength(attachment);
+        StreamingOutput output = stream -> attachmentStorageManager.writeBinaryTo(attachment, stream);
 
         recordAudit("PATIENT_IMAGE_DOWNLOAD", detailsOf(
                 "status", "SUCCESS",
@@ -176,13 +183,16 @@ public class PatientImagesResource extends AbstractResource {
                 "attachmentId", imageId,
                 "filename", fileName,
                 "contentType", contentType,
-                "size", bytes.length
+                "size", contentLength > 0 ? contentLength : null
         ));
 
+        Response.ResponseBuilder builder = noStore(Response.ok(output, contentType))
+                .header("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+        if (contentLength > 0L) {
+            builder.header("Content-Length", contentLength);
+        }
         applyNoStoreHeaders(httpServletResponse);
-        return noStore(Response.ok(bytes, contentType))
-                .header("Content-Disposition", "attachment; filename=\"" + fileName + "\"")
-                .build();
+        return builder.build();
     }
 
     private void requireFeatureEnabled() {

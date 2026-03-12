@@ -9,6 +9,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -16,10 +17,12 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.MultivaluedHashMap;
+import jakarta.ws.rs.core.StreamingOutput;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.OutputStream;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -32,6 +35,7 @@ import open.dolphin.rest.dto.PatientImageUploadResponse;
 import open.dolphin.security.audit.AuditTrailService;
 import open.dolphin.session.PatientImageServiceBean;
 import open.dolphin.session.PatientServiceBean;
+import open.dolphin.storage.attachment.AttachmentStorageManager;
 import org.jboss.resteasy.plugins.providers.multipart.InputPart;
 import org.jboss.resteasy.plugins.providers.multipart.MultipartFormDataInput;
 import org.junit.jupiter.api.AfterEach;
@@ -56,6 +60,9 @@ class PatientImagesResourceTest {
 
     @Mock
     private AuditTrailService auditTrailService;
+
+    @Mock
+    private AttachmentStorageManager attachmentStorageManager;
 
     @Mock
     private HttpServletRequest request;
@@ -200,13 +207,24 @@ class PatientImagesResourceTest {
     }
 
     @Test
-    void download_returnsNoStoreHeaders() {
+    void download_returnsNoStoreHeaders() throws Exception {
         byte[] bytes = new byte[] {1, 2, 3};
         AttachmentModel attachment = new AttachmentModel();
-        attachment.setContentBytes(bytes);
+        attachment.setUri("s3://test-bucket/path/test.png");
         attachment.setContentType("image/png");
         attachment.setFileName("test.png");
+        attachment.setContentSize(bytes.length);
         when(patientImageServiceBean.getImageForDownload("F001", "P001", 10L)).thenReturn(attachment);
+        when(attachmentStorageManager.resolveContentLength(attachment)).thenReturn((long) bytes.length);
+        doAnswer(invocation -> {
+            OutputStream out = invocation.getArgument(1, OutputStream.class);
+            try {
+                out.write(bytes);
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+            return null;
+        }).when(attachmentStorageManager).writeBinaryTo(eq(attachment), any(OutputStream.class));
 
         Response actual = resource.download("P001", 10L);
 
@@ -214,19 +232,32 @@ class PatientImagesResourceTest {
         assertThat(actual.getHeaderString("Cache-Control")).isEqualTo("private, no-store, max-age=0, must-revalidate");
         assertThat(actual.getHeaderString("Pragma")).isEqualTo("no-cache");
         assertThat(actual.getHeaderString("Expires")).isEqualTo("0");
+        assertThat(actual.getHeaderString("Content-Length")).isEqualTo("3");
         assertThat(actual.getHeaderString("Content-Disposition")).isEqualTo("attachment; filename=\"test.png\"");
-        assertThat((byte[]) actual.getEntity()).containsExactly(bytes);
+        assertThat(toBytes(actual.getEntity())).containsExactly(bytes);
+        verify(attachmentStorageManager).writeBinaryTo(eq(attachment), any(OutputStream.class));
         verify(response).setHeader("Cache-Control", "private, no-store, max-age=0, must-revalidate");
     }
 
     @Test
-    void download_returnsPdfPayloadWithNoStoreHeaders() {
+    void download_returnsPdfPayloadWithNoStoreHeaders() throws Exception {
         byte[] bytes = "%PDF-1.4\nmock\n".getBytes(StandardCharsets.UTF_8);
         AttachmentModel attachment = new AttachmentModel();
-        attachment.setContentBytes(bytes);
+        attachment.setUri("s3://test-bucket/path/report.pdf");
         attachment.setContentType("application/pdf");
         attachment.setFileName("report.pdf");
+        attachment.setContentSize(bytes.length);
         when(patientImageServiceBean.getImageForDownload("F001", "P001", 11L)).thenReturn(attachment);
+        when(attachmentStorageManager.resolveContentLength(attachment)).thenReturn((long) bytes.length);
+        doAnswer(invocation -> {
+            OutputStream out = invocation.getArgument(1, OutputStream.class);
+            try {
+                out.write(bytes);
+            } catch (Exception ex) {
+                throw new IllegalStateException(ex);
+            }
+            return null;
+        }).when(attachmentStorageManager).writeBinaryTo(eq(attachment), any(OutputStream.class));
 
         Response actual = resource.download("P001", 11L);
 
@@ -234,7 +265,7 @@ class PatientImagesResourceTest {
         assertThat(actual.getMediaType().toString()).isEqualTo("application/pdf");
         assertThat(actual.getHeaderString("Cache-Control")).isEqualTo("private, no-store, max-age=0, must-revalidate");
         assertThat(actual.getHeaderString("Content-Disposition")).isEqualTo("attachment; filename=\"report.pdf\"");
-        assertThat((byte[]) actual.getEntity()).containsExactly(bytes);
+        assertThat(toBytes(actual.getEntity())).containsExactly(bytes);
     }
 
     @Test
@@ -253,6 +284,16 @@ class PatientImagesResourceTest {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             ImageIO.write(image, "png", out);
             return out.toByteArray();
+        }
+    }
+
+    private static byte[] toBytes(Object entity) {
+        assertThat(entity).isInstanceOf(StreamingOutput.class);
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            ((StreamingOutput) entity).write(out);
+            return out.toByteArray();
+        } catch (Exception ex) {
+            throw new IllegalStateException(ex);
         }
     }
 

@@ -7,8 +7,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -121,6 +124,22 @@ class AttachmentStorageManagerTest {
     }
 
     @Test
+    void writeBinaryTo_streamsFromS3WithoutMaterializingContentBytes() throws Exception {
+        byte[] payload = "stream-from-s3".getBytes(StandardCharsets.UTF_8);
+        AttachmentModel attachment = buildAttachment("report.txt", null);
+        attachment.setUri("s3://test-bucket/attachments/doc-20/att-10-report.txt");
+        when(s3Client.getObject(any(GetObjectRequest.class))).thenReturn(new ResponseInputStream<>(
+                GetObjectResponse.builder().build(),
+                AbortableInputStream.create(new ByteArrayInputStream(payload))));
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        manager.writeBinaryTo(attachment, out);
+
+        assertThat(out.toByteArray()).containsExactly(payload);
+        assertThat(attachment.getContentBytes()).isNull();
+    }
+
+    @Test
     void populateBinary_downloadsPdfBytesWithoutMutation() {
         byte[] payload = "%PDF-1.4\nmock\n".getBytes(StandardCharsets.UTF_8);
         AttachmentModel attachment = buildAttachment("report.pdf", "application/pdf", null);
@@ -141,6 +160,31 @@ class AttachmentStorageManagerTest {
         assertThatThrownBy(() -> manager.populateBinary(attachment))
                 .isInstanceOf(AttachmentStorageException.class)
                 .hasMessageContaining("neither inline bytes nor external uri");
+    }
+
+    @Test
+    void uploadToS3OutsideTransaction_acceptsStreamPayload() {
+        byte[] payload = "stream-upload".getBytes(StandardCharsets.UTF_8);
+        AttachmentModel attachment = buildAttachment("stream.txt", "text/plain", null);
+        doAnswer(invocation -> {
+            RequestBody body = invocation.getArgument(1, RequestBody.class);
+            try (InputStream in = body.contentStreamProvider().newStream()) {
+                while (in.read() != -1) {
+                    // consume stream to trigger digest updates
+                }
+            }
+            return null;
+        }).when(s3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
+
+        boolean uploaded = manager.uploadToS3OutsideTransaction(
+                attachment,
+                new ByteArrayInputStream(payload),
+                payload.length);
+
+        assertThat(uploaded).isTrue();
+        assertThat(attachment.getUri()).isEqualTo("s3://test-bucket/attachments/doc-20/att-10-stream.txt");
+        assertThat(attachment.getDigest()).isEqualTo(sha256Hex(payload));
+        verify(s3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
     }
 
     @Test
