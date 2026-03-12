@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P10-03「業務受け入れ試験を行う（モダナイズ版単体）」を完了し、仮想ロールUAT方式で受け入れ判定を確定（RUN_ID=20260312T110053Z）。
+  - 実施（仮想ロール台本）: 医師/受付/事務の役割別シナリオを作成し、期待結果/実結果/差分を `docs/modernization/p10-03-virtual-role-uat.md` に記録。
+  - 実施（回帰証跡）: `PatientModV2OutpatientResourceTest` / `KarteResourceCaseListV3Test` / `PVTServiceBeanClinicalTest` / `OrcaOrderBundleResourceTest` / `PatientImagesResourceTest` / `AdminAccessResourceTest` / `SessionAuthResourceTest` を実行し PASS（42 tests）。
+  - 判定: 完了条件（台本化・結果記録・指摘一覧作成）を満たしたため `P10-03` を ☑ 化。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P10-03` を ☑ 化し、`docs/server-modernization/README.md` に UAT 実施記録リンクを追加。
 - 2026-03-12: 計画前提を更新し、`P10-03` 以降を「モダナイズ版単体の正常稼働確認」で完了判定する方針へ再定義（RUN_ID=20260312T100053Z）。
   - 前提変更: 旧サーバーは稼働していないため、新旧比較を必須条件から除外。
   - 方針: `P10-03` は仮想ロールUATを許容、`P10-05`〜`P10-07` はモダナイズ版の稼働確認/監視健全性を中心に実施。
