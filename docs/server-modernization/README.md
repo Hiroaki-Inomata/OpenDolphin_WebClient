@@ -89,6 +89,7 @@
 - `docs/modernization/p9-03-auth-session-unification.md`（P9-03: 認証方式のセッション統一と権限判定整理）
 - `docs/modernization/p9-04-junit5-unification.md`（P9-04: common/server-modernized の JUnit5 基盤統一）
 - `docs/modernization/p9-05-static-analysis-gate.md`（P9-05: SpotBugs/Checkstyle/PMD のCI必須ゲート化）
+- `docs/modernization/p9-06-deployment-simplification.md`（P9-06: WAR+WildFly 配備方式の一本化）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

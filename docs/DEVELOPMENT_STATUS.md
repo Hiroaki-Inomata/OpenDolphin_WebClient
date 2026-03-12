@@ -36,6 +36,10 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P9-06「配備方式を簡素化する」を完了し、WAR+WildFly 方式を標準導線へ固定（RUN_ID=20260312T050136Z）。
+  - 変更（起動既定）: `setup-modernized-env.sh` の `WEB_CLIENT_MODE` 既定値を `docker` から `npm` へ変更し、標準起動を `server-modernized + web-client(npm)` に統一。
+  - 追加（方針書）: `docs/modernization/p9-06-deployment-simplification.md` を新規作成し、採用方式と標準/非標準導線を明文化。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P9-06` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
 - 2026-03-12: P9-05「静的解析を必須ゲートにする」を完了し、SpotBugs/Checkstyle/PMD のCI強制判定を追加（RUN_ID=20260312T050136Z）。
   - 変更（pom）: `server-modernized/pom.xml` / `common/pom.xml` の static-analysis profile に `static.analysis.enforce` を追加し、`failOnError` / `failOnViolation` を強制フラグ連動へ変更。
   - 変更（path解決）: static-analysis の config/output path を `${maven.multiModuleProjectDirectory}` 基準へ統一。
