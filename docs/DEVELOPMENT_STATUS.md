@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P9-05「静的解析を必須ゲートにする」を完了し、SpotBugs/Checkstyle/PMD のCI強制判定を追加（RUN_ID=20260312T050136Z）。
+  - 変更（pom）: `server-modernized/pom.xml` / `common/pom.xml` の static-analysis profile に `static.analysis.enforce` を追加し、`failOnError` / `failOnViolation` を強制フラグ連動へ変更。
+  - 変更（path解決）: static-analysis の config/output path を `${maven.multiModuleProjectDirectory}` 基準へ統一。
+  - 追加（CI）: `.github/workflows/server-modernized-static-analysis-gate.yml` を新規追加し、PR 時に `-Dstatic.analysis.enforce=true` で static analysis を必須ゲート化。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P9-05` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 追加（実施記録）: `docs/modernization/p9-05-static-analysis-gate.md` を追加。
 - 2026-03-12: P9-04「テスト基盤を JUnit 5 に統一する」を完了し、common の JUnit4 依存を解消（RUN_ID=20260312T050136Z）。
   - 変更（pom）: `common/pom.xml` から `junit:junit` を削除し、`junit-jupiter-api` / `junit-jupiter-engine` を追加。`maven-surefire-plugin` は offline 実行可能な `3.1.2` へ固定。
   - 変更（test）: `OrcaApiEncodingTest` / `OrcaAnalyzeTest` を `org.junit.jupiter.api.Test` + Jupiter Assertions へ移行。
