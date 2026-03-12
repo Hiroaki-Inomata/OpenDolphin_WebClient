@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P9-03「認証・セッション方式を決めて実装する」を完了し、認証経路をセッション方式へ統一（RUN_ID=20260312T050136Z）。
+  - 変更（auth filter）: `LogFilter` から `SecurityContext` principal fallback を削除し、`AuthSessionSupport.AUTH_ACTOR_ID` セッション属性のみを認証ソースに統一。
+  - 変更（テスト）: `LogFilterTest` を session 前提へ更新し、`facility:user` composite での remoteUser 伝播と unauthorized 分岐を固定。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P9-03` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 追加（実施記録）: `docs/modernization/p9-03-auth-session-unification.md` を追加。
 - 2026-03-12: P9-02「メトリクス生成を単純化する」を完了し、registry 解決経路と ORCA 外部連携指標を整理（RUN_ID=20260312T050136Z）。
   - 変更（producer）: `MeterRegistryProducer` から OTLP 無効化 sweeper / registry close-remove 回避処理を削除し、`JNDI lookup -> global fallback` の単純経路に統一。
   - 変更（orca metrics）: `OrcaHttpClient` に `opendolphin_orca_external_request_total` / `opendolphin_orca_external_error_total` / `opendolphin_orca_external_latency` を追加し、`method/path/status(+category)` タグで記録。

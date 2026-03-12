@@ -14,7 +14,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import jakarta.security.enterprise.SecurityContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.ServletRequest;
@@ -53,7 +52,6 @@ class LogFilterTest {
     @BeforeEach
     void setUp() throws Exception {
         filter = new LogFilter();
-        setField("securityContext", (SecurityContext) null);
     }
 
     @AfterEach
@@ -92,13 +90,12 @@ class LogFilterTest {
 
     @Test
     void authenticatedIdentityTokenRequestPassesThrough() throws Exception {
-        SecurityContext sc = mock(SecurityContext.class);
-        when(sc.getCallerPrincipal()).thenReturn(() -> "F001:user01");
-        setField("securityContext", sc);
-
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
         FilterChain chain = mock(FilterChain.class);
+        HttpSession session = mock(HttpSession.class);
+        when(session.getAttribute(AuthSessionSupport.AUTH_ACTOR_ID)).thenReturn("F001:user01");
+        when(request.getSession(false)).thenReturn(session);
 
         Map<String, Object> attributes = new HashMap<>();
         doAnswer(invocation -> {
@@ -228,11 +225,7 @@ class LogFilterTest {
     }
 
     @Test
-    void sessionUserIsResolvedBeforeSecurityPrincipal() throws Exception {
-        SecurityContext sc = mock(SecurityContext.class);
-        when(sc.getCallerPrincipal()).thenReturn(() -> "F001:principal");
-        setField("securityContext", sc);
-
+    void sessionUserIsResolvedForRemotePrincipal() throws Exception {
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
         FilterChain chain = mock(FilterChain.class);
@@ -263,12 +256,12 @@ class LogFilterTest {
     void errorResponseAuditUsesUnifiedFailureMetadata() throws Exception {
         SessionAuditDispatcher dispatcher = mock(SessionAuditDispatcher.class);
         setField("sessionAuditDispatcher", dispatcher);
-        SecurityContext sc = mock(SecurityContext.class);
-        when(sc.getCallerPrincipal()).thenReturn(() -> "F001:doctor01");
-        setField("securityContext", sc);
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
+        HttpSession session = mock(HttpSession.class);
+        when(session.getAttribute(AuthSessionSupport.AUTH_ACTOR_ID)).thenReturn("F001:doctor01");
+        when(request.getSession(false)).thenReturn(session);
         FilterChain chain = (req, res) -> {
             HttpServletRequest httpReq = (HttpServletRequest) req;
             httpReq.setAttribute(AbstractResource.ERROR_CODE_ATTRIBUTE, "mock_error");
@@ -400,13 +393,12 @@ class LogFilterTest {
 
     @Test
     void facilityHeaderDoesNotOverridePrincipal() throws Exception {
-        SecurityContext sc = mock(SecurityContext.class);
-        when(sc.getCallerPrincipal()).thenReturn(() -> "F001:doctor01");
-        setField("securityContext", sc);
-
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
         FilterChain chain = mock(FilterChain.class);
+        HttpSession session = mock(HttpSession.class);
+        when(session.getAttribute(AuthSessionSupport.AUTH_ACTOR_ID)).thenReturn("F001:doctor01");
+        when(request.getSession(false)).thenReturn(session);
 
         Map<String, Object> attributes = new HashMap<>();
         doAnswer(invocation -> {
@@ -468,14 +460,13 @@ class LogFilterTest {
 
     @Test
     void nonCompositePrincipalIsRejected() throws Exception {
-        SecurityContext sc = mock(SecurityContext.class);
-        when(sc.getCallerPrincipal()).thenReturn(() -> "doctor01");
-        setField("securityContext", sc);
-
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
         FilterChain chain = mock(FilterChain.class);
         stubResponseOutput(response);
+        HttpSession session = mock(HttpSession.class);
+        when(session.getAttribute(AuthSessionSupport.AUTH_ACTOR_ID)).thenReturn("doctor01");
+        when(request.getSession(false)).thenReturn(session);
 
         Map<String, Object> attributes = new HashMap<>();
         doAnswer(invocation -> {

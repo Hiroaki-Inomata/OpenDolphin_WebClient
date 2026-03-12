@@ -1,7 +1,6 @@
 package open.dolphin.rest;
 
 import java.io.IOException;
-import java.security.Principal;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -16,7 +15,6 @@ import jakarta.servlet.annotation.WebFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
-import jakarta.security.enterprise.SecurityContext;
 import open.dolphin.audit.AuditEventEnvelope;
 import open.dolphin.infomodel.IInfoModel;
 import open.dolphin.security.audit.AuditDetailSanitizer;
@@ -55,9 +53,6 @@ public class LogFilter implements Filter {
     private static final String SESSION_FACTOR2_LOGIN_PATH = "/resources/api/session/login/factor2";
     private static final String LOGOUT_PATH = "/resources/api/logout";
     private static final Pattern SAFE_TOKEN = Pattern.compile("^[A-Za-z0-9._-]{1,64}$");
-
-    @Inject
-    private SecurityContext securityContext;
 
     @Inject
     private SessionAuditDispatcher sessionAuditDispatcher;
@@ -105,9 +100,6 @@ public class LogFilter implements Filter {
             }
 
             Optional<String> principalUser = resolveSessionUser(req);
-            if (principalUser.isEmpty()) {
-                principalUser = resolvePrincipalUser();
-            }
             if (principalUser.isEmpty()) {
                 logUnauthorized(req, null, traceId);
                 recordUnauthorizedAudit(req, traceId, null, "unauthorized",
@@ -209,26 +201,6 @@ public class LogFilter implements Filter {
 
     @Override
     public void destroy() {
-    }
-
-    private Optional<String> resolvePrincipalUser() {
-        if (securityContext == null) {
-            return Optional.empty();
-        }
-        try {
-            Principal principal = securityContext.getCallerPrincipal();
-            if (principal == null) {
-                return Optional.empty();
-            }
-            String name = principal.getName();
-            if (name == null || name.isBlank() || isAnonymousPrincipal(name)) {
-                return Optional.empty();
-            }
-            return Optional.of(name);
-        } catch (IllegalStateException ex) {
-            SECURITY_LOGGER.log(Level.FINE, "SecurityContext unavailable; request will be rejected.", ex);
-            return Optional.empty();
-        }
     }
 
     private String resolveTraceId(HttpServletRequest req) {
@@ -402,10 +374,6 @@ public class LogFilter implements Filter {
             return null;
         }
         return value.trim();
-    }
-
-    private boolean isAnonymousPrincipal(String principalName) {
-        return principalName != null && ANONYMOUS_PRINCIPAL.equalsIgnoreCase(principalName.trim());
     }
 
     private boolean isCompositePrincipal(String candidate) {
