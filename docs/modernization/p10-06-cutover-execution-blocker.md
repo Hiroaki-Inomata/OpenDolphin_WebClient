@@ -2,7 +2,23 @@
 
 ## 事象
 - タスク `P10-06`（本番切替を実施する）は継続して未完了。
-- 最新 RUN: `20260312T170046Z`
+- 最新 RUN: `20260312T180123Z`
+
+## 実施した試行（RUN_ID: 20260312T180123Z）
+1. Docker daemon 応答性の再確認（socket/API 直接）
+- `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping`
+- `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/version`
+- 結果: **いずれも RC=28 timeout**（0 bytes 応答）
+
+2. Docker CLI 経由の再確認（default context を含む）
+- `docker info`（12秒 watchdog）
+- `docker --context default info`（12秒 watchdog）
+- 結果: **いずれも RC=1**。Client 情報は取得できるが Server は `ERROR: ... context canceled`。
+
+3. 切替導線の fail-fast 動作確認（production env）
+- `server-modernized.production.env.sample` / `custom.properties.production.sample` を `/tmp` 配下へ複製し、port 重複回避設定を与えた一時 env で実行。
+- `DOCKER_PING_TIMEOUT_SECONDS=2 COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312t180123z ops/modernized-server/scripts/start-validation-env.sh /tmp/server-modernized.production.20260312T180123Z.env`
+- 結果: `docker daemon is not responding ... aborting before compose up` で **RC=1**（期待どおりハング前停止）。
 
 ## 実施した試行（RUN_ID: 20260312T170046Z）
 1. Docker daemon 応答性の再確認（socket/API 直接）
