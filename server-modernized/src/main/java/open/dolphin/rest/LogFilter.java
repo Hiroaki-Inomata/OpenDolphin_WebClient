@@ -46,6 +46,8 @@ public class LogFilter implements Filter {
     private static final String MDC_TRACE_ID_KEY = "traceId";
     private static final String MDC_REQUEST_ID_KEY = "requestId";
     private static final String MDC_RUN_ID_KEY = "runId";
+    private static final String MDC_USER_ID_KEY = "userId";
+    private static final String MDC_FACILITY_ID_KEY = "facilityId";
     private static final String ANONYMOUS_PRINCIPAL = "anonymous";
     private static final String ERROR_AUDIT_RECORDED_ATTR = LogFilter.class.getName() + ".ERROR_AUDIT_RECORDED";
     private static final String PRINCIPAL_FACILITY_DETAILS_KEY = "facilityId";
@@ -89,13 +91,15 @@ public class LogFilter implements Filter {
         MdcSnapshot requestIdSnapshot = applyMdcValue(MDC_REQUEST_ID_KEY, requestId);
         MdcSnapshot runIdSnapshot = applyMdcValue(MDC_RUN_ID_KEY, runId);
         MdcSnapshot remoteUserSnapshot = null;
+        MdcSnapshot userIdSnapshot = null;
+        MdcSnapshot facilityIdSnapshot = null;
         BlockWrapper wrapper = null;
 
         try {
             if (isAnonymousAllowed(req)) {
                 wrapper = wrapForAnonymous(req, traceId, requestId, runId);
                 chain.doFilter(wrapper, response);
-                maybeLogFailedResponse(res, wrapper, traceId, requestId, runId, startedNanos);
+                logAccessResponse(res, wrapper, traceId, requestId, runId, startedNanos, null, null);
                 maybeRecordErrorAudit(wrapper, res, null);
                 return;
             }
@@ -131,28 +135,13 @@ public class LogFilter implements Filter {
             wrapper.setHeader(REQUEST_ID_HEADER, requestId);
             wrapper.setHeader(RUN_ID_HEADER, runId);
             remoteUserSnapshot = applyMdcValue(SessionTraceAttributes.ACTOR_ID_MDC_KEY, resolvedUser);
-
-            StringBuilder sb = new StringBuilder();
-            sb.append(wrapper.getRemoteAddr()).append(" ");
-            sb.append(wrapper.getShortUser()).append(" ");
-            sb.append(wrapper.getMethod()).append(" ");
-//minagawa^ VisitTouch logを分ける        
-            String uri = wrapper.getRequestURIForLog();
-            sb.append(uri);
-            sb.append(" traceId=").append(traceId);
-            sb.append(" requestId=").append(requestId);
-            if (runId != null && !runId.isBlank()) {
-                sb.append(" runId=").append(runId);
-            }
-            if (uri.startsWith("/jtouch")) {
-                Logger.getLogger("visit.touch").info(sb.toString());
-            } else {
-                Logger.getLogger("open.dolphin").info(sb.toString());
-            }
-//minagawa 
+            String facilityId = extractFacilitySegment(resolvedUser);
+            String userId = extractUserSegment(resolvedUser);
+            facilityIdSnapshot = applyMdcValue(MDC_FACILITY_ID_KEY, facilityId);
+            userIdSnapshot = applyMdcValue(MDC_USER_ID_KEY, userId);
 
             chain.doFilter(wrapper, response);
-            maybeLogFailedResponse(res, wrapper, traceId, requestId, runId, startedNanos);
+            logAccessResponse(res, wrapper, traceId, requestId, runId, startedNanos, userId, facilityId);
             maybeRecordErrorAudit(wrapper, res, null);
         } catch (IOException | ServletException ex) {
             maybeRecordErrorAudit(wrapper != null ? wrapper : req, res, ex);
@@ -165,6 +154,8 @@ public class LogFilter implements Filter {
             restoreMdcValue(requestIdSnapshot);
             restoreMdcValue(runIdSnapshot);
             restoreMdcValue(remoteUserSnapshot);
+            restoreMdcValue(userIdSnapshot);
+            restoreMdcValue(facilityIdSnapshot);
         }
     }
 
@@ -306,21 +297,32 @@ public class LogFilter implements Filter {
         return uri.contains("/orca/") || uri.endsWith("/orca");
     }
 
-    private void maybeLogFailedResponse(HttpServletResponse response, BlockWrapper request, String traceId,
-            String requestId, String runId, long startedNanos) {
+    private void logAccessResponse(HttpServletResponse response, BlockWrapper request, String traceId,
+            String requestId, String runId, long startedNanos, String userId, String facilityId) {
         if (response == null || request == null) {
             return;
         }
         int status = response.getStatus();
-        if (status < 400) {
-            return;
-        }
         long elapsedMs = TimeUnit.NANOSECONDS.toMillis(Math.max(0L, System.nanoTime() - startedNanos));
         String uri = request.getRequestURIForLog();
         Logger logger = uri != null && uri.startsWith("/jtouch") ? Logger.getLogger("visit.touch") : Logger.getLogger("open.dolphin");
-        logger.warning(() -> String.format("REST %s %s status=%d elapsedMs=%d traceId=%s requestId=%s runId=%s",
-                request.getMethod(), uri, status, elapsedMs,
-                safe(traceId), safe(requestId), safe(runId)));
+        String record = String.format(
+                "access method=%s uri=%s status=%d elapsedMs=%d traceId=%s requestId=%s runId=%s userId=%s facilityId=%s remoteAddr=%s",
+                safe(request.getMethod()),
+                safe(uri),
+                status,
+                elapsedMs,
+                safe(traceId),
+                safe(requestId),
+                safe(runId),
+                safe(userId),
+                safe(facilityId),
+                safe(request.getRemoteAddr()));
+        if (status >= 400) {
+            logger.warning(record);
+        } else {
+            logger.info(record);
+        }
     }
 
     private static String safe(String value) {
@@ -422,6 +424,17 @@ public class LogFilter implements Filter {
             return candidate.substring(0, separator);
         }
         return null;
+    }
+
+    private String extractUserSegment(String candidate) {
+        if (candidate == null) {
+            return null;
+        }
+        int separator = candidate.indexOf(IInfoModel.COMPOSITE_KEY_MAKER);
+        if (separator >= 0 && separator + 1 < candidate.length()) {
+            return candidate.substring(separator + 1);
+        }
+        return candidate;
     }
 
     private Map<String, Object> unauthorizedDetails(String reason) {

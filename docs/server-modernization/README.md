@@ -84,6 +84,7 @@
 - `docs/modernization/p8-03-config-loading-unification.md`（P8-03: YAML/properties/JSON 設定読込ルールの統一）
 - `docs/modernization/p8-05-remove-userhome-target-dependency.md`（P8-05: user.home と build 生成物依存の除去）
 - `docs/modernization/p8-06-config-audit-validation.md`（P8-06: 設定変更の監査と入力検証）
+- `docs/modernization/p9-01-log-format-unification.md`（P9-01: ログ形式の統一）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

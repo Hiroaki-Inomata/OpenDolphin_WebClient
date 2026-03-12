@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P9-01「ログ形式を統一する」を完了し、access log の共通項目と MDC を統一（RUN_ID=20260312T040136Z）。
+  - 変更（filter）: `LogFilter` のアクセスログを `method/uri/status/elapsedMs/traceId/requestId/runId/userId/facilityId/remoteAddr` の key-value 形式へ統一。
+  - 変更（MDC）: `userId` / `facilityId` キーを追加し、composite principal（`facility:user`）から抽出して request 処理中に設定。
+  - 変更（ログレベル）: access log は `2xx/3xx=INFO`, `4xx/5xx=WARNING` に統一。
+  - 追加（実施記録）: `docs/modernization/p9-01-log-format-unification.md` を追加。
 - 2026-03-12: P8-06「設定変更の監査と入力検証を加える」を完了し、管理API更新系の監査/検証を強化（RUN_ID=20260312T040136Z）。
   - 変更（admin config）: `AdminConfigResource` に `PUT /api/admin/config` の入力検証（endpoint URL形式・列挙値・長さ制限）を追加し、成功/失敗とも `SessionAuditDispatcher` に記録。
   - 変更（orca connection）: `AdminOrcaConnectionResource` の multipart解析失敗・入力不備・永続化失敗時に `ADMIN_ORCA_CONNECTION_SAVE` 監査イベントを失敗記録するよう拡張。
