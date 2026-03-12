@@ -2,10 +2,10 @@ package open.dolphin.common;
 
 // 更新日: 2025-11-03, 担当: Codex
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.Arrays;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 public class OrcaAnalyzeTest {
 

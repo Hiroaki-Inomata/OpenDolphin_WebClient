@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P9-04「テスト基盤を JUnit 5 に統一する」を完了し、common の JUnit4 依存を解消（RUN_ID=20260312T050136Z）。
+  - 変更（pom）: `common/pom.xml` から `junit:junit` を削除し、`junit-jupiter-api` / `junit-jupiter-engine` を追加。`maven-surefire-plugin` は offline 実行可能な `3.1.2` へ固定。
+  - 変更（test）: `OrcaApiEncodingTest` / `OrcaAnalyzeTest` を `org.junit.jupiter.api.Test` + Jupiter Assertions へ移行。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P9-04` を ☑ 化、`docs/server-modernization/README.md` にリンク追加。
+  - 追加（実施記録）: `docs/modernization/p9-04-junit5-unification.md` を追加。
 - 2026-03-12: P9-03「認証・セッション方式を決めて実装する」を完了し、認証経路をセッション方式へ統一（RUN_ID=20260312T050136Z）。
   - 変更（auth filter）: `LogFilter` から `SecurityContext` principal fallback を削除し、`AuthSessionSupport.AUTH_ACTOR_ID` セッション属性のみを認証ソースに統一。
   - 変更（テスト）: `LogFilterTest` を session 前提へ更新し、`facility:user` composite での remoteUser 伝播と unauthorized 分岐を固定。
