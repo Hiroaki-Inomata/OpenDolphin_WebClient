@@ -54,7 +54,9 @@ class AttachmentStorageManagerTest {
                 true,
                 null,
                 null,
-                5);
+                5,
+                "access",
+                "secret");
         AttachmentStorageSettings settings = new AttachmentStorageSettings(
                 AttachmentStorageMode.S3,
                 new AttachmentStorageSettings.DatabaseSettings(null),

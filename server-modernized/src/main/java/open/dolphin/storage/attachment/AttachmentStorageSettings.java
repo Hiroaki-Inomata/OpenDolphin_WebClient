@@ -60,6 +60,8 @@ public final class AttachmentStorageSettings {
         private final String serverSideEncryption;
         private final String kmsKeyId;
         private final int multipartUploadThresholdMb;
+        private final String accessKey;
+        private final String secretKey;
 
         public S3Settings(String bucket,
                           String region,
@@ -68,7 +70,9 @@ public final class AttachmentStorageSettings {
                           boolean forcePathStyle,
                           String serverSideEncryption,
                           String kmsKeyId,
-                          int multipartUploadThresholdMb) {
+                          int multipartUploadThresholdMb,
+                          String accessKey,
+                          String secretKey) {
             this.bucket = Objects.requireNonNull(bucket, "bucket");
             this.region = Objects.requireNonNull(region, "region");
             this.endpoint = endpoint;
@@ -77,6 +81,8 @@ public final class AttachmentStorageSettings {
             this.serverSideEncryption = serverSideEncryption;
             this.kmsKeyId = kmsKeyId;
             this.multipartUploadThresholdMb = multipartUploadThresholdMb;
+            this.accessKey = Objects.requireNonNull(accessKey, "accessKey");
+            this.secretKey = Objects.requireNonNull(secretKey, "secretKey");
         }
 
         public String getBucket() {
@@ -115,6 +121,14 @@ public final class AttachmentStorageSettings {
             long threshold = multipartUploadThresholdMb * 1024L * 1024L;
             long min = 5L * 1024L * 1024L;
             return Math.max(min, threshold);
+        }
+
+        public String getAccessKey() {
+            return accessKey;
+        }
+
+        public String getSecretKey() {
+            return secretKey;
         }
     }
 }
