@@ -94,6 +94,7 @@
 - `docs/modernization/p10-01-production-like-validation-environment.md`（P10-01: 本番近似の検証環境構築手順）
 - `docs/modernization/p10-02-data-migration-rehearsal.md`（P10-02: データ移行の通し試験と再実行確認）
 - `docs/modernization/p10-03-uat-blocker.md`（P10-03: UAT 実施前の技術事前確認と未解消ブロッカー）
+- `docs/modernization/p10-04-load-fault-tests.md`（P10-04: 主要経路の負荷試験・障害試験）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`

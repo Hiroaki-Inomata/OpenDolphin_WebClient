@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P10-04「負荷試験と障害試験を行う」を完了し、主要5経路の負荷/障害回帰を実施（RUN_ID=20260312T100053Z）。
+  - 追加（テスト）: `server-modernized/src/test/java/open/dolphin/session/PatientServiceBeanSearchLoadFaultTest.java` を新規追加（患者検索600回連続実行 + NoResult fail-safe）。
+  - 実施（負荷/障害）: `KarteServiceBeanBatchWriteTest` / `PatientServiceBeanSearchLoadFaultTest` / `OrcaHttpClientResilienceTest` / `AttachmentStorageManagerTest` / `PvtSocketWorkerPipelineTest` を一括実行し PASS（22 tests）。
+  - 追加（実施記録）: `docs/modernization/p10-04-load-fault-tests.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P10-04` を ☑ 化し、`docs/server-modernization/README.md` にリンク追加。
 - 2026-03-12: `P10-03` のブロッカー再試行を実施したが未解消（RUN_ID=20260312T100053Z）。
   - 実施: UAT 完了条件（医師/受付/事務の現場観点での実査）が本RUNで満たせるかを再評価。
   - 判定: 技術回帰テストの PASS 維持は確認できるが、実運用ロールによる受け入れ実査を実施できないため `P10-03` は未完了継続。
