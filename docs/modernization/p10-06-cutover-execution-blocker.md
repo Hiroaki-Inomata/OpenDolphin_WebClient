@@ -2,7 +2,30 @@
 
 ## 事象
 - タスク `P10-06`（本番切替を実施する）は継続して未完了。
-- 最新 RUN: `20260312T160044Z`
+- 最新 RUN: `20260312T170046Z`
+
+## 実施した試行（RUN_ID: 20260312T170046Z）
+1. Docker daemon 応答性の再確認（socket/API 直接）
+- `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping`
+- `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/version`
+- 結果: **いずれも RC=28 timeout**（0 bytes 応答）
+
+2. Docker CLI 経由の再確認（default context を含む）
+- `docker info`（12秒 watchdog）
+- `docker --context default info`（12秒 watchdog）
+- 結果: **いずれも RC=124（watchdog kill）**。Client 情報は取得できるが Server は `ERROR: ... context canceled`。
+
+3. ソケット経路の再確認
+- `/var/run/docker.sock` は `/Users/Hayato/.docker/run/docker.sock` への symlink。
+- `curl --max-time 5 --unix-socket /var/run/docker.sock http://localhost/_ping`
+- 結果: **RC=28 timeout**（経路差なし）
+
+4. 切替導線の fail-fast 動作確認（production env）
+- `DOCKER_PING_TIMEOUT_SECONDS=2 COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312t170046z ops/modernized-server/scripts/start-validation-env.sh ops/modernized-server/config/server-modernized.production.env`
+- 結果: `docker daemon is not responding ... aborting before compose up` で **RC=1**（期待どおりハング前停止）。
+
+5. production env 配置状況
+- sample から `server-modernized.production.env` と `custom.properties.production.local` を作成して導線実行を試行したが、daemon 応答不可のため `compose up` 到達前に停止。
 
 ## 実施した試行（RUN_ID: 20260312T160044Z）
 1. Docker daemon 応答性の再確認（socket/API 直接）
