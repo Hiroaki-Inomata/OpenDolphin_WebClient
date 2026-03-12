@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-13: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を再試行したが、継続して未完了（RUN_ID=20260312T210043Z）。
+  - 実施（daemon疎通再確認）: `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/{_ping,version}` は今回も RC=28 timeout。
+  - 実施（socket/context再確認）: `/var/run/docker.sock` は `/Users/Hayato/.docker/run/docker.sock` への symlink であり、`curl --max-time 5 --unix-socket /var/run/docker.sock http://localhost/_ping` も RC=28 timeout。`docker context ls` は RC=0 だが daemon 応答改善なし。
+  - 実施（導線確認）: `server-modernized.production.env.sample` から `/tmp/server-modernized.production.20260312T210043Z.env` を生成し、`DOCKER_PING_TIMEOUT_SECONDS=2 COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312t210043z ... start-validation-env.sh ...` を `/Users/Hayato/.docker/run/docker.sock` と `/var/run/docker.sock` の両経路で実行。いずれも fail-fast で RC=1（`compose up` 前停止）を確認。
+  - 判定: Docker daemon 応答不能により `P10-06` 完了条件（起動→`health/readiness` 実測→主要フロー疎通）に到達できない。
+  - 反映: `docs/modernization/p10-06-cutover-execution-blocker.md` と WBS ブロッカー欄を更新。
 - 2026-03-13: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を再試行したが、継続して未完了（RUN_ID=20260312T200042Z）。
   - 実施（daemon疎通再確認）: `curl --max-time 8 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/{_ping,version}` は今回も RC=28 timeout。
   - 実施（socket経路確認）: `/var/run/docker.sock` は `/Users/Hayato/.docker/run/docker.sock` への symlink であり、`curl --max-time 5 --unix-socket /var/run/docker.sock http://localhost/_ping` も RC=28 timeout。
