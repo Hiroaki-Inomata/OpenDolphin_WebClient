@@ -36,11 +36,17 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: P10-02「データ移行の通し試験を行う」を完了し、初期化→移行→件数照合→再実行を通しで検証（RUN_ID=20260312T090057Z）。
+  - 実施（専用検証DB）: `opendolphin-postgres-modernized-e730-20260312t090057z`（port `55452`）を起動し、`V0300`〜`V0304` と `P1_03__minimal_baseline_seed.sql` を適用後、`medOrder/progressCourse` envelope fixture 2件を投入。
+  - 実施（移行）: `server-modernized/tools/flyway/scripts/run-module-payload-migration.sh` を `RUN_ID-r1` / `RUN_ID-r2` で連続実行し、`missing_payload_rows=0`・`status=completed` を確認。
+  - 差異修正: `server-modernized/tools/flyway/scripts/module-payload-migrate-once.sql` の `after_payload_rows`/`after_missing_rows` 集計を upsert 後の別 `UPDATE` へ変更し、run table と verify 結果の不整合を解消。
+  - 追加（実施記録）: `docs/modernization/p10-02-data-migration-rehearsal.md` を新規作成。
+  - 反映（WBS/導線）: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `P10-02` を ☑ 化し、`docs/server-modernization/README.md` にリンク追加。
 - 2026-03-12: P10-02「データ移行の通し試験を行う」は sandbox 制約により未完了（RUN_ID=20260312T070152Z）。
   - 試行: `docker compose --project-name opendolphin_validation --env-file ops/modernized-server/config/server-modernized.validation.env -f docker-compose.modernized.dev.yml -f docker-compose.modernized.validation.yml up -d db-modernized`
   - 結果: Docker ソケット (`/Users/Hayato/.docker/run/docker.sock`) への接続が `operation not permitted` で拒否され、検証DB起動不可。
   - 影響: `run-module-payload-migration.sh` の実行、件数照合、再実行確認の通し試験を実施できない。
-  - 対応: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` のブロッカー欄へ記録し、`P10-02` は未着手のまま維持。
+  - 対応: `docs/server-modernization/planning/server_modernization_wbs_detailed.md` のブロッカー欄へ記録（本RUN `20260312T090057Z` で解消済み）。
 - 2026-03-12: P10-01「検証環境を本番に近い形で立てる」を完了し、本番近似の検証起動手順を追加（RUN_ID=20260312T070152Z）。
   - 追加（compose overlay）: `docker-compose.modernized.validation.yml` を新規追加し、検証環境専用のコンテナ名/ポート分離、DB `sslmode=require` 既定、ORCA/添付/PHR/認証秘密情報の必須化を実装。
   - 追加（env template）: `ops/modernized-server/config/server-modernized.validation.env.sample` を追加し、外部設定/接続情報の入力項目を固定。

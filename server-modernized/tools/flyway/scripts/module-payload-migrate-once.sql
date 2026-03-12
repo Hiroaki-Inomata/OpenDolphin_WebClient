@@ -91,27 +91,36 @@ upserted AS (
 ),
 stats AS (
     SELECT
-        (SELECT COUNT(*) FROM upserted) AS migrated_rows,
-        (SELECT COUNT(*) FROM opendolphin.d_module_payload) AS after_payload_rows,
-        (SELECT COUNT(*)
-           FROM opendolphin.d_module m
-          WHERE m.entity IN ('medOrder', 'progressCourse')
-            AND m.bean_json ? 'schemaVersion'
-            AND m.bean_json ? 'moduleType'
-            AND m.bean_json ? 'payloadJson'
-            AND NOT EXISTS (
-                SELECT 1 FROM opendolphin.d_module_payload p WHERE p.module_id = m.id
-            )) AS after_missing_rows
+        (SELECT COUNT(*) FROM upserted) AS migrated_rows
 )
 UPDATE opendolphin.d_module_payload_migration_run run
 SET
     finished_at = CURRENT_TIMESTAMP,
     status = 'completed',
     migrated_rows = stats.migrated_rows,
-    after_payload_rows = stats.after_payload_rows,
-    after_missing_rows = stats.after_missing_rows,
     notes = 'P6-09 one-shot migration completed'
 FROM stats
+WHERE run.run_id = :'run_id';
+
+UPDATE opendolphin.d_module_payload_migration_run run
+SET
+    after_payload_rows = (
+        SELECT COUNT(*)
+        FROM opendolphin.d_module_payload
+    ),
+    after_missing_rows = (
+        SELECT COUNT(*)
+        FROM opendolphin.d_module m
+        WHERE m.entity IN ('medOrder', 'progressCourse')
+          AND m.bean_json ? 'schemaVersion'
+          AND m.bean_json ? 'moduleType'
+          AND m.bean_json ? 'payloadJson'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM opendolphin.d_module_payload p
+              WHERE p.module_id = m.id
+          )
+    )
 WHERE run.run_id = :'run_id';
 
 SELECT *
