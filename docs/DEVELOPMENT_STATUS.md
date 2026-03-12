@@ -36,6 +36,11 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-12: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」に着手したが、環境制約で未完了（RUN_ID=20260312T110053Z）。
+  - 試行1: 本番用 env の存在確認（`ops/modernized-server/config/server-modernized.production.env`）を実施し、未配置を確認。
+  - 試行2: 代替として検証起動導線 `start-validation-env.sh` を sample env で実行したが、Docker buildx activity 更新で `operation not permitted` により FAIL。
+  - 判定: 本番接続情報と実行権限が揃わないため `P10-06` は継続して未完了。
+  - 反映: `docs/modernization/p10-06-cutover-execution-blocker.md` を新規作成し、WBS ブロッカー欄および `docs/server-modernization/README.md` にリンク追加。
 - 2026-03-12: P10-05「本番切替チェックリストを作る（モダナイズ版基準）」を完了し、時系列手順とGO/NOGO基準を確定（RUN_ID=20260312T110053Z）。
   - 追加（チェックリスト）: `docs/modernization/p10-05-cutover-checklist-modernized.md` を新規作成。
   - 内容: 役割分担、T-60〜T+180の時系列確認、主要業務6フローの疎通確認、health/readiness中心の判定観点を定義。

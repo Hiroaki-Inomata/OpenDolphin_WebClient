@@ -97,6 +97,8 @@
 - `docs/modernization/p10-03-uat-blocker.md`（P10-03: UAT ブロッカー履歴）
 - `docs/modernization/p10-04-load-fault-tests.md`（P10-04: 主要経路の負荷試験・障害試験）
 - `docs/modernization/p10-05-cutover-checklist-modernized.md`（P10-05: モダナイズ版基準の本番切替チェックリスト）
+- `docs/modernization/p10-06-cutover-execution-blocker.md`（P10-06: 本番切替実施のブロッカー記録）
+- `docs/modernization/p10-06-cutover-execution-blocker.md`（P10-06: 本番切替実施ブロッカー記録）
 - `docs/server-modernization/orca-additional-api-implementation-notes.md`
 - `docs/server-modernization/ORCA-order-system-rule.md`（ORCAオーダー仕様・実装要件）
 - `docs/server-modernization/orca-api-contract-unification-20260218.md`
