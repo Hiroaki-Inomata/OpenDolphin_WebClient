@@ -74,6 +74,11 @@ class PVTResourceLimitTest {
     void postPvt_setsFacilityAndInsuranceRelationBeforeAdd() throws Exception {
         String json = """
                 {
+                  "pvtDate": "2026-03-13T09:15:00",
+                  "deptCode": "01",
+                  "deptName": "内科",
+                  "doctorId": "D001",
+                  "doctorName": "担当医",
                   "patientModel": {
                     "patientId": "00001",
                     "fullName": "テスト患者",
@@ -90,6 +95,7 @@ class PVTResourceLimitTest {
         assertNotNull(pvtServiceBean.lastAdded);
         assertEquals("F001", pvtServiceBean.lastAdded.getFacilityId());
         assertEquals("F001", pvtServiceBean.lastAdded.getPatientModel().getFacilityId());
+        assertEquals(LocalDateTime.of(2026, 3, 13, 9, 15), pvtServiceBean.lastAdded.getPvtDate());
         HealthInsuranceModel insurance =
                 pvtServiceBean.lastAdded.getPatientModel().getHealthInsurances().iterator().next();
         assertSame(pvtServiceBean.lastAdded.getPatientModel(), insurance.getPatient());

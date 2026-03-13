@@ -1,4 +1,26 @@
-# P10-06 本番切替実施ブロッカー
+# P10-06 本番切替実施記録（旧ブロッカー履歴含む）
+
+## 更新（RUN_ID: 20260313T054324Z）
+- `P10-06` は **完了**。
+- runtime 修正:
+  - `PVTResource` を `getSerializeMapper().copy()` 基準へ変更し、`POST /resources/pvt` で `LocalDateTime` を正しく復元できるよう補正。
+  - `KarteServiceBean` の HQL property 名を Hibernate 6 の entity field に合わせ、`Date`→`LocalDateTime` bind へ統一。
+  - `ChartEventServiceBean.initializePvtList()` の来院日検索を String ではなく日境界 `LocalDateTime` bind に変更。
+  - `DocumentIntegrityService` の新規 `DocumentIntegrityEntity` を全フィールド設定後に `persist` するよう修正し、`/orca/order/bundles` の rollback を解消。
+  - `PatientImageServiceBean` の upload 時に digest を保存し、患者画像/PDF 保存経路の整合性を補強。
+  - validation / production env sample に document integrity と patient images の必須設定を追記。
+- 再配備後の実測結果:
+  - `POST /openDolphin/resources/api/session/login` → **200**
+  - `GET /openDolphin/resources/health/readiness` → **200**
+  - `GET /openDolphin/resources/karte/documents/9102003` → **200**
+  - `GET /openDolphin/resources/karte/attachment/9105001` → **200**
+  - `GET /openDolphin/resources/karte/image/9104001` → **200**
+  - `POST /openDolphin/resources/orca/medical/records` → **200**
+  - `POST /openDolphin/resources/pvt` → **200**
+  - `POST /openDolphin/resources/orca/order/bundles` → **200**
+  - `POST /openDolphin/resources/orca/patient/mutation` (`create` / `update`) → **200**
+  - `GET /openDolphin/resources/api/admin/access/users` → admin session **200**, unauthenticated **401**
+- 現時点の残件は blocker ではなく、`P10-07` で継続監視する watch item（`pvtQueue.workerStatus=DISABLED`、`otel-collector` name 解決警告、患者画像一覧 API の実運用データ観察）として扱う。
 
 ## 更新（RUN_ID: 20260313T045422Z）
 - `session/login` 401 ブロッカーは **解消**。
@@ -10,9 +32,8 @@
   - `GET /openDolphin/resources/health/readiness` → **200**
 - この文書に記録していた「認証成立前で停止する」ブロッカーは解消済み。`P10-06` の残課題は、切替シナリオ全体の最終確認側で別途継続する。
 
-## 事象
-- タスク `P10-06`（本番切替を実施する）は継続して未完了。
-- 最新 RUN: `20260312T234207Z`
+## 履歴
+- 以下は `P10-06` 完了までに解消したブロッカーと再試行履歴。
 
 ## 実施した試行（RUN_ID: 20260312T234207Z）
 1. Docker daemon 復旧後の validation 環境再構成

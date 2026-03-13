@@ -12,8 +12,10 @@ import static org.mockito.Mockito.when;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.TypedQuery;
 import java.lang.reflect.Field;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Date;
+import java.util.HexFormat;
 import java.util.List;
 import open.dolphin.infomodel.AttachmentModel;
 import open.dolphin.infomodel.KarteBean;
@@ -47,6 +49,7 @@ class PatientImageServiceBeanTest {
 
     @Test
     void uploadImage_usesAttachmentIdAssignedDuringSave() {
+        byte[] payload = new byte[] {1, 2, 3};
         PatientModel patient = new PatientModel();
         patient.setId(1L);
         patient.setFacilityId("F001");
@@ -64,6 +67,7 @@ class PatientImageServiceBeanTest {
         when(karteServiceBean.addDocument(any())).thenAnswer(invocation -> {
             open.dolphin.infomodel.DocumentModel document = invocation.getArgument(0);
             AttachmentModel attachment = document.getAttachment().get(0);
+            assertThat(attachment.getDigest()).isEqualTo(sha256Hex(payload));
             attachment.setId(99L);
             document.setId(10L);
             return 10L;
@@ -75,7 +79,7 @@ class PatientImageServiceBeanTest {
                 "F001:doctor01",
                 "image.png",
                 "image/png",
-                new byte[] {1, 2, 3});
+                payload);
 
         assertThat(result.documentId()).isEqualTo(10L);
         assertThat(result.attachmentId()).isEqualTo(99L);
@@ -108,5 +112,9 @@ class PatientImageServiceBeanTest {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    private static String sha256Hex(byte[] value) throws Exception {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value));
     }
 }

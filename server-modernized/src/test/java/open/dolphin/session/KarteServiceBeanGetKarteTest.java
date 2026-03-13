@@ -11,6 +11,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.TypedQuery;
 import java.lang.reflect.Field;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -114,6 +115,9 @@ class KarteServiceBeanGetKarteTest {
         assertThat(byPatientPk.getMemoList()).hasSize(byFidPid.getMemoList().size());
         assertThat(byPatientPk.getLastDocDate()).isEqualTo(byFidPid.getLastDocDate());
 
+        LocalDateTime expectedFromDate = LocalDateTime.ofInstant(fromDate.toInstant(), ZoneId.systemDefault());
+        verify(visitsQuery).setParameter("fromDate", expectedFromDate);
+        verify(visitsQuery2).setParameter("fromDate", expectedFromDate);
         verify(em, never()).createQuery(eq(QUERY_PATIENT_BY_FID_PID));
     }
 

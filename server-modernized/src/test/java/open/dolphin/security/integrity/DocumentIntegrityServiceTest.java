@@ -3,6 +3,7 @@ package open.dolphin.security.integrity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -16,6 +17,7 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import org.mockito.ArgumentCaptor;
 import open.dolphin.infomodel.AttachmentModel;
 import open.dolphin.infomodel.DocInfoModel;
 import open.dolphin.infomodel.DocumentModel;
@@ -110,6 +112,27 @@ class DocumentIntegrityServiceTest {
 
         assertThatCode(() -> service.verifyDocumentOnRead(document))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void sealDocument_persistsFullyPopulatedIntegrityRowForNewDocument() {
+        DocumentModel document = buildDocument(false);
+        when(em.find(DocumentIntegrityEntity.class, document.getId())).thenReturn(null);
+
+        service.sealDocument(document);
+
+        ArgumentCaptor<DocumentIntegrityEntity> captor = ArgumentCaptor.forClass(DocumentIntegrityEntity.class);
+        verify(em).persist(captor.capture());
+        DocumentIntegrityEntity persisted = captor.getValue();
+        assertThat(persisted.getDocumentId()).isEqualTo(document.getId());
+        assertThat(persisted.getSealVersion()).isEqualTo("v1");
+        assertThat(persisted.getHashAlg()).isEqualTo("SHA-256");
+        assertThat(persisted.getSealAlg()).isEqualTo("HMAC-SHA256");
+        assertThat(persisted.getContentHash()).isNotBlank();
+        assertThat(persisted.getSeal()).isNotBlank();
+        assertThat(persisted.getKeyId()).isEqualTo("v1");
+        assertThat(persisted.getSealedAt()).isNotNull();
+        assertThat(persisted.getCreatedAt()).isNotNull();
     }
 
     @Test

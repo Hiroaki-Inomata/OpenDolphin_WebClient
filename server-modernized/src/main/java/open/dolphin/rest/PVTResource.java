@@ -75,9 +75,8 @@ public class PVTResource extends AbstractResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
     public String postPvt(@Context HttpServletRequest servletReq, String json) throws IOException {
-        
-        ObjectMapper mapper = new ObjectMapper();
-        // 2013/06/24
+
+        ObjectMapper mapper = getSerializeMapper().copy();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         PatientVisitModel model = mapper.readValue(json, PatientVisitModel.class);
 

@@ -95,11 +95,11 @@ public class DocumentIntegrityService {
 
         DocumentIntegrityEntity entity = em.find(DocumentIntegrityEntity.class, documentId);
         Instant now = Instant.now();
+        boolean isNew = entity == null;
         if (entity == null) {
             entity = new DocumentIntegrityEntity();
             entity.setDocumentId(documentId);
             entity.setCreatedAt(now);
-            em.persist(entity);
         }
 
         entity.setSealVersion(SEAL_VERSION);
@@ -110,6 +110,9 @@ public class DocumentIntegrityService {
         entity.setKeyId(settings.getKeyId());
         entity.setSealedAt(now);
         entity.setSealedBy(resolveSealedBy(document));
+        if (isNew) {
+            em.persist(entity);
+        }
 
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("documentId", documentId);

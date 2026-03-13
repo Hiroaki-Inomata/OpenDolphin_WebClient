@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -362,10 +364,9 @@ public class ChartEventServiceBean {
 
         contextHolder.ensureDateInitialized();
         
-        // サーバーの「今日」で管理する
-        final SimpleDateFormat frmt = new SimpleDateFormat(IInfoModel.DATE_WITHOUT_TIME);
-        String fromDate = frmt.format(contextHolder.getToday().getTime());
-        String toDate = frmt.format(contextHolder.getTomorrow().getTime());
+        // PatientVisitModel.pvtDate は LocalDateTime のため、サーバー日付境界を LocalDateTime で渡す。
+        LocalDateTime fromDate = startOfDay(contextHolder.getToday());
+        LocalDateTime toDate = startOfDay(contextHolder.getTomorrow());
 
         // PatientVisitModelを施設IDで検索する
         final String sql =
@@ -425,6 +426,13 @@ public class ChartEventServiceBean {
         }
         
         log("ChartEventService: initializePvtList did done");
+    }
+
+    private LocalDateTime startOfDay(Calendar calendar) {
+        if (calendar == null) {
+            return null;
+        }
+        return LocalDate.ofInstant(calendar.toInstant(), ZoneId.systemDefault()).atStartOfDay();
     }
     
     // データベースを調べてpvtに病名数を設定する

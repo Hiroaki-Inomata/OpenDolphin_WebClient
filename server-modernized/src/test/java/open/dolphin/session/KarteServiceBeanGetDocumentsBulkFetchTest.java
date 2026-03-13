@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -12,6 +13,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.TypedQuery;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import open.dolphin.infomodel.AttachmentModel;
 import open.dolphin.infomodel.BundleDolphin;
@@ -28,16 +30,24 @@ import org.junit.jupiter.api.Test;
 class KarteServiceBeanGetDocumentsBulkFetchTest {
 
     private static final String QUERY_DOCUMENT_BY_IDS =
-            "select d from DocumentModel d left join fetch d.karte left join fetch d.creator where d.id in :ids";
+            "FROM DocumentModel d WHERE d.id IN (:ids) ORDER BY d.id";
     private static final String QUERY_MODULES_BY_DOC_IDS =
-            "select m from ModuleModel m left join fetch m.karte left join fetch m.creator "
-                    + "where m.document.id in :ids order by m.document.id, m.id";
+            "FROM ModuleModel m JOIN FETCH m.document d WHERE d.id IN (:ids) ORDER BY d.id,m.moduleInfo.stampNumber";
     private static final String QUERY_SCHEMAS_BY_DOC_IDS =
             "select i from SchemaModel i left join fetch i.karte left join fetch i.creator "
                     + "where i.document.id in :ids order by i.document.id, i.id";
     private static final String QUERY_ATTACHMENTS_BY_DOC_IDS =
             "select a from AttachmentModel a left join fetch a.karte left join fetch a.creator "
                     + "where a.document.id in :ids order by a.document.id, a.id";
+    private static final String QUERY_SCHEMA_METADATA_BY_DOC_IDS =
+            "select i.id, i.confirmed, i.started, i.ended, i.recorded, i.linkId, i.linkRelation, i.status, "
+                    + "i.creator, i.karte, i.document.id, i.extRef, i.uri, i.digest "
+                    + "from SchemaModel i where i.document.id in :ids order by i.document.id, i.id";
+    private static final String QUERY_ATTACHMENT_METADATA_BY_DOC_IDS =
+            "select a.id, a.confirmed, a.started, a.ended, a.recorded, a.linkId, a.linkRelation, a.status, "
+                    + "a.creator, a.karte, a.document.id, a.fileName, a.contentType, a.contentSize, a.lastModified, "
+                    + "a.digest, a.title, a.uri, a.extension, a.memo "
+                    + "from AttachmentModel a where a.document.id in :ids order by a.document.id, a.id";
 
     private KarteServiceBean service;
     private EntityManager em;
@@ -103,6 +113,40 @@ class KarteServiceBeanGetDocumentsBulkFetchTest {
         verify(documentIntegrityService, times(100)).verifyDocumentOnRead(any(DocumentModel.class));
     }
 
+    @Test
+    void getDocumentsAttachmentLightLoadsMetadataWithoutModuleQuery() {
+        List<Long> requestedIds = List.of(10L, 20L);
+        List<DocumentModel> documents = List.of(document(20L), document(10L));
+        TypedQuery<DocumentModel> documentQuery = typedQuery(documents);
+        TypedQuery<SchemaModel> schemaQuery = typedQuery(List.of(
+                schema(documents.get(1), 1001L),
+                schema(documents.get(0), 2001L)));
+        TypedQuery<Object[]> attachmentMetadataQuery = typedQuery(List.of(
+                attachmentMetadataRow(documents.get(1), 3001L),
+                attachmentMetadataRow(documents.get(0), 4001L)));
+
+        when(em.createQuery(QUERY_DOCUMENT_BY_IDS, DocumentModel.class)).thenReturn(documentQuery);
+        when(em.createQuery(QUERY_SCHEMAS_BY_DOC_IDS, SchemaModel.class)).thenReturn(schemaQuery);
+        when(em.createQuery(QUERY_ATTACHMENT_METADATA_BY_DOC_IDS, Object[].class)).thenReturn(attachmentMetadataQuery);
+
+        List<DocumentModel> result = service.getDocumentsAttachmentLight(requestedIds);
+
+        assertThat(result).extracting(DocumentModel::getId).containsExactlyElementsOf(requestedIds);
+        assertThat(result.get(0).getModules()).isEmpty();
+        assertThat(result.get(0).getSchema()).hasSize(1);
+        assertThat(result.get(0).getAttachment()).hasSize(1);
+        assertThat(result.get(0).getAttachment().get(0).getContentBytes()).isNull();
+
+        verify(em).createQuery(QUERY_DOCUMENT_BY_IDS, DocumentModel.class);
+        verify(em).createQuery(QUERY_SCHEMAS_BY_DOC_IDS, SchemaModel.class);
+        verify(em).createQuery(QUERY_ATTACHMENT_METADATA_BY_DOC_IDS, Object[].class);
+        verify(em, never()).createQuery(QUERY_MODULES_BY_DOC_IDS, ModuleModel.class);
+        verify(em, never()).createQuery(QUERY_SCHEMA_METADATA_BY_DOC_IDS, Object[].class);
+        verify(schemaQuery).setParameter("ids", requestedIds);
+        verify(attachmentMetadataQuery).setParameter("ids", requestedIds);
+        verify(documentIntegrityService, times(2)).verifyDocumentOnRead(any(DocumentModel.class));
+    }
+
     private static DocumentModel document(long id) {
         DocumentModel document = new DocumentModel();
         document.setId(id);
@@ -132,6 +176,8 @@ class KarteServiceBeanGetDocumentsBulkFetchTest {
         schema.setDocumentModel(document);
         schema.setKarteBean(document.getKarteBean());
         schema.setUserModel(document.getUserModel());
+        schema.setUri("s3://bucket/images/" + id + ".png");
+        schema.setDigest("sha256:image-" + id);
         return schema;
     }
 
@@ -142,6 +188,32 @@ class KarteServiceBeanGetDocumentsBulkFetchTest {
         attachment.setKarteBean(document.getKarteBean());
         attachment.setUserModel(document.getUserModel());
         return attachment;
+    }
+
+    private static Object[] attachmentMetadataRow(DocumentModel document, long id) {
+        Date timestamp = new Date(1_709_251_200_000L + id);
+        return new Object[] {
+                id,
+                timestamp,
+                timestamp,
+                timestamp,
+                timestamp,
+                0L,
+                null,
+                "F",
+                document.getUserModel(),
+                document.getKarteBean(),
+                document.getId(),
+                "attachment-" + id + ".pdf",
+                "application/pdf",
+                1024L,
+                1_773_139_620_000L,
+                "sha256:attachment-" + id,
+                "title-" + id,
+                "s3://bucket/attachments/" + id + ".pdf",
+                ".pdf",
+                "memo-" + id
+        };
     }
 
     private static KarteBean karte(long id) {

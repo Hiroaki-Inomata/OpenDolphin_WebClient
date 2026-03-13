@@ -5,6 +5,8 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -123,11 +125,11 @@ public class KarteServiceBean {
                     + "where a.document.id in :ids order by a.document.id, a.id";
     private static final String QUERY_SCHEMA_METADATA_BY_DOC_IDS =
             "select i.id, i.confirmed, i.started, i.ended, i.recorded, i.linkId, i.linkRelation, i.status, " +
-                    "i.userModel, i.karteBean, i.document.id, i.extRef, i.uri, i.digest " +
+                    "i.creator, i.karte, i.document.id, i.extRef, i.uri, i.digest " +
                     "from SchemaModel i where i.document.id in :ids order by i.document.id, i.id";
     private static final String QUERY_ATTACHMENT_METADATA_BY_DOC_IDS =
             "select a.id, a.confirmed, a.started, a.ended, a.recorded, a.linkId, a.linkRelation, a.status, " +
-                    "a.userModel, a.karteBean, a.document.id, a.fileName, a.contentType, a.contentSize, a.lastModified, " +
+                    "a.creator, a.karte, a.document.id, a.fileName, a.contentType, a.contentSize, a.lastModified, " +
                     "a.digest, a.title, a.uri, a.extension, a.memo " +
                     "from AttachmentModel a where a.document.id in :ids order by a.document.id, a.id";
 //s.oh$
@@ -284,7 +286,7 @@ public class KarteServiceBean {
             List<PatientVisitModel> latestVisits =
                     em.createQuery(QUERY_PATIENT_VISIT, PatientVisitModel.class)
                             .setParameter(PATIENT_PK, patientPk)
-                            .setParameter(FROM_DATE, ModelUtils.getDateAsString(fromDate))
+                            .setParameter(FROM_DATE, toLocalDateTime(fromDate))
                             .getResultList();
             if (!latestVisits.isEmpty()) {
                 List<String> visits = new ArrayList<>(latestVisits.size());
@@ -1141,7 +1143,11 @@ public class KarteServiceBean {
             }
         }
 
-        populateModules(documentById, orderedIds);
+        if (mode.loadsModules()) {
+            populateModules(documentById, orderedIds);
+        } else {
+            clearModules(documentById.values());
+        }
         if (mode.loadsFullSchema()) {
             populateSchemas(documentById, orderedIds);
         } else if (mode.loadsSchemaMetadata()) {
@@ -1292,6 +1298,14 @@ public class KarteServiceBean {
         }
     }
 
+    private void clearModules(Collection<DocumentModel> documents) {
+        for (DocumentModel document : documents) {
+            if (document != null) {
+                document.setModules(new ArrayList<>());
+            }
+        }
+    }
+
     private void clearAttachments(Collection<DocumentModel> documents) {
         for (DocumentModel document : documents) {
             if (document != null) {
@@ -1366,25 +1380,39 @@ public class KarteServiceBean {
         return getDocumentsWithModules(docIds);
     }
 
-    private enum DocumentLoadMode {
-        DETAIL(true, false, true, false),
-        ATTACHMENT_LIGHT(true, false, false, true),
-        MODULES_ONLY(false, false, false, false),
-        REVISION_LIGHT(false, true, false, true);
+    private LocalDateTime toLocalDateTime(Date date) {
+        if (date == null) {
+            return null;
+        }
+        return LocalDateTime.ofInstant(date.toInstant(), ZoneId.systemDefault());
+    }
 
+    private enum DocumentLoadMode {
+        DETAIL(true, true, false, true, false),
+        ATTACHMENT_LIGHT(false, true, false, false, true),
+        MODULES_ONLY(true, false, false, false, false),
+        REVISION_LIGHT(false, false, true, false, true);
+
+        private final boolean modules;
         private final boolean fullSchema;
         private final boolean schemaMetadata;
         private final boolean fullAttachment;
         private final boolean attachmentMetadata;
 
-        DocumentLoadMode(boolean fullSchema,
+        DocumentLoadMode(boolean modules,
+                         boolean fullSchema,
                          boolean schemaMetadata,
                          boolean fullAttachment,
                          boolean attachmentMetadata) {
+            this.modules = modules;
             this.fullSchema = fullSchema;
             this.schemaMetadata = schemaMetadata;
             this.fullAttachment = fullAttachment;
             this.attachmentMetadata = attachmentMetadata;
+        }
+
+        boolean loadsModules() {
+            return modules;
         }
 
         boolean loadsFullSchema() {

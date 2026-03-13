@@ -7,6 +7,8 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -97,6 +99,7 @@ public class PatientImageServiceBean {
         attachment.setContentSize(bytes.length);
         attachment.setLastModified(now.getTime());
         attachment.setContentBytes(bytes);
+        attachment.setDigest(sha256Hex(bytes));
         attachment.setTitle(fileName);
         attachment.setStatus(IInfoModel.STATUS_FINAL);
         attachment.setStarted(now);
@@ -189,6 +192,14 @@ public class PatientImageServiceBean {
             return null;
         }
         return ISO_INSTANT.format(date.toInstant());
+    }
+
+    private String sha256Hex(byte[] bytes) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to calculate attachment digest", ex);
+        }
     }
 
     public record UploadResult(long documentId, long attachmentId, Date createdAt) {}
