@@ -83,6 +83,9 @@ services:
       OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
       # Secrets (本番必須項目)。未設定のまま本番デプロイすると WildFly が `IllegalStateException` で停止する。
       FACTOR2_AES_KEY_B64: ${FACTOR2_AES_KEY_B64:-b3BlbmRvbHBoaW4tZGV2LWZhY3RvcjIta2V5LTMyYnl0ZXM=}
+      DOCUMENT_INTEGRITY_MODE: ${DOCUMENT_INTEGRITY_MODE:-off}
+      DOCUMENT_INTEGRITY_HMAC_KEY_B64: ${DOCUMENT_INTEGRITY_HMAC_KEY_B64:-}
+      DOCUMENT_INTEGRITY_KEY_ID: ${DOCUMENT_INTEGRITY_KEY_ID:-}
       FIDO2_RP_ID: ${FIDO2_RP_ID:-localhost}
       FIDO2_RP_NAME: ${FIDO2_RP_NAME:-OpenDolphin Dev}
       FIDO2_ALLOWED_ORIGINS: ${FIDO2_ALLOWED_ORIGINS:-https://localhost:8443,http://localhost:9080}
