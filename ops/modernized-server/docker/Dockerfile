@@ -57,8 +57,9 @@ RUN mkdir -p /opt/jboss/config
 COPY server-modernized/config/attachment-storage.sample.yaml /opt/jboss/config/attachment-storage.yaml
 COPY ops/shared/docker/custom.properties ${WILDFLY_HOME}/custom.properties
 COPY ops/modernized-server/docker/configure-wildfly.cli /opt/jboss/configure-wildfly.cli
+COPY ops/modernized-server/docker/healthcheck-session.sh /opt/jboss/healthcheck-session.sh
 COPY ops/shared/docker/bootstrap.sh /opt/jboss/bootstrap.sh
-RUN chmod +x /opt/jboss/bootstrap.sh
+RUN chmod +x /opt/jboss/bootstrap.sh /opt/jboss/healthcheck-session.sh
 
 RUN mkdir -p ${WILDFLY_HOME}/modules/system/layers/base/io/agroal/api/main
 COPY ops/modernized-server/docker/modules/io/agroal/api/module.xml ${WILDFLY_HOME}/modules/system/layers/base/io/agroal/api/main/module.xml
@@ -79,7 +80,7 @@ RUN ${WILDFLY_HOME}/bin/jboss-cli.sh --file=/opt/jboss/configure-wildfly.cli && 
     rm -f /opt/jboss/configure-wildfly.cli && \
     rm -rf ${WILDFLY_HOME}/standalone/configuration/standalone_xml_history
 
-RUN chown -R jboss:0 ${WILDFLY_HOME} /opt/jboss/bootstrap.sh /opt/jboss/postgresql-driver.jar
+RUN chown -R jboss:0 ${WILDFLY_HOME} /opt/jboss/bootstrap.sh /opt/jboss/healthcheck-session.sh /opt/jboss/postgresql-driver.jar
 
 EXPOSE 8080 9990
 

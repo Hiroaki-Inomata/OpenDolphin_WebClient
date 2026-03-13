@@ -529,7 +529,7 @@ services:
     volumes:
       - ./$(basename "$CUSTOM_PROP_OUTPUT"):/opt/jboss/wildfly/custom.properties
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health >/dev/null"]
+      test: ["CMD-SHELL", "/opt/jboss/healthcheck-session.sh"]
       interval: 30s
       timeout: 10s
       retries: 5
