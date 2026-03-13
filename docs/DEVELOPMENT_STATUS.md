@@ -36,6 +36,13 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-13: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を継続再試行したが、継続して未完了（RUN_ID=20260312T234207Z）。
+  - 実施（環境起動）: Docker daemon 復旧後、RUN 専用 compose project `opendolphin_prodcutover_20260312t234207z` で validation 環境を起動し、`postgres/minio/server` の RUN 専用 container を確認。
+  - 実施（コード補正）: Flyway/runtime migration の `search_path` に `public` を追加、`AuditTrailService` の previous hash 取得を native SQL 化、`InitialAccountMaker` の JDBC connection で `set search_path to opendolphin, public` を実行、`persistence.xml` に `AuditEvent` を登録、`LoginAttemptPolicyService` の `preCheck/registerFailure/registerSuccess` を `REQUIRES_NEW` 化、seed password を PBKDF2 化。
+  - 実施（検証）: `mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=AuditTrailServiceTest,InitialAccountMakerTest,UserServiceBeanPasswordTest -Dsurefire.failIfNoSpecifiedTests=false test` は PASS。`mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests package` は PASS。`GET http://localhost:29080/openDolphin/` は 200 で CSRF token 発行を確認。
+  - 実施（認証切り分け）: `POST /openDolphin/resources/api/session/login` は CSRF/Origin 不備時の 403 を解消し、現在は sysad/doctor 両アカウントで 401 unauthorized。`opendolphin.d_users` の PBKDF2 hash と `PasswordHashService` 単体検証は整合するが、実ランタイムの session login が通らず `/resources/dolphin` / `/resources/health/readiness` の authenticated 疎通へ進めない。
+  - 判定: 稼働基盤と health 入口は復旧したが、主要業務疎通に必要な session login が未解消のため `P10-06` 完了条件未達成。
+  - 反映: `docs/modernization/p10-06-cutover-execution-blocker.md` / WBS ブロッカー欄を更新。
 - 2026-03-13: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を再試行したが、継続して未完了（RUN_ID=20260312T233406Z）。
   - 実施（daemon疎通）: `curl --max-time 2 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping` は **RC=28**（約2.0秒）で timeout。
   - 実施（導線再試行）: `server-modernized.production.env.sample` から `/tmp/server-modernized.production.20260312T233406Z.env` を作成し、`COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312T233406Z` と `SERVER_CONTAINER_NAME=opendolphin-server-modernized-20260312T233406Z` を上書きして `DOCKER_PING_TIMEOUT_SECONDS=2` で `start-validation-env.sh` を実行。

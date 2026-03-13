@@ -36,7 +36,7 @@ INSERT INTO d_users (
 ) VALUES (
     9100101,
     'P1.03.FACILITY.0001:doctor1',
-    '632080fabdb968f9ac4f31fb55104648', -- doctor1 (MD5)
+    'pbkdf2_sha256_v1$310000$Iy73ehQDQ6j1pqxP7fpnpw==$NQj7UL55NKB2QY+ojvhHxV+Cyr98koplDjaFo3ymyiE=', -- doctor2025
     'P1-03 Doctor One',
     9100001,
     'PROCESS',

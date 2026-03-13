@@ -84,7 +84,7 @@ INSERT INTO d_users (
         nextval('hibernate_sequence')
     ) AS id,
     'LOCAL.FACILITY.0001:dolphin',
-    '36cdf8b887a5cffc78dcd5c08991b993', -- dolphin (MD5)
+    'pbkdf2_sha256_v1$310000$wn5EZg2aeNkwpOzacq3GsA==$BMkAAUXhip2eiMrBL/iHAeDZ1YxSgRJij80s6yEf8IE=', -- dolphin
     'Sysad Admin',
     selected_facility.id,
     'PROCESS',
@@ -224,7 +224,7 @@ INSERT INTO d_users (
         nextval('hibernate_sequence')
     ) AS id,
     '1.3.6.1.4.1.9414.72.103:doctor1',
-    '632080fabdb968f9ac4f31fb55104648', -- doctor1 (MD5)
+    'pbkdf2_sha256_v1$310000$Iy73ehQDQ6j1pqxP7fpnpw==$NQj7UL55NKB2QY+ojvhHxV+Cyr98koplDjaFo3ymyiE=', -- doctor2025
     'Doctor One',
     selected_facility.id,
     'PROCESS',

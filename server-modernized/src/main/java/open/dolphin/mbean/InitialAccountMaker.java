@@ -45,6 +45,7 @@ public class InitialAccountMaker {
     private static final String ADMIN_PASS_RAW = "admin";
     private static final String ADMIN_SIR_NAME = "オープン";
     private static final String ADMIN_GIVEN_NAME = "ドルフィン";
+    static final String SET_SEARCH_PATH_SQL = "set search_path to opendolphin, public";
 
 //    private static final boolean DEVELOPMENT = true;
 //    private static final String UPDATE_MEMO     = "Initial user registered.";
@@ -181,7 +182,10 @@ public class InitialAccountMaker {
        
         try {
             con = ds.getConnection();
+            st = con.createStatement();
+            st.execute(SET_SEARCH_PATH_SQL);
             pt = con.prepareStatement("select count(*) from pg_indexes where indexname=?");
+            st.close();
             st = con.createStatement();
             
             for (int i=0; i < names.length; i++) {

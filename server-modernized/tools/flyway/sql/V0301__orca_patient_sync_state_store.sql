@@ -1,3 +1,5 @@
+SET search_path TO opendolphin, public;
+
 CREATE TABLE IF NOT EXISTS d_orca_patient_sync_state (
     facility_id VARCHAR(128) NOT NULL,
     last_sync_date DATE,
