@@ -1,35 +1,39 @@
 # memory
 
-- RUN_ID: 20260312T233406Z
+- RUN_ID: 20260312T234207Z
 - 実行開始: 2026-03-13
-- ブランチ: work/server-modernization-20260312T233406Z
+- ブランチ: work/server-modernization-20260312T234207Z
 - 対象WBS: `P10-06`（本番切替を実施する）
 
 ## 実施内容
-- WBS の未着手タスクを確認し、最優先の `P10-06` を選定。
-- `docs/server-modernization/planning/server_modernization_wbs_detailed.md` の `RUN_ID` 更新（`20260312T233406Z`）とブロッカー欄へ当該再試行結果を追記。
-- `docs/DEVELOPMENT_STATUS.md` の「実施記録（最新）」へ今回の再試行結果を追記。
-- `docs/modernization/p10-06-cutover-execution-blocker.md` を追記。
-- `memory.md` 新規作成。
+- WBS 先頭未着手タスクとして `P10-06` を継続選定。
+- Docker daemon 復旧を確認し、RUN 専用 compose project `opendolphin_prodcutover_20260312t234207z` で validation 環境を再構成。
+- Flyway/runtime migration の `search_path` 補正、`AuditTrailService` の native SQL 化、`InitialAccountMaker` の `search_path` 設定、`AuditEvent` の persistence 登録、`LoginAttemptPolicyService` の `REQUIRES_NEW` 化、seed password の PBKDF2 化を実装。
+- host build の WAR を RUN 専用 server container へ直接配備し、起動ログと login 導線を反復確認。
+- WBS / `docs/DEVELOPMENT_STATUS.md` / `docs/modernization/p10-06-cutover-execution-blocker.md` を更新。
 
 ## 判断理由
-- `P10-06` は `P10-05` 依存の先頭未完了タスクであり、上から順実行の条件を満たすため、先に着手。
-- `server-modernized.production.env` 実運用 env はサンプル未配置であり、代替として `server-modernized.production.env.sample` を `/tmp` で一時生成。
-- しかし Docker daemon の `/_ping` 疎通がタイムアウトし、`compose up` に到達できないため、完了条件（起動・health/readiness 実測・主要業務疎通）を満たせなかった。
-- したがって `P10-06` は未完了として、ブロッカーを継続登録。
+- `P10-07` は `P10-06` 依存のため、先頭未着手としても着手不可。
+- Docker daemon 不通は解消したため、今回の主眼は起動後の authenticated 疎通まで前進させることに置いた。
+- `GET /openDolphin/` と WAR 起動自体は安定し、health/auth 周辺の 500 系は除去できたが、session login が 401 のまま残るため `P10-06` 完了条件には届かない。
 
 ## 実行した検証
-- `curl --max-time 2 --unix-socket /Users/Hayato/.docker/run/docker.sock http://localhost/_ping`
-  - 結果: RC=28 timeout（約2秒）
-- `DOCKER_SOCKET_PATH=/Users/Hayato/.docker/run/docker.sock DOCKER_PING_TIMEOUT_SECONDS=2 COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312T233406Z ops/modernized-server/scripts/start-validation-env.sh /tmp/server-modernized.production.20260312T233406Z.env`
-  - 結果: `docker daemon is not responding` で fail-fast、RC=1
-- `docker context ls`
-  - 結果: `default` と `desktop-linux` は表示、`/var/run/docker.sock` は `/Users/Hayato/.docker/run/docker.sock` への symlink
+- `mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=AuditTrailServiceTest,InitialAccountMakerTest,UserServiceBeanPasswordTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - 結果: PASS
+- `mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests package`
+  - 結果: PASS
+- `GET http://localhost:29080/openDolphin/`
+  - 結果: 200、CSRF token と `JSESSIONID` を取得
+- `POST http://localhost:29080/openDolphin/resources/api/session/login`
+  - 条件: cookie + `X-CSRF-Token` + `Origin`
+  - 結果: 403/500 は解消したが、sysad/doctor とも最終的に 401 unauthorized
+- `docker logs opendolphin-server-modernized-20260312t234207z`
+  - 結果: startup error は解消、login 実行時の authenticated 到達は未確認
 
 ## 所要時間の目安
-- この実行内での `P10-06` 試行（準備・実行・記録含む）: 約 15 分
+- この実行内での `P10-06` 継続試行（実装・再配備・切り分け・記録含む）: 約 30 分
 
 ## 次に着手すべきタスク
 - `P10-06`（同一タスク継続）
-  - 先に Docker daemon 応答性の復旧（`/_ping` 応答）と本番相当 `server-modernized.production.env` の実環境値反映が必要。
-- 未着手タスクの先頭は `P10-07` だが、`P10-06` 依存待ちのため進行不可。
+  - 次回は session login 401 の根因を優先して解消する。`SessionAuthResource` から `UserServiceBean.authenticateWithPolicy()` へ到達している前提で、EJB/JPA 実ランタイムでどの failure branch に落ちるかを直接観測できる手段を確立すること。
+- `P10-07` は `P10-06` 完了まで着手不可。

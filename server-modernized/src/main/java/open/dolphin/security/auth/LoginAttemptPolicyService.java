@@ -25,6 +25,7 @@ public class LoginAttemptPolicyService {
     @PersistenceContext
     private EntityManager em;
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public PreCheckResult preCheck(String compositeUser, String clientIp, Instant now) {
         Instant effectiveNow = now != null ? now : Instant.now();
         cleanupExpired(effectiveNow);
@@ -47,6 +48,7 @@ public class LoginAttemptPolicyService {
         return PreCheckResult.allowed();
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public FailureResult registerFailure(String compositeUser, String clientIp, Instant now) {
         Instant effectiveNow = now != null ? now : Instant.now();
         cleanupExpired(effectiveNow);
@@ -70,6 +72,7 @@ public class LoginAttemptPolicyService {
         return new FailureResult(accountLocked, retryAfter > 0, retryAfter);
     }
 
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
     public void registerSuccess(String compositeUser, Instant now) {
         AccountKey accountKey = parseCompositeUser(compositeUser);
         if (accountKey == null) {

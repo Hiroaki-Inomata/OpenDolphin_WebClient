@@ -1,5 +1,7 @@
 -- P6-08: module payload schema rollout for versioned envelope storage
 
+SET search_path TO opendolphin, public;
+
 CREATE TABLE IF NOT EXISTS d_module_payload (
     module_id BIGINT NOT NULL,
     schema_version INTEGER NOT NULL,

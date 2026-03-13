@@ -1,4 +1,4 @@
-SET search_path TO opendolphin;
+SET search_path TO opendolphin, public;
 
 CREATE TABLE IF NOT EXISTS runtime_state_store (
     state_category VARCHAR(64) NOT NULL,

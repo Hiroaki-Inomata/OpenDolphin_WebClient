@@ -2,7 +2,39 @@
 
 ## 事象
 - タスク `P10-06`（本番切替を実施する）は継続して未完了。
-- 最新 RUN: `20260312T233406Z`
+- 最新 RUN: `20260312T234207Z`
+
+## 実施した試行（RUN_ID: 20260312T234207Z）
+1. Docker daemon 復旧後の validation 環境再構成
+- RUN 専用 env `/tmp/server-modernized.production.20260312T234207Z.env` を作成し、`COMPOSE_PROJECT_NAME=opendolphin_prodcutover_20260312t234207z`、RUN 専用 container 名、`MODERNIZED_APP_HTTP_PORT=29080` を付与。
+- RUN 専用 compose で `postgres/minio/server` container を起動し、DB seed（users=3, patients=7, documents=4）を確認。
+
+2. 稼働阻害のコード補正
+- Flyway/runtime migration (`V0300`〜`V0304`) の `search_path` に `public` を追加。
+- `AuditTrailService` の previous hash 取得を `select event_hash from opendolphin.d_audit_event order by event_time desc limit 1` へ変更。
+- `InitialAccountMaker` で JDBC connection に `set search_path to opendolphin, public` を適用。
+- `persistence.xml` に `open.dolphin.infomodel.AuditEvent` を登録。
+- `LoginAttemptPolicyService` の `preCheck` / `registerFailure` / `registerSuccess` を `REQUIRES_NEW` 化。
+- local seed / Flyway seed の sysad・doctor パスワードを PBKDF2 (`dolphin`, `doctor2025`) に更新し、DB の `opendolphin.d_users` 反映を確認。
+
+3. 実施した検証
+- `mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=AuditTrailServiceTest,InitialAccountMakerTest,UserServiceBeanPasswordTest -Dsurefire.failIfNoSpecifiedTests=false test`
+  - 結果: **PASS**
+- `mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests package`
+  - 結果: **PASS**
+- `GET http://localhost:29080/openDolphin/`
+  - 結果: **200 OK**、`JSESSIONID` と CSRF token を取得。
+- `POST http://localhost:29080/openDolphin/resources/api/session/login`
+  - 条件: cookie + `X-CSRF-Token` + `Origin: http://localhost:29080`
+  - 結果:
+    - 初期状態: **403** `csrf_validation_failed` / `csrf_origin_missing`
+    - `LoginAttemptPolicyService` 修正後: **500** は解消し、現在は sysad/doctor とも **401 unauthorized**
+- `docker logs opendolphin-server-modernized-20260312t234207z`
+  - 結果: 起動時の search_path / audit / startup 例外は解消。login 実行時は依然 401 のみで、authenticated endpoint 疎通へ進めず。
+
+4. 未解消点
+- `opendolphin.d_users` は PBKDF2 hash を保持し、`PasswordHashService` 単体検証も成功する一方、実ランタイムの session login は `LOCAL.FACILITY.0001:dolphin` / `1.3.6.1.4.1.9414.72.103:doctor1` とも 401。
+- `/openDolphin/resources/dolphin`、`/openDolphin/resources/health`、`/openDolphin/resources/health/readiness` は session login 未成立のため authenticated 確認未完了。
 
 ## 実施した試行（RUN_ID: 20260312T233406Z）
 1. Docker daemon 応答性の再確認（socket/API 直接）

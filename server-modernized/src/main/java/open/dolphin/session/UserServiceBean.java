@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
@@ -26,6 +28,7 @@ import open.dolphin.session.framework.SessionOperation;
 @Transactional
 @SessionOperation
 public class UserServiceBean {
+    private static final Logger LOGGER = Logger.getLogger("open.dolphin");
 
     private static final String QUERY_USER_BY_UID = "from UserModel u where u.userId=:uid";
     private static final String QUERY_USER_BY_FID_MEMBERTYPE = "from UserModel u where u.userId like :fid and u.memberType!=:memberType";
@@ -79,6 +82,7 @@ public class UserServiceBean {
 
             String storedPassword = user.getPassword();
             if (!hashService().isCurrentHash(storedPassword)) {
+                LOGGER.log(Level.WARNING, "Authentication rejected for {0}: stored password format is not current", userName);
                 LoginAttemptPolicyService.FailureResult failure = registerFailure(userName, clientIp, now);
                 if (failure.ipThrottled()) {
                     return AuthenticationResult.ipThrottled(failure.retryAfterSeconds());
@@ -88,6 +92,7 @@ public class UserServiceBean {
 
             PasswordHashService.VerificationResult verification = hashService().verify(storedPassword, password);
             if (!verification.matched()) {
+                LOGGER.log(Level.INFO, "Authentication rejected for {0}: password mismatch", userName);
                 LoginAttemptPolicyService.FailureResult failure = registerFailure(userName, clientIp, now);
                 if (failure.ipThrottled()) {
                     return AuthenticationResult.ipThrottled(failure.retryAfterSeconds());
@@ -101,7 +106,15 @@ public class UserServiceBean {
             }
             registerSuccess(userName, now);
             return AuthenticationResult.success();
+        } catch (NoResultException e) {
+            LOGGER.log(Level.INFO, "Authentication rejected for {0}: user not found", userName);
+            LoginAttemptPolicyService.FailureResult failure = registerFailure(userName, clientIp, now);
+            if (failure.ipThrottled()) {
+                return AuthenticationResult.ipThrottled(failure.retryAfterSeconds());
+            }
+            return AuthenticationResult.failure();
         } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Authentication failed for " + userName + " due to internal error", e);
             LoginAttemptPolicyService.FailureResult failure = registerFailure(userName, clientIp, now);
             if (failure.ipThrottled()) {
                 return AuthenticationResult.ipThrottled(failure.retryAfterSeconds());

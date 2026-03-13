@@ -1,5 +1,7 @@
 -- P6-10: index tuning for heavy paths (karte history, patient image listing, patient search)
 
+SET search_path TO opendolphin, public;
+
 CREATE INDEX IF NOT EXISTS d_document_karte_status_started_id_idx
     ON d_document (karte_id, status, started DESC, id DESC);
 

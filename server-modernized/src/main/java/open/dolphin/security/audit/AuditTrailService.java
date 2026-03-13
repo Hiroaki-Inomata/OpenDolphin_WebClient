@@ -28,6 +28,8 @@ import open.dolphin.infomodel.AuditEvent;
 public class AuditTrailService implements open.dolphin.audit.AuditTrailService {
 
     private static final Logger LOG = Logger.getLogger(AuditTrailService.class.getName());
+    private static final String PREVIOUS_HASH_SQL =
+            "select event_hash from opendolphin.d_audit_event order by event_time desc limit 1";
 
     @PersistenceContext
     private EntityManager em;
@@ -43,11 +45,11 @@ public class AuditTrailService implements open.dolphin.audit.AuditTrailService {
 
     public AuditEvent record(AuditEventPayload payload) {
         Instant now = Instant.now();
-        String previousHash = em.createQuery("select a.eventHash from AuditEvent a order by a.eventTime desc", String.class)
-                .setMaxResults(1)
+        Object previousHashValue = em.createNativeQuery(PREVIOUS_HASH_SQL, String.class)
                 .getResultStream()
                 .findFirst()
                 .orElse("");
+        String previousHash = previousHashValue != null ? previousHashValue.toString() : "";
 
         Map<String, Object> sanitizedDetails = AuditDetailSanitizer.sanitizeDetails(payload.getAction(), payload.getDetails());
         String serializedPayload = serializePayload(sanitizedDetails);

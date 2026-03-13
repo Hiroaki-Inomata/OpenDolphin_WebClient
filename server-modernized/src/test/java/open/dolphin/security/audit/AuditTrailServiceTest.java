@@ -3,7 +3,6 @@ package open.dolphin.security.audit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
@@ -13,7 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.TypedQuery;
+import jakarta.persistence.Query;
 import java.lang.reflect.Field;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -28,10 +27,8 @@ class AuditTrailServiceTest {
     void recordDropsUnallowlistedSensitiveDetailsAndDoesNotBackfillPatientId() throws Exception {
         AuditTrailService service = new AuditTrailService();
         EntityManager em = mock(EntityManager.class);
-        @SuppressWarnings("unchecked")
-        TypedQuery<String> query = (TypedQuery<String>) mock(TypedQuery.class);
-        when(em.createQuery(anyString(), eq(String.class))).thenReturn(query);
-        when(query.setMaxResults(anyInt())).thenReturn(query);
+        Query query = mock(Query.class);
+        when(em.createNativeQuery(anyString(), eq(String.class))).thenReturn(query);
         when(query.getResultStream()).thenReturn(Stream.of("prev-hash"));
         inject(service, "em", em);
 
