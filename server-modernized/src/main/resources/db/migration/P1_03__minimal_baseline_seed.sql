@@ -160,28 +160,28 @@ INSERT INTO d_module (
         TIMESTAMP '2026-03-10 09:00:00', TIMESTAMP '2026-03-10 09:00:00', TIMESTAMP '2026-03-10 09:15:00', TIMESTAMP '2026-03-10 09:15:00',
         9100101, 9101101, 9102001,
         'SOAP', 'p', 1, 'progressCourse', 'F', 0,
-        '{"soa":"発熱2日","assessment":"上気道炎","plan":"解熱剤頓用"}'::jsonb
+        '{"schemaVersion":1,"moduleType":"progressCourse","payloadJson":"{\"@class\":\"open.dolphin.infomodel.ProgressCourse\",\"freeText\":\"発熱2日\\n上気道炎\\n解熱剤頓用\"}","payloadHash":"b4753e41cc1ca54a2dfd3d54d103d53814defcf9b4293fc9a18e1cd8e75aaf7f"}'::jsonb
     ),
     (
         9103002,
         TIMESTAMP '2026-03-10 10:00:00', TIMESTAMP '2026-03-10 10:00:00', TIMESTAMP '2026-03-10 10:20:00', TIMESTAMP '2026-03-10 10:20:00',
         9100101, 9101102, 9102002,
         'SOAP', 'p', 1, 'progressCourse', 'F', 0,
-        '{"soa":"咳嗽持続","assessment":"気管支炎疑い","plan":"胸部X線"}'::jsonb
+        '{"schemaVersion":1,"moduleType":"progressCourse","payloadJson":"{\"@class\":\"open.dolphin.infomodel.ProgressCourse\",\"freeText\":\"咳嗽持続\\n気管支炎疑い\\n胸部X線\"}","payloadHash":"5abf04fe383c531885236a6eaefff7f09c15b940ef630155ce2f4b4688bd67d9"}'::jsonb
     ),
     (
         9103003,
         TIMESTAMP '2026-03-10 10:40:00', TIMESTAMP '2026-03-10 10:40:00', TIMESTAMP '2026-03-10 10:55:00', TIMESTAMP '2026-03-10 10:55:00',
         9100101, 9101102, 9102003,
         'SOAP', 'p', 1, 'progressCourse', 'F', 0,
-        '{"soa":"咳嗽改善乏しい","assessment":"肺炎除外","plan":"画像確認後に抗菌薬調整"}'::jsonb
+        '{"schemaVersion":1,"moduleType":"progressCourse","payloadJson":"{\"@class\":\"open.dolphin.infomodel.ProgressCourse\",\"freeText\":\"咳嗽改善乏しい\\n肺炎除外\\n画像確認後に抗菌薬調整\"}","payloadHash":"de4572246b30a0d16a30c4701666a798c0a98d5028c2dd4a96141711086012bd"}'::jsonb
     ),
     (
         9103004,
         TIMESTAMP '2026-03-10 11:15:00', TIMESTAMP '2026-03-10 11:15:00', TIMESTAMP '2026-03-10 11:30:00', TIMESTAMP '2026-03-10 11:30:00',
         9100101, 9101103, 9102004,
         'SOAP', 'p', 1, 'progressCourse', 'F', 0,
-        '{"soa":"フォローアップ受診","assessment":"添付画像確認","plan":"PDF説明書を添付"}'::jsonb
+        '{"schemaVersion":1,"moduleType":"progressCourse","payloadJson":"{\"@class\":\"open.dolphin.infomodel.ProgressCourse\",\"freeText\":\"フォローアップ受診\\n添付画像確認\\nPDF説明書を添付\"}","payloadHash":"f987714338de9e9c764d8525be74e2f3d417f1650d5b43a1b99f0299526e58d3"}'::jsonb
     );
 
 -- 2 image patterns for attachment validation.
