@@ -1,22 +1,22 @@
 # Server-Modernization ドキュメントハブ（現行）
 
-- 更新日: 2026-03-12
-- RUN_ID: 20260312T060136Z
+- 更新日: 2026-03-13
+- RUN_ID: 20260313T054324Z
 
 > 本ファイルが **現行の入口**。Phase2 文書は Legacy/Archive として参照専用です。
 > 全体の優先順位は `docs/DEVELOPMENT_STATUS.md` を最上位とします。
 
-## 当面の作業計画
-- `docs/server-modernization/planning/server_modernization_wbs_detailed.md`
-- `server-modernized` の当面作業を順番に進める際の現行 WBS。完了管理は ☐ / ☑ で更新する。
-- `docs/DEVELOPMENT_STATUS.md`、`AGENTS.md`、最新のユーザー/マネージャー指示と矛盾する場合はそちらを優先する。
+## 完了済み計画（Legacy/Archive）
+- `docs/archive/2026Q1/server-modernization/planning/server_modernization_wbs_detailed.md`
+- `server-modernized` の当面作業 WBS 本文。完了済みの legacy 開発計画として archive 保存し、現行判断の正本には使わない。
+- 元の位置 `docs/server-modernization/planning/server_modernization_wbs_detailed.md` には archive stub を残してある。
 
 ## 参照優先順位（Server-Modernization領域）
 1. `docs/DEVELOPMENT_STATUS.md`
 2. `AGENTS.md` / `GEMINI.md`
 3. 本ファイル
-4. `docs/server-modernization/planning/server_modernization_wbs_detailed.md`
-5. 目的別ドキュメント
+4. 目的別ドキュメント
+5. Legacy/Archive（必要時のみ）
 
 ## 目的別ドキュメント（現行）
 ### API / 仕様
@@ -191,7 +191,6 @@
 - `docs/server-modernization/orca-claim-deprecation/`
 
 ### レビュー / 計画
-- `docs/server-modernization/planning/server_modernization_wbs_detailed.md`
 - `docs/server-modernization/library-update-plan.md`
 - `docs/server-modernization/server-modernized-code-review-20260117.md`
 
@@ -202,3 +201,4 @@
 - `docs/server-modernization/phase2/` 配下
 - `docs/server-modernized/phase2/` 配下
 - `docs/archive/2025Q4/server-modernization/` 配下
+- `docs/archive/2026Q1/server-modernization/planning/server_modernization_wbs_detailed.md`

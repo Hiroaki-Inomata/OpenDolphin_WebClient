@@ -3,7 +3,7 @@
 ## 現行ステータス
 - Phase2 開発ドキュメントは **Legacy/Archive（参照専用）**。Phase2 を現行フェーズとして扱わない。
 - 現行のドキュメント入口は `docs/web-client/CURRENT.md` / `docs/server-modernization/README.md`。
-- `server-modernized` の当面作業は `docs/server-modernization/planning/server_modernization_wbs_detailed.md` を実行順付きの作業根拠として追跡する。
+- `server_modernization_wbs_detailed.md` は完了済みの legacy 開発計画として `docs/archive/2026Q1/server-modernization/planning/server_modernization_wbs_detailed.md` へ archive 保存した。現行判断は task 別実施記録と最新指示を優先する。
 - ORCA 接続情報の正本は `docs/server-modernization/operations/ORCA_CERTIFICATION_ONLY.md`（Phase2 版は Legacy）。
 - 現行の作業内容はフェーズ名では判断せず、最新のタスク指示/チケット/マネージャー指示に従う。
 
@@ -11,10 +11,9 @@
 1. `docs/DEVELOPMENT_STATUS.md`（本ファイル）
 2. `AGENTS.md` / `GEMINI.md`（共通ルールと制約）
 3. 現行ハブ: `docs/web-client/CURRENT.md` / `docs/server-modernization/README.md`
-4. 当面の server-modernized 作業WBS: `docs/server-modernization/planning/server_modernization_wbs_detailed.md`
-5. 環境手順: `web-client/README.md` と `setup-modernized-env.sh`
-6. Web クライアント設計: `docs/web-client/`（`planning/phase2/` と `docs/web-client/README.md` は Legacy）
-7. サーバーモダナイズ: `docs/server-modernization/`（`phase2/` と `docs/server-modernized/phase2/` は Legacy）
+4. 環境手順: `web-client/README.md` と `setup-modernized-env.sh`
+5. Web クライアント設計: `docs/web-client/`（`planning/phase2/` と `docs/web-client/README.md` は Legacy）
+6. サーバーモダナイズ: `docs/server-modernization/`（`phase2/` と `docs/server-modernized/phase2/` は Legacy）
 
 ## Legacy 参照（Phase2）
 - ロールオフ方針: `docs/server-modernization/phase2/PHASE2_DOCS_ROLLOFF.md`
@@ -27,7 +26,7 @@
 - ORCA 公式仕様の firecrawl 取得物は `docs/server-modernization/operations/ORCA_FIRECRAWL_INDEX.md` を入口に参照する（非Legacy 側の索引）。
 - ORCA 接続情報は `docs/server-modernization/operations/ORCA_CERTIFICATION_ONLY.md` を正本として運用する（Phase2 版は Legacy）。
 - ORCA オーダー仕様の実装要件は `docs/server-modernization/ORCA-order-system-rule.md` を参照する。
-- `server-modernized` の当面作業を順番に進める場合は `docs/server-modernization/planning/server_modernization_wbs_detailed.md` を参照し、完了更新は WBS の ☐ / ☑ を用いて管理する。
+- 完了済み WBS の本文は `docs/archive/2026Q1/server-modernization/planning/server_modernization_wbs_detailed.md` に保存し、元パス `docs/server-modernization/planning/server_modernization_wbs_detailed.md` には archive stub を残す。
 - server-modernized の Mockito 利用テスト実行方針は **JDK25（既定）** を第一選択とし、実行環境差異で attach が不安定な場合のみ **JDK21 + byte-buddy-agent** を fallback とする（詳細は `docs/server-modernization/README.md` のテスト実行方針を参照）。
 - module 永続化の現行方針は `beanJson` 優先ではなく、**新規書込を `beanJson` のみに寄せる** こととする。`beanBytes` は旧データ読込 fallback 専用として扱い、新規二重保存は行わない。
 - module 永続化は将来的に `beanJson` 専用化を目標とし、`beanBytes` の PostgreSQL `oid` 回帰は採らない。互換を切る場合も `oid` ではなく JSON 系へ統一する。
@@ -36,6 +35,10 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-13: `server_modernization_wbs_detailed.md` を完了済み legacy 開発ドキュメントとして archive へ退避し、現行導線から外した（RUN_ID=20260313T054324Z）。
+  - 配置変更: 本文を `docs/archive/2026Q1/server-modernization/planning/server_modernization_wbs_detailed.md` へ保存し、元パス `docs/server-modernization/planning/server_modernization_wbs_detailed.md` は archive stub 化。
+  - 文書反映: `docs/server-modernization/README.md` / `docs/DEVELOPMENT_STATUS.md` を更新し、現行参照は task 別実施記録と最新指示へ切り替えた。
+  - 判定: WBS は完了済み legacy 計画として保全し、現行の計画正本からは除外。
 - 2026-03-13: P10-06「本番切替を実施する（モダナイズ版稼働確認）」を完了し、主要業務疎通と監視確認を validation 環境で実測した（RUN_ID=20260313T054324Z）。
   - 修正（PVT/カルテ/PVT一覧）: `server-modernized/src/main/java/open/dolphin/rest/PVTResource.java` を serialize mapper 基準へ変更して `LocalDateTime` 復元を補正し、`server-modernized/src/main/java/open/dolphin/session/KarteServiceBean.java` / `server-modernized/src/main/java/open/dolphin/session/ChartEventServiceBean.java` の query parameter を `LocalDateTime` bind へ統一。あわせて Hibernate 6 で無効だった `SchemaModel` / `AttachmentModel` の HQL property 名を entity field (`creator`, `karte`) に補正し、attachment-light で module query を不要実行しないよう整理。
   - 修正（整合性シール）: `server-modernized/src/main/java/open/dolphin/security/integrity/DocumentIntegrityService.java` で新規 `DocumentIntegrityEntity` の `persist` タイミングを後ろへ移し、`seal_version` null による `/orca/order/bundles` rollback を解消。

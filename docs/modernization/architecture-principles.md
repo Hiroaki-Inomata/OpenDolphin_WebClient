@@ -47,7 +47,7 @@
 ## 4. 運用ルール
 1. 本書に反する実装提案は、WBS 上で代替案を明記しない限り取り込まない。
 2. 例外を設ける場合は、期限・撤去条件・影響範囲を同時に記録する。
-3. 例外の記録先は `docs/server-modernization/planning/server_modernization_wbs_detailed.md` とし、該当 WBS 行に追記する。
+3. 例外の記録先は `docs/DEVELOPMENT_STATUS.md` と task 別実施記録（`docs/modernization/` または `docs/server-modernization/` 配下）とする。完了済み WBS は archive 参照専用とする。
 
 ## 5. 承認欄
 | 役割 | 氏名/識別子 | 判定 | 日付 | コメント |
