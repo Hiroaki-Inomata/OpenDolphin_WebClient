@@ -1,5 +1,15 @@
 # P10-06 本番切替実施ブロッカー
 
+## 更新（RUN_ID: 20260313T045422Z）
+- `session/login` 401 ブロッカーは **解消**。
+- 根因は `server-modernized` の `persistence.xml` 自動検出運用と WildFly 実ランタイムの相性で、依存 JAR (`opendolphin-persistence`) 内 Entity が persistence unit に登録されず、`UserServiceBean.authenticateWithPolicy()` の JPQL が `UnknownEntityException: Could not resolve root entity 'UserModel'` を起こしていたこと。
+- `persistence.xml` に Entity 一覧の明示登録を復元し、`PersistenceXmlEntityRegistrationTest` で回帰検知を追加した。
+- 再配備後の確認結果:
+  - `POST /openDolphin/resources/api/session/login` (`1.3.6.1.4.1.9414.72.103:doctor1` / `doctor2025`) → **200**
+  - `GET /openDolphin/resources/health` → **200**
+  - `GET /openDolphin/resources/health/readiness` → **200**
+- この文書に記録していた「認証成立前で停止する」ブロッカーは解消済み。`P10-06` の残課題は、切替シナリオ全体の最終確認側で別途継続する。
+
 ## 事象
 - タスク `P10-06`（本番切替を実施する）は継続して未完了。
 - 最新 RUN: `20260312T234207Z`

@@ -36,6 +36,12 @@
 - `docs/server-modernized_60117/` 配下は作業履歴の可能性があるため、現時点では **保全** する（判断保留）。
 
 ## 実施記録（最新）
+- 2026-03-13: validation 環境の `session/login` 401 を解消し、認証後 health/readiness 疎通を確認（RUN_ID=20260313T045422Z）。
+  - 原因: `server-modernized` の `persistence.xml` を自動検出運用へ寄せた後、WildFly 実ランタイムで依存 JAR (`opendolphin-persistence`) 内 Entity が persistence unit に載らず、`UserServiceBean.authenticateWithPolicy()` の JPQL が `UnknownEntityException: Could not resolve root entity 'UserModel'` で失敗していた。
+  - 修正: `server-modernized/src/main/resources/META-INF/persistence.xml` に persistence/entity 一覧の明示登録を復元し、`DocumentIntegrityEntity` を含む現行 Entity 群を列挙。回帰防止として `server-modernized/src/test/java/open/dolphin/PersistenceXmlEntityRegistrationTest.java` を追加し、`@Entity` 付きクラスと `persistence.xml` の `<class>` 登録が一致することを検証するよう更新。
+  - 検証: `mvn -f pom.server-modernized.xml -pl server-modernized -am -Dtest=PersistenceXmlEntityRegistrationTest,UserServiceBeanPasswordTest,SessionAuthResourceTest -Dsurefire.failIfNoSpecifiedTests=false test` は PASS。`mvn -f pom.server-modernized.xml -pl server-modernized -am -DskipTests package` は PASS。
+  - 実測: 再配備後に `POST http://localhost:29080/openDolphin/resources/api/session/login`（facility=`1.3.6.1.4.1.9414.72.103`, user=`doctor1`）は **200**、続けて `GET /openDolphin/resources/health` と `GET /openDolphin/resources/health/readiness` も認証付きで **200** を確認。
+  - 判定: `P10-06` を止めていた「session login 401」ブロッカーは解消。以後の validation は本番切替観点の残タスクへ進める。
 - 2026-03-13: `P10-06`「本番切替を実施する（モダナイズ版稼働確認）」を継続再試行したが、継続して未完了（RUN_ID=20260312T234207Z）。
   - 実施（環境起動）: Docker daemon 復旧後、RUN 専用 compose project `opendolphin_prodcutover_20260312t234207z` で validation 環境を起動し、`postgres/minio/server` の RUN 専用 container を確認。
   - 実施（コード補正）: Flyway/runtime migration の `search_path` に `public` を追加、`AuditTrailService` の previous hash 取得を native SQL 化、`InitialAccountMaker` の JDBC connection で `set search_path to opendolphin, public` を実行、`persistence.xml` に `AuditEvent` を登録、`LoginAttemptPolicyService` の `preCheck/registerFailure/registerSuccess` を `REQUIRES_NEW` 化、seed password を PBKDF2 化。

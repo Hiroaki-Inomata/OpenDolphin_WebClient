@@ -6,8 +6,60 @@
     <persistence-unit name="opendolphinPU" transaction-type="JTA">
         <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider>
         <jta-data-source>java:jboss/datasources/PostgresDS</jta-data-source>
+        <!-- WildFly does not reliably auto-detect entities packaged in dependency jars inside this WAR. -->
+        <class>open.dolphin.infomodel.AppointmentModel</class>
+        <class>open.dolphin.infomodel.AttachmentModel</class>
         <class>open.dolphin.infomodel.AuditEvent</class>
-        <exclude-unlisted-classes>false</exclude-unlisted-classes>
+        <class>open.dolphin.infomodel.ByteModule</class>
+        <class>open.dolphin.infomodel.CarePlanItem</class>
+        <class>open.dolphin.infomodel.CarePlanModel</class>
+        <class>open.dolphin.infomodel.CompositeImageModel</class>
+        <class>open.dolphin.infomodel.DemoDisease</class>
+        <class>open.dolphin.infomodel.DemoPatient</class>
+        <class>open.dolphin.infomodel.DemoRp</class>
+        <class>open.dolphin.infomodel.DgOid</class>
+        <class>open.dolphin.infomodel.DocumentModel</class>
+        <class>open.dolphin.infomodel.FacilityModel</class>
+        <class>open.dolphin.infomodel.Factor2BackupKey</class>
+        <class>open.dolphin.infomodel.Factor2Challenge</class>
+        <class>open.dolphin.infomodel.Factor2Code</class>
+        <class>open.dolphin.infomodel.Factor2Credential</class>
+        <class>open.dolphin.infomodel.Factor2Device</class>
+        <class>open.dolphin.infomodel.FirstEncounterModel</class>
+        <class>open.dolphin.infomodel.HealthInsuranceModel</class>
+        <class>open.dolphin.infomodel.KarteBean</class>
+        <class>open.dolphin.infomodel.LaboItemValue</class>
+        <class>open.dolphin.infomodel.LaboModuleValue</class>
+        <class>open.dolphin.infomodel.LaboSpecimenValue</class>
+        <class>open.dolphin.infomodel.LetterDate</class>
+        <class>open.dolphin.infomodel.LetterItem</class>
+        <class>open.dolphin.infomodel.LetterModel</class>
+        <class>open.dolphin.infomodel.LetterModule</class>
+        <class>open.dolphin.infomodel.LetterText</class>
+        <class>open.dolphin.infomodel.ModuleModel</class>
+        <class>open.dolphin.infomodel.NLaboItem</class>
+        <class>open.dolphin.infomodel.NLaboModule</class>
+        <class>open.dolphin.infomodel.NurseProgressCourseModel</class>
+        <class>open.dolphin.infomodel.ObservationModel</class>
+        <class>open.dolphin.infomodel.OndobanModel</class>
+        <class>open.dolphin.infomodel.PatientFreeDocumentModel</class>
+        <class>open.dolphin.infomodel.PatientMemoModel</class>
+        <class>open.dolphin.infomodel.PatientModel</class>
+        <class>open.dolphin.infomodel.PatientVisitModel</class>
+        <class>open.dolphin.infomodel.PublishedTreeModel</class>
+        <class>open.dolphin.infomodel.RadiologyMethodValue</class>
+        <class>open.dolphin.infomodel.RegisteredDiagnosisModel</class>
+        <class>open.dolphin.infomodel.RoleModel</class>
+        <class>open.dolphin.infomodel.SchemaModel</class>
+        <class>open.dolphin.infomodel.StampModel</class>
+        <class>open.dolphin.infomodel.StampTreeModel</class>
+        <class>open.dolphin.infomodel.SubscribedTreeModel</class>
+        <class>open.dolphin.infomodel.ThirdPartyDisclosureRecord</class>
+        <class>open.dolphin.infomodel.UserAccessProfile</class>
+        <class>open.dolphin.infomodel.UserModel</class>
+        <class>open.dolphin.infomodel.VitalModel</class>
+        <class>open.dolphin.security.integrity.DocumentIntegrityEntity</class>
+        <exclude-unlisted-classes>true</exclude-unlisted-classes>
         <shared-cache-mode>ENABLE_SELECTIVE</shared-cache-mode>
         <validation-mode>CALLBACK</validation-mode>
         <properties>
