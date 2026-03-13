@@ -67,6 +67,7 @@
 
 - Git 履歴調査: [minagawa署名git履歴調査_20260310.md](src/discovery/minagawa署名git履歴調査_20260310.md)
 - Git 履歴調査: [LICENSE_git履歴調査_20260310.md](src/discovery/LICENSE_git履歴調査_20260310.md)
+- Git 履歴調査: [ライセンス_コード著者アカウント同一性時系列調査_20260313.md](src/discovery/ライセンス_コード著者アカウント同一性時系列調査_20260313.md)
 
 
 ### OpenDolphin 2.7.1
